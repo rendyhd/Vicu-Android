@@ -188,7 +188,9 @@ private fun WidgetHeader(state: TaskWidgetState) {
                 fontWeight = FontWeight.Medium,
                 fontSize = 18.sp,
             ),
-            modifier = GlanceModifier.defaultWeight(),
+            modifier = GlanceModifier
+                .defaultWeight()
+                .clickable(actionStartActivity<MainActivity>()),
         )
         AddButton()
     }
