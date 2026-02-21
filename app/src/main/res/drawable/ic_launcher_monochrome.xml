@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Rounded square outline -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#000000"
+        android:strokeWidth="3"
+        android:pathData="M34,38 C34,35.79 35.79,34 38,34 L70,34 C72.21,34 74,35.79 74,38 L74,70 C74,72.21 72.21,74 70,74 L38,74 C35.79,74 34,72.21 34,70 Z" />
+    <!-- Checkmark -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#000000"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M43,54 L50,61 L65,46" />
+</vector>
