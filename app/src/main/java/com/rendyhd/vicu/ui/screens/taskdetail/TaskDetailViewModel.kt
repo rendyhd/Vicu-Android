@@ -15,6 +15,7 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.TaskLinkParser
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,6 +57,9 @@ class TaskDetailViewModel @Inject constructor(
 
     private var taskIdLoaded = 0L
 
+    /** Preserved link HTML stripped from description for display, re-appended on save. */
+    private var preservedLinkHtml = ""
+
     fun loadTask(taskId: Long) {
         if (taskId == taskIdLoaded) return
         taskIdLoaded = taskId
@@ -65,16 +69,22 @@ class TaskDetailViewModel @Inject constructor(
                 if (task != null) {
                     val subtasks = task.relatedTasks["subtask"] ?: emptyList()
                     val isFirstLoad = _uiState.value.originalTask == null
-                    _uiState.update {
-                        it.copy(
-                            task = if (isFirstLoad) task else it.task,
-                            originalTask = if (isFirstLoad) task else it.originalTask,
-                            subtasks = subtasks,
-                            isLoading = false,
-                        )
-                    }
                     if (isFirstLoad) {
-                        _uiState.update { it.copy(task = task, originalTask = task) }
+                        preservedLinkHtml = TaskLinkParser.extractLinkHtml(task.description)
+                        val strippedDesc = TaskLinkParser.stripLinks(task.description)
+                        val displayTask = task.copy(description = strippedDesc)
+                        _uiState.update {
+                            it.copy(
+                                task = displayTask,
+                                originalTask = displayTask,
+                                subtasks = subtasks,
+                                isLoading = false,
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(subtasks = subtasks, isLoading = false)
+                        }
                     }
                 }
             }
@@ -263,13 +273,25 @@ class TaskDetailViewModel @Inject constructor(
         if (task == original) return
 
         Log.d(TAG, "saveIfChanged: task has changes, saving...")
+        // Re-append preserved link HTML to description before saving
+        val fullDescription = if (preservedLinkHtml.isNotEmpty()) {
+            if (task.description.isNotEmpty()) task.description + preservedLinkHtml else preservedLinkHtml
+        } else {
+            task.description
+        }
+        val taskToSave = task.copy(description = fullDescription)
+
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true) }
             // Send COMPLETE task object (Go zero-value problem)
-            when (val result = taskRepository.update(task)) {
+            when (val result = taskRepository.update(taskToSave)) {
                 is NetworkResult.Success -> {
+                    val strippedResult = result.data.copy(
+                        description = TaskLinkParser.stripLinks(result.data.description),
+                    )
+                    preservedLinkHtml = TaskLinkParser.extractLinkHtml(result.data.description)
                     _uiState.update {
-                        it.copy(isSaving = false, originalTask = result.data)
+                        it.copy(isSaving = false, task = strippedResult, originalTask = strippedResult)
                     }
                 }
                 is NetworkResult.Error -> {

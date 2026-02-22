@@ -119,6 +119,7 @@ fun TaskItem(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 PriorityDot(priority = task.priority)
+                TaskLinkIcons(description = task.description)
                 if (task.repeatAfter > 0) {
                     Icon(
                         imageVector = Icons.Outlined.Repeat,

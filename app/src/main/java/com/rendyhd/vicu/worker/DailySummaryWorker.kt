@@ -86,7 +86,7 @@ class DailySummaryWorker @AssistedInject constructor(
                 applicationContext,
                 NotificationChannelManager.CHANNEL_DAILY_SUMMARY,
             )
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle("Daily Summary")
                 .setContentText(title)
                 .setStyle(style)

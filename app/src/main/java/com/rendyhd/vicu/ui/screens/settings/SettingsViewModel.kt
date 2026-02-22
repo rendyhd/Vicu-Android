@@ -306,7 +306,7 @@ class SettingsViewModel @Inject constructor(
             appContext,
             NotificationChannelManager.CHANNEL_TASK_REMINDERS,
         )
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Test Notification")
             .setContentText("Task reminders are working!")
             .setPriority(NotificationCompat.PRIORITY_HIGH)

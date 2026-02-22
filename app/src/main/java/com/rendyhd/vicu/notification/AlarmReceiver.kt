@@ -76,7 +76,7 @@ class AlarmReceiver : BroadcastReceiver() {
         )
 
         val notification = NotificationCompat.Builder(context, NotificationChannelManager.CHANNEL_TASK_REMINDERS)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(taskTitle)
             .setContentText("Task reminder")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
