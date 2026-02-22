@@ -30,10 +30,6 @@ Both Vicu apps talk to the same Vikunja backend, so changes sync between desktop
 - **Swipe gestures** — Swipe right to complete, swipe left to schedule
 - **Authentication** — OIDC (SSO), username/password with TOTP two-factor, or manual API token entry
 
-## Vicu vs the official Vikunja app
-
-The [official Vikunja frontend](https://vikunja.io/) is a full project management suite — Kanban, Gantt, table views, team collaboration, and more. Vicu is a personal task manager that trades all of that for speed and a focused workflow. Both talk to the same backend, so you can use them side by side.
-
 ## Getting started
 
 ### Download
@@ -46,67 +42,6 @@ Grab the latest APK from [GitHub Releases](https://github.com/rendyhd/Vicu-Andro
 2. Choose an authentication method (OIDC, password, or API token)
 3. Select your Inbox project
 4. Start managing tasks
-
-### Build from source
-
-You'll need Android Studio (Ladybug or newer) and a running [Vikunja](https://vikunja.io/docs/) instance.
-
-```bash
-git clone https://github.com/rendyhd/Vicu-Android.git
-cd Vicu-Android
-./gradlew assembleDebug
-```
-
-Install the debug APK on a connected device or emulator:
-
-```bash
-./gradlew installDebug
-```
-
-## Building
-
-```bash
-./gradlew assembleDebug        # Debug APK
-./gradlew assembleRelease      # Release APK (requires signing config)
-./gradlew test                 # Unit tests
-./gradlew connectedAndroidTest # Instrumented tests
-```
-
-For a signed release build, create a `keystore.properties` file in the project root:
-
-```properties
-storeFile=/path/to/keystore.jks
-storePassword=...
-keyAlias=...
-keyPassword=...
-```
-
-## Tech stack
-
-| Layer | Library |
-|-------|---------|
-| Language | Kotlin |
-| UI | Jetpack Compose + Material 3 |
-| Navigation | Navigation Compose |
-| DI | Hilt |
-| Networking | Retrofit + OkHttp |
-| Serialization | kotlinx-serialization |
-| Local DB | Room (KSP) |
-| Preferences | DataStore |
-| Background work | WorkManager |
-| Widgets | Glance |
-| Auth (OIDC) | AppAuth-Android |
-| Token storage | Tink |
-| Images | Coil |
-
-## Architecture
-
-MVVM with unidirectional data flow. Room is the single source of truth — the UI observes `StateFlow<UiState>` from ViewModels, which call Repository suspend functions backed by Room DAOs and Retrofit. Writes are optimistic: tasks update locally first, then sync to the server via a background action queue.
-
-```
-UI (Compose) → ViewModel (StateFlow) → Repository → Room + Retrofit
-                                                   ↘ PendingActionQueue → SyncWorker
-```
 
 ## See also
 
