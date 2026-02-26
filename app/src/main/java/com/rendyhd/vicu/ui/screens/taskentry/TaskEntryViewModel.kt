@@ -278,35 +278,41 @@ class TaskEntryViewModel @Inject constructor(
         _uiState.update { it.copy(isSaving = true, error = null) }
 
         viewModelScope.launch {
-            val task = Task(
-                id = 0,
-                title = title,
-                description = state.description,
-                dueDate = dueDate,
-                priority = priority,
-                projectId = projectId,
-                reminders = state.reminders,
-                repeatAfter = repeatAfter,
-                repeatMode = repeatMode,
-            )
+            try {
+                val task = Task(
+                    id = 0,
+                    title = title,
+                    description = state.description,
+                    dueDate = dueDate,
+                    priority = priority,
+                    projectId = projectId,
+                    reminders = state.reminders,
+                    repeatAfter = repeatAfter,
+                    repeatMode = repeatMode,
+                )
 
-            when (val result = taskRepository.create(task)) {
-                is NetworkResult.Success -> {
-                    val createdTask = result.data
-                    for (labelId in labelIds) {
-                        labelRepository.addToTask(createdTask.id, labelId)
+                when (val result = taskRepository.create(task)) {
+                    is NetworkResult.Success -> {
+                        val createdTask = result.data
+                        for (labelId in labelIds) {
+                            labelRepository.addToTask(createdTask.id, labelId)
+                        }
+                        taskRepository.refreshAll()
+                        _uiState.update {
+                            it.copy(isSaving = false, savedTaskId = createdTask.id)
+                        }
                     }
-                    taskRepository.refreshAll()
-                    _uiState.update {
-                        it.copy(isSaving = false, savedTaskId = createdTask.id)
+                    is NetworkResult.Error -> {
+                        _uiState.update {
+                            it.copy(isSaving = false, error = result.message)
+                        }
                     }
+                    is NetworkResult.Loading -> {}
                 }
-                is NetworkResult.Error -> {
-                    _uiState.update {
-                        it.copy(isSaving = false, error = result.message)
-                    }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isSaving = false, error = e.message ?: "Failed to save task")
                 }
-                is NetworkResult.Loading -> {}
             }
         }
     }

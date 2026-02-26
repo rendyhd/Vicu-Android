@@ -268,22 +268,20 @@ class SetupViewModel @Inject constructor(
         }
     }
 
-    private fun createBackupApiToken() {
-        viewModelScope.launch {
-            try {
-                val expiry = Instant.now().plusSeconds(365L * 24 * 60 * 60)
-                val expiryStr = DateTimeFormatter.ISO_INSTANT.format(expiry)
-                val request = ApiTokenRequestDto(
-                    title = "Vicu Android Backup",
-                    expiresAt = expiryStr,
-                )
-                val response = apiService.get().createApiToken(request)
-                if (response.token.isNotBlank()) {
-                    authManager.onApiTokenSaved(response.token, expiry.epochSecond)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Backup API token creation failed (non-fatal)", e)
+    private suspend fun createBackupApiToken() {
+        try {
+            val expiry = Instant.now().plusSeconds(365L * 24 * 60 * 60)
+            val expiryStr = DateTimeFormatter.ISO_INSTANT.format(expiry)
+            val request = ApiTokenRequestDto(
+                title = "Vicu Android Backup",
+                expiresAt = expiryStr,
+            )
+            val response = apiService.get().createApiToken(request)
+            if (response.token.isNotBlank()) {
+                authManager.onApiTokenSaved(response.token, expiry.epochSecond)
             }
+        } catch (e: Exception) {
+            Log.w(TAG, "Backup API token creation failed (non-fatal)", e)
         }
     }
 }
