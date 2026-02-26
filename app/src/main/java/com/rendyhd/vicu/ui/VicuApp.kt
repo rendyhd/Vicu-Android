@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -56,6 +57,7 @@ import com.rendyhd.vicu.ui.navigation.TodayRoute
 import com.rendyhd.vicu.ui.navigation.UpcomingRoute
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailSheet
+import com.rendyhd.vicu.domain.model.SharedContent
 import kotlinx.coroutines.launch
 
 private data class BottomNavItem(
@@ -79,6 +81,8 @@ fun VicuApp(
     onInitialTaskConsumed: () -> Unit = {},
     showTaskEntry: kotlinx.coroutines.flow.StateFlow<Boolean>? = null,
     onShowTaskEntryConsumed: () -> Unit = {},
+    sharedContent: kotlinx.coroutines.flow.StateFlow<SharedContent?>? = null,
+    onSharedContentConsumed: () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -93,6 +97,7 @@ fun VicuApp(
     var showTaskDetailSheet by rememberSaveable { mutableStateOf(false) }
     var taskDetailTaskId by rememberSaveable { mutableLongStateOf(0L) }
     var showNewListDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingSharedContent by remember { mutableStateOf<SharedContent?>(null) }
 
     // Handle notification deep link → open TaskDetailSheet
     val initialTaskIdValue = initialTaskId?.collectAsStateWithLifecycle()?.value
@@ -110,6 +115,16 @@ fun VicuApp(
         if (showTaskEntryValue == true) {
             showTaskEntrySheet = true
             onShowTaskEntryConsumed()
+        }
+    }
+
+    // Handle share intent → open TaskEntrySheet with shared content
+    val sharedContentValue = sharedContent?.collectAsStateWithLifecycle()?.value
+    LaunchedEffect(sharedContentValue, authState) {
+        if (sharedContentValue != null && authState == AuthState.Authenticated) {
+            pendingSharedContent = sharedContentValue
+            showTaskEntrySheet = true
+            onSharedContentConsumed()
         }
     }
 
@@ -281,8 +296,14 @@ fun VicuApp(
     if (showTaskEntrySheet) {
         TaskEntrySheet(
             defaultProjectId = taskEntryDefaultProjectId,
-            onDismiss = { showTaskEntrySheet = false },
-            onTaskCreated = { /* task created, list will update via Flow */ },
+            onDismiss = {
+                showTaskEntrySheet = false
+                pendingSharedContent = null
+            },
+            onTaskCreated = {
+                pendingSharedContent = null
+            },
+            sharedContent = pendingSharedContent,
         )
     }
 

@@ -1,19 +1,24 @@
 package com.rendyhd.vicu.ui.screens.taskentry
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.domain.model.SharedContent
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.TaskReminder
 import com.rendyhd.vicu.domain.model.User
+import com.rendyhd.vicu.domain.repository.AttachmentRepository
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.FileUtils
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.parser.ParseResult
 import com.rendyhd.vicu.util.parser.ParserConfig
@@ -24,6 +29,7 @@ import com.rendyhd.vicu.util.parser.extractBangToday
 import com.rendyhd.vicu.util.parser.getPrefixes
 import com.rendyhd.vicu.util.parser.recurrenceToVikunja
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,6 +56,8 @@ data class TaskEntryUiState(
     val parseResult: ParseResult? = null,
     val parserConfig: ParserConfig = ParserConfig(),
     val suppressedTypes: Set<TokenType> = emptySet(),
+    val pendingAttachmentUris: List<Uri> = emptyList(),
+    val pendingAttachmentMimeType: String? = null,
 )
 
 @HiltViewModel
@@ -57,8 +65,10 @@ class TaskEntryViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
+    private val attachmentRepository: AttachmentRepository,
     private val authManager: AuthManager,
     private val nlpPrefsStore: NlpPrefsStore,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TaskEntryUiState())
@@ -101,6 +111,31 @@ class TaskEntryViewModel @Inject constructor(
         viewModelScope.launch {
             val projectId = defaultProjectId ?: authManager.getInboxProjectId() ?: 0L
             _uiState.update { it.copy(projectId = projectId) }
+        }
+    }
+
+    fun initWithSharedContent(defaultProjectId: Long?, sharedContent: SharedContent) {
+        viewModelScope.launch {
+            val projectId = defaultProjectId ?: authManager.getInboxProjectId() ?: 0L
+            _uiState.update {
+                it.copy(
+                    projectId = projectId,
+                    title = sharedContent.suggestedTitle ?: "",
+                    description = sharedContent.suggestedDescription ?: "",
+                    pendingAttachmentUris = sharedContent.fileUris,
+                    pendingAttachmentMimeType = sharedContent.mimeType,
+                )
+            }
+        }
+    }
+
+    fun removePendingAttachment(index: Int) {
+        _uiState.update {
+            it.copy(
+                pendingAttachmentUris = it.pendingAttachmentUris.toMutableList().apply {
+                    removeAt(index)
+                },
+            )
         }
     }
 
@@ -277,6 +312,8 @@ class TaskEntryViewModel @Inject constructor(
 
         _uiState.update { it.copy(isSaving = true, error = null) }
 
+        val pendingUris = state.pendingAttachmentUris
+
         viewModelScope.launch {
             try {
                 val task = Task(
@@ -296,6 +333,10 @@ class TaskEntryViewModel @Inject constructor(
                         val createdTask = result.data
                         for (labelId in labelIds) {
                             labelRepository.addToTask(createdTask.id, labelId)
+                        }
+                        // Upload pending attachments in background (fire-and-forget)
+                        if (pendingUris.isNotEmpty()) {
+                            uploadPendingAttachments(createdTask.id, pendingUris)
                         }
                         taskRepository.refreshAll()
                         _uiState.update {
@@ -317,6 +358,16 @@ class TaskEntryViewModel @Inject constructor(
         }
     }
 
+    private fun uploadPendingAttachments(taskId: Long, uris: List<Uri>) {
+        viewModelScope.launch {
+            for (uri in uris) {
+                val filePart = FileUtils.uriToMultipartPart(context, uri) ?: continue
+                attachmentRepository.upload(taskId, filePart)
+            }
+            attachmentRepository.refreshForTask(taskId)
+        }
+    }
+
     fun reset() {
         suppressedRawTexts = emptyMap()
         _uiState.update {
@@ -332,6 +383,8 @@ class TaskEntryViewModel @Inject constructor(
                 error = null,
                 parseResult = null,
                 suppressedTypes = emptySet(),
+                pendingAttachmentUris = emptyList(),
+                pendingAttachmentMimeType = null,
             )
         }
     }

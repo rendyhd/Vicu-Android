@@ -3,6 +3,7 @@ package com.rendyhd.vicu
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -16,6 +17,7 @@ import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.ThemeMode
 import com.rendyhd.vicu.data.local.ThemePrefsStore
 import com.rendyhd.vicu.data.remote.interceptor.BaseUrlHolder
+import com.rendyhd.vicu.domain.model.SharedContent
 import com.rendyhd.vicu.ui.VicuApp
 import com.rendyhd.vicu.ui.theme.VicuTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -32,6 +34,7 @@ class MainActivity : ComponentActivity() {
 
     private val _initialTaskId = MutableStateFlow<Long?>(null)
     private val _showTaskEntry = MutableStateFlow(false)
+    private val _sharedContent = MutableStateFlow<SharedContent?>(null)
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -63,6 +66,8 @@ class MainActivity : ComponentActivity() {
                     onInitialTaskConsumed = { _initialTaskId.value = null },
                     showTaskEntry = _showTaskEntry,
                     onShowTaskEntryConsumed = { _showTaskEntry.value = false },
+                    sharedContent = _sharedContent,
+                    onSharedContentConsumed = { _sharedContent.value = null },
                 )
             }
         }
@@ -74,12 +79,72 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        val taskId = intent?.getLongExtra("task_id", 0L) ?: 0L
+        if (intent == null) return
+
+        val taskId = intent.getLongExtra("task_id", 0L)
         if (taskId != 0L) {
             _initialTaskId.value = taskId
         }
-        if (intent?.getBooleanExtra("show_task_entry", false) == true) {
+        if (intent.getBooleanExtra("show_task_entry", false)) {
             _showTaskEntry.value = true
+        }
+
+        when (intent.action) {
+            Intent.ACTION_SEND -> handleSendIntent(intent)
+            Intent.ACTION_SEND_MULTIPLE -> handleSendMultipleIntent(intent)
+        }
+    }
+
+    private fun handleSendIntent(intent: Intent) {
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+        val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+        val streamUri: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
+
+        grantUriReadPermission(streamUri)
+
+        _sharedContent.value = SharedContent(
+            text = text,
+            subject = subject,
+            fileUris = listOfNotNull(streamUri),
+            mimeType = intent.type,
+        )
+    }
+
+    private fun handleSendMultipleIntent(intent: Intent) {
+        val uris: List<Uri> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+        } ?: emptyList()
+
+        for (uri in uris) {
+            grantUriReadPermission(uri)
+        }
+
+        _sharedContent.value = SharedContent(
+            text = intent.getStringExtra(Intent.EXTRA_TEXT),
+            subject = intent.getStringExtra(Intent.EXTRA_SUBJECT),
+            fileUris = uris,
+            mimeType = intent.type,
+        )
+    }
+
+    private fun grantUriReadPermission(uri: Uri?) {
+        uri ?: return
+        try {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        } catch (_: SecurityException) {
+            // Not all URIs support persistable permissions — that's OK,
+            // the temporary grant from the share intent is sufficient.
         }
     }
 
