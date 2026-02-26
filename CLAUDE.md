@@ -211,6 +211,12 @@ List/upload/download/delete. File picker for upload (multipart). Open via Androi
 
 Completed tasks remain visible (strikethrough) in current view until navigation away. Undo snackbar reverts done=false. Uses ViewModel-scoped map merged into Room Flow.
 
+## CI / Releases
+
+GitHub Actions workflow at `.github/workflows/release.yml` builds a **signed release APK** automatically when a GitHub release is published. The workflow uses repository secrets (`KEYSTORE_BASE64`, `KEY_ALIAS`, `KEY_PASSWORD`, `STORE_PASSWORD`) for signing.
+
+**When creating a release**: Use `gh release create <tag> --title "..." --notes "..."` **without attaching a local APK**. CI will build and upload the signed `app-release.apk` automatically. Never attach a debug APK manually.
+
 ## Key Gotchas
 
 1. **Go zero-value problem**: Always send complete objects on update

@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.rendyhd.vicu.data.local.ThemeMode
+import com.rendyhd.vicu.util.parser.SyntaxMode
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
@@ -144,6 +145,9 @@ fun SettingsScreen(
                 0 -> GeneralTab(
                     state = state,
                     onThemeChange = viewModel::setThemeMode,
+                    onNlpEnabledChange = viewModel::setNlpEnabled,
+                    onNlpSyntaxModeChange = viewModel::setNlpSyntaxMode,
+                    onBangTodayChange = viewModel::setBangToday,
                     onShowInboxPicker = { showInboxPicker = true },
                     onShowLabelDialog = { showLabelDialog = true },
                     onEditLabel = { label ->
@@ -390,6 +394,9 @@ fun SettingsScreen(
 private fun GeneralTab(
     state: SettingsUiState,
     onThemeChange: (ThemeMode) -> Unit,
+    onNlpEnabledChange: (Boolean) -> Unit,
+    onNlpSyntaxModeChange: (SyntaxMode) -> Unit,
+    onBangTodayChange: (Boolean) -> Unit,
     onShowInboxPicker: () -> Unit,
     onShowLabelDialog: () -> Unit,
     onEditLabel: (Label) -> Unit,
@@ -516,6 +523,84 @@ private fun GeneralTab(
         }
 
         item(key = "theme_divider") {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
+        // === Input Parsing section ===
+        item(key = "nlp_header") {
+            Text(
+                text = "Input Parsing",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+            )
+        }
+
+        item(key = "nlp_enabled") {
+            SwitchRow(
+                label = "Natural Language Parsing",
+                description = "Extract dates, labels, projects, and priority from task titles",
+                checked = state.nlpConfig.enabled,
+                onCheckedChange = onNlpEnabledChange,
+            )
+        }
+
+        if (state.nlpConfig.enabled) {
+            item(key = "nlp_syntax_mode") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        text = "Syntax Mode",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    @OptIn(ExperimentalMaterial3Api::class)
+                    SingleChoiceSegmentedButtonRow(
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        val options = listOf(
+                            SyntaxMode.TODOIST to "Todoist",
+                            SyntaxMode.VIKUNJA to "Vikunja",
+                        )
+                        options.forEachIndexed { index, (mode, label) ->
+                            SegmentedButton(
+                                selected = state.nlpConfig.syntaxMode == mode,
+                                onClick = { onNlpSyntaxModeChange(mode) },
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                            ) {
+                                Text(label)
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val hint = if (state.nlpConfig.syntaxMode == SyntaxMode.TODOIST) {
+                        "#project  @label  p1-p4"
+                    } else {
+                        "+project  *label  !1-!4"
+                    }
+                    Text(
+                        text = hint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        item(key = "nlp_bang_today") {
+            SwitchRow(
+                label = "! sets due date to today",
+                description = "Prefix or suffix ! to set due date to today",
+                checked = state.nlpConfig.bangToday,
+                onCheckedChange = onBangTodayChange,
+            )
+        }
+
+        item(key = "nlp_divider") {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
 

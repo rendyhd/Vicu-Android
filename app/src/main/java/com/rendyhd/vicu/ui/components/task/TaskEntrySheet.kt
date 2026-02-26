@@ -1,6 +1,8 @@
 package com.rendyhd.vicu.ui.components.task
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -37,7 +39,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.rendyhd.vicu.ui.components.picker.LabelPickerDialog
@@ -46,6 +50,7 @@ import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
 import com.rendyhd.vicu.ui.screens.taskentry.TaskEntryViewModel
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.parser.getPrefixes
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -58,11 +63,22 @@ fun TaskEntrySheet(
     val state by viewModel.uiState.collectAsState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val focusRequester = remember { FocusRequester() }
+    val isDarkTheme = isSystemInDarkTheme()
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showProjectPicker by remember { mutableStateOf(false) }
     var showLabelPicker by remember { mutableStateOf(false) }
     var showReminderPicker by remember { mutableStateOf(false) }
+
+    // TextFieldValue for cursor position tracking (needed for autocomplete)
+    var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+
+    // Sync textFieldValue text with viewModel state
+    LaunchedEffect(state.title) {
+        if (textFieldValue.text != state.title) {
+            textFieldValue = textFieldValue.copy(text = state.title)
+        }
+    }
 
     LaunchedEffect(defaultProjectId) {
         viewModel.initWithDefaults(defaultProjectId)
@@ -76,6 +92,7 @@ fun TaskEntrySheet(
         state.savedTaskId?.let { id ->
             onTaskCreated(id)
             viewModel.reset()
+            textFieldValue = TextFieldValue("")
             onDismiss()
         }
     }
@@ -91,20 +108,58 @@ fun TaskEntrySheet(
                 .padding(bottom = 16.dp)
                 .imePadding(),
         ) {
-            OutlinedTextField(
-                value = state.title,
-                onValueChange = viewModel::setTitle,
-                placeholder = { Text("New task") },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
-                textStyle = MaterialTheme.typography.titleMedium,
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                    imeAction = ImeAction.Next,
-                ),
-            )
+            // Title field with NLP highlighting and autocomplete
+            Box {
+                OutlinedTextField(
+                    value = textFieldValue,
+                    onValueChange = { newValue ->
+                        textFieldValue = newValue
+                        viewModel.setTitle(newValue.text)
+                    },
+                    placeholder = { Text("New task") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester),
+                    textStyle = MaterialTheme.typography.titleMedium,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Next,
+                    ),
+                    visualTransformation = NlpVisualTransformation(
+                        tokens = state.parseResult?.tokens ?: emptyList(),
+                        isDarkTheme = isDarkTheme,
+                    ),
+                )
+
+                // Autocomplete dropdown
+                NlpAutocompleteDropdown(
+                    inputValue = textFieldValue.text,
+                    cursorPosition = textFieldValue.selection.start,
+                    prefixes = getPrefixes(state.parserConfig.syntaxMode),
+                    projects = state.allProjects,
+                    labels = state.allLabels,
+                    enabled = state.parserConfig.enabled,
+                    onSelect = { newText, newCursor ->
+                        textFieldValue = TextFieldValue(
+                            text = newText,
+                            selection = TextRange(newCursor),
+                        )
+                        viewModel.setTitle(newText)
+                    },
+                )
+            }
+
+            // NLP preview chips
+            val parseResult = state.parseResult
+            if (parseResult != null && parseResult.tokens.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                ParseChipRow(
+                    parseResult = parseResult,
+                    isDarkTheme = isDarkTheme,
+                    onDismiss = viewModel::suppressType,
+                )
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 

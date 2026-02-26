@@ -11,10 +11,13 @@ import com.rendyhd.vicu.R
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.SecureTokenStorage
 import com.rendyhd.vicu.data.local.CustomListStore
+import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.data.local.NotificationPrefs
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.ThemeMode
 import com.rendyhd.vicu.data.local.ThemePrefsStore
+import com.rendyhd.vicu.util.parser.ParserConfig
+import com.rendyhd.vicu.util.parser.SyntaxMode
 import com.rendyhd.vicu.data.local.VikunjaDatabase
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
@@ -47,6 +50,7 @@ data class SettingsUiState(
     val vikunjaUrl: String = "",
     val inboxProjectId: Long? = null,
     val themeMode: ThemeMode = ThemeMode.System,
+    val nlpConfig: ParserConfig = ParserConfig(),
     // Labels & Custom Lists
     val labels: List<Label> = emptyList(),
     val customLists: List<CustomList> = emptyList(),
@@ -72,6 +76,7 @@ class SettingsViewModel @Inject constructor(
     private val customListStore: CustomListStore,
     private val notificationPrefsStore: NotificationPrefsStore,
     private val themePrefsStore: ThemePrefsStore,
+    private val nlpPrefsStore: NlpPrefsStore,
     private val dailySummaryScheduler: DailySummaryScheduler,
     private val pendingActionDao: PendingActionDao,
     private val networkMonitor: NetworkMonitor,
@@ -103,8 +108,9 @@ class SettingsViewModel @Inject constructor(
             pendingActionDao.getFailedCount(),
             networkMonitor.isOnline,
             themePrefsStore.themeMode,
-        ) { pendingCount, failedCount, isOnline, themeMode ->
-            listOf(pendingCount, failedCount, isOnline, themeMode)
+            nlpPrefsStore.config,
+        ) { pendingCount, failedCount, isOnline, themeMode, nlpConfig ->
+            listOf(pendingCount, failedCount, isOnline, themeMode, nlpConfig)
         },
         _userInfo,
         _vikunjaUrl,
@@ -120,6 +126,7 @@ class SettingsViewModel @Inject constructor(
         val failedCount = syncTheme[1] as Int
         val isOnline = syncTheme[2] as Boolean
         val themeMode = syncTheme[3] as ThemeMode
+        val nlpConfig = syncTheme[4] as ParserConfig
         SettingsUiState(
             username = userInfo.first,
             email = userInfo.second,
@@ -127,6 +134,7 @@ class SettingsViewModel @Inject constructor(
             vikunjaUrl = url,
             inboxProjectId = inboxId,
             themeMode = themeMode,
+            nlpConfig = nlpConfig,
             labels = labels.sortedBy { it.title.lowercase() },
             customLists = customLists,
             projects = projects.filter { !it.isArchived },
@@ -168,6 +176,20 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             themePrefsStore.setThemeMode(mode)
         }
+    }
+
+    // --- NLP Parser ---
+
+    fun setNlpEnabled(enabled: Boolean) {
+        viewModelScope.launch { nlpPrefsStore.setEnabled(enabled) }
+    }
+
+    fun setNlpSyntaxMode(mode: SyntaxMode) {
+        viewModelScope.launch { nlpPrefsStore.setSyntaxMode(mode) }
+    }
+
+    fun setBangToday(enabled: Boolean) {
+        viewModelScope.launch { nlpPrefsStore.setBangToday(enabled) }
     }
 
     // --- Inbox project ---

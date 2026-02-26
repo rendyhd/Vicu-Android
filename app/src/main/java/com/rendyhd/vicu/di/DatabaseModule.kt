@@ -10,6 +10,7 @@ import com.rendyhd.vicu.data.local.dao.ProjectDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.CustomListStore
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
+import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.data.local.ThemePrefsStore
 import dagger.Module
 import dagger.Provides
@@ -60,4 +61,9 @@ object DatabaseModule {
     @Singleton
     fun provideThemePrefsStore(@ApplicationContext context: Context): ThemePrefsStore =
         ThemePrefsStore(context)
+
+    @Provides
+    @Singleton
+    fun provideNlpPrefsStore(@ApplicationContext context: Context): NlpPrefsStore =
+        NlpPrefsStore(context)
 }

@@ -3,6 +3,7 @@ package com.rendyhd.vicu.ui.screens.taskentry
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
@@ -14,12 +15,22 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.parser.ParseResult
+import com.rendyhd.vicu.util.parser.ParserConfig
+import com.rendyhd.vicu.util.parser.SyntaxPrefixes
+import com.rendyhd.vicu.util.parser.TaskParser
+import com.rendyhd.vicu.util.parser.TokenType
+import com.rendyhd.vicu.util.parser.extractBangToday
+import com.rendyhd.vicu.util.parser.getPrefixes
+import com.rendyhd.vicu.util.parser.recurrenceToVikunja
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 data class TaskEntryUiState(
@@ -35,6 +46,10 @@ data class TaskEntryUiState(
     val error: String? = null,
     val allProjects: List<Project> = emptyList(),
     val allLabels: List<Label> = emptyList(),
+    // NLP parser state
+    val parseResult: ParseResult? = null,
+    val parserConfig: ParserConfig = ParserConfig(),
+    val suppressedTypes: Set<TokenType> = emptySet(),
 )
 
 @HiltViewModel
@@ -43,10 +58,16 @@ class TaskEntryViewModel @Inject constructor(
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
     private val authManager: AuthManager,
+    private val nlpPrefsStore: NlpPrefsStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TaskEntryUiState())
     val uiState: StateFlow<TaskEntryUiState> = _uiState.asStateFlow()
+
+    // Track raw texts for stale suppression detection
+    private var suppressedRawTexts: Map<TokenType, List<String>> = emptyMap()
+
+    private val isoFormatter = DateTimeFormatter.ISO_INSTANT
 
     init {
         viewModelScope.launch {
@@ -59,6 +80,21 @@ class TaskEntryViewModel @Inject constructor(
                 _uiState.update { it.copy(allLabels = labels) }
             }
         }
+        viewModelScope.launch {
+            nlpPrefsStore.config.collect { config ->
+                _uiState.update { state ->
+                    val newConfig = config.copy(suppressTypes = state.suppressedTypes)
+                    state.copy(
+                        parserConfig = newConfig,
+                        parseResult = if (state.title.isNotBlank()) {
+                            TaskParser.parse(state.title, newConfig)
+                        } else {
+                            state.parseResult
+                        },
+                    )
+                }
+            }
+        }
     }
 
     fun initWithDefaults(defaultProjectId: Long?) {
@@ -69,7 +105,50 @@ class TaskEntryViewModel @Inject constructor(
     }
 
     fun setTitle(title: String) {
-        _uiState.update { it.copy(title = title) }
+        _uiState.update { state ->
+            // Auto-lift stale suppressions: if the raw text no longer appears in input
+            val activeSuppressed = state.suppressedTypes.filter { type ->
+                val texts = suppressedRawTexts[type] ?: return@filter false
+                texts.any { title.contains(it) }
+            }.toSet()
+            if (activeSuppressed != state.suppressedTypes) {
+                suppressedRawTexts = suppressedRawTexts.filterKeys { it in activeSuppressed }
+            }
+
+            val config = state.parserConfig.copy(suppressTypes = activeSuppressed)
+            val parseResult = if (title.isNotBlank()) {
+                TaskParser.parse(title, config)
+            } else {
+                null
+            }
+            state.copy(
+                title = title,
+                parseResult = parseResult,
+                suppressedTypes = activeSuppressed,
+                parserConfig = config,
+            )
+        }
+    }
+
+    fun suppressType(type: TokenType) {
+        _uiState.update { state ->
+            val result = state.parseResult ?: return@update state
+            // Store raw texts for the tokens being suppressed
+            val rawTexts = result.tokens.filter { it.type == type }.map { it.raw }
+            suppressedRawTexts = suppressedRawTexts + (type to rawTexts)
+            val newSuppressed = state.suppressedTypes + type
+            val config = state.parserConfig.copy(suppressTypes = newSuppressed)
+            val newResult = if (state.title.isNotBlank()) {
+                TaskParser.parse(state.title, config)
+            } else {
+                null
+            }
+            state.copy(
+                parseResult = newResult,
+                suppressedTypes = newSuppressed,
+                parserConfig = config,
+            )
+        }
     }
 
     fun setDescription(description: String) {
@@ -125,17 +204,76 @@ class TaskEntryViewModel @Inject constructor(
 
     fun save() {
         val state = _uiState.value
-        var title = state.title.trim()
+        val config = state.parserConfig
+        val parseResult = state.parseResult
+
+        // Determine title
+        var title = if (config.enabled && parseResult != null) {
+            parseResult.title
+        } else {
+            state.title.trim()
+        }
         if (title.isBlank()) return
 
-        // "!" prefix: strip and set due date to today
+        // Determine due date: manual picker > parsed date > bang today
         var dueDate = state.dueDate
-        if (title.startsWith("!")) {
-            title = title.removePrefix("!").trim()
-            if (dueDate.isBlank() || DateUtils.isNullDate(dueDate)) {
+        if (config.enabled && parseResult?.dueDate != null &&
+            (dueDate.isBlank() || DateUtils.isNullDate(dueDate))
+        ) {
+            dueDate = isoFormatter.format(
+                parseResult.dueDate.atZone(ZoneId.systemDefault()).toInstant(),
+            )
+        }
+
+        // Determine priority: manual > parsed
+        var priority = state.priority
+        if (config.enabled && parseResult?.priority != null && priority == 0) {
+            priority = parseResult.priority
+        }
+
+        // Determine project: parsed overrides if a match is found
+        var projectId = state.projectId
+        if (config.enabled && parseResult?.project != null) {
+            val matchedProject = state.allProjects.find {
+                it.title.equals(parseResult.project, ignoreCase = true)
+            }
+            if (matchedProject != null) {
+                projectId = matchedProject.id
+            }
+        }
+
+        // Determine labels: manual + parsed (merged)
+        val labelIds = state.selectedLabelIds.toMutableSet()
+        if (config.enabled && parseResult != null) {
+            for (labelName in parseResult.labels) {
+                val matchedLabel = state.allLabels.find {
+                    it.title.equals(labelName, ignoreCase = true)
+                }
+                if (matchedLabel != null) {
+                    labelIds.add(matchedLabel.id)
+                }
+            }
+        }
+
+        // Determine recurrence: parsed
+        var repeatAfter = 0L
+        var repeatMode = 0
+        if (config.enabled && parseResult?.recurrence != null) {
+            val vik = recurrenceToVikunja(parseResult.recurrence)
+            repeatAfter = vik.repeatAfter
+            repeatMode = vik.repeatMode
+        }
+
+        // Bang-today fallback (works even when parser disabled)
+        if (config.bangToday && (dueDate.isBlank() || DateUtils.isNullDate(dueDate))) {
+            val bang = extractBangToday(title)
+            if (bang.dueDate != null) {
+                title = bang.title
                 dueDate = DateUtils.todayEndIso()
             }
         }
+
+        if (title.isBlank()) return
 
         _uiState.update { it.copy(isSaving = true, error = null) }
 
@@ -145,19 +283,19 @@ class TaskEntryViewModel @Inject constructor(
                 title = title,
                 description = state.description,
                 dueDate = dueDate,
-                priority = state.priority,
-                projectId = state.projectId,
+                priority = priority,
+                projectId = projectId,
                 reminders = state.reminders,
+                repeatAfter = repeatAfter,
+                repeatMode = repeatMode,
             )
 
             when (val result = taskRepository.create(task)) {
                 is NetworkResult.Success -> {
                     val createdTask = result.data
-                    // Add labels to the created task
-                    for (labelId in state.selectedLabelIds) {
+                    for (labelId in labelIds) {
                         labelRepository.addToTask(createdTask.id, labelId)
                     }
-                    // Refresh to ensure all screen Flows pick up the new task
                     taskRepository.refreshAll()
                     _uiState.update {
                         it.copy(isSaving = false, savedTaskId = createdTask.id)
@@ -174,6 +312,7 @@ class TaskEntryViewModel @Inject constructor(
     }
 
     fun reset() {
+        suppressedRawTexts = emptyMap()
         _uiState.update {
             it.copy(
                 title = "",
@@ -185,6 +324,8 @@ class TaskEntryViewModel @Inject constructor(
                 isSaving = false,
                 savedTaskId = null,
                 error = null,
+                parseResult = null,
+                suppressedTypes = emptySet(),
             )
         }
     }
