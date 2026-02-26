@@ -25,6 +25,8 @@ object FileUtils {
         }
     }
 
+    fun getDisplayName(context: Context, uri: Uri): String? = getFileName(context, uri)
+
     private fun getFileName(context: Context, uri: Uri): String? {
         var name: String? = null
         if (uri.scheme == "content") {
