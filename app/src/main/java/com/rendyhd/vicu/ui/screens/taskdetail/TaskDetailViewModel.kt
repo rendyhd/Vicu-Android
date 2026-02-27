@@ -64,6 +64,12 @@ class TaskDetailViewModel @Inject constructor(
         if (taskId == taskIdLoaded) return
         taskIdLoaded = taskId
 
+        // Reset state for the new task so stale data from the previous task doesn't persist
+        preservedLinkHtml = ""
+        _uiState.update {
+            it.copy(task = null, originalTask = null, isLoading = true, isDeleted = false, error = null)
+        }
+
         viewModelScope.launch {
             taskRepository.getById(taskId).collect { task ->
                 if (task != null) {
