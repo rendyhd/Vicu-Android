@@ -63,6 +63,7 @@ class SetupViewModel @Inject constructor(
 
     companion object {
         private const val TAG = "SetupViewModel"
+        private const val DEFAULT_SERVER_URL = "https://app.vikunja.cloud"
     }
 
     private val _uiState = MutableStateFlow(SetupUiState())
@@ -93,11 +94,7 @@ class SetupViewModel @Inject constructor(
     }
 
     fun discoverServer() {
-        val url = _uiState.value.serverUrl.trim()
-        if (url.isBlank()) {
-            _uiState.update { it.copy(error = "Please enter a server URL") }
-            return
-        }
+        val url = _uiState.value.serverUrl.trim().ifBlank { DEFAULT_SERVER_URL }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }

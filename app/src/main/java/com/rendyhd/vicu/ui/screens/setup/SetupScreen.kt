@@ -19,7 +19,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Key
@@ -162,7 +168,7 @@ private fun ServerUrlStep(
             value = url,
             onValueChange = onUrlChange,
             label = { Text("Server URL") },
-            placeholder = { Text("https://vikunja.example.com") },
+            placeholder = { Text("https://app.vikunja.cloud") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(
@@ -179,7 +185,7 @@ private fun ServerUrlStep(
         Button(
             onClick = onContinue,
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading && url.isNotBlank(),
+            enabled = !isLoading,
         ) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -187,6 +193,24 @@ private fun ServerUrlStep(
             }
             Text("Continue")
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        val signUpText = buildAnnotatedString {
+            withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) {
+                append("Don't have an account? ")
+            }
+            withLink(LinkAnnotation.Url("https://vikunja.cloud/register")) {
+                withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary, textDecoration = TextDecoration.Underline)) {
+                    append("Sign up")
+                }
+            }
+        }
+        Text(
+            text = signUpText,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
     }
 }
 
