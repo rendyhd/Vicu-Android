@@ -7,6 +7,9 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Log
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.KeyTemplates
 import com.google.crypto.tink.aead.AeadConfig
@@ -15,6 +18,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.security.KeyStore
 import java.util.Base64
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -38,15 +42,49 @@ class SecureTokenStorage @Inject constructor(
         val INBOX_PROJECT_ID = longPreferencesKey("inbox_project_id")
     }
 
+    companion object {
+        private const val TAG = "SecureTokenStorage"
+        private const val MASTER_KEY_ALIAS = "vicu_master_key"
+        private const val KEYSET_NAME = "vicu_keyset"
+        private const val KEYSET_PREFS = "vicu_keyset_prefs"
+    }
+
     private val aead: Aead by lazy {
         AeadConfig.register()
+        try {
+            buildAead()
+        } catch (e: java.security.InvalidKeyException) {
+            Log.w(TAG, "Master key invalid (signing key changed?), resetting keystore", e)
+            resetKeystore()
+            buildAead()
+        } catch (e: java.security.GeneralSecurityException) {
+            Log.w(TAG, "Keyset corrupted, resetting keystore", e)
+            resetKeystore()
+            buildAead()
+        }
+    }
+
+    private fun buildAead(): Aead {
         val keysetHandle = AndroidKeysetManager.Builder()
-            .withSharedPref(context, "vicu_keyset", "vicu_keyset_prefs")
+            .withSharedPref(context, KEYSET_NAME, KEYSET_PREFS)
             .withKeyTemplate(KeyTemplates.get("AES256_GCM"))
-            .withMasterKeyUri("android-keystore://vicu_master_key")
+            .withMasterKeyUri("android-keystore://$MASTER_KEY_ALIAS")
             .build()
             .keysetHandle
-        keysetHandle.getPrimitive(Aead::class.java)
+        return keysetHandle.getPrimitive(Aead::class.java)
+    }
+
+    private fun resetKeystore() {
+        // Remove the master key from Android Keystore
+        try {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+            keyStore.deleteEntry(MASTER_KEY_ALIAS)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to delete master key", e)
+        }
+        // Clear the Tink keyset SharedPreferences
+        context.getSharedPreferences(KEYSET_PREFS, Context.MODE_PRIVATE).edit().clear().apply()
     }
 
     private fun encrypt(plaintext: String): String {
