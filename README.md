@@ -2,6 +2,9 @@
 
 A native Android task manager powered by [Vikunja](https://vikunja.io/).
 
+![slide1 001](https://github.com/user-attachments/assets/83925b87-cfbb-4fc8-b796-f69b9dc303aa)
+
+
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Android%208%2B-brightgreen)
 ![Built with](https://img.shields.io/badge/kotlin%20+%20compose%20+%20material%203-7F52FF)
