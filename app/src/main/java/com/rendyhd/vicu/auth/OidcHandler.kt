@@ -11,7 +11,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 sealed class OidcResult {
-    data class Success(val token: String) : OidcResult()
+    data class Success(val token: String, val refreshToken: String? = null) : OidcResult()
     data class Error(val message: String) : OidcResult()
 }
 
@@ -73,11 +73,16 @@ class OidcHandler @Inject constructor(
                 scope = SCOPE,
             )
 
-            val tokenResponse = apiService.get().exchangeOidcToken(provider.key, callbackDto)
-            if (tokenResponse.token.isBlank()) {
+            val response = apiService.get().exchangeOidcToken(provider.key, callbackDto)
+            if (!response.isSuccessful) {
+                return OidcResult.Error("OIDC token exchange failed: HTTP ${response.code()}")
+            }
+            val tokenResponse = response.body()
+            if (tokenResponse == null || tokenResponse.token.isBlank()) {
                 OidcResult.Error("Empty token received from server")
             } else {
-                OidcResult.Success(tokenResponse.token)
+                val refreshToken = RefreshCookieExtractor.extractRefreshToken(response)
+                OidcResult.Success(tokenResponse.token, refreshToken)
             }
         } catch (e: Exception) {
             OidcResult.Error("OIDC callback failed: ${e.localizedMessage}")

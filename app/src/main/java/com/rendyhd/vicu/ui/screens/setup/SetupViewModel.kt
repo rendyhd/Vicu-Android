@@ -105,6 +105,9 @@ class SetupViewModel @Inject constructor(
                 val normalized = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
                 baseUrlHolder.baseUrl = normalized
                 val info = apiService.get().getServerInfo()
+                // Detect Vikunja 2.0+ by parsing version string
+                val isV2 = parseIsV2(info.version)
+                authManager.storeServerIsV2(isV2)
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -162,7 +165,7 @@ class SetupViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             when (val result = oidcHandler.handleCallback(intent, provider, url)) {
                 is OidcResult.Success -> {
-                    authManager.onLoginSuccess(result.token, "oidc", url, provider.key)
+                    authManager.onLoginSuccess(result.token, "oidc", url, provider.key, result.refreshToken)
                     createBackupApiToken()
                     fetchProjectsForSelection()
                 }
@@ -187,7 +190,7 @@ class SetupViewModel @Inject constructor(
             val totp = if (state.showTotpField) state.totpPasscode else null
             when (val result = passwordLoginHandler.login(state.username, state.password, totp)) {
                 is PasswordLoginResult.Success -> {
-                    authManager.onLoginSuccess(result.token, "password", state.serverUrl)
+                    authManager.onLoginSuccess(result.token, "password", state.serverUrl, refreshToken = result.refreshToken)
                     createBackupApiToken()
                     fetchProjectsForSelection()
                 }
@@ -266,6 +269,13 @@ class SetupViewModel @Inject constructor(
         } catch (e: Exception) {
             _uiState.update { it.copy(isLoading = false, error = "Failed to fetch projects: ${e.localizedMessage}") }
         }
+    }
+
+    private fun parseIsV2(version: String): Boolean {
+        // Version string may be like "v2.0.0", "2.1.0", "0.24.0", etc.
+        val cleaned = version.trimStart('v', 'V')
+        val major = cleaned.split(".").firstOrNull()?.toIntOrNull() ?: 0
+        return major >= 2
     }
 
     private suspend fun createBackupApiToken() {

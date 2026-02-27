@@ -30,6 +30,8 @@ class SecureTokenStorage @Inject constructor(
         val JWT_EXPIRY = longPreferencesKey("jwt_expiry")
         val API_TOKEN = stringPreferencesKey("api_token_enc")
         val API_TOKEN_EXPIRY = longPreferencesKey("api_token_expiry")
+        val REFRESH_TOKEN = stringPreferencesKey("refresh_token_enc")
+        val SERVER_IS_V2 = stringPreferencesKey("server_is_v2")
         val AUTH_METHOD = stringPreferencesKey("auth_method")
         val PROVIDER_KEY = stringPreferencesKey("provider_key")
         val VIKUNJA_URL = stringPreferencesKey("vikunja_url")
@@ -91,6 +93,30 @@ class SecureTokenStorage @Inject constructor(
     suspend fun getApiTokenExpiry(): Long {
         val prefs = context.authDataStore.data.first()
         return prefs[Keys.API_TOKEN_EXPIRY] ?: 0L
+    }
+
+    // Refresh Token (Vikunja 2.0 session cookie)
+    suspend fun storeRefreshToken(token: String) {
+        context.authDataStore.edit { prefs ->
+            prefs[Keys.REFRESH_TOKEN] = encrypt(token)
+        }
+    }
+
+    suspend fun getRefreshToken(): String? {
+        val prefs = context.authDataStore.data.first()
+        return prefs[Keys.REFRESH_TOKEN]?.let { decrypt(it) }
+    }
+
+    // Server version flag
+    suspend fun storeServerIsV2(isV2: Boolean) {
+        context.authDataStore.edit { prefs ->
+            prefs[Keys.SERVER_IS_V2] = isV2.toString()
+        }
+    }
+
+    suspend fun getServerIsV2(): Boolean {
+        val prefs = context.authDataStore.data.first()
+        return prefs[Keys.SERVER_IS_V2] == "true"
     }
 
     // Auth method

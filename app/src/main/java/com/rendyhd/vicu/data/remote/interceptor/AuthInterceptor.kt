@@ -14,7 +14,7 @@ class AuthInterceptor @Inject constructor(
 
     companion object {
         private const val TAG = "AuthInterceptor"
-        private val SKIP_AUTH_PATHS = listOf("/login", "/info", "/auth/openid")
+        private val SKIP_AUTH_PATHS = listOf("/login", "/info", "/auth/openid", "/user/token/refresh")
     }
 
     override fun intercept(chain: Interceptor.Chain): Response {

@@ -207,7 +207,7 @@ class SettingsViewModel @Inject constructor(
     fun logout() {
         viewModelScope.launch {
             database.clearAllTables()
-            authManager.logout()
+            authManager.logout() // calls POST /user/logout internally
         }
     }
 

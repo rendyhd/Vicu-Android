@@ -2,9 +2,11 @@ package com.rendyhd.vicu.data.remote.api
 
 import okhttp3.MultipartBody
 import okhttp3.ResponseBody
+import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.Multipart
 import retrofit2.http.POST
 import retrofit2.http.PUT
@@ -119,7 +121,7 @@ interface VikunjaApiService {
 
     // Auth
     @POST("login")
-    suspend fun login(@Body body: LoginRequestDto): TokenResponseDto
+    suspend fun login(@Body body: LoginRequestDto): Response<TokenResponseDto>
 
     @GET("info")
     suspend fun getServerInfo(): ServerInfoDto
@@ -134,11 +136,20 @@ interface VikunjaApiService {
     suspend fun exchangeOidcToken(
         @Path("providerKey") providerKey: String,
         @Body body: OidcCallbackDto,
-    ): TokenResponseDto
+    ): Response<TokenResponseDto>
 
     @PUT("tokens")
     suspend fun createApiToken(@Body body: ApiTokenRequestDto): ApiTokenResponseDto
 
+    // Pre-2.0: renew JWT using current Bearer token
     @POST("user/token")
-    suspend fun renewToken(): TokenResponseDto
+    suspend fun renewTokenLegacy(): TokenResponseDto
+
+    // 2.0+: refresh using session cookie
+    @POST("user/token/refresh")
+    suspend fun refreshToken(@Header("Cookie") cookie: String): Response<TokenResponseDto>
+
+    // 2.0+: server-side logout (invalidate session)
+    @POST("user/logout")
+    suspend fun serverLogout()
 }
