@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.data.remote.interceptor
 
 import android.util.Log
+import com.rendyhd.vicu.BuildConfig
 import com.rendyhd.vicu.auth.AuthManager
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -22,16 +23,16 @@ class AuthInterceptor @Inject constructor(
         val path = originalRequest.url.encodedPath
 
         if (SKIP_AUTH_PATHS.any { path.contains(it) }) {
-            Log.d(TAG, "Skipping auth for path=$path")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Skipping auth for path=$path")
             return chain.proceed(originalRequest)
         }
 
         val token = authManager.getBestTokenSync()
         if (token.isNullOrBlank()) {
-            Log.w(TAG, "NO TOKEN available for path=$path — request will be unauthenticated")
+            if (BuildConfig.DEBUG) Log.w(TAG, "No token available for path=$path")
             return chain.proceed(originalRequest)
         }
-        Log.d(TAG, "Attaching token (${token.take(10)}...) to path=$path")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Attaching token to path=$path")
 
         val authenticatedRequest = originalRequest.newBuilder()
             .header("Authorization", "Bearer $token")

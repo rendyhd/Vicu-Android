@@ -205,7 +205,7 @@ class SettingsViewModel @Inject constructor(
     // --- Logout ---
 
     fun logout() {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             database.clearAllTables()
             authManager.logout() // calls POST /user/logout internally
         }
@@ -214,7 +214,7 @@ class SettingsViewModel @Inject constructor(
     // --- Clear cache & re-sync ---
 
     fun clearCacheAndResync() {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             database.clearAllTables()
             SyncScheduler.enqueueImmediate(appContext)
             _messages.update { null to "Cache cleared, syncing..." }

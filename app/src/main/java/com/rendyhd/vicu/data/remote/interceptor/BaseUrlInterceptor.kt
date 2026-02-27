@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.data.remote.interceptor
 
 import android.util.Log
+import com.rendyhd.vicu.BuildConfig
 import okhttp3.Interceptor
 import okhttp3.Response
 import javax.inject.Inject
@@ -15,7 +16,7 @@ class BaseUrlInterceptor @Inject constructor(
         val fullBaseUrl = baseUrlHolder.getFullBaseUrl()
 
         if (fullBaseUrl.isEmpty()) {
-            Log.w("BaseUrlInterceptor", "baseUrl is EMPTY — request going to localhost: ${originalRequest.url}")
+            if (BuildConfig.DEBUG) Log.w("BaseUrlInterceptor", "baseUrl is EMPTY — request going to localhost: ${originalRequest.url}")
             return chain.proceed(originalRequest)
         }
 

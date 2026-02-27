@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
@@ -22,9 +23,13 @@ class OidcLoginActivity : ComponentActivity() {
     companion object {
         const val EXTRA_AUTH_URL = "auth_url"
         const val EXTRA_REDIRECT_PREFIX = "redirect_prefix"
+        const val EXTRA_EXPECTED_STATE = "expected_state"
         const val EXTRA_CODE = "code"
+        const val EXTRA_STATE = "state"
         const val EXTRA_ERROR = "error"
     }
+
+    private var expectedState: String? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,6 +37,7 @@ class OidcLoginActivity : ComponentActivity() {
 
         val authUrl = intent.getStringExtra(EXTRA_AUTH_URL)
         val redirectPrefix = intent.getStringExtra(EXTRA_REDIRECT_PREFIX)
+        expectedState = intent.getStringExtra(EXTRA_EXPECTED_STATE)
 
         if (authUrl == null || redirectPrefix == null) {
             setResult(Activity.RESULT_CANCELED)
@@ -42,6 +48,9 @@ class OidcLoginActivity : ComponentActivity() {
         val webView = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(
@@ -69,8 +78,14 @@ class OidcLoginActivity : ComponentActivity() {
             setResult(Activity.RESULT_CANCELED, Intent().putExtra(EXTRA_ERROR, desc))
         } else {
             val code = uri.getQueryParameter("code")
+            val state = uri.getQueryParameter("state")
             if (code != null) {
-                setResult(Activity.RESULT_OK, Intent().putExtra(EXTRA_CODE, code))
+                setResult(
+                    Activity.RESULT_OK,
+                    Intent()
+                        .putExtra(EXTRA_CODE, code)
+                        .putExtra(EXTRA_STATE, state),
+                )
             } else {
                 setResult(Activity.RESULT_CANCELED)
             }

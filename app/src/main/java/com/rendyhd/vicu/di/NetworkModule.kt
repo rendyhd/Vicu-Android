@@ -21,6 +21,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.util.concurrent.TimeUnit
 import javax.inject.Qualifier
 import javax.inject.Singleton
 
@@ -64,6 +65,9 @@ object NetworkModule {
         @ApplicationContext context: Context,
     ): OkHttpClient {
         val builder = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
             .addInterceptor(baseUrlInterceptor)
             .addInterceptor(authInterceptor)
             .authenticator(tokenAuthenticator)
@@ -72,7 +76,9 @@ object NetworkModule {
         if (isDebug) {
             builder.addInterceptor(
                 HttpLoggingInterceptor().apply {
-                    level = HttpLoggingInterceptor.Level.BODY
+                    level = HttpLoggingInterceptor.Level.HEADERS
+                    redactHeader("Authorization")
+                    redactHeader("Cookie")
                 }
             )
         }

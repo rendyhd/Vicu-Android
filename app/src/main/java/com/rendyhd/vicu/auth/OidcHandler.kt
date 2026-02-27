@@ -30,10 +30,15 @@ class OidcHandler @Inject constructor(
         private const val SCOPE = "openid email profile"
     }
 
+    /** Stores the OIDC state parameter for CSRF validation on callback. */
+    @Volatile
+    private var pendingState: String? = null
+
     fun buildAuthIntent(provider: OidcProviderDto, vikunjaUrl: String): Intent {
         val baseUrl = vikunjaUrl.trimEnd('/')
         val redirectUri = "$baseUrl/auth/openid/${provider.key}"
         val state = java.util.UUID.randomUUID().toString()
+        pendingState = state
 
         val authUrl = "${provider.authUrl}" +
             "?client_id=${Uri.encode(provider.clientId)}" +
@@ -45,6 +50,7 @@ class OidcHandler @Inject constructor(
         return Intent(context, OidcLoginActivity::class.java).apply {
             putExtra(OidcLoginActivity.EXTRA_AUTH_URL, authUrl)
             putExtra(OidcLoginActivity.EXTRA_REDIRECT_PREFIX, redirectUri)
+            putExtra(OidcLoginActivity.EXTRA_EXPECTED_STATE, state)
         }
     }
 
@@ -56,12 +62,23 @@ class OidcHandler @Inject constructor(
         return try {
             val error = intent.getStringExtra(OidcLoginActivity.EXTRA_ERROR)
             if (error != null) {
+                pendingState = null
                 return OidcResult.Error("OIDC error: $error")
             }
 
             val code = intent.getStringExtra(OidcLoginActivity.EXTRA_CODE)
             if (code.isNullOrBlank()) {
+                pendingState = null
                 return OidcResult.Error("No authorization code received")
+            }
+
+            // Validate state parameter to prevent CSRF
+            val returnedState = intent.getStringExtra(OidcLoginActivity.EXTRA_STATE)
+            val expectedState = pendingState
+            pendingState = null
+
+            if (expectedState == null || returnedState != expectedState) {
+                return OidcResult.Error("OIDC state mismatch — possible CSRF attack")
             }
 
             val baseUrl = vikunjaUrl.trimEnd('/')
@@ -85,6 +102,7 @@ class OidcHandler @Inject constructor(
                 OidcResult.Success(tokenResponse.token, refreshToken)
             }
         } catch (e: Exception) {
+            pendingState = null
             OidcResult.Error("OIDC callback failed: ${e.localizedMessage}")
         }
     }

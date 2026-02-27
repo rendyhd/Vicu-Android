@@ -166,6 +166,7 @@ class SetupViewModel @Inject constructor(
             when (val result = oidcHandler.handleCallback(intent, provider, url)) {
                 is OidcResult.Success -> {
                     authManager.onLoginSuccess(result.token, "oidc", url, provider.key, result.refreshToken)
+                    _uiState.update { it.copy(password = "", totpPasscode = "", apiToken = "") }
                     createBackupApiToken()
                     fetchProjectsForSelection()
                 }
@@ -191,6 +192,7 @@ class SetupViewModel @Inject constructor(
             when (val result = passwordLoginHandler.login(state.username, state.password, totp)) {
                 is PasswordLoginResult.Success -> {
                     authManager.onLoginSuccess(result.token, "password", state.serverUrl, refreshToken = result.refreshToken)
+                    _uiState.update { it.copy(password = "", totpPasscode = "", apiToken = "") }
                     createBackupApiToken()
                     fetchProjectsForSelection()
                 }
@@ -215,6 +217,7 @@ class SetupViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 authManager.onApiTokenLogin(token, _uiState.value.serverUrl)
+                _uiState.update { it.copy(password = "", totpPasscode = "", apiToken = "") }
                 // Validate the token by fetching current user
                 apiService.get().getCurrentUser()
                 fetchProjectsForSelection()
