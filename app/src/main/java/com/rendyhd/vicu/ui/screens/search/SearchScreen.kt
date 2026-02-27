@@ -137,16 +137,4 @@ fun SearchScreen(
         }
     }
 
-    LaunchedEffect(state.completedTaskIds) {
-        val lastId = state.completedTaskIds.lastOrNull() ?: return@LaunchedEffect
-        val task = state.results.find { it.id == lastId } ?: return@LaunchedEffect
-        val result = snackbarHostState.showSnackbar(
-            message = "Task completed",
-            actionLabel = "Undo",
-            duration = SnackbarDuration.Short,
-        )
-        if (result == SnackbarResult.ActionPerformed) {
-            viewModel.undoComplete(task)
-        }
-    }
 }

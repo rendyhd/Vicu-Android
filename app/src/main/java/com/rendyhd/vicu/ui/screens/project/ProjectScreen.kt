@@ -172,20 +172,6 @@ fun ProjectScreen(
         }
     }
 
-    LaunchedEffect(state.completedTaskIds) {
-        val lastId = state.completedTaskIds.lastOrNull() ?: return@LaunchedEffect
-        val allTasks = state.unsectionedTasks + state.sections.flatMap { it.tasks }
-        val task = allTasks.find { it.id == lastId } ?: return@LaunchedEffect
-        val result = snackbarHostState.showSnackbar(
-            message = "Task completed",
-            actionLabel = "Undo",
-            duration = SnackbarDuration.Short,
-        )
-        if (result == SnackbarResult.ActionPerformed) {
-            viewModel.undoComplete(task)
-        }
-    }
-
     // Date picker for swipe-to-schedule
     schedulingTask?.let { task ->
         VicuDatePickerDialog(

@@ -96,16 +96,4 @@ fun LogbookScreen(
         }
     }
 
-    LaunchedEffect(state.uncompletedTaskIds) {
-        val lastId = state.uncompletedTaskIds.lastOrNull() ?: return@LaunchedEffect
-        val task = state.tasks.find { it.id == lastId } ?: return@LaunchedEffect
-        val result = snackbarHostState.showSnackbar(
-            message = "Task uncompleted",
-            actionLabel = "Undo",
-            duration = SnackbarDuration.Short,
-        )
-        if (result == SnackbarResult.ActionPerformed) {
-            viewModel.undoUncomplete(task)
-        }
-    }
 }
