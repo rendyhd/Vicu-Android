@@ -10,6 +10,7 @@ import com.rendyhd.vicu.auth.OidcResult
 import com.rendyhd.vicu.auth.PasswordLoginHandler
 import com.rendyhd.vicu.auth.PasswordLoginResult
 import com.rendyhd.vicu.data.remote.api.ApiTokenRequestDto
+import com.rendyhd.vicu.data.local.VikunjaDatabase
 import com.rendyhd.vicu.data.remote.api.OidcProviderDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.remote.interceptor.BaseUrlHolder
@@ -59,6 +60,7 @@ class SetupViewModel @Inject constructor(
     private val baseUrlHolder: BaseUrlHolder,
     private val passwordLoginHandler: PasswordLoginHandler,
     private val oidcHandler: OidcHandler,
+    private val database: VikunjaDatabase,
 ) : ViewModel() {
 
     companion object {
@@ -162,6 +164,7 @@ class SetupViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             when (val result = oidcHandler.handleCallback(intent, provider, url)) {
                 is OidcResult.Success -> {
+                    clearLocalData()
                     authManager.onLoginSuccess(result.token, "oidc", url, provider.key, result.refreshToken)
                     _uiState.update { it.copy(password = "", totpPasscode = "", apiToken = "") }
                     createBackupApiToken()
@@ -188,6 +191,7 @@ class SetupViewModel @Inject constructor(
             val totp = if (state.showTotpField) state.totpPasscode else null
             when (val result = passwordLoginHandler.login(state.username, state.password, totp)) {
                 is PasswordLoginResult.Success -> {
+                    clearLocalData()
                     authManager.onLoginSuccess(result.token, "password", state.serverUrl, refreshToken = result.refreshToken)
                     _uiState.update { it.copy(password = "", totpPasscode = "", apiToken = "") }
                     createBackupApiToken()
@@ -213,6 +217,7 @@ class SetupViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
+                clearLocalData()
                 authManager.onApiTokenLogin(token, _uiState.value.serverUrl)
                 _uiState.update { it.copy(password = "", totpPasscode = "", apiToken = "") }
                 // Validate the token by fetching current user
@@ -244,6 +249,10 @@ class SetupViewModel @Inject constructor(
             authManager.onInboxProjectSelected(projectId)
             _uiState.update { it.copy(setupComplete = true) }
         }
+    }
+
+    private suspend fun clearLocalData() {
+        database.clearAllTables()
     }
 
     private suspend fun fetchProjectsForSelection() {
