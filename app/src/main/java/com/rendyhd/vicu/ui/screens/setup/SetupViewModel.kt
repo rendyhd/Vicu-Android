@@ -39,7 +39,7 @@ enum class SetupStep {
 
 data class SetupUiState(
     val step: SetupStep = SetupStep.ServerUrl,
-    val serverUrl: String = "",
+    val serverUrl: String = "https://app.vikunja.cloud",
     val isLoading: Boolean = false,
     val error: String? = null,
     val localAuthEnabled: Boolean = false,
