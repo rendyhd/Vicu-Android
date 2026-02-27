@@ -20,7 +20,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -252,7 +254,7 @@ class SetupViewModel @Inject constructor(
     }
 
     private suspend fun clearLocalData() {
-        database.clearAllTables()
+        withContext(Dispatchers.IO) { database.clearAllTables() }
     }
 
     private suspend fun fetchProjectsForSelection() {
