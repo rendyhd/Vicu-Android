@@ -61,7 +61,9 @@ Two syntax modes are available in Settings: **Todoist** (default — `@` for lab
 
 ### Download
 
-Grab the latest APK from [GitHub Releases](https://github.com/rendyhd/Vicu-Android/releases).
+[Add to Obtainium](https://apps.obtainium.imranr.dev/redirect.html?r=obtainium://add/https://github.com/rendyhd/Vicu-Android)
+
+Or grab the latest APK from [GitHub Releases](https://github.com/rendyhd/Vicu-Android/releases).
 
 ### First launch
 
