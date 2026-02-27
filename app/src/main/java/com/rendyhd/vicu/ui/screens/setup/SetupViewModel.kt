@@ -274,7 +274,7 @@ class SetupViewModel @Inject constructor(
                     isLoading = false,
                     step = SetupStep.ProjectSelection,
                     projects = topLevel,
-                    selectedProjectId = topLevel.firstOrNull()?.id,
+                    selectedProjectId = (topLevel.firstOrNull { it.title.equals("Inbox", ignoreCase = true) } ?: topLevel.firstOrNull())?.id,
                 )
             }
         } catch (e: Exception) {
