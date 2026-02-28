@@ -43,7 +43,7 @@ fun TodayScreen(
     onTaskClick: (Long) -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
-    onShowTaskEntry: (Long?) -> Unit = {},
+    onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     viewModel: TodayViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -70,7 +70,7 @@ fun TodayScreen(
         },
         floatingActionButton = {
             VicuFab(
-                onClick = { onShowTaskEntry(null) },
+                onClick = { onShowTaskEntry(null, DateUtils.todayEndIso()) },
                 listState = listState,
             )
         },

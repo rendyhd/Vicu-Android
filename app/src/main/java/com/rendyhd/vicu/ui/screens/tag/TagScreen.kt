@@ -38,7 +38,7 @@ fun TagScreen(
     onTaskClick: (Long) -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
-    onShowTaskEntry: (Long?) -> Unit = {},
+    onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     viewModel: TagViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -56,7 +56,7 @@ fun TagScreen(
         },
         floatingActionButton = {
             VicuFab(
-                onClick = { onShowTaskEntry(null) },
+                onClick = { onShowTaskEntry(null, null) },
                 listState = listState,
             )
         },

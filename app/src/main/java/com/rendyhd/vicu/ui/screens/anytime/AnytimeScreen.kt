@@ -41,7 +41,7 @@ fun AnytimeScreen(
     onTaskClick: (Long) -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
-    onShowTaskEntry: (Long?) -> Unit = {},
+    onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     viewModel: AnytimeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -59,7 +59,7 @@ fun AnytimeScreen(
         },
         floatingActionButton = {
             VicuFab(
-                onClick = { onShowTaskEntry(null) },
+                onClick = { onShowTaskEntry(null, null) },
                 listState = listState,
             )
         },

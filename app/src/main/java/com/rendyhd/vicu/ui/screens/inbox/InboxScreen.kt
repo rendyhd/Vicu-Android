@@ -37,7 +37,7 @@ fun InboxScreen(
     onTaskClick: (Long) -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
-    onShowTaskEntry: (Long?) -> Unit = {},
+    onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     viewModel: InboxViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -55,7 +55,7 @@ fun InboxScreen(
         },
         floatingActionButton = {
             VicuFab(
-                onClick = { onShowTaskEntry(state.inboxProjectId) },
+                onClick = { onShowTaskEntry(state.inboxProjectId, null) },
                 listState = listState,
             )
         },

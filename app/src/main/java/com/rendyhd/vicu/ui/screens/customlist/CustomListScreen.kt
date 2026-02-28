@@ -38,7 +38,7 @@ fun CustomListScreen(
     onTaskClick: (Long) -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
-    onShowTaskEntry: (Long?) -> Unit = {},
+    onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     viewModel: CustomListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -56,7 +56,7 @@ fun CustomListScreen(
         },
         floatingActionButton = {
             VicuFab(
-                onClick = { onShowTaskEntry(null) },
+                onClick = { onShowTaskEntry(null, null) },
                 listState = listState,
             )
         },

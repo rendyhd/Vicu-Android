@@ -39,7 +39,7 @@ fun UpcomingScreen(
     onTaskClick: (Long) -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
-    onShowTaskEntry: (Long?) -> Unit = {},
+    onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     viewModel: UpcomingViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -57,7 +57,7 @@ fun UpcomingScreen(
         },
         floatingActionButton = {
             VicuFab(
-                onClick = { onShowTaskEntry(null) },
+                onClick = { onShowTaskEntry(null, null) },
                 listState = listState,
             )
         },

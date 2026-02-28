@@ -107,10 +107,15 @@ class TaskEntryViewModel @Inject constructor(
         }
     }
 
-    fun initWithDefaults(defaultProjectId: Long?) {
+    fun initWithDefaults(defaultProjectId: Long?, defaultDueDate: String? = null) {
         viewModelScope.launch {
             val projectId = defaultProjectId ?: authManager.getInboxProjectId() ?: 0L
-            _uiState.update { it.copy(projectId = projectId) }
+            _uiState.update {
+                it.copy(
+                    projectId = projectId,
+                    dueDate = defaultDueDate ?: "",
+                )
+            }
         }
     }
 

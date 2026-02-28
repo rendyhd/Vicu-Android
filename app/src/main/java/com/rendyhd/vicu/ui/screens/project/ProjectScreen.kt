@@ -42,7 +42,7 @@ fun ProjectScreen(
     onTaskClick: (Long) -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
-    onShowTaskEntry: (Long?) -> Unit = {},
+    onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     viewModel: ProjectViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -60,7 +60,7 @@ fun ProjectScreen(
         },
         floatingActionButton = {
             VicuFab(
-                onClick = { onShowTaskEntry(projectId) },
+                onClick = { onShowTaskEntry(projectId, null) },
                 listState = listState,
             )
         },

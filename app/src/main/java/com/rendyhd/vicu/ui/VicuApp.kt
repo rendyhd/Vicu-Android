@@ -133,8 +133,11 @@ fun VicuApp(
         showTaskDetailSheet = true
     }
 
-    val onShowTaskEntry: (Long?) -> Unit = { projectId ->
+    var taskEntryDefaultDueDate by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val onShowTaskEntry: (Long?, String?) -> Unit = { projectId, dueDate ->
         taskEntryDefaultProjectId = projectId
+        taskEntryDefaultDueDate = dueDate
         showTaskEntrySheet = true
     }
 
@@ -296,8 +299,10 @@ fun VicuApp(
     if (showTaskEntrySheet) {
         TaskEntrySheet(
             defaultProjectId = taskEntryDefaultProjectId,
+            defaultDueDate = taskEntryDefaultDueDate,
             onDismiss = {
                 showTaskEntrySheet = false
+                taskEntryDefaultDueDate = null
                 pendingSharedContent = null
             },
             onTaskCreated = {

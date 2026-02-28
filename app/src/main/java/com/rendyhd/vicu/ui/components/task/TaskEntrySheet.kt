@@ -71,6 +71,7 @@ import com.rendyhd.vicu.util.parser.getPrefixes
 @Composable
 fun TaskEntrySheet(
     defaultProjectId: Long?,
+    defaultDueDate: String? = null,
     onDismiss: () -> Unit,
     onTaskCreated: (Long) -> Unit,
     sharedContent: SharedContent? = null,
@@ -96,11 +97,11 @@ fun TaskEntrySheet(
         }
     }
 
-    LaunchedEffect(defaultProjectId, sharedContent) {
+    LaunchedEffect(defaultProjectId, defaultDueDate, sharedContent) {
         if (sharedContent != null) {
             viewModel.initWithSharedContent(defaultProjectId, sharedContent)
         } else {
-            viewModel.initWithDefaults(defaultProjectId)
+            viewModel.initWithDefaults(defaultProjectId, defaultDueDate)
         }
     }
 
@@ -203,7 +204,8 @@ fun TaskEntrySheet(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 // Date chip
-                val dateLabel = if (state.dueDate.isNotBlank() && !DateUtils.isNullDate(state.dueDate)) {
+                val hasDate = state.dueDate.isNotBlank() && !DateUtils.isNullDate(state.dueDate)
+                val dateLabel = if (hasDate) {
                     DateUtils.formatRelativeDate(state.dueDate)
                 } else "Date"
 
@@ -213,6 +215,20 @@ fun TaskEntrySheet(
                     leadingIcon = {
                         Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
                     },
+                    trailingIcon = if (hasDate) {
+                        {
+                            IconButton(
+                                onClick = { viewModel.clearDueDate() },
+                                modifier = Modifier.size(16.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Clear date",
+                                    modifier = Modifier.size(12.dp),
+                                )
+                            }
+                        }
+                    } else null,
                 )
 
                 // Project chip

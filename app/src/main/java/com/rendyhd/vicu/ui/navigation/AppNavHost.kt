@@ -24,7 +24,7 @@ fun AppNavHost(
     onOpenDrawer: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onTaskClick: (Long) -> Unit = {},
-    onShowTaskEntry: (Long?) -> Unit = {},
+    onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     NavHost(
