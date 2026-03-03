@@ -5,15 +5,20 @@ import android.util.Log
 import androidx.glance.GlanceId
 import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.action.ActionCallback
+import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
+import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.notification.AlarmScheduler
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.worker.SyncScheduler
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import kotlinx.serialization.json.Json
 
 class ToggleTaskCallback : ActionCallback {
 
@@ -29,6 +34,7 @@ class ToggleTaskCallback : ActionCallback {
         fun taskMapper(): TaskMapper
         fun api(): VikunjaApiService
         fun alarmScheduler(): AlarmScheduler
+        fun pendingActionDao(): PendingActionDao
     }
 
     override suspend fun onAction(
@@ -47,6 +53,8 @@ class ToggleTaskCallback : ActionCallback {
         val taskMapper = entryPoint.taskMapper()
         val api = entryPoint.api()
         val alarmScheduler = entryPoint.alarmScheduler()
+        val pendingActionDao = entryPoint.pendingActionDao()
+        val json = Json { ignoreUnknownKeys = true }
 
         try {
             val entity = taskDao.getByIdSync(taskId) ?: return
@@ -64,7 +72,17 @@ class ToggleTaskCallback : ActionCallback {
                 val responseEntity = with(taskMapper) { responseDto.toEntity() }
                 taskDao.upsert(responseEntity)
             } catch (e: Exception) {
-                Log.w(TAG, "Remote toggle failed for task $taskId, local update kept", e)
+                Log.w(TAG, "Remote toggle failed for task $taskId, queuing for sync", e)
+                val action = PendingActionEntity(
+                    entityType = "task",
+                    entityId = taskId,
+                    actionType = "toggle_done",
+                    payload = json.encodeToString(Task.serializer(), toggled),
+                    createdAt = DateUtils.nowIso(),
+                    updatedAt = DateUtils.nowIso(),
+                )
+                pendingActionDao.replaceForEntity("task", taskId, action)
+                SyncScheduler.enqueueWhenOnline(context)
             }
 
             alarmScheduler.cancelForTask(taskId)

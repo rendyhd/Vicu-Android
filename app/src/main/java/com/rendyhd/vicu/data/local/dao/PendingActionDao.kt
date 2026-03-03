@@ -54,6 +54,9 @@ interface PendingActionDao {
     @Query("UPDATE pending_actions SET status = 'pending', retryCount = 0 WHERE status = 'failed'")
     suspend fun retryAllFailed()
 
+    @Query("SELECT entityId FROM pending_actions WHERE entityType = 'task' AND status = 'pending'")
+    suspend fun getTaskIdsWithPendingActions(): List<Long>
+
     @Transaction
     suspend fun replaceForEntity(entityType: String, entityId: Long, action: PendingActionEntity) {
         deleteByEntity(entityType, entityId)

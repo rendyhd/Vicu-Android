@@ -291,9 +291,12 @@ class TaskRepositoryImpl @Inject constructor(
                 page++
             }
             val entities = allTasks.map { with(taskMapper) { it.toEntity() } }
-            taskDao.upsertAll(entities)
+            // Skip tasks with pending local modifications to avoid overwriting unsynced changes
+            val pendingTaskIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
+            val safeEntities = entities.filter { it.id !in pendingTaskIds }
+            taskDao.upsertAll(safeEntities)
             alarmScheduler.rescheduleAll()
-            Log.d(TAG, "refreshAll() SUCCESS: upserted ${entities.size} total tasks")
+            Log.d(TAG, "refreshAll() SUCCESS: upserted ${safeEntities.size} total tasks (skipped ${entities.size - safeEntities.size} with pending actions)")
             NetworkResult.Success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "refreshAll() FAILED: ${e.message}", e)

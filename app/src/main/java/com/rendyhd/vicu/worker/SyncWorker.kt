@@ -174,9 +174,12 @@ class SyncWorker @AssistedInject constructor(
                 page++
             }
             val taskEntities = allTasks.map { with(taskMapper) { it.toEntity() } }
-            taskDao.upsertAll(taskEntities)
+            // Skip tasks with pending local modifications to avoid overwriting unsynced changes
+            val pendingTaskIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
+            val safeEntities = taskEntities.filter { it.id !in pendingTaskIds }
+            taskDao.upsertAll(safeEntities)
             alarmScheduler.rescheduleAll()
-            Log.d(TAG, "Refreshed ${taskEntities.size} tasks from server")
+            Log.d(TAG, "Refreshed ${safeEntities.size} tasks from server (skipped ${taskEntities.size - safeEntities.size} with pending actions)")
 
             // Refresh labels
             val labelDtos = api.getAllLabels()
