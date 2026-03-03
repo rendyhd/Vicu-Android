@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.R
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.SecureTokenStorage
+import com.rendyhd.vicu.data.local.BottomBarPrefsStore
 import com.rendyhd.vicu.data.local.CustomListStore
 import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.data.local.NotificationPrefs
@@ -21,6 +22,7 @@ import com.rendyhd.vicu.util.parser.SyntaxMode
 import com.rendyhd.vicu.data.local.VikunjaDatabase
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.domain.model.BottomBarSlot
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
@@ -61,6 +63,8 @@ data class SettingsUiState(
     val pendingActionCount: Int = 0,
     val failedActionCount: Int = 0,
     val isOnline: Boolean = true,
+    // Bottom Bar
+    val bottomBarSlots: List<BottomBarSlot> = BottomBarSlot.DEFAULT_SLOTS,
     // Messages
     val error: String? = null,
     val successMessage: String? = null,
@@ -77,6 +81,7 @@ class SettingsViewModel @Inject constructor(
     private val notificationPrefsStore: NotificationPrefsStore,
     private val themePrefsStore: ThemePrefsStore,
     private val nlpPrefsStore: NlpPrefsStore,
+    private val bottomBarPrefsStore: BottomBarPrefsStore,
     private val dailySummaryScheduler: DailySummaryScheduler,
     private val pendingActionDao: PendingActionDao,
     private val networkMonitor: NetworkMonitor,
@@ -112,10 +117,15 @@ class SettingsViewModel @Inject constructor(
         ) { pendingCount, failedCount, isOnline, themeMode, nlpConfig ->
             listOf(pendingCount, failedCount, isOnline, themeMode, nlpConfig)
         },
-        _userInfo,
-        _vikunjaUrl,
-        _inboxProjectId,
-    ) { base, syncTheme, userInfo, url, inboxId ->
+        combine(
+            _userInfo,
+            _vikunjaUrl,
+            _inboxProjectId,
+            bottomBarPrefsStore.slots,
+        ) { userInfo, url, inboxId, bbSlots ->
+            listOf(userInfo, url, inboxId, bbSlots)
+        },
+    ) { base, syncTheme, userEtc ->
         @Suppress("UNCHECKED_CAST")
         val labels = base[0] as List<Label>
         val customLists = base[1] as List<CustomList>
@@ -127,6 +137,10 @@ class SettingsViewModel @Inject constructor(
         val isOnline = syncTheme[2] as Boolean
         val themeMode = syncTheme[3] as ThemeMode
         val nlpConfig = syncTheme[4] as ParserConfig
+        val userInfo = userEtc[0] as Triple<String, String, String>
+        val url = userEtc[1] as String
+        val inboxId = userEtc[2] as Long?
+        val bbSlots = userEtc[3] as List<BottomBarSlot>
         SettingsUiState(
             username = userInfo.first,
             email = userInfo.second,
@@ -142,6 +156,7 @@ class SettingsViewModel @Inject constructor(
             pendingActionCount = pendingCount,
             failedActionCount = failedCount,
             isOnline = isOnline,
+            bottomBarSlots = bbSlots,
             error = messages.first,
             successMessage = messages.second,
         )
@@ -264,6 +279,22 @@ class SettingsViewModel @Inject constructor(
                 }
                 is NetworkResult.Loading -> {}
             }
+        }
+    }
+
+    // --- Bottom Bar ---
+
+    fun updateBottomBarSlot(index: Int, slot: BottomBarSlot) {
+        viewModelScope.launch {
+            bottomBarPrefsStore.updateSlot(index, slot)
+            _messages.update { null to "Bottom bar updated" }
+        }
+    }
+
+    fun resetBottomBar() {
+        viewModelScope.launch {
+            bottomBarPrefsStore.saveSlots(BottomBarSlot.DEFAULT_SLOTS)
+            _messages.update { null to "Bottom bar reset to defaults" }
         }
     }
 

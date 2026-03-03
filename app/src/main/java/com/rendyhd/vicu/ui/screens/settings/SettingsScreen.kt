@@ -75,10 +75,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.rendyhd.vicu.data.local.ThemeMode
+import com.rendyhd.vicu.domain.model.BottomBarSlot
+import com.rendyhd.vicu.domain.model.BottomBarSlotType
 import com.rendyhd.vicu.util.parser.SyntaxMode
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
+import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.ui.components.shared.BottomBarSlotEditor
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
+import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.LabelEditDialog
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 
@@ -104,6 +109,7 @@ fun SettingsScreen(
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showInboxPicker by remember { mutableStateOf(false) }
+    var editingSlotIndex by remember { mutableIntStateOf(-1) }
 
     // Show snackbar messages
     LaunchedEffect(state.error, state.successMessage) {
@@ -161,6 +167,8 @@ fun SettingsScreen(
                         showCustomListDialog = true
                     },
                     onDeleteCustomList = { deletingCustomList = it },
+                    onEditBottomBarSlot = { index -> editingSlotIndex = index },
+                    onResetBottomBar = viewModel::resetBottomBar,
                     onTriggerSync = viewModel::triggerSync,
                     onRetryFailed = viewModel::retryFailedActions,
                     onClearFailed = viewModel::clearFailedActions,
@@ -341,6 +349,21 @@ fun SettingsScreen(
         )
     }
 
+    // Bottom bar slot editor
+    if (editingSlotIndex in state.bottomBarSlots.indices) {
+        BottomBarSlotEditor(
+            currentSlot = state.bottomBarSlots[editingSlotIndex],
+            slotIndex = editingSlotIndex,
+            projects = state.projects,
+            customLists = state.customLists,
+            onSave = { slot ->
+                viewModel.updateBottomBarSlot(editingSlotIndex, slot)
+                editingSlotIndex = -1
+            },
+            onDismiss = { editingSlotIndex = -1 },
+        )
+    }
+
     // Inbox project picker
     if (showInboxPicker) {
         AlertDialog(
@@ -404,6 +427,8 @@ private fun GeneralTab(
     onShowCustomListDialog: () -> Unit,
     onEditCustomList: (CustomList) -> Unit,
     onDeleteCustomList: (CustomList) -> Unit,
+    onEditBottomBarSlot: (Int) -> Unit,
+    onResetBottomBar: () -> Unit,
     onTriggerSync: () -> Unit,
     onRetryFailed: () -> Unit,
     onClearFailed: () -> Unit,
@@ -523,6 +548,54 @@ private fun GeneralTab(
         }
 
         item(key = "theme_divider") {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
+        // === Bottom Bar section ===
+        item(key = "bottombar_header") {
+            Text(
+                text = "Bottom Bar",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+            )
+        }
+
+        item(key = "bottombar_desc") {
+            Text(
+                text = "Customize the last 3 slots. Inbox always stays first.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+
+        state.bottomBarSlots.forEachIndexed { index, slot ->
+            item(key = "bottombar_slot_$index") {
+                BottomBarSlotRow(
+                    slot = slot,
+                    slotIndex = index,
+                    projects = state.projects,
+                    customLists = state.customLists,
+                    onClick = { onEditBottomBarSlot(index) },
+                )
+            }
+        }
+
+        item(key = "bottombar_reset") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                TextButton(onClick = onResetBottomBar) {
+                    Text("Reset to Defaults")
+                }
+            }
+        }
+
+        item(key = "bottombar_divider") {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
 
@@ -1289,6 +1362,76 @@ private fun CustomListRow(
                 modifier = Modifier.size(18.dp),
             )
         }
+    }
+}
+
+@Composable
+private fun BottomBarSlotRow(
+    slot: BottomBarSlot,
+    slotIndex: Int,
+    projects: List<Project>,
+    customLists: List<CustomList>,
+    onClick: () -> Unit,
+) {
+    val icon = IconRegistry.resolveIcon(slot)
+    val label = when (slot.type) {
+        BottomBarSlotType.TODAY -> "Today"
+        BottomBarSlotType.UPCOMING -> "Upcoming"
+        BottomBarSlotType.ANYTIME -> "Anytime"
+        BottomBarSlotType.PROJECT -> {
+            projects.find { it.id.toString() == slot.referenceId }?.title ?: "Deleted project"
+        }
+        BottomBarSlotType.CUSTOM_LIST -> {
+            customLists.find { it.id == slot.referenceId }?.name ?: "Deleted list"
+        }
+    }
+    val typeLabel = when (slot.type) {
+        BottomBarSlotType.TODAY -> "Smart List"
+        BottomBarSlotType.UPCOMING -> "Smart List"
+        BottomBarSlotType.ANYTIME -> "Smart List"
+        BottomBarSlotType.PROJECT -> "Project"
+        BottomBarSlotType.CUSTOM_LIST -> "Custom List"
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "${slotIndex + 1}",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(20.dp),
+        )
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = typeLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(
+            Icons.Default.Edit,
+            contentDescription = "Edit slot",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 

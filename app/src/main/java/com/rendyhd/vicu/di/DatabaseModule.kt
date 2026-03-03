@@ -8,6 +8,7 @@ import com.rendyhd.vicu.data.local.dao.LabelDao
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.ProjectDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
+import com.rendyhd.vicu.data.local.BottomBarPrefsStore
 import com.rendyhd.vicu.data.local.CustomListStore
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.NlpPrefsStore
@@ -66,4 +67,9 @@ object DatabaseModule {
     @Singleton
     fun provideNlpPrefsStore(@ApplicationContext context: Context): NlpPrefsStore =
         NlpPrefsStore(context)
+
+    @Provides
+    @Singleton
+    fun provideBottomBarPrefsStore(@ApplicationContext context: Context): BottomBarPrefsStore =
+        BottomBarPrefsStore(context)
 }

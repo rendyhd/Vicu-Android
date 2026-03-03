@@ -6,11 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AllInclusive
-import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.MoveToInbox
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
@@ -32,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -39,6 +36,13 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.AuthState
+import com.rendyhd.vicu.domain.model.BottomBarSlot
+import com.rendyhd.vicu.domain.model.BottomBarSlotType
+import com.rendyhd.vicu.domain.model.CustomList
+import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.domain.model.SharedContent
+import com.rendyhd.vicu.ui.components.shared.CustomListDialog
+import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.OfflineBanner
 import com.rendyhd.vicu.ui.components.task.TaskEntrySheet
 import com.rendyhd.vicu.ui.navigation.AnytimeRoute
@@ -55,9 +59,7 @@ import com.rendyhd.vicu.ui.navigation.SetupRoute
 import com.rendyhd.vicu.ui.navigation.TagRoute
 import com.rendyhd.vicu.ui.navigation.TodayRoute
 import com.rendyhd.vicu.ui.navigation.UpcomingRoute
-import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailSheet
-import com.rendyhd.vicu.domain.model.SharedContent
 import kotlinx.coroutines.launch
 
 private data class BottomNavItem(
@@ -65,14 +67,50 @@ private data class BottomNavItem(
     val icon: ImageVector,
     val route: Any,
     val routeName: String,
+    val isParameterized: Boolean = false,
 )
 
-private val BOTTOM_NAV_ITEMS = listOf(
-    BottomNavItem("Inbox", Icons.Outlined.MoveToInbox, InboxRoute, "InboxRoute"),
-    BottomNavItem("Today", Icons.Outlined.WbSunny, TodayRoute, "TodayRoute"),
-    BottomNavItem("Upcoming", Icons.Outlined.CalendarMonth, UpcomingRoute, "UpcomingRoute"),
-    BottomNavItem("Anytime", Icons.Outlined.AllInclusive, AnytimeRoute, "AnytimeRoute"),
-)
+private fun resolveBottomBarItems(
+    slots: List<BottomBarSlot>,
+    allProjects: List<Project>,
+    customLists: List<CustomList>,
+): List<BottomNavItem> {
+    val items = mutableListOf(
+        BottomNavItem("Inbox", Icons.Outlined.MoveToInbox, InboxRoute, "InboxRoute"),
+    )
+    for (slot in slots) {
+        val item = when (slot.type) {
+            BottomBarSlotType.TODAY -> BottomNavItem(
+                "Today", IconRegistry.resolveIcon(slot), TodayRoute, "TodayRoute",
+            )
+            BottomBarSlotType.UPCOMING -> BottomNavItem(
+                "Upcoming", IconRegistry.resolveIcon(slot), UpcomingRoute, "UpcomingRoute",
+            )
+            BottomBarSlotType.ANYTIME -> BottomNavItem(
+                "Anytime", IconRegistry.resolveIcon(slot), AnytimeRoute, "AnytimeRoute",
+            )
+            BottomBarSlotType.PROJECT -> {
+                val projectId = slot.referenceId.toLongOrNull() ?: continue
+                val project = allProjects.find { it.id == projectId } ?: continue
+                BottomNavItem(
+                    project.title, IconRegistry.resolveIcon(slot),
+                    ProjectRoute(projectId), "ProjectRoute/$projectId",
+                    isParameterized = true,
+                )
+            }
+            BottomBarSlotType.CUSTOM_LIST -> {
+                val list = customLists.find { it.id == slot.referenceId } ?: continue
+                BottomNavItem(
+                    list.name, IconRegistry.resolveIcon(slot),
+                    CustomListRoute(slot.referenceId), "CustomListRoute/${slot.referenceId}",
+                    isParameterized = true,
+                )
+            }
+        }
+        items.add(item)
+    }
+    return items
+}
 
 @Composable
 fun VicuApp(
@@ -214,6 +252,11 @@ fun VicuApp(
     val drawerViewModel: DrawerViewModel = hiltViewModel()
     val drawerUiState by drawerViewModel.uiState.collectAsStateWithLifecycle()
 
+    // Build dynamic bottom bar items from config
+    val bottomNavItems = remember(drawerUiState.bottomBarSlots, drawerUiState.allProjects, drawerUiState.customLists) {
+        resolveBottomBarItems(drawerUiState.bottomBarSlots, drawerUiState.allProjects, drawerUiState.customLists)
+    }
+
     // Sync state for offline banner
     val syncStateViewModel: SyncStateViewModel = hiltViewModel()
     val isOnline by syncStateViewModel.isOnline.collectAsStateWithLifecycle()
@@ -253,17 +296,24 @@ fun VicuApp(
             bottomBar = {
                 if (showBottomBar) {
                     NavigationBar {
-                        BOTTOM_NAV_ITEMS.forEach { item ->
+                        bottomNavItems.forEach { item ->
                             NavigationBarItem(
                                 icon = { Icon(item.icon, contentDescription = item.label) },
-                                label = { Text(item.label) },
+                                label = {
+                                    Text(
+                                        item.label,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
                                 selected = currentRoute == item.routeName,
                                 onClick = {
                                     navController.navigate(item.route) {
                                         popUpTo(navController.graph.startDestinationId) {
-                                            inclusive = false
+                                            saveState = !item.isParameterized
                                         }
-                                        launchSingleTop = true
+                                        launchSingleTop = !item.isParameterized
+                                        restoreState = !item.isParameterized
                                     }
                                 },
                             )

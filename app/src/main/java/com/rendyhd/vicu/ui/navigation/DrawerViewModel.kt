@@ -3,7 +3,10 @@ package com.rendyhd.vicu.ui.navigation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.data.local.BottomBarPrefsStore
 import com.rendyhd.vicu.data.local.CustomListStore
+import com.rendyhd.vicu.domain.model.BottomBarSlot
+import com.rendyhd.vicu.domain.model.BottomBarSlotType
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
@@ -31,7 +34,18 @@ data class DrawerUiState(
     val projectsExpanded: Boolean = true,
     val listsExpanded: Boolean = true,
     val tagsExpanded: Boolean = true,
-)
+    val bottomBarSlots: List<BottomBarSlot> = BottomBarSlot.DEFAULT_SLOTS,
+) {
+    val displacedSmartLists: Set<BottomBarSlotType>
+        get() {
+            val inBar = bottomBarSlots.map { it.type }.toSet()
+            return setOf(
+                BottomBarSlotType.TODAY,
+                BottomBarSlotType.UPCOMING,
+                BottomBarSlotType.ANYTIME,
+            ) - inBar
+        }
+}
 
 @HiltViewModel
 class DrawerViewModel @Inject constructor(
@@ -39,6 +53,7 @@ class DrawerViewModel @Inject constructor(
     labelRepository: LabelRepository,
     private val customListStore: CustomListStore,
     private val authManager: AuthManager,
+    private val bottomBarPrefsStore: BottomBarPrefsStore,
 ) : ViewModel() {
 
     private val _sectionsExpanded = MutableStateFlow(
@@ -54,12 +69,24 @@ class DrawerViewModel @Inject constructor(
     }
 
     val uiState: StateFlow<DrawerUiState> = combine(
-        projectRepository.getAll(),
-        labelRepository.getAll(),
-        customListStore.getAll(),
-        _sectionsExpanded,
-        _inboxProjectId,
-    ) { projects, labels, customLists, expanded, inboxId ->
+        combine(
+            projectRepository.getAll(),
+            labelRepository.getAll(),
+            customListStore.getAll(),
+            _sectionsExpanded,
+            _inboxProjectId,
+        ) { projects, labels, customLists, expanded, inboxId ->
+            listOf(projects, labels, customLists, expanded, inboxId)
+        },
+        bottomBarPrefsStore.slots,
+    ) { base, slots ->
+        @Suppress("UNCHECKED_CAST")
+        val projects = base[0] as List<Project>
+        val labels = base[1] as List<Label>
+        val customLists = base[2] as List<CustomList>
+        val expanded = base[3] as Triple<Boolean, Boolean, Boolean>
+        val inboxId = base[4] as Long?
+
         val nonArchived = projects.filter { !it.isArchived && it.id != inboxId }
         val roots = nonArchived
             .filter { it.parentProjectId == 0L }
@@ -83,6 +110,7 @@ class DrawerViewModel @Inject constructor(
             projectsExpanded = expanded.first,
             listsExpanded = expanded.second,
             tagsExpanded = expanded.third,
+            bottomBarSlots = slots,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DrawerUiState())
 

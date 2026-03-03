@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Label
+import androidx.compose.material.icons.outlined.AllInclusive
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -25,6 +27,8 @@ import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.WbSunny
+import com.rendyhd.vicu.domain.model.BottomBarSlotType
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +45,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
+private val SmartListTodayColor = Color(0xFFEAB308)
+private val SmartListUpcomingColor = Color(0xFF3B82F6)
+private val SmartListAnytimeColor = Color(0xFF8B5CF6)
 private val SmartListLogbookColor = Color(0xFF16A34A)
 
 @Composable
@@ -58,9 +65,50 @@ fun DrawerContent(
             LazyColumn(
                 modifier = Modifier.weight(1f),
             ) {
-                // Logbook (not in bottom bar)
+                // Displaced smart lists (removed from bottom bar)
+                val displaced = state.displacedSmartLists
+                if (displaced.isNotEmpty()) {
+                    item(key = "smart_spacer") {
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    if (BottomBarSlotType.TODAY in displaced) {
+                        item(key = "smart_today") {
+                            SmartListItem(
+                                label = "Today",
+                                icon = Icons.Outlined.WbSunny,
+                                iconTint = SmartListTodayColor,
+                                selected = currentRoute == "TodayRoute",
+                                onClick = { onNavigate(TodayRoute) },
+                            )
+                        }
+                    }
+                    if (BottomBarSlotType.UPCOMING in displaced) {
+                        item(key = "smart_upcoming") {
+                            SmartListItem(
+                                label = "Upcoming",
+                                icon = Icons.Outlined.CalendarMonth,
+                                iconTint = SmartListUpcomingColor,
+                                selected = currentRoute == "UpcomingRoute",
+                                onClick = { onNavigate(UpcomingRoute) },
+                            )
+                        }
+                    }
+                    if (BottomBarSlotType.ANYTIME in displaced) {
+                        item(key = "smart_anytime") {
+                            SmartListItem(
+                                label = "Anytime",
+                                icon = Icons.Outlined.AllInclusive,
+                                iconTint = SmartListAnytimeColor,
+                                selected = currentRoute == "AnytimeRoute",
+                                onClick = { onNavigate(AnytimeRoute) },
+                            )
+                        }
+                    }
+                }
+
+                // Logbook
                 item(key = "smart_logbook") {
-                    Spacer(Modifier.height(12.dp))
+                    if (displaced.isEmpty()) Spacer(Modifier.height(12.dp))
                     SmartListItem(
                         label = "Logbook",
                         icon = Icons.Outlined.CheckCircle,
