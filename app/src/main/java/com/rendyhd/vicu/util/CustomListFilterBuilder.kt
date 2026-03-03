@@ -3,6 +3,7 @@ package com.rendyhd.vicu.util
 import com.rendyhd.vicu.domain.model.CustomListFilter
 import com.rendyhd.vicu.domain.model.Task
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
@@ -97,9 +98,57 @@ object CustomListFilterBuilder {
     fun applyClientSideFilters(tasks: List<Task>, filter: CustomListFilter): List<Task> {
         var result = tasks
 
-        // Multi-project filter (API only supports single project_id)
-        if (filter.projectIds.size > 1) {
-            result = result.filter { it.projectId in filter.projectIds }
+        // Project filter (handles both single and multi-project)
+        if (filter.projectIds.isNotEmpty()) {
+            if (filter.includeTodayAllProjects) {
+                // Union: tasks in specified projects OR tasks due today from any project
+                result = result.filter { task ->
+                    task.projectId in filter.projectIds || isTaskDueToday(task.dueDate)
+                }
+            } else {
+                result = result.filter { it.projectId in filter.projectIds }
+            }
+        }
+
+        // Due date filter
+        val now = LocalDate.now()
+        val localZone = ZoneId.systemDefault()
+        when (filter.dueDateFilter) {
+            "overdue" -> {
+                val startOfToday = now.atStartOfDay(localZone).toInstant()
+                result = result.filter { task ->
+                    val instant = DateUtils.parseIsoDate(task.dueDate)
+                    instant != null && instant.isBefore(startOfToday)
+                }
+            }
+            "today" -> {
+                val endOfToday = now.plusDays(1).atStartOfDay(localZone).toInstant()
+                result = result.filter { task ->
+                    val instant = DateUtils.parseIsoDate(task.dueDate)
+                    instant != null && instant.isBefore(endOfToday)
+                }
+            }
+            "this_week" -> {
+                val endOfWeek = now.plusWeeks(1).atStartOfDay(localZone).toInstant()
+                result = result.filter { task ->
+                    val instant = DateUtils.parseIsoDate(task.dueDate)
+                    instant != null && instant.isBefore(endOfWeek)
+                }
+            }
+            "this_month" -> {
+                val endOfMonth = now.plusMonths(1).atStartOfDay(localZone).toInstant()
+                result = result.filter { task ->
+                    val instant = DateUtils.parseIsoDate(task.dueDate)
+                    instant != null && instant.isBefore(endOfMonth)
+                }
+            }
+            "has_due_date" -> {
+                result = result.filter { !DateUtils.isNullDate(it.dueDate) }
+            }
+            "no_due_date" -> {
+                result = result.filter { DateUtils.isNullDate(it.dueDate) }
+            }
+            // "all" -> no due date filter
         }
 
         // Priority filter
@@ -115,5 +164,14 @@ object CustomListFilterBuilder {
         }
 
         return result
+    }
+
+    private fun isTaskDueToday(dueDate: String): Boolean {
+        val instant = DateUtils.parseIsoDate(dueDate) ?: return false
+        val now = LocalDate.now()
+        val localZone = ZoneId.systemDefault()
+        val startOfToday = now.atStartOfDay(localZone).toInstant()
+        val startOfTomorrow = now.plusDays(1).atStartOfDay(localZone).toInstant()
+        return !instant.isBefore(startOfToday) && instant.isBefore(startOfTomorrow)
     }
 }

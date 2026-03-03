@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.components.shared
 
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
@@ -15,6 +16,7 @@ fun VicuTopAppBar(
     title: @Composable () -> Unit,
     onOpenDrawer: () -> Unit,
     onNavigateToSearch: () -> Unit,
+    extraActions: @Composable (RowScope.() -> Unit)? = null,
 ) {
     TopAppBar(
         title = title,
@@ -24,6 +26,7 @@ fun VicuTopAppBar(
             }
         },
         actions = {
+            extraActions?.invoke(this)
             IconButton(onClick = onNavigateToSearch) {
                 Icon(Icons.Default.Search, contentDescription = "Search")
             }

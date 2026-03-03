@@ -232,6 +232,7 @@ private fun WidgetTaskRow(task: WidgetTaskItem) {
         Box(
             modifier = GlanceModifier
                 .size(36.dp)
+                .cornerRadius(18.dp)
                 .clickable(
                     actionRunCallback<ToggleTaskCallback>(
                         actionParametersOf(ToggleTaskCallback.TaskIdKey to task.id)

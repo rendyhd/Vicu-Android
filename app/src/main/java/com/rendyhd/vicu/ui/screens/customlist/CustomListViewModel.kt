@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.data.local.CustomListStore
 import com.rendyhd.vicu.domain.model.CustomList
+import com.rendyhd.vicu.domain.model.Label
+import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
@@ -13,8 +15,10 @@ import com.rendyhd.vicu.util.CustomListFilterBuilder
 import com.rendyhd.vicu.util.NetworkResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -41,6 +45,12 @@ class CustomListViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(CustomListUiState())
     val uiState: StateFlow<CustomListUiState> = _uiState.asStateFlow()
+
+    val projects: StateFlow<List<Project>> = projectRepository.getAll()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    val labels: StateFlow<List<Label>> = labelRepository.getAll()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
         viewModelScope.launch {
@@ -113,6 +123,12 @@ class CustomListViewModel @Inject constructor(
         viewModelScope.launch {
             val updated = task.copy(dueDate = newDueDate)
             taskRepository.update(updated)
+        }
+    }
+
+    fun saveCustomList(customList: CustomList) {
+        viewModelScope.launch {
+            customListStore.save(customList)
         }
     }
 

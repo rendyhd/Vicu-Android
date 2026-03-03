@@ -6,8 +6,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -26,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
@@ -42,8 +46,11 @@ fun CustomListScreen(
     viewModel: CustomListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val projects by viewModel.projects.collectAsState()
+    val labels by viewModel.labels.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var schedulingTask by remember { mutableStateOf<Task?>(null) }
+    var showEditDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     Scaffold(
@@ -52,6 +59,11 @@ fun CustomListScreen(
                 title = { Text(state.customList?.name ?: "List") },
                 onOpenDrawer = onOpenDrawer,
                 onNavigateToSearch = onNavigateToSearch,
+                extraActions = {
+                    IconButton(onClick = { showEditDialog = true }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit list")
+                    }
+                },
             )
         },
         floatingActionButton = {
@@ -127,6 +139,20 @@ fun CustomListScreen(
                 schedulingTask = null
             },
             onDismiss = { schedulingTask = null },
+        )
+    }
+
+    // Edit list dialog
+    if (showEditDialog && state.customList != null) {
+        CustomListDialog(
+            customList = state.customList,
+            projects = projects,
+            labels = labels,
+            onSave = { updated ->
+                viewModel.saveCustomList(updated)
+                showEditDialog = false
+            },
+            onDismiss = { showEditDialog = false },
         )
     }
 }
