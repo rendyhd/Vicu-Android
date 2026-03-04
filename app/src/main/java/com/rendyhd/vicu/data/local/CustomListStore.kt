@@ -59,6 +59,10 @@ class CustomListStore @Inject constructor(
         }
     }
 
+    suspend fun clear() {
+        context.customListDataStore.edit { it.clear() }
+    }
+
     suspend fun delete(id: String) {
         context.customListDataStore.edit { prefs ->
             val current = prefs[KEY_LISTS]?.let {

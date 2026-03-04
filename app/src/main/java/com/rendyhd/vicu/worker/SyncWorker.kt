@@ -159,12 +159,11 @@ class SyncWorker @AssistedInject constructor(
 
     private suspend fun refreshAllFromServer() {
         try {
-            // Refresh tasks
+            // Refresh tasks (fetch all, including completed, so remote completions sync)
             val allTasks = mutableListOf<com.rendyhd.vicu.data.remote.api.TaskDto>()
             var page = 1
             while (true) {
                 val params = mapOf(
-                    "filter" to "done = false",
                     "page" to page.toString(),
                     "per_page" to Constants.DEFAULT_PAGE_SIZE.toString(),
                 )
@@ -178,6 +177,9 @@ class SyncWorker @AssistedInject constructor(
             val pendingTaskIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
             val safeEntities = taskEntities.filter { it.id !in pendingTaskIds }
             taskDao.upsertAll(safeEntities)
+            // Remove local tasks that were deleted on the server
+            val serverTaskIds = allTasks.map { it.id }.toSet() + pendingTaskIds
+            taskDao.deleteNotIn(serverTaskIds)
             alarmScheduler.rescheduleAll()
             Log.d(TAG, "Refreshed ${safeEntities.size} tasks from server (skipped ${taskEntities.size - safeEntities.size} with pending actions)")
 

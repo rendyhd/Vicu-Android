@@ -144,6 +144,9 @@ interface TaskDao {
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("DELETE FROM tasks WHERE id NOT IN (:ids)")
+    suspend fun deleteNotIn(ids: Set<Long>)
+
     @Query("DELETE FROM tasks")
     suspend fun deleteAll()
 }

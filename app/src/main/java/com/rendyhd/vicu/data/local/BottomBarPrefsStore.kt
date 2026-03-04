@@ -43,6 +43,10 @@ class BottomBarPrefsStore @Inject constructor(
         }
     }
 
+    suspend fun clear() {
+        context.bottomBarPrefsDataStore.edit { it.clear() }
+    }
+
     suspend fun updateSlot(index: Int, slot: BottomBarSlot) {
         require(index in 0..2) { "Slot index must be 0, 1, or 2" }
         context.bottomBarPrefsDataStore.edit { prefs ->

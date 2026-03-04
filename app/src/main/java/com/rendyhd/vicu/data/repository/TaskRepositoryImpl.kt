@@ -278,7 +278,6 @@ class TaskRepositoryImpl @Inject constructor(
             var page = 1
             while (true) {
                 val params = buildMap {
-                    if (!filters.containsKey("filter")) put("filter", "done = false")
                     putAll(filters)
                     put("page", page.toString())
                     put("per_page", Constants.DEFAULT_PAGE_SIZE.toString())

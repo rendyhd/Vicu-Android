@@ -222,6 +222,8 @@ class SettingsViewModel @Inject constructor(
     fun logout() {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             database.clearAllTables()
+            customListStore.clear()
+            bottomBarPrefsStore.clear()
             authManager.logout() // calls POST /user/logout internally
         }
     }
