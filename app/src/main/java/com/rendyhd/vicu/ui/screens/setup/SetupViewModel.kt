@@ -114,7 +114,7 @@ class SetupViewModel @Inject constructor(
                         isLoading = false,
                         serverUrl = normalized,
                         localAuthEnabled = info.auth.local.enabled,
-                        oidcProviders = if (info.auth.openidConnect.enabled) info.auth.openidConnect.providers else emptyList(),
+                        oidcProviders = if (info.auth.openidConnect.enabled) info.auth.openidConnect.providers.orEmpty() else emptyList(),
                         step = SetupStep.AuthMethodPicker,
                     )
                 }

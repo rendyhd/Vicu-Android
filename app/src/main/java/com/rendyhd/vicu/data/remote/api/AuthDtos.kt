@@ -52,7 +52,7 @@ data class LocalAuthInfoDto(
 @Serializable
 data class OpenIdAuthInfoDto(
     val enabled: Boolean = false,
-    val providers: List<OidcProviderDto> = emptyList(),
+    val providers: List<OidcProviderDto>? = null,
 )
 
 @Serializable
