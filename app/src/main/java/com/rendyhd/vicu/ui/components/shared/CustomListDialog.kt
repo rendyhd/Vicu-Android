@@ -29,6 +29,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -84,6 +87,9 @@ fun CustomListDialog(
     var selectedProjectIds by remember {
         mutableStateOf(customList?.filter?.projectIds?.toSet() ?: emptySet())
     }
+    var projectFilterMode by remember {
+        mutableStateOf(customList?.filter?.projectFilterMode ?: "include")
+    }
     var sortBy by remember { mutableStateOf(customList?.filter?.sortBy ?: "due_date") }
     var orderBy by remember { mutableStateOf(customList?.filter?.orderBy ?: "asc") }
     var dueDateFilter by remember { mutableStateOf(customList?.filter?.dueDateFilter ?: "all") }
@@ -120,6 +126,23 @@ fun CustomListDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = projectFilterMode == "include",
+                        onClick = { projectFilterMode = "include" },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    ) {
+                        Text("Include")
+                    }
+                    SegmentedButton(
+                        selected = projectFilterMode == "exclude",
+                        onClick = { projectFilterMode = "exclude" },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    ) {
+                        Text("Exclude")
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -128,8 +151,12 @@ fun CustomListDialog(
                     tonalElevation = 1.dp,
                 ) {
                     Text(
-                        text = if (selectedProjectIds.isEmpty()) "All projects"
-                        else "${selectedProjectIds.size} selected",
+                        text = if (selectedProjectIds.isEmpty()) {
+                            if (projectFilterMode == "exclude") "None excluded" else "All projects"
+                        } else {
+                            if (projectFilterMode == "exclude") "${selectedProjectIds.size} excluded"
+                            else "${selectedProjectIds.size} included"
+                        },
                         modifier = Modifier.padding(12.dp),
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -310,6 +337,7 @@ fun CustomListDialog(
                                 icon = customList?.icon ?: "",
                                 filter = CustomListFilter(
                                     projectIds = selectedProjectIds.toList(),
+                                    projectFilterMode = projectFilterMode,
                                     sortBy = sortBy,
                                     orderBy = orderBy,
                                     dueDateFilter = dueDateFilter,

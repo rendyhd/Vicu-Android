@@ -32,6 +32,7 @@ import com.rendyhd.vicu.notification.DailySummaryScheduler
 import com.rendyhd.vicu.notification.NotificationChannelManager
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.widget.WidgetUpdateScheduler
 import com.rendyhd.vicu.worker.SyncScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -225,6 +226,7 @@ class SettingsViewModel @Inject constructor(
             customListStore.clear()
             bottomBarPrefsStore.clear()
             authManager.logout() // calls POST /user/logout internally
+            WidgetUpdateScheduler.enqueueImmediateUpdateAll(appContext)
         }
     }
 

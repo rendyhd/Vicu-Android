@@ -13,6 +13,7 @@ data class CustomList(
 @Serializable
 data class CustomListFilter(
     val projectIds: List<Long> = emptyList(),
+    val projectFilterMode: String = "include", // "include" or "exclude"
     val sortBy: String = "due_date",
     val orderBy: String = "asc",
     val dueDateFilter: String = "all",
