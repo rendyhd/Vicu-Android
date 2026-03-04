@@ -9,12 +9,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
@@ -73,16 +76,18 @@ fun SetupScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.statusBars)
             .padding(24.dp),
+        verticalArrangement = Arrangement.Top,
     ) {
+        Spacer(modifier = Modifier.weight(1f))
+
         // Back button for non-first steps
         if (state.step != SetupStep.ServerUrl) {
             IconButton(onClick = { viewModel.goBack() }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
 
         AnimatedContent(
             targetState = state.step,
@@ -139,6 +144,8 @@ fun SetupScreen(
                 )
             }
         }
+
+        Spacer(modifier = Modifier.weight(2f))
     }
 }
 
