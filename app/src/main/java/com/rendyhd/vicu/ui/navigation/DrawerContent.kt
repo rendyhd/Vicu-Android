@@ -64,7 +64,7 @@ fun DrawerContent(
     onCreateNewList: () -> Unit = {},
 ) {
     ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
-        Column(modifier = Modifier.fillMaxHeight().windowInsetsPadding(WindowInsets.statusBars)) {
+        Column(modifier = Modifier.fillMaxHeight()) {
             LazyColumn(
                 modifier = Modifier.weight(1f),
             ) {
