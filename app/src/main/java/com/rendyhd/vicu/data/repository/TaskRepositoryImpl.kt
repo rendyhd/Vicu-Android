@@ -295,6 +295,7 @@ class TaskRepositoryImpl @Inject constructor(
             val safeEntities = entities.filter { it.id !in pendingTaskIds }
             taskDao.upsertAll(safeEntities)
             alarmScheduler.rescheduleAll()
+            WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
             Log.d(TAG, "refreshAll() SUCCESS: upserted ${safeEntities.size} total tasks (skipped ${entities.size - safeEntities.size} with pending actions)")
             NetworkResult.Success(Unit)
         } catch (e: Exception) {
