@@ -36,8 +36,20 @@ class ProjectRepositoryImpl @Inject constructor(
     override suspend fun create(project: Project): NetworkResult<Project> =
         NetworkResult.Error("Not yet implemented")
 
-    override suspend fun update(project: Project): NetworkResult<Project> =
-        NetworkResult.Error("Not yet implemented")
+    override suspend fun update(project: Project): NetworkResult<Project> {
+        return try {
+            val dto = with(projectMapper) { project.toDto() }
+            val entity = with(projectMapper) { dto.toEntity() }
+            projectDao.upsert(entity)
+            val responseDto = api.updateProject(project.id, dto)
+            val responseEntity = with(projectMapper) { responseDto.toEntity() }
+            projectDao.upsert(responseEntity)
+            NetworkResult.Success(with(projectMapper) { responseEntity.toDomain() })
+        } catch (_: Exception) {
+            // Optimistic update already saved locally
+            NetworkResult.Success(project)
+        }
+    }
 
     override suspend fun delete(projectId: Long): NetworkResult<Unit> =
         NetworkResult.Error("Not yet implemented")

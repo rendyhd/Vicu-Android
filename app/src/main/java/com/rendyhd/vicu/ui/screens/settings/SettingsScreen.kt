@@ -282,6 +282,7 @@ fun SettingsScreen(
                 showCustomListDialog = false
                 editingCustomList = null
             },
+            inboxProjectId = state.inboxProjectId ?: 0L,
         )
     }
 

@@ -81,7 +81,15 @@ fun CustomListDialog(
     labels: List<Label>,
     onSave: (CustomList) -> Unit,
     onDismiss: () -> Unit,
+    inboxProjectId: Long = 0L,
 ) {
+    val sortedProjects = remember(projects, inboxProjectId) {
+        projects.filter { !it.isArchived }
+            .sortedWith(
+                compareBy<Project> { it.id != inboxProjectId }
+                    .thenBy { it.position },
+            )
+    }
     val isEdit = customList != null
     var name by remember { mutableStateOf(customList?.name ?: "") }
     var selectedProjectIds by remember {
@@ -167,7 +175,7 @@ fun CustomListDialog(
                 if (showProjectPicker) {
                     LazyColumn(modifier = Modifier.heightIn(max = 150.dp)) {
                         items(
-                            projects.filter { !it.isArchived },
+                            sortedProjects,
                             key = { it.id },
                         ) { project ->
                             Row(
@@ -312,7 +320,7 @@ fun CustomListDialog(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 AddToProjectSelector(
-                    projects = projects.filter { !it.isArchived },
+                    projects = sortedProjects,
                     selectedProjectId = addToProjectId,
                     onSelect = { addToProjectId = it },
                 )

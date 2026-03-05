@@ -35,6 +35,7 @@ data class DrawerUiState(
     val listsExpanded: Boolean = true,
     val tagsExpanded: Boolean = true,
     val bottomBarSlots: List<BottomBarSlot> = BottomBarSlot.DEFAULT_SLOTS,
+    val inboxProjectId: Long = 0L,
 ) {
     val displacedSmartLists: Set<BottomBarSlotType>
         get() {
@@ -49,7 +50,7 @@ data class DrawerUiState(
 
 @HiltViewModel
 class DrawerViewModel @Inject constructor(
-    projectRepository: ProjectRepository,
+    private val projectRepository: ProjectRepository,
     labelRepository: LabelRepository,
     private val customListStore: CustomListStore,
     private val authManager: AuthManager,
@@ -111,6 +112,7 @@ class DrawerViewModel @Inject constructor(
             listsExpanded = expanded.second,
             tagsExpanded = expanded.third,
             bottomBarSlots = slots,
+            inboxProjectId = inboxId ?: 0L,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DrawerUiState())
 
@@ -135,6 +137,29 @@ class DrawerViewModel @Inject constructor(
     fun saveCustomList(customList: CustomList) {
         viewModelScope.launch {
             customListStore.save(customList)
+        }
+    }
+
+    fun reorderProject(fromIndex: Int, toIndex: Int) {
+        viewModelScope.launch {
+            val roots = uiState.value.projectTree.map { it.project }
+            if (fromIndex == toIndex || fromIndex !in roots.indices || toIndex !in roots.indices) return@launch
+            val mutable = roots.toMutableList()
+            val moved = mutable.removeAt(fromIndex)
+            mutable.add(toIndex, moved)
+            val newPos = when {
+                mutable.size == 1 -> 1.0
+                toIndex == 0 -> (mutable.getOrNull(1)?.position ?: 1.0) / 2.0
+                toIndex == mutable.lastIndex -> mutable[toIndex - 1].position + 1.0
+                else -> (mutable[toIndex - 1].position + mutable[toIndex + 1].position) / 2.0
+            }
+            projectRepository.update(moved.copy(position = newPos))
+        }
+    }
+
+    fun reorderCustomList(fromIndex: Int, toIndex: Int) {
+        viewModelScope.launch {
+            customListStore.reorder(fromIndex, toIndex)
         }
     }
 }

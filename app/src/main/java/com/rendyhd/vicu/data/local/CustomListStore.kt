@@ -63,6 +63,23 @@ class CustomListStore @Inject constructor(
         context.customListDataStore.edit { it.clear() }
     }
 
+    suspend fun reorder(fromIndex: Int, toIndex: Int) {
+        context.customListDataStore.edit { prefs ->
+            val current = prefs[KEY_LISTS]?.let {
+                try {
+                    json.decodeFromString(ListSerializer(CustomList.serializer()), it).toMutableList()
+                } catch (_: Exception) {
+                    mutableListOf()
+                }
+            } ?: return@edit
+
+            if (fromIndex !in current.indices || toIndex !in current.indices) return@edit
+            val item = current.removeAt(fromIndex)
+            current.add(toIndex, item)
+            prefs[KEY_LISTS] = json.encodeToString(ListSerializer(CustomList.serializer()), current)
+        }
+    }
+
     suspend fun delete(id: String) {
         context.customListDataStore.edit { prefs ->
             val current = prefs[KEY_LISTS]?.let {

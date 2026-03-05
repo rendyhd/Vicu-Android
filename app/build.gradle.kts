@@ -124,6 +124,9 @@ dependencies {
     implementation(libs.appauth)
     implementation(libs.tink.android)
 
+    // Reorderable (drag-and-drop)
+    implementation(libs.reorderable)
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

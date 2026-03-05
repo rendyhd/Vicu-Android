@@ -319,6 +319,8 @@ fun VicuApp(
                     scope.launch { drawerState.close() }
                     showNewListDialog = true
                 },
+                onReorderProject = drawerViewModel::reorderProject,
+                onReorderList = drawerViewModel::reorderCustomList,
             )
         },
     ) {
@@ -412,6 +414,7 @@ fun VicuApp(
                 navController.navigate(CustomListRoute(list.id))
             },
             onDismiss = { showNewListDialog = false },
+            inboxProjectId = drawerUiState.inboxProjectId,
         )
     }
 }

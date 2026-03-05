@@ -3,6 +3,7 @@ package com.rendyhd.vicu.ui.screens.customlist
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.CustomListStore
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
@@ -30,6 +31,7 @@ data class CustomListUiState(
     val isRefreshing: Boolean = false,
     val error: String? = null,
     val completedTaskIds: Set<Long> = emptySet(),
+    val inboxProjectId: Long = 0L,
 )
 
 @HiltViewModel
@@ -39,6 +41,7 @@ class CustomListViewModel @Inject constructor(
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
     private val customListStore: CustomListStore,
+    private val authManager: AuthManager,
 ) : ViewModel() {
 
     private val listId: String = savedStateHandle["listId"]!!
@@ -60,6 +63,10 @@ class CustomListViewModel @Inject constructor(
                     loadTasks(customList)
                 }
             }
+        }
+        viewModelScope.launch {
+            val inboxId = authManager.getInboxProjectId() ?: 0L
+            _uiState.update { it.copy(inboxProjectId = inboxId) }
         }
     }
 

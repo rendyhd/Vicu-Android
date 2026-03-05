@@ -154,6 +154,7 @@ fun CustomListScreen(
                 showEditDialog = false
             },
             onDismiss = { showEditDialog = false },
+            inboxProjectId = state.inboxProjectId,
         )
     }
 }

@@ -494,6 +494,7 @@ fun TaskDetailSheet(
             selectedProjectId = state.task?.projectId,
             onProjectSelected = viewModel::setProject,
             onDismiss = { showProjectPicker = false },
+            inboxProjectId = state.inboxProjectId,
         )
     }
 
