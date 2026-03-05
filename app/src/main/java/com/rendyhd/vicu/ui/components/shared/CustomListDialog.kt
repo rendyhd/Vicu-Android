@@ -96,6 +96,9 @@ fun CustomListDialog(
     var selectedLabelIds by remember {
         mutableStateOf(customList?.filter?.labelIds?.toSet() ?: emptySet())
     }
+    var addToProjectId by remember {
+        mutableStateOf(customList?.filter?.addToProjectId ?: 0L)
+    }
     var includeDone by remember { mutableStateOf(customList?.filter?.includeDone ?: false) }
     var includeTodayAllProjects by remember {
         mutableStateOf(customList?.filter?.includeTodayAllProjects ?: false)
@@ -301,6 +304,23 @@ fun CustomListDialog(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(12.dp))
 
+                // Add tasks to project
+                Text(
+                    text = "Add tasks to",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                AddToProjectSelector(
+                    projects = projects.filter { !it.isArchived },
+                    selectedProjectId = addToProjectId,
+                    onSelect = { addToProjectId = it },
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(12.dp))
+
                 // Toggles
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -338,6 +358,7 @@ fun CustomListDialog(
                                 filter = CustomListFilter(
                                     projectIds = selectedProjectIds.toList(),
                                     projectFilterMode = projectFilterMode,
+                                    addToProjectId = addToProjectId,
                                     sortBy = sortBy,
                                     orderBy = orderBy,
                                     dueDateFilter = dueDateFilter,
@@ -402,6 +423,54 @@ private fun DropdownSelector(
                     text = { Text(displayLabel) },
                     onClick = {
                         onSelect(value)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddToProjectSelector(
+    projects: List<Project>,
+    selectedProjectId: Long,
+    onSelect: (Long) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = if (selectedProjectId == 0L) "Inbox (default)"
+    else projects.find { it.id == selectedProjectId }?.title ?: "Inbox (default)"
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+    ) {
+        OutlinedTextField(
+            value = selectedName,
+            onValueChange = {},
+            readOnly = true,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Inbox (default)") },
+                onClick = {
+                    onSelect(0L)
+                    expanded = false
+                },
+            )
+            projects.forEach { project ->
+                DropdownMenuItem(
+                    text = { Text(project.title) },
+                    onClick = {
+                        onSelect(project.id)
                         expanded = false
                     },
                 )

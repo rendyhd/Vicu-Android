@@ -169,6 +169,8 @@ fun SettingsScreen(
                     onDeleteCustomList = { deletingCustomList = it },
                     onEditBottomBarSlot = { index -> editingSlotIndex = index },
                     onResetBottomBar = viewModel::resetBottomBar,
+                    onSetWidgetSmartAdd = viewModel::setWidgetSmartAdd,
+                    onSetWidgetContextNav = viewModel::setWidgetContextNav,
                     onTriggerSync = viewModel::triggerSync,
                     onRetryFailed = viewModel::retryFailedActions,
                     onClearFailed = viewModel::clearFailedActions,
@@ -429,6 +431,8 @@ private fun GeneralTab(
     onDeleteCustomList: (CustomList) -> Unit,
     onEditBottomBarSlot: (Int) -> Unit,
     onResetBottomBar: () -> Unit,
+    onSetWidgetSmartAdd: (Boolean) -> Unit,
+    onSetWidgetContextNav: (Boolean) -> Unit,
     onTriggerSync: () -> Unit,
     onRetryFailed: () -> Unit,
     onClearFailed: () -> Unit,
@@ -596,6 +600,67 @@ private fun GeneralTab(
         }
 
         item(key = "bottombar_divider") {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
+        // === Widget section ===
+        item(key = "widget_header") {
+            Text(
+                text = "Widget",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+            )
+        }
+
+        item(key = "widget_smart_add") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Smart add button", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Add tasks to the widget's project or list target",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.widgetSmartAdd,
+                    onCheckedChange = onSetWidgetSmartAdd,
+                )
+            }
+        }
+
+        item(key = "widget_context_nav") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Context navigation", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Tapping the widget title opens the matching screen",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.widgetContextNav,
+                    onCheckedChange = onSetWidgetContextNav,
+                )
+            }
+        }
+
+        item(key = "widget_divider") {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
 

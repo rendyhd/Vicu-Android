@@ -9,6 +9,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.rendyhd.vicu.auth.SecureTokenStorage
 import com.rendyhd.vicu.data.local.CustomListStore
+import com.rendyhd.vicu.data.local.WidgetPrefsStore
 import com.rendyhd.vicu.data.local.dao.ProjectDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.TaskEntity
@@ -28,6 +29,7 @@ class TaskWidgetWorker @AssistedInject constructor(
     private val taskMapper: TaskMapper,
     private val secureTokenStorage: SecureTokenStorage,
     private val customListStore: CustomListStore,
+    private val widgetPrefsStore: WidgetPrefsStore,
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -76,6 +78,10 @@ class TaskWidgetWorker @AssistedInject constructor(
             val singleWidgetId = inputData.getInt("app_widget_id", -1)
             val updateAll = inputData.getBoolean("update_all", false)
 
+            // Read widget behavior prefs
+            val smartAddEnabled = widgetPrefsStore.smartAdd.first()
+            val contextNavEnabled = widgetPrefsStore.contextNav.first()
+
             // Build project name lookup
             val projects = projectDao.getAllSync()
             val projectNameMap = projects.associate { it.id to it.title }
@@ -109,6 +115,14 @@ class TaskWidgetWorker @AssistedInject constructor(
                     )
                 }
 
+                // Resolve addToProjectId for custom lists
+                val addToProjectId = if (resolvedConfig.viewType == WidgetViewType.CUSTOM_LIST) {
+                    val cl = customListStore.getById(resolvedConfig.viewId).first()
+                    cl?.filter?.addToProjectId ?: 0L
+                } else {
+                    0L
+                }
+
                 val state = TaskWidgetState(
                     viewType = resolvedConfig.viewType,
                     viewId = resolvedConfig.viewId,
@@ -116,6 +130,9 @@ class TaskWidgetWorker @AssistedInject constructor(
                     tasks = widgetTasks,
                     totalCount = totalCount,
                     lastUpdated = DateUtils.nowIso(),
+                    smartAdd = smartAddEnabled,
+                    contextNav = contextNavEnabled,
+                    addToProjectId = addToProjectId,
                 )
 
                 updateAppWidgetState(

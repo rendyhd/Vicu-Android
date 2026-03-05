@@ -14,6 +14,7 @@ data class CustomList(
 data class CustomListFilter(
     val projectIds: List<Long> = emptyList(),
     val projectFilterMode: String = "include", // "include" or "exclude"
+    val addToProjectId: Long = 0L, // 0 = inbox (default)
     val sortBy: String = "due_date",
     val orderBy: String = "asc",
     val dueDateFilter: String = "all",
