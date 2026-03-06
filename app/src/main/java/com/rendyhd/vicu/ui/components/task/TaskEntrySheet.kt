@@ -320,6 +320,7 @@ fun TaskEntrySheet(
             selectedProjectId = state.projectId,
             onProjectSelected = viewModel::setProjectId,
             onDismiss = { showProjectPicker = false },
+            inboxProjectId = state.inboxProjectId,
         )
     }
 

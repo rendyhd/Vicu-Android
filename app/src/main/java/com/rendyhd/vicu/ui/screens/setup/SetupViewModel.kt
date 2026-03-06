@@ -15,7 +15,10 @@ import com.rendyhd.vicu.data.remote.api.OidcProviderDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.remote.interceptor.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.widget.WidgetUpdateScheduler
+import android.content.Context
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -57,6 +60,7 @@ data class SetupUiState(
 
 @HiltViewModel
 class SetupViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val apiService: dagger.Lazy<VikunjaApiService>,
     private val authManager: AuthManager,
     private val baseUrlHolder: BaseUrlHolder,
@@ -250,6 +254,7 @@ class SetupViewModel @Inject constructor(
         viewModelScope.launch {
             authManager.onInboxProjectSelected(projectId)
             _uiState.update { it.copy(setupComplete = true) }
+            WidgetUpdateScheduler.enqueueImmediateUpdateAll(appContext)
         }
     }
 

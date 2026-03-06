@@ -23,8 +23,8 @@ object CustomListFilterBuilder {
             parts.add("done = false")
         }
 
-        // Single project filter (API only supports one)
-        if (filter.projectIds.size == 1) {
+        // Single project filter (API only supports one; exclude mode uses client-side only)
+        if (filter.projectFilterMode != "exclude" && filter.projectIds.size == 1) {
             parts.add("project_id = ${filter.projectIds.first()}")
         }
 
@@ -62,8 +62,8 @@ object CustomListFilterBuilder {
             // "all" -> no due date filter
         }
 
-        // Include today from all projects (union mode)
-        if (filter.includeTodayAllProjects && filter.projectIds.isNotEmpty()) {
+        // Include today from all projects (union mode) — only for include mode
+        if (filter.projectFilterMode != "exclude" && filter.includeTodayAllProjects && filter.projectIds.isNotEmpty()) {
             val endOfToday = now.plusDays(1).atStartOfDay().minusNanos(1).toInstant(ZoneOffset.UTC)
             val startOfToday = now.atStartOfDay().toInstant(ZoneOffset.UTC)
             val projectFilter = if (filter.projectIds.size == 1) {
@@ -98,15 +98,26 @@ object CustomListFilterBuilder {
     fun applyClientSideFilters(tasks: List<Task>, filter: CustomListFilter): List<Task> {
         var result = tasks
 
-        // Project filter (handles both single and multi-project)
+        // Project filter (handles include and exclude modes)
         if (filter.projectIds.isNotEmpty()) {
-            if (filter.includeTodayAllProjects) {
-                // Union: tasks in specified projects OR tasks due today from any project
-                result = result.filter { task ->
-                    task.projectId in filter.projectIds || isTaskDueToday(task.dueDate)
+            if (filter.projectFilterMode == "exclude") {
+                // Exclude mode: remove tasks from the selected projects
+                if (filter.includeTodayAllProjects) {
+                    result = result.filter { task ->
+                        task.projectId !in filter.projectIds || isTaskDueToday(task.dueDate)
+                    }
+                } else {
+                    result = result.filter { it.projectId !in filter.projectIds }
                 }
             } else {
-                result = result.filter { it.projectId in filter.projectIds }
+                // Include mode (default)
+                if (filter.includeTodayAllProjects) {
+                    result = result.filter { task ->
+                        task.projectId in filter.projectIds || isTaskDueToday(task.dueDate)
+                    }
+                } else {
+                    result = result.filter { it.projectId in filter.projectIds }
+                }
             }
         }
 

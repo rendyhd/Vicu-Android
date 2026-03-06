@@ -119,7 +119,10 @@ fun VicuApp(
     initialTaskId: kotlinx.coroutines.flow.StateFlow<Long?>? = null,
     onInitialTaskConsumed: () -> Unit = {},
     showTaskEntry: kotlinx.coroutines.flow.StateFlow<Boolean>? = null,
+    showTaskEntryProjectId: kotlinx.coroutines.flow.StateFlow<Long?>? = null,
     onShowTaskEntryConsumed: () -> Unit = {},
+    navigateToView: kotlinx.coroutines.flow.StateFlow<Pair<String, String>?>? = null,
+    onNavigateToViewConsumed: () -> Unit = {},
     sharedContent: kotlinx.coroutines.flow.StateFlow<SharedContent?>? = null,
     onSharedContentConsumed: () -> Unit = {},
 ) {
@@ -148,13 +151,39 @@ fun VicuApp(
         }
     }
 
-    // Handle widget deep link → open TaskEntrySheet
+    // Handle widget deep link → open TaskEntrySheet (optionally with project)
     val showTaskEntryValue = showTaskEntry?.collectAsStateWithLifecycle()?.value
+    val showTaskEntryProjectIdValue = showTaskEntryProjectId?.collectAsStateWithLifecycle()?.value
     LaunchedEffect(showTaskEntryValue) {
         if (showTaskEntryValue == true) {
+            taskEntryDefaultProjectId = showTaskEntryProjectIdValue
             showTaskEntrySheet = true
             onShowTaskEntryConsumed()
         }
+    }
+
+    // Handle widget title click → navigate to matching screen
+    val navigateToViewValue = navigateToView?.collectAsStateWithLifecycle()?.value
+    LaunchedEffect(navigateToViewValue) {
+        val (viewType, viewId) = navigateToViewValue ?: return@LaunchedEffect
+        when (viewType) {
+            "TODAY" -> navController.navigate(TodayRoute) { launchSingleTop = true }
+            "INBOX" -> navController.navigate(InboxRoute) { launchSingleTop = true }
+            "UPCOMING" -> navController.navigate(UpcomingRoute) { launchSingleTop = true }
+            "ANYTIME" -> navController.navigate(AnytimeRoute) { launchSingleTop = true }
+            "PROJECT" -> {
+                val projectId = viewId.toLongOrNull()
+                if (projectId != null) {
+                    navController.navigate(ProjectRoute(projectId)) { launchSingleTop = true }
+                }
+            }
+            "CUSTOM_LIST" -> {
+                if (viewId.isNotBlank()) {
+                    navController.navigate(CustomListRoute(viewId)) { launchSingleTop = true }
+                }
+            }
+        }
+        onNavigateToViewConsumed()
     }
 
     // Handle share intent → open TaskEntrySheet with shared content
@@ -290,6 +319,8 @@ fun VicuApp(
                     scope.launch { drawerState.close() }
                     showNewListDialog = true
                 },
+                onReorderProject = drawerViewModel::reorderProject,
+                onReorderList = drawerViewModel::reorderCustomList,
             )
         },
     ) {
@@ -383,6 +414,7 @@ fun VicuApp(
                 navController.navigate(CustomListRoute(list.id))
             },
             onDismiss = { showNewListDialog = false },
+            inboxProjectId = drawerUiState.inboxProjectId,
         )
     }
 }

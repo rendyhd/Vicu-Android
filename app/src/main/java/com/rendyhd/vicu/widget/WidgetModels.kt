@@ -26,6 +26,9 @@ data class TaskWidgetState(
     val totalCount: Int = 0,
     val lastUpdated: String = "",
     val error: String? = null,
+    val smartAdd: Boolean = true,
+    val contextNav: Boolean = true,
+    val addToProjectId: Long = 0L, // for custom lists: which project the + button targets
 )
 
 @Serializable

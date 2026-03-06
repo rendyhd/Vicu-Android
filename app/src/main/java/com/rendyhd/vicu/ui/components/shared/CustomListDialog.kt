@@ -29,6 +29,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -78,17 +81,31 @@ fun CustomListDialog(
     labels: List<Label>,
     onSave: (CustomList) -> Unit,
     onDismiss: () -> Unit,
+    inboxProjectId: Long = 0L,
 ) {
+    val sortedProjects = remember(projects, inboxProjectId) {
+        projects.filter { !it.isArchived }
+            .sortedWith(
+                compareBy<Project> { it.id != inboxProjectId }
+                    .thenBy { it.position },
+            )
+    }
     val isEdit = customList != null
     var name by remember { mutableStateOf(customList?.name ?: "") }
     var selectedProjectIds by remember {
         mutableStateOf(customList?.filter?.projectIds?.toSet() ?: emptySet())
+    }
+    var projectFilterMode by remember {
+        mutableStateOf(customList?.filter?.projectFilterMode ?: "include")
     }
     var sortBy by remember { mutableStateOf(customList?.filter?.sortBy ?: "due_date") }
     var orderBy by remember { mutableStateOf(customList?.filter?.orderBy ?: "asc") }
     var dueDateFilter by remember { mutableStateOf(customList?.filter?.dueDateFilter ?: "all") }
     var selectedLabelIds by remember {
         mutableStateOf(customList?.filter?.labelIds?.toSet() ?: emptySet())
+    }
+    var addToProjectId by remember {
+        mutableStateOf(customList?.filter?.addToProjectId ?: 0L)
     }
     var includeDone by remember { mutableStateOf(customList?.filter?.includeDone ?: false) }
     var includeTodayAllProjects by remember {
@@ -120,6 +137,23 @@ fun CustomListDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = projectFilterMode == "include",
+                        onClick = { projectFilterMode = "include" },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    ) {
+                        Text("Include")
+                    }
+                    SegmentedButton(
+                        selected = projectFilterMode == "exclude",
+                        onClick = { projectFilterMode = "exclude" },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    ) {
+                        Text("Exclude")
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -128,8 +162,12 @@ fun CustomListDialog(
                     tonalElevation = 1.dp,
                 ) {
                     Text(
-                        text = if (selectedProjectIds.isEmpty()) "All projects"
-                        else "${selectedProjectIds.size} selected",
+                        text = if (selectedProjectIds.isEmpty()) {
+                            if (projectFilterMode == "exclude") "None excluded" else "All projects"
+                        } else {
+                            if (projectFilterMode == "exclude") "${selectedProjectIds.size} excluded"
+                            else "${selectedProjectIds.size} included"
+                        },
                         modifier = Modifier.padding(12.dp),
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -137,7 +175,7 @@ fun CustomListDialog(
                 if (showProjectPicker) {
                     LazyColumn(modifier = Modifier.heightIn(max = 150.dp)) {
                         items(
-                            projects.filter { !it.isArchived },
+                            sortedProjects,
                             key = { it.id },
                         ) { project ->
                             Row(
@@ -274,6 +312,23 @@ fun CustomListDialog(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(12.dp))
 
+                // Add tasks to project
+                Text(
+                    text = "Add tasks to",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                AddToProjectSelector(
+                    projects = sortedProjects,
+                    selectedProjectId = addToProjectId,
+                    onSelect = { addToProjectId = it },
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(12.dp))
+
                 // Toggles
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -310,6 +365,8 @@ fun CustomListDialog(
                                 icon = customList?.icon ?: "",
                                 filter = CustomListFilter(
                                     projectIds = selectedProjectIds.toList(),
+                                    projectFilterMode = projectFilterMode,
+                                    addToProjectId = addToProjectId,
                                     sortBy = sortBy,
                                     orderBy = orderBy,
                                     dueDateFilter = dueDateFilter,
@@ -374,6 +431,54 @@ private fun DropdownSelector(
                     text = { Text(displayLabel) },
                     onClick = {
                         onSelect(value)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddToProjectSelector(
+    projects: List<Project>,
+    selectedProjectId: Long,
+    onSelect: (Long) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = if (selectedProjectId == 0L) "Inbox (default)"
+    else projects.find { it.id == selectedProjectId }?.title ?: "Inbox (default)"
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+    ) {
+        OutlinedTextField(
+            value = selectedName,
+            onValueChange = {},
+            readOnly = true,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Inbox (default)") },
+                onClick = {
+                    onSelect(0L)
+                    expanded = false
+                },
+            )
+            projects.forEach { project ->
+                DropdownMenuItem(
+                    text = { Text(project.title) },
+                    onClick = {
+                        onSelect(project.id)
                         expanded = false
                     },
                 )

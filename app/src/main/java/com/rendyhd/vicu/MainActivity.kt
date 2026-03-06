@@ -34,6 +34,8 @@ class MainActivity : ComponentActivity() {
 
     private val _initialTaskId = MutableStateFlow<Long?>(null)
     private val _showTaskEntry = MutableStateFlow(false)
+    private val _showTaskEntryProjectId = MutableStateFlow<Long?>(null)
+    private val _navigateToView = MutableStateFlow<Pair<String, String>?>(null)
     private val _sharedContent = MutableStateFlow<SharedContent?>(null)
 
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -65,7 +67,13 @@ class MainActivity : ComponentActivity() {
                     initialTaskId = _initialTaskId,
                     onInitialTaskConsumed = { _initialTaskId.value = null },
                     showTaskEntry = _showTaskEntry,
-                    onShowTaskEntryConsumed = { _showTaskEntry.value = false },
+                    showTaskEntryProjectId = _showTaskEntryProjectId,
+                    onShowTaskEntryConsumed = {
+                        _showTaskEntry.value = false
+                        _showTaskEntryProjectId.value = null
+                    },
+                    navigateToView = _navigateToView,
+                    onNavigateToViewConsumed = { _navigateToView.value = null },
                     sharedContent = _sharedContent,
                     onSharedContentConsumed = { _sharedContent.value = null },
                 )
@@ -87,6 +95,16 @@ class MainActivity : ComponentActivity() {
         }
         if (intent.getBooleanExtra("show_task_entry", false)) {
             _showTaskEntry.value = true
+            val projectId = intent.getLongExtra("default_project_id", 0L)
+            if (projectId != 0L) {
+                _showTaskEntryProjectId.value = projectId
+            }
+        }
+
+        val navViewType = intent.getStringExtra("navigate_to_view_type")
+        if (!navViewType.isNullOrBlank()) {
+            val navViewId = intent.getStringExtra("navigate_to_view_id") ?: ""
+            _navigateToView.value = navViewType to navViewId
         }
 
         when (intent.action) {

@@ -8,6 +8,7 @@ import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.TaskReminder
+import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.domain.repository.AttachmentRepository
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
@@ -38,6 +39,7 @@ data class TaskDetailUiState(
     val attachments: List<Attachment> = emptyList(),
     val showDeleteConfirmation: Boolean = false,
     val isDeleted: Boolean = false,
+    val inboxProjectId: Long = 0L,
 )
 
 @HiltViewModel
@@ -46,6 +48,7 @@ class TaskDetailViewModel @Inject constructor(
     private val labelRepository: LabelRepository,
     private val attachmentRepository: AttachmentRepository,
     private val projectRepository: ProjectRepository,
+    private val authManager: AuthManager,
 ) : ViewModel() {
 
     companion object {
@@ -100,6 +103,11 @@ class TaskDetailViewModel @Inject constructor(
             projectRepository.getAll().collect { projects ->
                 _uiState.update { it.copy(allProjects = projects) }
             }
+        }
+
+        viewModelScope.launch {
+            val inboxId = authManager.getInboxProjectId() ?: 0L
+            _uiState.update { it.copy(inboxProjectId = inboxId) }
         }
 
         viewModelScope.launch {

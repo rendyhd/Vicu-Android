@@ -92,9 +92,31 @@ private val medPriorityColor = ColorProvider(
 
 // Action callbacks for deep linking
 class OpenTaskEntryAction : ActionCallback {
+    companion object {
+        val DefaultProjectIdKey = ActionParameters.Key<Long>("default_project_id")
+    }
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val intent = Intent(context, MainActivity::class.java).apply {
             putExtra("show_task_entry", true)
+            val projectId = parameters[DefaultProjectIdKey] ?: 0L
+            if (projectId != 0L) {
+                putExtra("default_project_id", projectId)
+            }
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        context.startActivity(intent)
+    }
+}
+
+class OpenWidgetViewAction : ActionCallback {
+    companion object {
+        val ViewTypeKey = ActionParameters.Key<String>("view_type")
+        val ViewIdKey = ActionParameters.Key<String>("view_id")
+    }
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            putExtra("navigate_to_view_type", parameters[ViewTypeKey] ?: "")
+            putExtra("navigate_to_view_id", parameters[ViewIdKey] ?: "")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         context.startActivity(intent)
@@ -115,6 +137,39 @@ class OpenTaskDetailAction : ActionCallback {
     }
 }
 
+/**
+ * Resolves which project the + button should add tasks to, based on the widget state.
+ * - PROJECT widget → that project's ID
+ * - CUSTOM_LIST widget → the list's addToProjectId (0 = inbox)
+ * - Everything else → 0 (inbox)
+ */
+private fun resolveAddProjectId(state: TaskWidgetState): Long {
+    if (!state.smartAdd) return 0L
+    return when (state.viewType) {
+        WidgetViewType.PROJECT -> state.viewId.toLongOrNull() ?: 0L
+        WidgetViewType.CUSTOM_LIST -> state.addToProjectId
+        else -> 0L
+    }
+}
+
+/**
+ * Builds the click action for the widget title.
+ * When contextNav is enabled, navigates to the matching screen.
+ * Otherwise, just opens the app.
+ */
+@Composable
+private fun titleClickAction(state: TaskWidgetState) =
+    if (state.contextNav) {
+        actionRunCallback<OpenWidgetViewAction>(
+            actionParametersOf(
+                OpenWidgetViewAction.ViewTypeKey to state.viewType.name,
+                OpenWidgetViewAction.ViewIdKey to state.viewId,
+            )
+        )
+    } else {
+        actionStartActivity<MainActivity>()
+    }
+
 @Composable
 private fun CompactWidget(state: TaskWidgetState) {
     Box(
@@ -122,7 +177,7 @@ private fun CompactWidget(state: TaskWidgetState) {
             .fillMaxSize()
             .cornerRadius(16.dp)
             .background(GlanceTheme.colors.widgetBackground)
-            .clickable(actionStartActivity<MainActivity>())
+            .clickable(titleClickAction(state))
             .padding(16.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -139,7 +194,7 @@ private fun CompactWidget(state: TaskWidgetState) {
                 ),
                 modifier = GlanceModifier.defaultWeight(),
             )
-            AddButton()
+            AddButton(state)
         }
     }
 }
@@ -155,7 +210,18 @@ private fun ScrollableWidget(state: TaskWidgetState) {
     ) {
         WidgetHeader(state)
         Spacer(modifier = GlanceModifier.height(8.dp))
-        if (state.tasks.isEmpty()) {
+        if (state.error != null) {
+            Box(
+                modifier = GlanceModifier.fillMaxSize()
+                    .clickable(actionStartActivity<MainActivity>()),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = state.error,
+                    style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 14.sp),
+                )
+            }
+        } else if (state.tasks.isEmpty()) {
             Box(
                 modifier = GlanceModifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
@@ -190,21 +256,29 @@ private fun WidgetHeader(state: TaskWidgetState) {
             ),
             modifier = GlanceModifier
                 .defaultWeight()
-                .clickable(actionStartActivity<MainActivity>()),
+                .clickable(titleClickAction(state)),
         )
-        AddButton()
+        AddButton(state)
     }
 }
 
 @Composable
-private fun AddButton() {
+private fun AddButton(state: TaskWidgetState) {
+    val projectId = resolveAddProjectId(state)
+    val action = if (projectId != 0L) {
+        actionRunCallback<OpenTaskEntryAction>(
+            actionParametersOf(OpenTaskEntryAction.DefaultProjectIdKey to projectId)
+        )
+    } else {
+        actionRunCallback<OpenTaskEntryAction>()
+    }
     Box(
         modifier = GlanceModifier
             .height(36.dp)
             .width(46.dp)
             .cornerRadius(18.dp)
             .background(GlanceTheme.colors.primary)
-            .clickable(actionRunCallback<OpenTaskEntryAction>()),
+            .clickable(action),
         contentAlignment = Alignment.Center,
     ) {
         Image(

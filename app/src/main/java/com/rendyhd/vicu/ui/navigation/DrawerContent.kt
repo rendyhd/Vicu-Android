@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.navigation
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -7,23 +8,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.outlined.AllInclusive
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.DragHandle
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FilterList
@@ -34,19 +32,25 @@ import androidx.compose.material.icons.outlined.WbSunny
 import com.rendyhd.vicu.domain.model.BottomBarSlotType
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import sh.calvin.reorderable.ReorderableColumn
 
 private val SmartListTodayColor = Color(0xFFEAB308)
 private val SmartListUpcomingColor = Color(0xFF3B82F6)
@@ -62,7 +66,10 @@ fun DrawerContent(
     onToggleLists: () -> Unit,
     onToggleTags: () -> Unit,
     onCreateNewList: () -> Unit = {},
+    onReorderProject: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
+    onReorderList: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
 ) {
+    val hapticFeedback = LocalHapticFeedback.current
     ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
         Column(modifier = Modifier.fillMaxHeight()) {
             LazyColumn(
@@ -133,13 +140,61 @@ fun DrawerContent(
                     )
                 }
                 if (state.projectsExpanded) {
-                    state.projectTree.forEach { node ->
-                        item(key = "project_${node.project.id}") {
-                            ProjectItem(
-                                project = node.project,
-                                selected = currentRoute == "ProjectRoute/${node.project.id}",
-                                onClick = { onNavigate(ProjectRoute(node.project.id)) },
-                            )
+                    item(key = "projects_reorderable") {
+                        ReorderableColumn(
+                            list = state.projectTree,
+                            onSettle = { fromIndex, toIndex ->
+                                onReorderProject(fromIndex, toIndex)
+                            },
+                            onMove = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            },
+                        ) { _, node, isDragging ->
+                            key(node.project.id) {
+                                val elevation = animateDpAsState(
+                                    if (isDragging) 4.dp else 0.dp,
+                                    label = "dragElevation",
+                                )
+                                val folderColor = parseHexColor(node.project.hexColor)
+                                Surface(
+                                    shadowElevation = elevation.value,
+                                    color = if (isDragging) {
+                                        MaterialTheme.colorScheme.surfaceContainerHigh
+                                    } else {
+                                        Color.Transparent
+                                    },
+                                ) {
+                                    NavigationDrawerItem(
+                                        label = { Text(node.project.title) },
+                                        icon = {
+                                            Icon(
+                                                Icons.Outlined.Folder,
+                                                contentDescription = null,
+                                                tint = folderColor
+                                                    ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        },
+                                        badge = {
+                                            IconButton(
+                                                modifier = Modifier.draggableHandle(),
+                                                onClick = {},
+                                            ) {
+                                                Icon(
+                                                    Icons.Outlined.DragHandle,
+                                                    contentDescription = "Reorder",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
+                                        },
+                                        selected = currentRoute == "ProjectRoute/${node.project.id}",
+                                        onClick = { onNavigate(ProjectRoute(node.project.id)) },
+                                        modifier = Modifier.padding(
+                                            NavigationDrawerItemDefaults.ItemPadding,
+                                        ),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -156,20 +211,60 @@ fun DrawerContent(
                     )
                 }
                 if (state.listsExpanded) {
-                    items(state.customLists, key = { "list_${it.id}" }) { list ->
-                        NavigationDrawerItem(
-                            label = { Text(list.name) },
-                            icon = {
-                                Icon(
-                                    Icons.Outlined.FilterList,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                    item(key = "lists_reorderable") {
+                        ReorderableColumn(
+                            list = state.customLists,
+                            onSettle = { fromIndex, toIndex ->
+                                onReorderList(fromIndex, toIndex)
                             },
-                            selected = currentRoute == "CustomListRoute/${list.id}",
-                            onClick = { onNavigate(CustomListRoute(list.id)) },
-                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                        )
+                            onMove = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            },
+                        ) { _, list, isDragging ->
+                            key(list.id) {
+                                val elevation = animateDpAsState(
+                                    if (isDragging) 4.dp else 0.dp,
+                                    label = "dragElevation",
+                                )
+                                Surface(
+                                    shadowElevation = elevation.value,
+                                    color = if (isDragging) {
+                                        MaterialTheme.colorScheme.surfaceContainerHigh
+                                    } else {
+                                        Color.Transparent
+                                    },
+                                ) {
+                                    NavigationDrawerItem(
+                                        label = { Text(list.name) },
+                                        icon = {
+                                            Icon(
+                                                Icons.Outlined.FilterList,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        },
+                                        badge = {
+                                            IconButton(
+                                                modifier = Modifier.draggableHandle(),
+                                                onClick = {},
+                                            ) {
+                                                Icon(
+                                                    Icons.Outlined.DragHandle,
+                                                    contentDescription = "Reorder",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
+                                        },
+                                        selected = currentRoute == "CustomListRoute/${list.id}",
+                                        onClick = { onNavigate(CustomListRoute(list.id)) },
+                                        modifier = Modifier.padding(
+                                            NavigationDrawerItemDefaults.ItemPadding,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
                     }
                     item(key = "new_list") {
                         NavigationDrawerItem(
@@ -303,28 +398,6 @@ private fun SectionHeader(
             modifier = Modifier.size(20.dp),
         )
     }
-}
-
-@Composable
-private fun ProjectItem(
-    project: com.rendyhd.vicu.domain.model.Project,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val folderColor = parseHexColor(project.hexColor)
-    NavigationDrawerItem(
-        label = { Text(project.title) },
-        icon = {
-            Icon(
-                Icons.Outlined.Folder,
-                contentDescription = null,
-                tint = folderColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        selected = selected,
-        onClick = onClick,
-        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-    )
 }
 
 private fun parseHexColor(hex: String): Color? {

@@ -17,6 +17,7 @@ import com.rendyhd.vicu.data.local.NotificationPrefs
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.ThemeMode
 import com.rendyhd.vicu.data.local.ThemePrefsStore
+import com.rendyhd.vicu.data.local.WidgetPrefsStore
 import com.rendyhd.vicu.util.parser.ParserConfig
 import com.rendyhd.vicu.util.parser.SyntaxMode
 import com.rendyhd.vicu.data.local.VikunjaDatabase
@@ -32,6 +33,7 @@ import com.rendyhd.vicu.notification.DailySummaryScheduler
 import com.rendyhd.vicu.notification.NotificationChannelManager
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.widget.WidgetUpdateScheduler
 import com.rendyhd.vicu.worker.SyncScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -65,6 +67,9 @@ data class SettingsUiState(
     val isOnline: Boolean = true,
     // Bottom Bar
     val bottomBarSlots: List<BottomBarSlot> = BottomBarSlot.DEFAULT_SLOTS,
+    // Widget
+    val widgetSmartAdd: Boolean = true,
+    val widgetContextNav: Boolean = true,
     // Messages
     val error: String? = null,
     val successMessage: String? = null,
@@ -83,6 +88,7 @@ class SettingsViewModel @Inject constructor(
     private val nlpPrefsStore: NlpPrefsStore,
     private val bottomBarPrefsStore: BottomBarPrefsStore,
     private val dailySummaryScheduler: DailySummaryScheduler,
+    private val widgetPrefsStore: WidgetPrefsStore,
     private val pendingActionDao: PendingActionDao,
     private val networkMonitor: NetworkMonitor,
     private val database: VikunjaDatabase,
@@ -125,7 +131,13 @@ class SettingsViewModel @Inject constructor(
         ) { userInfo, url, inboxId, bbSlots ->
             listOf(userInfo, url, inboxId, bbSlots)
         },
-    ) { base, syncTheme, userEtc ->
+        combine(
+            widgetPrefsStore.smartAdd,
+            widgetPrefsStore.contextNav,
+        ) { smartAdd, contextNav ->
+            listOf(smartAdd, contextNav)
+        },
+    ) { base, syncTheme, userEtc, widgetPrefs ->
         @Suppress("UNCHECKED_CAST")
         val labels = base[0] as List<Label>
         val customLists = base[1] as List<CustomList>
@@ -141,6 +153,8 @@ class SettingsViewModel @Inject constructor(
         val url = userEtc[1] as String
         val inboxId = userEtc[2] as Long?
         val bbSlots = userEtc[3] as List<BottomBarSlot>
+        val smartAdd = widgetPrefs[0] as Boolean
+        val contextNav = widgetPrefs[1] as Boolean
         SettingsUiState(
             username = userInfo.first,
             email = userInfo.second,
@@ -157,6 +171,8 @@ class SettingsViewModel @Inject constructor(
             failedActionCount = failedCount,
             isOnline = isOnline,
             bottomBarSlots = bbSlots,
+            widgetSmartAdd = smartAdd,
+            widgetContextNav = contextNav,
             error = messages.first,
             successMessage = messages.second,
         )
@@ -225,6 +241,7 @@ class SettingsViewModel @Inject constructor(
             customListStore.clear()
             bottomBarPrefsStore.clear()
             authManager.logout() // calls POST /user/logout internally
+            WidgetUpdateScheduler.enqueueImmediateUpdateAll(appContext)
         }
     }
 
@@ -374,6 +391,22 @@ class SettingsViewModel @Inject constructor(
             _messages.update { null to "Test notification sent" }
         } catch (_: SecurityException) {
             _messages.update { "Notification permission not granted" to null }
+        }
+    }
+
+    // --- Widget ---
+
+    fun setWidgetSmartAdd(enabled: Boolean) {
+        viewModelScope.launch {
+            widgetPrefsStore.setSmartAdd(enabled)
+            WidgetUpdateScheduler.enqueueImmediateUpdateAll(appContext)
+        }
+    }
+
+    fun setWidgetContextNav(enabled: Boolean) {
+        viewModelScope.launch {
+            widgetPrefsStore.setContextNav(enabled)
+            WidgetUpdateScheduler.enqueueImmediateUpdateAll(appContext)
         }
     }
 

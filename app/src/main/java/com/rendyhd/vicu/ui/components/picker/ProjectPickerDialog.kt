@@ -18,6 +18,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,13 +40,22 @@ fun ProjectPickerDialog(
     selectedProjectId: Long?,
     onProjectSelected: (Long) -> Unit,
     onDismiss: () -> Unit,
+    inboxProjectId: Long = 0L,
 ) {
+    val sorted = remember(projects, inboxProjectId) {
+        projects.filter { !it.isArchived }
+            .sortedWith(
+                compareBy<Project> { it.id != inboxProjectId }
+                    .thenBy { it.parentProjectId }
+                    .thenBy { it.position },
+            )
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Move to project") },
         text = {
             LazyColumn {
-                items(projects.filter { !it.isArchived }, key = { it.id }) { project ->
+                items(sorted, key = { it.id }) { project ->
                     val isSelected = project.id == selectedProjectId
                     val indent = if (project.parentProjectId > 0) 24.dp else 0.dp
 

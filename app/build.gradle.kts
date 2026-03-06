@@ -25,8 +25,8 @@ android {
         applicationId = "com.rendyhd.vicu"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
-        versionName = "1.0.14"
+        versionCode = 16
+        versionName = "1.0.15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -123,6 +123,9 @@ dependencies {
     // Auth
     implementation(libs.appauth)
     implementation(libs.tink.android)
+
+    // Reorderable (drag-and-drop)
+    implementation(libs.reorderable)
 
     // Testing
     testImplementation(libs.junit)

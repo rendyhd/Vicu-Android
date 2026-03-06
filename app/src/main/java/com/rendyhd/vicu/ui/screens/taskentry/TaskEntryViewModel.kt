@@ -58,6 +58,7 @@ data class TaskEntryUiState(
     val suppressedTypes: Set<TokenType> = emptySet(),
     val pendingAttachmentUris: List<Uri> = emptyList(),
     val pendingAttachmentMimeType: String? = null,
+    val inboxProjectId: Long = 0L,
 )
 
 @HiltViewModel
@@ -89,6 +90,10 @@ class TaskEntryViewModel @Inject constructor(
             labelRepository.getAll().collect { labels ->
                 _uiState.update { it.copy(allLabels = labels) }
             }
+        }
+        viewModelScope.launch {
+            val inboxId = authManager.getInboxProjectId() ?: 0L
+            _uiState.update { it.copy(inboxProjectId = inboxId) }
         }
         viewModelScope.launch {
             nlpPrefsStore.config.collect { config ->
