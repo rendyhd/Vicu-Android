@@ -341,12 +341,13 @@ fun VicuApp(
                                 },
                                 selected = currentRoute == item.routeName,
                                 onClick = {
+                                    val isStartDest = item.route is InboxRoute
                                     navController.navigate(item.route) {
                                         popUpTo(navController.graph.startDestinationId) {
-                                            saveState = !item.isParameterized
+                                            saveState = !item.isParameterized && !isStartDest
                                         }
                                         launchSingleTop = !item.isParameterized
-                                        restoreState = !item.isParameterized
+                                        restoreState = !item.isParameterized && !isStartDest
                                     }
                                 },
                             )
