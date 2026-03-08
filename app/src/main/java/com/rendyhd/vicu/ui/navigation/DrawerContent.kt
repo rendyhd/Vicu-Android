@@ -27,6 +27,8 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.WbSunny
 import com.rendyhd.vicu.domain.model.BottomBarSlotType
@@ -40,7 +42,11 @@ import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,6 +76,8 @@ fun DrawerContent(
     onReorderList: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
 ) {
     val hapticFeedback = LocalHapticFeedback.current
+    var editingProjects by remember { mutableStateOf(false) }
+    var editingLists by remember { mutableStateOf(false) }
     ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
         Column(modifier = Modifier.fillMaxHeight()) {
             LazyColumn(
@@ -137,64 +145,88 @@ fun DrawerContent(
                         title = "PROJECTS",
                         expanded = state.projectsExpanded,
                         onToggle = onToggleProjects,
+                        editing = editingProjects,
+                        onEditToggle = { editingProjects = !editingProjects },
                     )
                 }
                 if (state.projectsExpanded) {
-                    item(key = "projects_reorderable") {
-                        ReorderableColumn(
-                            list = state.projectTree,
-                            onSettle = { fromIndex, toIndex ->
-                                onReorderProject(fromIndex, toIndex)
-                            },
-                            onMove = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            },
-                        ) { _, node, isDragging ->
-                            key(node.project.id) {
-                                val elevation = animateDpAsState(
-                                    if (isDragging) 4.dp else 0.dp,
-                                    label = "dragElevation",
-                                )
-                                val folderColor = parseHexColor(node.project.hexColor)
-                                Surface(
-                                    shadowElevation = elevation.value,
-                                    color = if (isDragging) {
-                                        MaterialTheme.colorScheme.surfaceContainerHigh
-                                    } else {
-                                        Color.Transparent
-                                    },
-                                ) {
-                                    NavigationDrawerItem(
-                                        label = { Text(node.project.title) },
-                                        icon = {
-                                            Icon(
-                                                Icons.Outlined.Folder,
-                                                contentDescription = null,
-                                                tint = folderColor
-                                                    ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        },
-                                        badge = {
-                                            IconButton(
-                                                modifier = Modifier.draggableHandle(),
-                                                onClick = {},
-                                            ) {
-                                                Icon(
-                                                    Icons.Outlined.DragHandle,
-                                                    contentDescription = "Reorder",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(18.dp),
-                                                )
-                                            }
-                                        },
-                                        selected = currentRoute == "ProjectRoute/${node.project.id}",
-                                        onClick = { onNavigate(ProjectRoute(node.project.id)) },
-                                        modifier = Modifier.padding(
-                                            NavigationDrawerItemDefaults.ItemPadding,
-                                        ),
+                    if (editingProjects) {
+                        item(key = "projects_reorderable") {
+                            ReorderableColumn(
+                                list = state.projectTree,
+                                onSettle = { fromIndex, toIndex ->
+                                    onReorderProject(fromIndex, toIndex)
+                                },
+                                onMove = {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                },
+                            ) { _, node, isDragging ->
+                                key(node.project.id) {
+                                    val elevation = animateDpAsState(
+                                        if (isDragging) 4.dp else 0.dp,
+                                        label = "dragElevation",
                                     )
+                                    val folderColor = parseHexColor(node.project.hexColor)
+                                    Surface(
+                                        shadowElevation = elevation.value,
+                                        color = if (isDragging) {
+                                            MaterialTheme.colorScheme.surfaceContainerHigh
+                                        } else {
+                                            Color.Transparent
+                                        },
+                                    ) {
+                                        NavigationDrawerItem(
+                                            label = { Text(node.project.title) },
+                                            icon = {
+                                                Icon(
+                                                    Icons.Outlined.Folder,
+                                                    contentDescription = null,
+                                                    tint = folderColor
+                                                        ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            },
+                                            badge = {
+                                                IconButton(
+                                                    modifier = Modifier.draggableHandle(),
+                                                    onClick = {},
+                                                ) {
+                                                    Icon(
+                                                        Icons.Outlined.DragHandle,
+                                                        contentDescription = "Reorder",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(18.dp),
+                                                    )
+                                                }
+                                            },
+                                            selected = currentRoute == "ProjectRoute/${node.project.id}",
+                                            onClick = { onNavigate(ProjectRoute(node.project.id)) },
+                                            modifier = Modifier.padding(
+                                                NavigationDrawerItemDefaults.ItemPadding,
+                                            ),
+                                        )
+                                    }
                                 }
                             }
+                        }
+                    } else {
+                        items(state.projectTree, key = { "project_${it.project.id}" }) { node ->
+                            val folderColor = parseHexColor(node.project.hexColor)
+                            NavigationDrawerItem(
+                                label = { Text(node.project.title) },
+                                icon = {
+                                    Icon(
+                                        Icons.Outlined.Folder,
+                                        contentDescription = null,
+                                        tint = folderColor
+                                            ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                selected = currentRoute == "ProjectRoute/${node.project.id}",
+                                onClick = { onNavigate(ProjectRoute(node.project.id)) },
+                                modifier = Modifier.padding(
+                                    NavigationDrawerItemDefaults.ItemPadding,
+                                ),
+                            )
                         }
                     }
                 }
@@ -208,62 +240,84 @@ fun DrawerContent(
                         title = "LISTS",
                         expanded = state.listsExpanded,
                         onToggle = onToggleLists,
+                        editing = editingLists,
+                        onEditToggle = { editingLists = !editingLists },
                     )
                 }
                 if (state.listsExpanded) {
-                    item(key = "lists_reorderable") {
-                        ReorderableColumn(
-                            list = state.customLists,
-                            onSettle = { fromIndex, toIndex ->
-                                onReorderList(fromIndex, toIndex)
-                            },
-                            onMove = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            },
-                        ) { _, list, isDragging ->
-                            key(list.id) {
-                                val elevation = animateDpAsState(
-                                    if (isDragging) 4.dp else 0.dp,
-                                    label = "dragElevation",
-                                )
-                                Surface(
-                                    shadowElevation = elevation.value,
-                                    color = if (isDragging) {
-                                        MaterialTheme.colorScheme.surfaceContainerHigh
-                                    } else {
-                                        Color.Transparent
-                                    },
-                                ) {
-                                    NavigationDrawerItem(
-                                        label = { Text(list.name) },
-                                        icon = {
-                                            Icon(
-                                                Icons.Outlined.FilterList,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        },
-                                        badge = {
-                                            IconButton(
-                                                modifier = Modifier.draggableHandle(),
-                                                onClick = {},
-                                            ) {
-                                                Icon(
-                                                    Icons.Outlined.DragHandle,
-                                                    contentDescription = "Reorder",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(18.dp),
-                                                )
-                                            }
-                                        },
-                                        selected = currentRoute == "CustomListRoute/${list.id}",
-                                        onClick = { onNavigate(CustomListRoute(list.id)) },
-                                        modifier = Modifier.padding(
-                                            NavigationDrawerItemDefaults.ItemPadding,
-                                        ),
+                    if (editingLists) {
+                        item(key = "lists_reorderable") {
+                            ReorderableColumn(
+                                list = state.customLists,
+                                onSettle = { fromIndex, toIndex ->
+                                    onReorderList(fromIndex, toIndex)
+                                },
+                                onMove = {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                },
+                            ) { _, list, isDragging ->
+                                key(list.id) {
+                                    val elevation = animateDpAsState(
+                                        if (isDragging) 4.dp else 0.dp,
+                                        label = "dragElevation",
                                     )
+                                    Surface(
+                                        shadowElevation = elevation.value,
+                                        color = if (isDragging) {
+                                            MaterialTheme.colorScheme.surfaceContainerHigh
+                                        } else {
+                                            Color.Transparent
+                                        },
+                                    ) {
+                                        NavigationDrawerItem(
+                                            label = { Text(list.name) },
+                                            icon = {
+                                                Icon(
+                                                    Icons.Outlined.FilterList,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            },
+                                            badge = {
+                                                IconButton(
+                                                    modifier = Modifier.draggableHandle(),
+                                                    onClick = {},
+                                                ) {
+                                                    Icon(
+                                                        Icons.Outlined.DragHandle,
+                                                        contentDescription = "Reorder",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(18.dp),
+                                                    )
+                                                }
+                                            },
+                                            selected = currentRoute == "CustomListRoute/${list.id}",
+                                            onClick = { onNavigate(CustomListRoute(list.id)) },
+                                            modifier = Modifier.padding(
+                                                NavigationDrawerItemDefaults.ItemPadding,
+                                            ),
+                                        )
+                                    }
                                 }
                             }
+                        }
+                    } else {
+                        items(state.customLists, key = { "list_${it.id}" }) { list ->
+                            NavigationDrawerItem(
+                                label = { Text(list.name) },
+                                icon = {
+                                    Icon(
+                                        Icons.Outlined.FilterList,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                selected = currentRoute == "CustomListRoute/${list.id}",
+                                onClick = { onNavigate(CustomListRoute(list.id)) },
+                                modifier = Modifier.padding(
+                                    NavigationDrawerItemDefaults.ItemPadding,
+                                ),
+                            )
                         }
                     }
                     item(key = "new_list") {
@@ -376,13 +430,14 @@ private fun SectionHeader(
     title: String,
     expanded: Boolean,
     onToggle: () -> Unit,
+    editing: Boolean = false,
+    onEditToggle: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onToggle)
-            .padding(horizontal = 28.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .padding(start = 28.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -390,13 +445,36 @@ private fun SectionHeader(
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
         )
-        Icon(
-            imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-            contentDescription = if (expanded) "Collapse" else "Expand",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp),
-        )
+        if (onEditToggle != null && expanded) {
+            IconButton(
+                onClick = onEditToggle,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    imageVector = if (editing) Icons.Outlined.Check else Icons.Outlined.Edit,
+                    contentDescription = if (editing) "Done editing" else "Edit order",
+                    tint = if (editing) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        IconButton(
+            onClick = onToggle,
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 
