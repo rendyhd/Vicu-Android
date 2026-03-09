@@ -17,12 +17,15 @@ import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
 import com.rendyhd.vicu.worker.SyncScheduler
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.cancellation.CancellationException
 
 @Singleton
 class TaskRepositoryImpl @Inject constructor(
@@ -113,6 +116,8 @@ class TaskRepositoryImpl @Inject constructor(
             alarmScheduler.scheduleForTask(created)
             WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
             NetworkResult.Success(created)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
                 val tempId = tempIdCounter.decrementAndGet()
@@ -149,6 +154,13 @@ class TaskRepositoryImpl @Inject constructor(
             alarmScheduler.scheduleForTask(updated)
             WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
             NetworkResult.Success(updated)
+        } catch (e: CancellationException) {
+            // Optimistic write already done — queue for sync before re-throwing
+            withContext(NonCancellable) {
+                queueTaskAction(task.id, "update", json.encodeToString(Task.serializer(), task))
+                WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
+            }
+            throw e
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
                 // Optimistic write already done above
@@ -169,6 +181,13 @@ class TaskRepositoryImpl @Inject constructor(
             api.deleteTask(taskId)
             WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
             NetworkResult.Success(Unit)
+        } catch (e: CancellationException) {
+            // Local delete already done — queue for sync before re-throwing
+            withContext(NonCancellable) {
+                queueTaskAction(taskId, "delete", "")
+                WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
+            }
+            throw e
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
                 // Local delete already done
@@ -226,11 +245,11 @@ class TaskRepositoryImpl @Inject constructor(
     }
 
     override suspend fun toggleDone(task: Task): NetworkResult<Task> {
+        val toggled = task.copy(
+            done = !task.done,
+            doneAt = if (!task.done) DateUtils.nowIso() else "",
+        )
         return try {
-            val toggled = task.copy(
-                done = !task.done,
-                doneAt = if (!task.done) DateUtils.nowIso() else "",
-            )
             // Don't update Room yet — let the ViewModel show strikethrough via
             // completedTaskIds so the task stays visible for undo.
             // On refresh, the ViewModel calls deleteLocalByIds() to clean up.
@@ -245,12 +264,21 @@ class TaskRepositoryImpl @Inject constructor(
             }
             WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
             NetworkResult.Success(result)
+        } catch (e: CancellationException) {
+            // API call cancelled — persist to Room and queue for sync before re-throwing
+            withContext(NonCancellable) {
+                val dto = with(taskMapper) { toggled.toDto() }
+                val entity = with(taskMapper) { dto.toEntity() }
+                taskDao.upsert(entity)
+                queueTaskAction(task.id, "toggle_done", json.encodeToString(Task.serializer(), toggled))
+                if (toggled.done) {
+                    alarmScheduler.cancelForTask(task.id)
+                }
+                WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
+            }
+            throw e
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
-                val toggled = task.copy(
-                    done = !task.done,
-                    doneAt = if (!task.done) DateUtils.nowIso() else "",
-                )
                 // Persist toggled state to Room for offline
                 val dto = with(taskMapper) { toggled.toDto() }
                 val entity = with(taskMapper) { dto.toEntity() }

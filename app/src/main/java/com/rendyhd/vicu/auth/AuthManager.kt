@@ -54,7 +54,27 @@ class AuthManager @Inject constructor(
         private set
 
     private val refreshMutex = Mutex()
+    private val initMutex = Mutex()
     private var proactiveRefreshJob: Job? = null
+
+    @Volatile
+    private var isInitialized = false
+
+    /**
+     * Ensure AuthManager has loaded tokens from DataStore.
+     * Safe to call concurrently — uses double-checked locking via [initMutex].
+     * Used by interceptors/workers that may run before MainActivity.onCreate().
+     */
+    suspend fun ensureInitializedAndGetToken(): String? {
+        if (!isInitialized) {
+            initMutex.withLock {
+                if (!isInitialized) {
+                    initialize()
+                }
+            }
+        }
+        return cachedToken
+    }
 
     suspend fun initialize() {
         val url = tokenStorage.getVikunjaUrl()
@@ -92,6 +112,7 @@ class AuthManager @Inject constructor(
                 _authState.value = AuthState.Unauthenticated
             }
         }
+        isInitialized = true
     }
 
     fun getBestTokenSync(): String? = cachedToken
@@ -192,6 +213,7 @@ class AuthManager @Inject constructor(
         }
         cachedToken = null
         cachedJwtExpiry = 0L
+        isInitialized = false
         tokenStorage.clear()
         _authState.value = AuthState.Unauthenticated
     }

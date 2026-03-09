@@ -13,7 +13,13 @@ class BaseUrlInterceptor @Inject constructor(
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
-        val fullBaseUrl = baseUrlHolder.getFullBaseUrl()
+        var fullBaseUrl = baseUrlHolder.getFullBaseUrl()
+
+        if (fullBaseUrl.isEmpty()) {
+            // Cold start: MainActivity hasn't set baseUrl yet — load from DataStore
+            baseUrlHolder.ensureInitializedBlocking()
+            fullBaseUrl = baseUrlHolder.getFullBaseUrl()
+        }
 
         if (fullBaseUrl.isEmpty()) {
             if (BuildConfig.DEBUG) Log.w("BaseUrlInterceptor", "baseUrl is EMPTY — request going to localhost: ${originalRequest.url}")

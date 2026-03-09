@@ -41,10 +41,6 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideBaseUrlHolder(): BaseUrlHolder = BaseUrlHolder()
-
-    @Provides
-    @Singleton
     fun provideJson(): Json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true

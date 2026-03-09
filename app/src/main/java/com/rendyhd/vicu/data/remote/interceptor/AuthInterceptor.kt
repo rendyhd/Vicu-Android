@@ -3,6 +3,7 @@ package com.rendyhd.vicu.data.remote.interceptor
 import android.util.Log
 import com.rendyhd.vicu.BuildConfig
 import com.rendyhd.vicu.auth.AuthManager
+import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.Response
 import javax.inject.Inject
@@ -27,7 +28,11 @@ class AuthInterceptor @Inject constructor(
             return chain.proceed(originalRequest)
         }
 
-        val token = authManager.getBestTokenSync()
+        var token = authManager.getBestTokenSync()
+        if (token.isNullOrBlank()) {
+            // Cold start: AuthManager hasn't loaded tokens yet — load from DataStore
+            token = runBlocking { authManager.ensureInitializedAndGetToken() }
+        }
         if (token.isNullOrBlank()) {
             if (BuildConfig.DEBUG) Log.w(TAG, "No token available for path=$path")
             return chain.proceed(originalRequest)

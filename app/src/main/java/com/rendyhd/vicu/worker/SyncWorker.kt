@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.dao.LabelDao
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
@@ -13,6 +14,7 @@ import com.rendyhd.vicu.data.mapper.LabelMapper
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.LabelTaskDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.data.remote.interceptor.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.notification.AlarmScheduler
@@ -35,6 +37,8 @@ class SyncWorker @AssistedInject constructor(
     private val labelMapper: LabelMapper,
     private val alarmScheduler: AlarmScheduler,
     private val json: Json,
+    private val baseUrlHolder: BaseUrlHolder,
+    private val authManager: AuthManager,
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -44,6 +48,11 @@ class SyncWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         Log.d(TAG, "SyncWorker started")
+
+        // Ensure network layer is initialized (cold start after process death)
+        baseUrlHolder.ensureInitialized()
+        authManager.ensureInitializedAndGetToken()
+
         var hasRetriableFailures = false
 
         try {

@@ -5,14 +5,22 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
+import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
+import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.data.remote.interceptor.BaseUrlHolder
+import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.widget.WidgetUpdateScheduler
+import com.rendyhd.vicu.worker.SyncScheduler
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -28,6 +36,10 @@ class NotificationActionReceiver : BroadcastReceiver() {
     @Inject lateinit var taskMapper: TaskMapper
     @Inject lateinit var api: VikunjaApiService
     @Inject lateinit var alarmScheduler: AlarmScheduler
+    @Inject lateinit var pendingActionDao: PendingActionDao
+    @Inject lateinit var json: Json
+    @Inject lateinit var baseUrlHolder: BaseUrlHolder
+    @Inject lateinit var authManager: AuthManager
 
     override fun onReceive(context: Context, intent: Intent) {
         val taskId = intent.getLongExtra(AlarmReceiver.EXTRA_TASK_ID, 0L)
@@ -37,24 +49,50 @@ class NotificationActionReceiver : BroadcastReceiver() {
         NotificationManagerCompat.from(context).cancel(taskId.toInt())
 
         when (intent.action) {
-            ACTION_COMPLETE -> handleComplete(taskId)
+            ACTION_COMPLETE -> handleComplete(context, taskId)
             ACTION_SNOOZE -> handleSnooze(context, taskId, intent)
         }
     }
 
-    private fun handleComplete(taskId: Long) {
+    private fun handleComplete(context: Context, taskId: Long) {
         Log.d(TAG, "Completing task $taskId")
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                // Ensure network layer is initialized (cold start after process death)
+                baseUrlHolder.ensureInitialized()
+                authManager.ensureInitializedAndGetToken()
+
                 val entity = taskDao.getByIdSync(taskId) ?: return@launch
                 val task = with(taskMapper) { entity.toDomain() }
                 val toggled = task.copy(done = true, doneAt = DateUtils.nowIso())
                 val dto = with(taskMapper) { toggled.toDto() }
-                api.updateTask(taskId, dto)
-                val responseEntity = with(taskMapper) { dto.toEntity() }
-                taskDao.upsert(responseEntity)
+
+                // Optimistic local update
+                val optimisticEntity = with(taskMapper) { dto.toEntity() }
+                taskDao.upsert(optimisticEntity)
+
+                // Remote update
+                try {
+                    val responseDto = api.updateTask(taskId, dto)
+                    val responseEntity = with(taskMapper) { responseDto.toEntity() }
+                    taskDao.upsert(responseEntity)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Remote complete failed for task $taskId, queuing for sync", e)
+                    val action = PendingActionEntity(
+                        entityType = "task",
+                        entityId = taskId,
+                        actionType = "toggle_done",
+                        payload = json.encodeToString(Task.serializer(), toggled),
+                        createdAt = DateUtils.nowIso(),
+                        updatedAt = DateUtils.nowIso(),
+                    )
+                    pendingActionDao.replaceForEntity("task", taskId, action)
+                    SyncScheduler.enqueueWhenOnline(context)
+                }
+
                 alarmScheduler.cancelForTask(taskId)
+                WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to complete task $taskId", e)
             } finally {
