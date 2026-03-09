@@ -5,13 +5,11 @@ import android.util.Log
 import androidx.glance.GlanceId
 import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.action.ActionCallback
-import com.rendyhd.vicu.auth.AuthManager
+import androidx.glance.appwidget.state.updateAppWidgetState
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
-import com.rendyhd.vicu.data.remote.api.VikunjaApiService
-import com.rendyhd.vicu.data.remote.interceptor.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.notification.AlarmScheduler
 import com.rendyhd.vicu.util.DateUtils
@@ -20,10 +18,7 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import kotlin.coroutines.cancellation.CancellationException
 
 class ToggleTaskCallback : ActionCallback {
 
@@ -37,11 +32,8 @@ class ToggleTaskCallback : ActionCallback {
     interface ToggleEntryPoint {
         fun taskDao(): TaskDao
         fun taskMapper(): TaskMapper
-        fun api(): VikunjaApiService
         fun alarmScheduler(): AlarmScheduler
         fun pendingActionDao(): PendingActionDao
-        fun baseUrlHolder(): BaseUrlHolder
-        fun authManager(): AuthManager
         fun json(): Json
     }
 
@@ -59,71 +51,57 @@ class ToggleTaskCallback : ActionCallback {
         )
         val taskDao = entryPoint.taskDao()
         val taskMapper = entryPoint.taskMapper()
-        val api = entryPoint.api()
         val alarmScheduler = entryPoint.alarmScheduler()
         val pendingActionDao = entryPoint.pendingActionDao()
-        val baseUrlHolder = entryPoint.baseUrlHolder()
-        val authManager = entryPoint.authManager()
         val json = entryPoint.json()
 
-        var didOptimisticUpdate = false
         try {
-            // Ensure network layer is initialized (cold start after process death)
-            baseUrlHolder.ensureInitialized()
-            authManager.ensureInitializedAndGetToken()
-
             val entity = taskDao.getByIdSync(taskId) ?: return
             val task = with(taskMapper) { entity.toDomain() }
             val toggled = task.copy(done = true, doneAt = DateUtils.nowIso())
 
-            // Optimistic local update
+            // 1. Optimistic local update (Room)
             val dto = with(taskMapper) { toggled.toDto() }
             val optimisticEntity = with(taskMapper) { dto.toEntity() }
             taskDao.upsert(optimisticEntity)
-            didOptimisticUpdate = true
 
-            // Remote update
-            try {
-                val responseDto = api.updateTask(taskId, dto)
-                val responseEntity = with(taskMapper) { responseDto.toEntity() }
-                taskDao.upsert(responseEntity)
-            } catch (e: CancellationException) {
-                Log.w(TAG, "Remote toggle cancelled for task $taskId, queuing for sync", e)
-                withContext(NonCancellable) {
-                    val action = PendingActionEntity(
-                        entityType = "task",
-                        entityId = taskId,
-                        actionType = "toggle_done",
-                        payload = json.encodeToString(Task.serializer(), toggled),
-                        createdAt = DateUtils.nowIso(),
-                        updatedAt = DateUtils.nowIso(),
-                    )
-                    pendingActionDao.replaceForEntity("task", taskId, action)
-                    SyncScheduler.enqueueWhenOnline(context)
-                }
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "Remote toggle failed for task $taskId, queuing for sync", e)
-                val action = PendingActionEntity(
-                    entityType = "task",
-                    entityId = taskId,
-                    actionType = "toggle_done",
-                    payload = json.encodeToString(Task.serializer(), toggled),
-                    createdAt = DateUtils.nowIso(),
-                    updatedAt = DateUtils.nowIso(),
+            // 2. Immediately update this widget's Glance state (remove the task)
+            updateAppWidgetState(
+                context,
+                TaskWidgetStateDefinition,
+                glanceId,
+            ) { prefs ->
+                val state = TaskWidgetStateDefinition.parseState(prefs)
+                val updatedState = state.copy(
+                    tasks = state.tasks.filter { it.id != taskId },
+                    totalCount = (state.totalCount - 1).coerceAtLeast(0),
                 )
-                pendingActionDao.replaceForEntity("task", taskId, action)
-                SyncScheduler.enqueueWhenOnline(context)
+                prefs.toMutablePreferences().apply {
+                    this[TaskWidgetStateDefinition.KEY_STATE] =
+                        TaskWidgetStateDefinition.encodeState(updatedState)
+                }
             }
-        } catch (e: CancellationException) {
-            throw e
+            TaskListWidget().update(context, glanceId)
+
+            // 3. Queue pending action for background sync
+            val action = PendingActionEntity(
+                entityType = "task",
+                entityId = taskId,
+                actionType = "toggle_done",
+                payload = json.encodeToString(Task.serializer(), toggled),
+                createdAt = DateUtils.nowIso(),
+                updatedAt = DateUtils.nowIso(),
+            )
+            pendingActionDao.replaceForEntity("task", taskId, action)
+
+            // 4. Cancel reminders + schedule background sync
+            alarmScheduler.cancelForTask(taskId)
+            SyncScheduler.enqueueImmediate(context)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to toggle task $taskId", e)
-        } finally {
-            if (didOptimisticUpdate) {
-                alarmScheduler.cancelForTask(taskId)
-            }
-            WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
         }
+
+        // Refresh all widgets (covers other widget instances showing the same task)
+        WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
     }
 }
