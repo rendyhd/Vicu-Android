@@ -80,11 +80,12 @@ class SyncWorker @AssistedInject constructor(
 
             // Full refresh from server
             refreshAllFromServer()
-
-            WidgetUpdateScheduler.enqueueImmediateUpdateAll(applicationContext)
         } catch (e: Exception) {
             Log.e(TAG, "SyncWorker failed: ${e.message}", e)
             return Result.retry()
+        } finally {
+            // Always refresh widgets from Room, even if sync failed
+            WidgetUpdateScheduler.enqueueImmediateUpdateAll(applicationContext)
         }
 
         return if (hasRetriableFailures) Result.retry() else Result.success()

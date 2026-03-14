@@ -52,7 +52,11 @@ class AnytimeViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val inboxId = authManager.getInboxProjectId() ?: return@launch
+            val inboxId = authManager.getInboxProjectId()
+            if (inboxId == null) {
+                _uiState.update { it.copy(isLoading = false) }
+                return@launch
+            }
             combine(
                 taskRepository.getAnytimeTasks(inboxId),
                 projectRepository.getAll(),

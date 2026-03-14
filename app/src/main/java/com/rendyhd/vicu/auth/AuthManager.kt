@@ -77,40 +77,46 @@ class AuthManager @Inject constructor(
     }
 
     suspend fun initialize() {
-        val url = tokenStorage.getVikunjaUrl()
-        if (url.isNullOrBlank()) {
-            _authState.value = AuthState.Unauthenticated
-            return
-        }
+        try {
+            val url = tokenStorage.getVikunjaUrl()
+            if (url.isNullOrBlank()) {
+                _authState.value = AuthState.Unauthenticated
+                isInitialized = true
+                return
+            }
 
-        isServerV2Cached = tokenStorage.getServerIsV2()
+            isServerV2Cached = tokenStorage.getServerIsV2()
 
-        val jwt = tokenStorage.getJwt()
-        val jwtExpiry = tokenStorage.getJwtExpiry()
-        val apiToken = tokenStorage.getApiToken()
+            val jwt = tokenStorage.getJwt()
+            val jwtExpiry = tokenStorage.getJwtExpiry()
+            val apiToken = tokenStorage.getApiToken()
 
-        when {
-            jwt != null && !isExpired(jwtExpiry) -> {
-                cachedToken = jwt
-                cachedJwtExpiry = jwtExpiry
-                _authState.value = AuthState.Authenticated
-                if (isServerV2Cached) {
-                    scheduleProactiveRefresh()
+            when {
+                jwt != null && !isExpired(jwtExpiry) -> {
+                    cachedToken = jwt
+                    cachedJwtExpiry = jwtExpiry
+                    _authState.value = AuthState.Authenticated
+                    if (isServerV2Cached) {
+                        scheduleProactiveRefresh()
+                    }
+                }
+                apiToken != null -> {
+                    cachedToken = apiToken
+                    _authState.value = AuthState.Authenticated
+                }
+                jwt != null -> {
+                    // JWT expired, no API token — need re-auth or renewal
+                    cachedToken = jwt // still try with expired JWT, authenticator will refresh
+                    cachedJwtExpiry = jwtExpiry
+                    _authState.value = AuthState.Authenticated
+                }
+                else -> {
+                    _authState.value = AuthState.Unauthenticated
                 }
             }
-            apiToken != null -> {
-                cachedToken = apiToken
-                _authState.value = AuthState.Authenticated
-            }
-            jwt != null -> {
-                // JWT expired, no API token — need re-auth or renewal
-                cachedToken = jwt // still try with expired JWT, authenticator will refresh
-                cachedJwtExpiry = jwtExpiry
-                _authState.value = AuthState.Authenticated
-            }
-            else -> {
-                _authState.value = AuthState.Unauthenticated
-            }
+        } catch (e: Exception) {
+            Log.e(TAG, "initialize() failed — tokens may be corrupted, forcing re-auth", e)
+            _authState.value = AuthState.Unauthenticated
         }
         isInitialized = true
     }

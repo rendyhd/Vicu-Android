@@ -18,6 +18,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
 import java.security.KeyStore
 import java.util.Base64
 import javax.inject.Inject
@@ -85,6 +86,29 @@ class SecureTokenStorage @Inject constructor(
         }
         // Clear the Tink keyset SharedPreferences
         context.getSharedPreferences(KEYSET_PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+        // Clear encrypted tokens from DataStore — they can never be decrypted with a new key
+        clearEncryptedTokensBlocking()
+    }
+
+    /**
+     * Synchronously clear encrypted token values from DataStore.
+     * Called during [resetKeystore] (from lazy init) where coroutines aren't available.
+     */
+    private fun clearEncryptedTokensBlocking() {
+        try {
+            runBlocking {
+                context.authDataStore.edit { prefs ->
+                    prefs.remove(Keys.JWT)
+                    prefs.remove(Keys.JWT_EXPIRY)
+                    prefs.remove(Keys.API_TOKEN)
+                    prefs.remove(Keys.API_TOKEN_EXPIRY)
+                    prefs.remove(Keys.REFRESH_TOKEN)
+                }
+            }
+            Log.w(TAG, "Cleared encrypted tokens after keystore reset")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clear encrypted tokens after keystore reset", e)
+        }
     }
 
     private fun encrypt(plaintext: String): String {
@@ -97,6 +121,22 @@ class SecureTokenStorage @Inject constructor(
         return String(aead.decrypt(ciphertext, null), Charsets.UTF_8)
     }
 
+    /**
+     * Attempt to decrypt; return null on failure (e.g. keystore was reset and
+     * the ciphertext was produced with a previous key).
+     */
+    private fun decryptOrNull(encoded: String): String? {
+        return try {
+            decrypt(encoded)
+        } catch (e: java.security.GeneralSecurityException) {
+            Log.w(TAG, "Decryption failed (keystore reset?), returning null", e)
+            null
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "Base64 decode failed, returning null", e)
+            null
+        }
+    }
+
     // JWT
     suspend fun storeJwt(jwt: String, expiry: Long) {
         context.authDataStore.edit { prefs ->
@@ -107,7 +147,7 @@ class SecureTokenStorage @Inject constructor(
 
     suspend fun getJwt(): String? {
         val prefs = context.authDataStore.data.first()
-        return prefs[Keys.JWT]?.let { decrypt(it) }
+        return prefs[Keys.JWT]?.let { decryptOrNull(it) }
     }
 
     suspend fun getJwtExpiry(): Long {
@@ -125,7 +165,7 @@ class SecureTokenStorage @Inject constructor(
 
     suspend fun getApiToken(): String? {
         val prefs = context.authDataStore.data.first()
-        return prefs[Keys.API_TOKEN]?.let { decrypt(it) }
+        return prefs[Keys.API_TOKEN]?.let { decryptOrNull(it) }
     }
 
     suspend fun getApiTokenExpiry(): Long {
@@ -142,7 +182,7 @@ class SecureTokenStorage @Inject constructor(
 
     suspend fun getRefreshToken(): String? {
         val prefs = context.authDataStore.data.first()
-        return prefs[Keys.REFRESH_TOKEN]?.let { decrypt(it) }
+        return prefs[Keys.REFRESH_TOKEN]?.let { decryptOrNull(it) }
     }
 
     // Server version flag
