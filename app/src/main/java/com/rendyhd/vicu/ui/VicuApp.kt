@@ -143,29 +143,42 @@ fun VicuApp(
 
     // Handle notification deep link → open TaskDetailSheet
     val initialTaskIdValue = initialTaskId?.collectAsStateWithLifecycle()?.value
-    LaunchedEffect(initialTaskIdValue) {
-        if (initialTaskIdValue != null && initialTaskIdValue != 0L) {
-            taskDetailTaskId = initialTaskIdValue
-            showTaskDetailSheet = true
+    LaunchedEffect(initialTaskIdValue, authState) {
+        if (initialTaskIdValue == null || initialTaskIdValue == 0L) return@LaunchedEffect
+        if (authState == AuthState.Loading) return@LaunchedEffect
+        if (authState != AuthState.Authenticated) {
             onInitialTaskConsumed()
+            return@LaunchedEffect
         }
+        taskDetailTaskId = initialTaskIdValue
+        showTaskDetailSheet = true
+        onInitialTaskConsumed()
     }
 
     // Handle widget deep link → open TaskEntrySheet (optionally with project)
     val showTaskEntryValue = showTaskEntry?.collectAsStateWithLifecycle()?.value
     val showTaskEntryProjectIdValue = showTaskEntryProjectId?.collectAsStateWithLifecycle()?.value
-    LaunchedEffect(showTaskEntryValue) {
-        if (showTaskEntryValue == true) {
-            taskEntryDefaultProjectId = showTaskEntryProjectIdValue
-            showTaskEntrySheet = true
+    LaunchedEffect(showTaskEntryValue, authState) {
+        if (showTaskEntryValue != true) return@LaunchedEffect
+        if (authState == AuthState.Loading) return@LaunchedEffect
+        if (authState != AuthState.Authenticated) {
             onShowTaskEntryConsumed()
+            return@LaunchedEffect
         }
+        taskEntryDefaultProjectId = showTaskEntryProjectIdValue
+        showTaskEntrySheet = true
+        onShowTaskEntryConsumed()
     }
 
     // Handle widget title click → navigate to matching screen
     val navigateToViewValue = navigateToView?.collectAsStateWithLifecycle()?.value
-    LaunchedEffect(navigateToViewValue) {
+    LaunchedEffect(navigateToViewValue, authState) {
         val (viewType, viewId) = navigateToViewValue ?: return@LaunchedEffect
+        if (authState == AuthState.Loading) return@LaunchedEffect
+        if (authState != AuthState.Authenticated) {
+            onNavigateToViewConsumed()
+            return@LaunchedEffect
+        }
         when (viewType) {
             "TODAY" -> navController.navigate(TodayRoute) { launchSingleTop = true }
             "INBOX" -> navController.navigate(InboxRoute) { launchSingleTop = true }

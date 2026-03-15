@@ -105,10 +105,21 @@ class AuthManager @Inject constructor(
                     _authState.value = AuthState.Authenticated
                 }
                 jwt != null -> {
-                    // JWT expired, no API token — need re-auth or renewal
-                    cachedToken = jwt // still try with expired JWT, authenticator will refresh
+                    // JWT expired, no API token — try quick refresh or force re-auth
+                    cachedToken = jwt
                     cachedJwtExpiry = jwtExpiry
-                    _authState.value = AuthState.Authenticated
+                    val refreshed = if (isServerV2Cached) {
+                        performV2Refresh()
+                    } else {
+                        false // Legacy renewal requires a valid JWT — can't auto-recover
+                    }
+                    if (refreshed) {
+                        _authState.value = AuthState.Authenticated
+                        scheduleProactiveRefresh()
+                    } else {
+                        cachedToken = null
+                        _authState.value = AuthState.NeedsReAuth
+                    }
                 }
                 else -> {
                     _authState.value = AuthState.Unauthenticated

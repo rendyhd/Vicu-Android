@@ -84,6 +84,8 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)
+        // Re-check auth state — JWT may have expired while app was in background
+        lifecycleScope.launch { authManager.initialize() }
     }
 
     private fun handleIntent(intent: Intent?) {
