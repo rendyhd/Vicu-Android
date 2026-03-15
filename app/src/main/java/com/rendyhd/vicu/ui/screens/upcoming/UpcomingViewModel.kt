@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.upcoming
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.domain.model.Task
@@ -63,11 +64,16 @@ class UpcomingViewModel @Inject constructor(
         viewModelScope.launch {
             val completedIds = _uiState.value.completedTaskIds
             _uiState.update { it.copy(isRefreshing = true, error = null, completedTaskIds = emptySet()) }
-            if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
-            taskRepository.refreshAll()
-            projectRepository.refreshAll()
-            labelRepository.refreshAll()
-            _uiState.update { it.copy(isRefreshing = false) }
+            try {
+                if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
+                taskRepository.refreshAll()
+                projectRepository.refreshAll()
+                labelRepository.refreshAll()
+            } catch (e: Exception) {
+                Log.e("UpcomingViewModel", "refresh() failed: ${e.message}", e)
+            } finally {
+                _uiState.update { it.copy(isRefreshing = false) }
+            }
         }
     }
 

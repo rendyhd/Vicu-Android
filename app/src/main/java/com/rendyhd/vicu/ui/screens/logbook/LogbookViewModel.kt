@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.logbook
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.domain.model.Task
@@ -67,11 +68,16 @@ class LogbookViewModel @Inject constructor(
         viewModelScope.launch {
             val uncompletedIds = _uiState.value.uncompletedTaskIds
             _uiState.update { it.copy(isRefreshing = true, error = null, uncompletedTaskIds = emptySet()) }
-            if (uncompletedIds.isNotEmpty()) taskRepository.deleteLocalByIds(uncompletedIds)
-            taskRepository.refreshAll(mapOf("filter" to "done = true"))
-            projectRepository.refreshAll()
-            labelRepository.refreshAll()
-            _uiState.update { it.copy(isRefreshing = false) }
+            try {
+                if (uncompletedIds.isNotEmpty()) taskRepository.deleteLocalByIds(uncompletedIds)
+                taskRepository.refreshAll(mapOf("filter" to "done = true"))
+                projectRepository.refreshAll()
+                labelRepository.refreshAll()
+            } catch (e: Exception) {
+                Log.e("LogbookViewModel", "refresh() failed: ${e.message}", e)
+            } finally {
+                _uiState.update { it.copy(isRefreshing = false) }
+            }
         }
     }
 

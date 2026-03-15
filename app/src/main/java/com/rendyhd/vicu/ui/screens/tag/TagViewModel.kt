@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.tag
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -59,13 +60,19 @@ class TagViewModel @Inject constructor(
         viewModelScope.launch {
             val completedIds = _uiState.value.completedTaskIds
             _uiState.update { it.copy(isRefreshing = true, error = null, completedTaskIds = emptySet()) }
-            if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
-            taskRepository.refreshAll()
-            projectRepository.refreshAll()
-            labelRepository.refreshAll()
-            // Re-fetch label in case it was updated
-            val label = labelRepository.getById(labelId)
-            _uiState.update { it.copy(label = label, isRefreshing = false) }
+            try {
+                if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
+                taskRepository.refreshAll()
+                projectRepository.refreshAll()
+                labelRepository.refreshAll()
+                // Re-fetch label in case it was updated
+                val label = labelRepository.getById(labelId)
+                _uiState.update { it.copy(label = label) }
+            } catch (e: Exception) {
+                Log.e("TagViewModel", "refresh() failed: ${e.message}", e)
+            } finally {
+                _uiState.update { it.copy(isRefreshing = false) }
+            }
         }
     }
 
