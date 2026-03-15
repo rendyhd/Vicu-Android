@@ -95,6 +95,8 @@ class TaskDetailViewModel @Inject constructor(
                             it.copy(subtasks = subtasks, isLoading = false)
                         }
                     }
+                } else {
+                    _uiState.update { it.copy(isLoading = false) }
                 }
             }
         }

@@ -30,8 +30,7 @@ class TokenAuthenticator @Inject constructor(
 
     override fun authenticate(route: Route?, response: Response): Request? {
         if (responseCount(response) >= MAX_RETRIES) {
-            if (BuildConfig.DEBUG) Log.w(TAG, "Max retries reached, giving up")
-            authManager.setNeedsReAuth()
+            if (BuildConfig.DEBUG) Log.w(TAG, "Max retries reached, giving up (request fails but user stays logged in)")
             return null
         }
 

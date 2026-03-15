@@ -49,6 +49,7 @@ class InboxViewModel @Inject constructor(
             _uiState.update { it.copy(inboxProjectId = inboxId) }
             if (inboxId == null) {
                 Log.e(TAG, "init: inboxProjectId is NULL — Flow collection skipped!")
+                _uiState.update { it.copy(isLoading = false) }
                 return@launch
             }
             taskRepository.getInboxTasks(inboxId).collect { tasks ->
