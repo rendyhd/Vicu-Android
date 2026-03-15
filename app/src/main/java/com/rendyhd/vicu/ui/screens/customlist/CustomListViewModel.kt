@@ -62,6 +62,8 @@ class CustomListViewModel @Inject constructor(
                 _uiState.update { it.copy(customList = customList) }
                 if (customList != null) {
                     loadTasks(customList)
+                } else {
+                    _uiState.update { it.copy(isLoading = false) }
                 }
             }
         }
