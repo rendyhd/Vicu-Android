@@ -65,14 +65,16 @@ class InboxViewModel @Inject constructor(
             Log.d(TAG, "refresh() starting")
             val completedIds = _uiState.value.completedTaskIds
             _uiState.update { it.copy(isRefreshing = true, error = null, completedTaskIds = emptySet()) }
-            if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
-            val taskResult = taskRepository.refreshAll()
-            Log.d(TAG, "refresh() taskRepository.refreshAll() = $taskResult")
-            val projResult = projectRepository.refreshAll()
-            Log.d(TAG, "refresh() projectRepository.refreshAll() = $projResult")
-            val labelResult = labelRepository.refreshAll()
-            Log.d(TAG, "refresh() labelRepository.refreshAll() = $labelResult")
-            _uiState.update { it.copy(isRefreshing = false) }
+            try {
+                if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
+                taskRepository.refreshAll()
+                projectRepository.refreshAll()
+                labelRepository.refreshAll()
+            } catch (e: Exception) {
+                Log.e(TAG, "refresh() failed: ${e.message}", e)
+            } finally {
+                _uiState.update { it.copy(isRefreshing = false) }
+            }
         }
     }
 

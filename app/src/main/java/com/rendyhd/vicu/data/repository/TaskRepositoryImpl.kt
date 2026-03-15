@@ -304,7 +304,8 @@ class TaskRepositoryImpl @Inject constructor(
         return try {
             val allTasks = mutableListOf<com.rendyhd.vicu.data.remote.api.TaskDto>()
             var page = 1
-            while (true) {
+            val maxPages = 100
+            while (page <= maxPages) {
                 val params = buildMap {
                     putAll(filters)
                     put("page", page.toString())

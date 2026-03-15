@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.customlist
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -93,15 +94,20 @@ class CustomListViewModel @Inject constructor(
         viewModelScope.launch {
             val completedIds = _uiState.value.completedTaskIds
             _uiState.update { it.copy(isRefreshing = true, error = null, completedTaskIds = emptySet()) }
-            if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
-            val customList = _uiState.value.customList
-            if (customList != null) {
-                val params = CustomListFilterBuilder.buildQueryParams(customList.filter)
-                taskRepository.refreshAll(params)
+            try {
+                if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
+                val customList = _uiState.value.customList
+                if (customList != null) {
+                    val params = CustomListFilterBuilder.buildQueryParams(customList.filter)
+                    taskRepository.refreshAll(params)
+                }
+                projectRepository.refreshAll()
+                labelRepository.refreshAll()
+            } catch (e: Exception) {
+                Log.e("CustomListViewModel", "refresh() failed: ${e.message}", e)
+            } finally {
+                _uiState.update { it.copy(isRefreshing = false) }
             }
-            projectRepository.refreshAll()
-            labelRepository.refreshAll()
-            _uiState.update { it.copy(isRefreshing = false) }
         }
     }
 

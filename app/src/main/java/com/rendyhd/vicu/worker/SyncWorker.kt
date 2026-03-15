@@ -172,7 +172,8 @@ class SyncWorker @AssistedInject constructor(
             // Refresh tasks (fetch all, including completed, so remote completions sync)
             val allTasks = mutableListOf<com.rendyhd.vicu.data.remote.api.TaskDto>()
             var page = 1
-            while (true) {
+            val maxPages = 100
+            while (page <= maxPages) {
                 val params = mapOf(
                     "page" to page.toString(),
                     "per_page" to Constants.DEFAULT_PAGE_SIZE.toString(),
