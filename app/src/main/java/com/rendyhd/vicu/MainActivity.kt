@@ -19,6 +19,7 @@ import com.rendyhd.vicu.data.local.ThemePrefsStore
 import com.rendyhd.vicu.data.remote.interceptor.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.SharedContent
 import com.rendyhd.vicu.ui.VicuApp
+import com.rendyhd.vicu.worker.TokenRefreshScheduler
 import com.rendyhd.vicu.ui.theme.VicuTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,6 +56,10 @@ class MainActivity : ComponentActivity() {
                 baseUrlHolder.baseUrl = storedUrl
             }
             authManager.initialize()
+            // Schedule periodic token refresh if authenticated
+            if (authManager.authState.value == com.rendyhd.vicu.auth.AuthState.Authenticated) {
+                TokenRefreshScheduler.schedule(this@MainActivity)
+            }
         }
 
         setContent {

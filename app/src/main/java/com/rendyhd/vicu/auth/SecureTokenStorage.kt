@@ -173,6 +173,15 @@ class SecureTokenStorage @Inject constructor(
         return prefs[Keys.API_TOKEN_EXPIRY] ?: 0L
     }
 
+    /**
+     * Quick check whether an API token is stored (without decrypting).
+     * Used by AuthManager to decide whether to attempt backup token creation.
+     */
+    suspend fun hasApiToken(): Boolean {
+        val prefs = context.authDataStore.data.first()
+        return prefs[Keys.API_TOKEN] != null
+    }
+
     // Refresh Token (Vikunja 2.0 session cookie)
     suspend fun storeRefreshToken(token: String) {
         context.authDataStore.edit { prefs ->

@@ -42,6 +42,7 @@ class TokenAuthenticator @Inject constructor(
                     val failedToken = response.request.header("Authorization")?.removePrefix("Bearer ")
 
                     if (currentToken != null && currentToken != failedToken) {
+                        Log.d(TAG, "Another thread already refreshed the token")
                         return@withRefreshLock response.request.newBuilder()
                             .header("Authorization", "Bearer $currentToken")
                             .build()
@@ -50,22 +51,31 @@ class TokenAuthenticator @Inject constructor(
                     // Try refresh based on server version
                     if (authManager.isServerV2Cached) {
                         val v2Result = tryV2Refresh(response)
-                        if (v2Result != null) return@withRefreshLock v2Result
+                        if (v2Result != null) {
+                            Log.d(TAG, "V2 refresh succeeded in authenticator")
+                            return@withRefreshLock v2Result
+                        }
+                        Log.d(TAG, "V2 refresh failed in authenticator")
                     } else {
                         val legacyResult = tryLegacyRefresh(response)
-                        if (legacyResult != null) return@withRefreshLock legacyResult
+                        if (legacyResult != null) {
+                            Log.d(TAG, "Legacy refresh succeeded in authenticator")
+                            return@withRefreshLock legacyResult
+                        }
+                        Log.d(TAG, "Legacy refresh failed in authenticator")
                     }
 
                     // Fall back to API token
                     val apiToken = authManager.getBestToken()
                     if (apiToken != null && apiToken != failedToken) {
+                        Log.d(TAG, "Falling back to API token in authenticator")
                         return@withRefreshLock response.request.newBuilder()
                             .header("Authorization", "Bearer $apiToken")
                             .build()
                     }
 
                     // All options exhausted
-                    if (BuildConfig.DEBUG) Log.w(TAG, "All token options exhausted, needs re-auth")
+                    Log.w(TAG, "All token options exhausted — apiToken=${apiToken != null}, sameAsFailed=${apiToken == failedToken}")
                     authManager.setNeedsReAuth()
                     null
                 }
@@ -76,7 +86,7 @@ class TokenAuthenticator @Inject constructor(
     private suspend fun tryV2Refresh(response: Response): Request? {
         val refreshToken = tokenStorage.getRefreshToken()
         if (refreshToken == null) {
-            if (BuildConfig.DEBUG) Log.w(TAG, "No refresh token for v2 refresh")
+            Log.w(TAG, "No refresh token for v2 refresh")
             return null
         }
         return try {
@@ -92,9 +102,12 @@ class TokenAuthenticator @Inject constructor(
                         .header("Authorization", "Bearer $newJwt")
                         .build()
                 } else null
-            } else null
+            } else {
+                Log.w(TAG, "V2 refresh HTTP ${refreshResponse.code()}")
+                null
+            }
         } catch (e: Exception) {
-            if (BuildConfig.DEBUG) Log.w(TAG, "V2 token refresh failed", e)
+            Log.w(TAG, "V2 token refresh failed", e)
             null
         }
     }
@@ -114,7 +127,7 @@ class TokenAuthenticator @Inject constructor(
             // Graceful server upgrade: if legacy fails, try v2 as fallback
             val v2Result = tryV2Refresh(response)
             if (v2Result != null) {
-                if (BuildConfig.DEBUG) Log.i(TAG, "Legacy refresh failed but v2 succeeded — upgrading server flag")
+                Log.i(TAG, "Legacy refresh failed but v2 succeeded — upgrading server flag")
                 authManager.storeServerIsV2(true)
             }
             v2Result

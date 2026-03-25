@@ -16,6 +16,7 @@ import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.remote.interceptor.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
+import com.rendyhd.vicu.worker.TokenRefreshScheduler
 import android.content.Context
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -255,6 +256,7 @@ class SetupViewModel @Inject constructor(
             authManager.onInboxProjectSelected(projectId)
             _uiState.update { it.copy(setupComplete = true) }
             WidgetUpdateScheduler.enqueueImmediateUpdateAll(appContext)
+            TokenRefreshScheduler.schedule(appContext)
         }
     }
 
@@ -305,9 +307,12 @@ class SetupViewModel @Inject constructor(
             val response = apiService.get().createApiToken(request)
             if (response.token.isNotBlank()) {
                 authManager.onApiTokenSaved(response.token, expiry.epochSecond)
+                Log.i(TAG, "Backup API token created successfully during setup")
+            } else {
+                Log.w(TAG, "Backup API token creation returned empty token — AuthManager will retry on next launch")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Backup API token creation failed (non-fatal)", e)
+            Log.w(TAG, "Backup API token creation failed during setup — AuthManager will retry on next launch", e)
         }
     }
 }

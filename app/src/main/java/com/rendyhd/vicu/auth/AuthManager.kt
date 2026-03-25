@@ -1,8 +1,12 @@
 package com.rendyhd.vicu.auth
 
+import android.content.Context
 import android.util.Log
+import com.rendyhd.vicu.data.remote.api.ApiTokenRequestDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.di.ApplicationScope
+import com.rendyhd.vicu.worker.TokenRefreshScheduler
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -16,6 +20,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,6 +34,7 @@ enum class AuthState {
 
 @Singleton
 class AuthManager @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val tokenStorage: SecureTokenStorage,
     private val apiServiceProvider: dagger.Lazy<VikunjaApiService>,
     @ApplicationScope private val appScope: CoroutineScope,
@@ -80,6 +87,7 @@ class AuthManager @Inject constructor(
         try {
             val url = tokenStorage.getVikunjaUrl()
             if (url.isNullOrBlank()) {
+                Log.d(TAG, "initialize: no Vikunja URL stored → Unauthenticated")
                 _authState.value = AuthState.Unauthenticated
                 isInitialized = true
                 return
@@ -90,22 +98,29 @@ class AuthManager @Inject constructor(
             val jwt = tokenStorage.getJwt()
             val jwtExpiry = tokenStorage.getJwtExpiry()
             val apiToken = tokenStorage.getApiToken()
+            val hasRefresh = tokenStorage.getRefreshToken() != null
+
+            Log.d(TAG, "initialize: jwt=${jwt != null}, jwtExpired=${jwt != null && isExpired(jwtExpiry)}, apiToken=${apiToken != null}, refreshToken=$hasRefresh, isV2=$isServerV2Cached")
 
             when {
                 jwt != null && !isExpired(jwtExpiry) -> {
+                    Log.d(TAG, "initialize: JWT valid → Authenticated")
                     cachedToken = jwt
                     cachedJwtExpiry = jwtExpiry
                     _authState.value = AuthState.Authenticated
                     if (isServerV2Cached) {
                         scheduleProactiveRefresh()
                     }
+                    ensureBackupApiToken()
                 }
                 apiToken != null -> {
+                    Log.d(TAG, "initialize: JWT missing/expired, using API token → Authenticated")
                     cachedToken = apiToken
                     _authState.value = AuthState.Authenticated
                 }
                 jwt != null -> {
                     // JWT expired, no API token — try quick refresh or force re-auth
+                    Log.d(TAG, "initialize: JWT expired, no API token — attempting V2 refresh")
                     cachedToken = jwt
                     cachedJwtExpiry = jwtExpiry
                     val refreshed = if (isServerV2Cached) {
@@ -114,14 +129,18 @@ class AuthManager @Inject constructor(
                         false // Legacy renewal requires a valid JWT — can't auto-recover
                     }
                     if (refreshed) {
+                        Log.d(TAG, "initialize: V2 refresh succeeded → Authenticated")
                         _authState.value = AuthState.Authenticated
                         scheduleProactiveRefresh()
+                        ensureBackupApiToken()
                     } else {
+                        Log.w(TAG, "initialize: V2 refresh failed, no API token → NeedsReAuth")
                         cachedToken = null
                         _authState.value = AuthState.NeedsReAuth
                     }
                 }
                 else -> {
+                    Log.d(TAG, "initialize: no tokens at all → Unauthenticated")
                     _authState.value = AuthState.Unauthenticated
                 }
             }
@@ -222,6 +241,7 @@ class AuthManager @Inject constructor(
     suspend fun logout() {
         proactiveRefreshJob?.cancel()
         proactiveRefreshJob = null
+        TokenRefreshScheduler.cancel(appContext)
         // Best-effort server-side logout
         try {
             apiServiceProvider.get().serverLogout()
@@ -300,6 +320,36 @@ class AuthManager @Inject constructor(
         } catch (e: Exception) {
             Log.w(TAG, "V2 refresh exception", e)
             false
+        }
+    }
+
+    /**
+     * If authenticated but no backup API token exists, create one.
+     * This self-heals the case where initial token creation failed during setup.
+     * Runs in appScope so it doesn't block initialize().
+     */
+    private fun ensureBackupApiToken() {
+        appScope.launch {
+            try {
+                if (tokenStorage.hasApiToken()) return@launch
+
+                Log.w(TAG, "No backup API token found — attempting to create one")
+                val expiry = Instant.now().plusSeconds(365L * 24 * 60 * 60)
+                val expiryStr = DateTimeFormatter.ISO_INSTANT.format(expiry)
+                val request = ApiTokenRequestDto(
+                    title = "Vicu Android Backup",
+                    expiresAt = expiryStr,
+                )
+                val response = apiServiceProvider.get().createApiToken(request)
+                if (response.token.isNotBlank()) {
+                    tokenStorage.storeApiToken(response.token, expiry.epochSecond)
+                    Log.i(TAG, "Backup API token created successfully (self-healed)")
+                } else {
+                    Log.w(TAG, "Backup API token creation returned empty token")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Backup API token self-heal failed (will retry next launch)", e)
+            }
         }
     }
 
