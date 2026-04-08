@@ -2,6 +2,7 @@ package com.rendyhd.vicu.data.remote.interceptor
 
 import android.util.Log
 import com.rendyhd.vicu.BuildConfig
+import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
@@ -35,6 +36,7 @@ class AuthInterceptor @Inject constructor(
         }
         if (token.isNullOrBlank()) {
             if (BuildConfig.DEBUG) Log.w(TAG, "No token available for path=$path")
+            AuthDebugLog.interceptor("NO_TOKEN", path)
             return chain.proceed(originalRequest)
         }
         if (BuildConfig.DEBUG) Log.d(TAG, "Attaching token to path=$path")

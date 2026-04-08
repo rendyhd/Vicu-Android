@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.ThemeMode
 import com.rendyhd.vicu.data.local.ThemePrefsStore
@@ -46,6 +47,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        AuthDebugLog.init(applicationContext)
+        AuthDebugLog.lifecycle("onCreate (savedState=${savedInstanceState != null})")
 
         handleIntent(intent)
         requestNotificationPermission()
@@ -88,9 +92,25 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        AuthDebugLog.lifecycle("onNewIntent")
         handleIntent(intent)
         // Re-check auth state — JWT may have expired while app was in background
         lifecycleScope.launch { authManager.initialize() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AuthDebugLog.lifecycle("onResume (authState=${authManager.authState.value})")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        AuthDebugLog.lifecycle("onStop (authState=${authManager.authState.value})")
+    }
+
+    override fun onDestroy() {
+        AuthDebugLog.lifecycle("onDestroy (isFinishing=$isFinishing)")
+        super.onDestroy()
     }
 
     private fun handleIntent(intent: Intent?) {

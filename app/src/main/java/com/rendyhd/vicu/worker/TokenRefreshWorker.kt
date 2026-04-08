@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.AuthState
 import com.rendyhd.vicu.auth.SecureTokenStorage
@@ -32,10 +33,13 @@ class TokenRefreshWorker @AssistedInject constructor(
     }
 
     override suspend fun doWork(): Result {
+        AuthDebugLog.log("WORKER_REFRESH", "periodic TokenRefreshWorker started (attempt=${runAttemptCount})")
+
         // Ensure base URL is set (cold start after process death)
         baseUrlHolder.ensureInitialized()
         if (baseUrlHolder.baseUrl.isEmpty()) {
             Log.d(TAG, "No Vikunja URL configured, skipping refresh")
+            AuthDebugLog.log("WORKER_REFRESH", "skipped: no Vikunja URL")
             return Result.success()
         }
 
@@ -43,6 +47,7 @@ class TokenRefreshWorker @AssistedInject constructor(
         val hasRefreshToken = tokenStorage.getRefreshToken() != null
         if (!hasRefreshToken) {
             Log.d(TAG, "No refresh token available, skipping")
+            AuthDebugLog.log("WORKER_REFRESH", "skipped: no refresh token")
             return Result.success()
         }
 
@@ -52,26 +57,29 @@ class TokenRefreshWorker @AssistedInject constructor(
         // Don't retry if user genuinely needs to re-authenticate
         if (authManager.authState.value != AuthState.Authenticated) {
             Log.d(TAG, "Not authenticated (${authManager.authState.value}), skipping refresh")
+            AuthDebugLog.log("WORKER_REFRESH", "skipped: state=${authManager.authState.value}")
             return Result.success()
         }
 
         return try {
-            // Note: performV2Refresh() internally calls onJwtRenewed() → scheduleProactiveRefresh(),
-            // but that launch is async in appScope and does NOT re-enter the mutex.
+            AuthDebugLog.refreshAttempt("WorkManager periodic")
             val success = authManager.withRefreshLock {
                 authManager.performV2Refresh()
             }
             if (success) {
                 Log.d(TAG, "Periodic token refresh succeeded")
+                AuthDebugLog.refreshResult("WorkManager periodic", true)
                 Result.success()
             } else {
                 Log.w(TAG, "Periodic token refresh failed, will retry")
+                AuthDebugLog.refreshResult("WorkManager periodic", false, "will retry")
                 Result.retry()
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "Periodic token refresh exception", e)
+            AuthDebugLog.logError("WorkManager periodic refresh", e)
             Result.retry()
         }
     }

@@ -84,10 +84,13 @@ class AuthManager @Inject constructor(
     }
 
     suspend fun initialize() {
+        val oldState = _authState.value.name
+        AuthDebugLog.log("INITIALIZE", "start (oldState=$oldState)")
         try {
             val url = tokenStorage.getVikunjaUrl()
             if (url.isNullOrBlank()) {
                 Log.d(TAG, "initialize: no Vikunja URL stored → Unauthenticated")
+                AuthDebugLog.authStateChanged(oldState, "Unauthenticated", "no Vikunja URL stored")
                 _authState.value = AuthState.Unauthenticated
                 isInitialized = true
                 return
@@ -101,10 +104,21 @@ class AuthManager @Inject constructor(
             val hasRefresh = tokenStorage.getRefreshToken() != null
 
             Log.d(TAG, "initialize: jwt=${jwt != null}, jwtExpired=${jwt != null && isExpired(jwtExpiry)}, apiToken=${apiToken != null}, refreshToken=$hasRefresh, isV2=$isServerV2Cached")
+            AuthDebugLog.tokenState(
+                jwt = jwt != null,
+                jwtExpired = jwt != null && isExpired(jwtExpiry),
+                apiToken = apiToken != null,
+                refreshToken = hasRefresh,
+                isV2 = isServerV2Cached,
+            )
+            if (jwtExpiry > 0L) {
+                AuthDebugLog.jwtExpiry(jwtExpiry)
+            }
 
             when {
                 jwt != null && !isExpired(jwtExpiry) -> {
                     Log.d(TAG, "initialize: JWT valid → Authenticated")
+                    AuthDebugLog.authStateChanged(oldState, "Authenticated", "JWT valid")
                     cachedToken = jwt
                     cachedJwtExpiry = jwtExpiry
                     _authState.value = AuthState.Authenticated
@@ -115,12 +129,14 @@ class AuthManager @Inject constructor(
                 }
                 apiToken != null -> {
                     Log.d(TAG, "initialize: JWT missing/expired, using API token → Authenticated")
+                    AuthDebugLog.authStateChanged(oldState, "Authenticated", "JWT missing/expired, fallback to API token")
                     cachedToken = apiToken
                     _authState.value = AuthState.Authenticated
                 }
                 jwt != null -> {
                     // JWT expired, no API token — try quick refresh or force re-auth
                     Log.d(TAG, "initialize: JWT expired, no API token — attempting V2 refresh")
+                    AuthDebugLog.refreshAttempt("V2 (initialize, JWT expired, no API token)")
                     cachedToken = jwt
                     cachedJwtExpiry = jwtExpiry
                     val refreshed = if (isServerV2Cached) {
@@ -130,22 +146,26 @@ class AuthManager @Inject constructor(
                     }
                     if (refreshed) {
                         Log.d(TAG, "initialize: V2 refresh succeeded → Authenticated")
+                        AuthDebugLog.authStateChanged(oldState, "Authenticated", "V2 refresh succeeded during init")
                         _authState.value = AuthState.Authenticated
                         scheduleProactiveRefresh()
                         ensureBackupApiToken()
                     } else {
                         Log.w(TAG, "initialize: V2 refresh failed, no API token → NeedsReAuth")
+                        AuthDebugLog.authStateChanged(oldState, "NeedsReAuth", "V2 refresh FAILED during init, no API token")
                         cachedToken = null
                         _authState.value = AuthState.NeedsReAuth
                     }
                 }
                 else -> {
                     Log.d(TAG, "initialize: no tokens at all → Unauthenticated")
+                    AuthDebugLog.authStateChanged(oldState, "Unauthenticated", "no tokens at all")
                     _authState.value = AuthState.Unauthenticated
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "initialize() failed — tokens may be corrupted, forcing re-auth", e)
+            AuthDebugLog.logError("INITIALIZE FAILED → Unauthenticated", e)
             _authState.value = AuthState.Unauthenticated
         }
         isInitialized = true
@@ -179,6 +199,8 @@ class AuthManager @Inject constructor(
         refreshToken: String? = null,
     ) {
         val expiry = parseJwtExpiry(jwt)
+        AuthDebugLog.log("LOGIN_SUCCESS", "method=$authMethod hasRefresh=${refreshToken != null}")
+        AuthDebugLog.jwtExpiry(expiry)
         tokenStorage.storeJwt(jwt, expiry)
         tokenStorage.storeAuthMethod(authMethod)
         tokenStorage.storeVikunjaUrl(vikunjaUrl)
@@ -211,6 +233,8 @@ class AuthManager @Inject constructor(
 
     suspend fun onJwtRenewed(newJwt: String, newRefreshToken: String? = null) {
         val expiry = parseJwtExpiry(newJwt)
+        AuthDebugLog.log("JWT_RENEWED", "newRefreshToken=${newRefreshToken != null}")
+        AuthDebugLog.jwtExpiry(expiry)
         tokenStorage.storeJwt(newJwt, expiry)
         if (newRefreshToken != null) {
             tokenStorage.storeRefreshToken(newRefreshToken)
@@ -239,6 +263,7 @@ class AuthManager @Inject constructor(
     suspend fun getRefreshToken(): String? = tokenStorage.getRefreshToken()
 
     suspend fun logout() {
+        AuthDebugLog.log("LOGOUT", "user-initiated logout")
         proactiveRefreshJob?.cancel()
         proactiveRefreshJob = null
         TokenRefreshScheduler.cancel(appContext)
@@ -253,9 +278,12 @@ class AuthManager @Inject constructor(
         isInitialized = false
         tokenStorage.clear()
         _authState.value = AuthState.Unauthenticated
+        AuthDebugLog.authStateChanged("*", "Unauthenticated", "user-initiated logout")
     }
 
     fun setNeedsReAuth() {
+        val oldState = _authState.value.name
+        AuthDebugLog.authStateChanged(oldState, "NeedsReAuth", "all token options exhausted")
         proactiveRefreshJob?.cancel()
         proactiveRefreshJob = null
         cachedToken = null
@@ -276,15 +304,19 @@ class AuthManager @Inject constructor(
         val expiry = cachedJwtExpiry
         if (expiry <= 0L) return
 
+        val now = System.currentTimeMillis() / 1000
+        val delaySecs = expiry - now - PROACTIVE_REFRESH_AHEAD_SECS
+        AuthDebugLog.log("PROACTIVE_REFRESH_SCHEDULED", "willFireIn=${delaySecs}s (${delaySecs / 60}min)")
+
         proactiveRefreshJob = appScope.launch {
-            val now = System.currentTimeMillis() / 1000
-            val delaySecs = expiry - now - PROACTIVE_REFRESH_AHEAD_SECS
             if (delaySecs > 0) {
                 delay(delaySecs * 1000)
             }
-            withRefreshLock {
+            AuthDebugLog.refreshAttempt("proactive (scheduled)")
+            val success = withRefreshLock {
                 performV2Refresh()
             }
+            AuthDebugLog.refreshResult("proactive", success)
         }
     }
 
@@ -296,6 +328,7 @@ class AuthManager @Inject constructor(
         val refreshToken = tokenStorage.getRefreshToken()
         if (refreshToken == null) {
             Log.w(TAG, "No refresh token available for v2 refresh")
+            AuthDebugLog.refreshResult("V2", false, "no refresh token stored")
             return false
         }
         return try {
@@ -308,17 +341,21 @@ class AuthManager @Inject constructor(
                     val newRefreshToken = RefreshCookieExtractor.extractRefreshToken(response)
                     onJwtRenewed(newJwt, newRefreshToken)
                     Log.d(TAG, "V2 proactive refresh succeeded")
+                    AuthDebugLog.refreshResult("V2", true)
                     true
                 } else {
                     Log.w(TAG, "V2 refresh returned empty token")
+                    AuthDebugLog.refreshResult("V2", false, "server returned empty token")
                     false
                 }
             } else {
                 Log.w(TAG, "V2 refresh failed: HTTP ${response.code()}")
+                AuthDebugLog.refreshResult("V2", false, "HTTP ${response.code()}")
                 false
             }
         } catch (e: Exception) {
             Log.w(TAG, "V2 refresh exception", e)
+            AuthDebugLog.logError("V2 refresh exception", e)
             false
         }
     }
@@ -331,9 +368,13 @@ class AuthManager @Inject constructor(
     private fun ensureBackupApiToken() {
         appScope.launch {
             try {
-                if (tokenStorage.hasApiToken()) return@launch
+                if (tokenStorage.hasApiToken()) {
+                    AuthDebugLog.log("BACKUP_API_TOKEN", "already exists, skipping")
+                    return@launch
+                }
 
                 Log.w(TAG, "No backup API token found — attempting to create one")
+                AuthDebugLog.log("BACKUP_API_TOKEN", "missing — creating new one")
                 val expiry = Instant.now().plusSeconds(365L * 24 * 60 * 60)
                 val expiryStr = DateTimeFormatter.ISO_INSTANT.format(expiry)
                 val request = ApiTokenRequestDto(

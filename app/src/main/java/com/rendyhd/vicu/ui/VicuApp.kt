@@ -35,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.AuthState
 import com.rendyhd.vicu.domain.model.BottomBarSlot
@@ -224,9 +225,11 @@ fun VicuApp(
 
     LaunchedEffect(authState) {
         Log.d("VicuApp", "authState changed to $authState, currentDest=${currentDestination?.route}")
+        AuthDebugLog.log("NAVIGATION", "authState=$authState currentDest=${currentDestination?.route}")
         when (authState) {
             AuthState.Unauthenticated, AuthState.NeedsReAuth -> {
                 Log.d("VicuApp", "Navigating to SetupRoute")
+                AuthDebugLog.log("NAVIGATION", "→ SetupRoute (reason: $authState)")
                 navController.navigate(SetupRoute) {
                     popUpTo(0) { inclusive = true }
                 }

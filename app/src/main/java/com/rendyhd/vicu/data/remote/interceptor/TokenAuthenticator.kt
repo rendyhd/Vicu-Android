@@ -2,6 +2,7 @@ package com.rendyhd.vicu.data.remote.interceptor
 
 import android.util.Log
 import com.rendyhd.vicu.BuildConfig
+import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.RefreshCookieExtractor
 import com.rendyhd.vicu.auth.SecureTokenStorage
@@ -29,13 +30,18 @@ class TokenAuthenticator @Inject constructor(
     }
 
     override fun authenticate(route: Route?, response: Response): Request? {
-        if (responseCount(response) >= MAX_RETRIES) {
+        val path = response.request.url.encodedPath
+        val retryCount = responseCount(response)
+        AuthDebugLog.log("401_RECEIVED", "path=$path retry=$retryCount/${MAX_RETRIES}")
+
+        if (retryCount >= MAX_RETRIES) {
             if (BuildConfig.DEBUG) Log.w(TAG, "Max retries reached, giving up (request fails but user stays logged in)")
+            AuthDebugLog.log("401_MAX_RETRIES", "giving up on path=$path (user stays logged in)")
             return null
         }
 
         return runBlocking {
-            withTimeoutOrNull(REFRESH_TIMEOUT_MS) {
+            val result = withTimeoutOrNull(REFRESH_TIMEOUT_MS) {
                 authManager.withRefreshLock {
                     // Check if another thread already refreshed the token
                     val currentToken = authManager.getBestTokenSync()
@@ -43,6 +49,7 @@ class TokenAuthenticator @Inject constructor(
 
                     if (currentToken != null && currentToken != failedToken) {
                         Log.d(TAG, "Another thread already refreshed the token")
+                        AuthDebugLog.log("401_ALREADY_REFRESHED", "another thread refreshed token")
                         return@withRefreshLock response.request.newBuilder()
                             .header("Authorization", "Bearer $currentToken")
                             .build()
@@ -50,25 +57,32 @@ class TokenAuthenticator @Inject constructor(
 
                     // Try refresh based on server version
                     if (authManager.isServerV2Cached) {
+                        AuthDebugLog.refreshAttempt("V2 (authenticator 401)")
                         val v2Result = tryV2Refresh(response)
                         if (v2Result != null) {
                             Log.d(TAG, "V2 refresh succeeded in authenticator")
+                            AuthDebugLog.refreshResult("V2 (authenticator)", true)
                             return@withRefreshLock v2Result
                         }
                         Log.d(TAG, "V2 refresh failed in authenticator")
+                        AuthDebugLog.refreshResult("V2 (authenticator)", false)
                     } else {
+                        AuthDebugLog.refreshAttempt("legacy (authenticator 401)")
                         val legacyResult = tryLegacyRefresh(response)
                         if (legacyResult != null) {
                             Log.d(TAG, "Legacy refresh succeeded in authenticator")
+                            AuthDebugLog.refreshResult("legacy (authenticator)", true)
                             return@withRefreshLock legacyResult
                         }
                         Log.d(TAG, "Legacy refresh failed in authenticator")
+                        AuthDebugLog.refreshResult("legacy (authenticator)", false)
                     }
 
                     // Fall back to API token
                     val apiToken = authManager.getBestToken()
                     if (apiToken != null && apiToken != failedToken) {
                         Log.d(TAG, "Falling back to API token in authenticator")
+                        AuthDebugLog.log("401_API_TOKEN_FALLBACK", "using API token as fallback")
                         return@withRefreshLock response.request.newBuilder()
                             .header("Authorization", "Bearer $apiToken")
                             .build()
@@ -76,10 +90,15 @@ class TokenAuthenticator @Inject constructor(
 
                     // All options exhausted
                     Log.w(TAG, "All token options exhausted — apiToken=${apiToken != null}, sameAsFailed=${apiToken == failedToken}")
+                    AuthDebugLog.log("401_ALL_EXHAUSTED", "apiToken=${apiToken != null} sameAsFailed=${apiToken == failedToken} → NeedsReAuth")
                     authManager.setNeedsReAuth()
                     null
                 }
             }
+            if (result == null && retryCount < MAX_RETRIES) {
+                AuthDebugLog.log("401_TIMEOUT_OR_FAIL", "refresh lock timed out or all options failed for path=$path")
+            }
+            result
         }
     }
 
