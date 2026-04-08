@@ -1,8 +1,11 @@
 package com.rendyhd.vicu.data.remote.api
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class ProjectDto(
     val id: Long = 0,
@@ -14,7 +17,7 @@ data class ProjectDto(
     @SerialName("is_archived") val isArchived: Boolean = false,
     @SerialName("is_favorite") val isFavorite: Boolean = false,
     val identifier: String = "",
-    val owner: UserDto? = null,
-    val created: String = "",
-    val updated: String = "",
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val owner: UserDto? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val created: String = "",
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val updated: String = "",
 )

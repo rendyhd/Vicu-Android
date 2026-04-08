@@ -33,8 +33,17 @@ class ProjectRepositoryImpl @Inject constructor(
             entities.map { with(projectMapper) { it.toDomain() } }
         }
 
-    override suspend fun create(project: Project): NetworkResult<Project> =
-        NetworkResult.Error("Not yet implemented")
+    override suspend fun create(project: Project): NetworkResult<Project> {
+        return try {
+            val dto = with(projectMapper) { project.toDto() }
+            val responseDto = api.createProject(dto)
+            val entity = with(projectMapper) { responseDto.toEntity() }
+            projectDao.upsert(entity)
+            NetworkResult.Success(with(projectMapper) { entity.toDomain() })
+        } catch (e: Exception) {
+            NetworkResult.Error(e.localizedMessage ?: "Failed to create project")
+        }
+    }
 
     override suspend fun update(project: Project): NetworkResult<Project> {
         return try {
@@ -51,8 +60,15 @@ class ProjectRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun delete(projectId: Long): NetworkResult<Unit> =
-        NetworkResult.Error("Not yet implemented")
+    override suspend fun delete(projectId: Long): NetworkResult<Unit> {
+        return try {
+            api.deleteProject(projectId)
+            projectDao.deleteById(projectId)
+            NetworkResult.Success(Unit)
+        } catch (e: Exception) {
+            NetworkResult.Error(e.localizedMessage ?: "Failed to delete project")
+        }
+    }
 
     override suspend fun refreshAll(): NetworkResult<Unit> {
         return try {
