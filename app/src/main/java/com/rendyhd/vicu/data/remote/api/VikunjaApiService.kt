@@ -41,10 +41,10 @@ interface VikunjaApiService {
     suspend fun getProject(@Path("id") id: Long): ProjectDto
 
     @PUT("projects")
-    suspend fun createProject(@Body project: ProjectDto): ProjectDto
+    suspend fun createProject(@Body project: CreateProjectDto): ProjectDto
 
     @POST("projects/{id}")
-    suspend fun updateProject(@Path("id") id: Long, @Body project: ProjectDto): ProjectDto
+    suspend fun updateProject(@Path("id") id: Long, @Body project: UpdateProjectDto): ProjectDto
 
     @DELETE("projects/{id}")
     suspend fun deleteProject(@Path("id") id: Long)

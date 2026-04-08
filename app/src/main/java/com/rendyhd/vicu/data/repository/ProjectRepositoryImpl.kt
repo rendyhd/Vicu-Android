@@ -35,7 +35,7 @@ class ProjectRepositoryImpl @Inject constructor(
 
     override suspend fun create(project: Project): NetworkResult<Project> {
         return try {
-            val dto = with(projectMapper) { project.toDto() }
+            val dto = with(projectMapper) { project.toCreateDto() }
             val responseDto = api.createProject(dto)
             val entity = with(projectMapper) { responseDto.toEntity() }
             projectDao.upsert(entity)
@@ -47,16 +47,13 @@ class ProjectRepositoryImpl @Inject constructor(
 
     override suspend fun update(project: Project): NetworkResult<Project> {
         return try {
-            val dto = with(projectMapper) { project.toDto() }
-            val entity = with(projectMapper) { dto.toEntity() }
-            projectDao.upsert(entity)
+            val dto = with(projectMapper) { project.toUpdateDto() }
             val responseDto = api.updateProject(project.id, dto)
             val responseEntity = with(projectMapper) { responseDto.toEntity() }
             projectDao.upsert(responseEntity)
             NetworkResult.Success(with(projectMapper) { responseEntity.toDomain() })
-        } catch (_: Exception) {
-            // Optimistic update already saved locally
-            NetworkResult.Success(project)
+        } catch (e: Exception) {
+            NetworkResult.Error(e.localizedMessage ?: "Failed to update project")
         }
     }
 
