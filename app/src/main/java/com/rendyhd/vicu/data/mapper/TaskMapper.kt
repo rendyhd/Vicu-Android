@@ -224,6 +224,6 @@ class TaskMapper @Inject constructor(private val json: Json) {
         id = id,
         title = title,
         description = description,
-        hexColor = hexColor,
+        hexColor = hexColor.removePrefix("#"),
     )
 }

@@ -43,7 +43,7 @@ class LabelMapper @Inject constructor() {
         id = id,
         title = title,
         description = description,
-        hexColor = hexColor,
+        hexColor = hexColor.removePrefix("#"),
     )
 
     fun Label.toEntity(): LabelEntity = LabelEntity(

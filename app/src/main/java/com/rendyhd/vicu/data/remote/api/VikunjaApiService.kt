@@ -59,7 +59,7 @@ interface VikunjaApiService {
     @PUT("labels")
     suspend fun createLabel(@Body label: LabelDto): LabelDto
 
-    @PUT("labels/{id}")
+    @POST("labels/{id}")
     suspend fun updateLabel(@Path("id") id: Long, @Body label: LabelDto): LabelDto
 
     @DELETE("labels/{id}")
