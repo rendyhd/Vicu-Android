@@ -835,12 +835,12 @@ private fun GeneralTab(
                 )
             }
         } else {
-            items(state.projects, key = { "project_${it.id}" }) { project ->
+            // Build tree: parent projects first, children nested underneath
+            val sortedProjects = buildProjectTree(state.projects)
+            items(sortedProjects, key = { "project_${it.first.id}" }) { (project, depth) ->
                 ProjectRow(
                     project = project,
-                    parentTitle = if (project.parentProjectId != 0L) {
-                        state.projects.find { it.id == project.parentProjectId }?.title
-                    } else null,
+                    depth = depth,
                     onEdit = { onEditProject(project) },
                     onDelete = { onDeleteProject(project) },
                 )
@@ -1518,17 +1518,18 @@ private fun LabelRow(
 @Composable
 private fun ProjectRow(
     project: Project,
-    parentTitle: String?,
+    depth: Int = 0,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val dotColor = parseHexColor(project.hexColor)
+    val indent = (16 + depth * 24).dp
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onEdit)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(start = indent, end = 16.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -1538,19 +1539,11 @@ private fun ProjectRow(
                 .background(dotColor ?: MaterialTheme.colorScheme.onSurfaceVariant),
         )
         Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = project.title,
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            if (parentTitle != null) {
-                Text(
-                    text = "in $parentTitle",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+        Text(
+            text = project.title,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
         IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
             Icon(
                 Icons.Default.Edit,
@@ -1709,6 +1702,22 @@ private fun buildFilterSummary(list: CustomList): String {
         parts.add("incl. done")
     }
     return parts.joinToString(" · ")
+}
+
+private fun buildProjectTree(projects: List<Project>): List<Pair<Project, Int>> {
+    val childrenMap = projects.groupBy { it.parentProjectId }
+    val result = mutableListOf<Pair<Project, Int>>()
+    fun addChildren(parentId: Long, depth: Int) {
+        childrenMap[parentId]?.forEach { project ->
+            result.add(project to depth)
+            addChildren(project.id, depth + 1)
+        }
+    }
+    addChildren(0L, 0)
+    // Add any orphans (parent not in list) at root level
+    val addedIds = result.map { it.first.id }.toSet()
+    projects.filter { it.id !in addedIds }.forEach { result.add(it to 0) }
+    return result
 }
 
 private fun parseHexColor(hex: String): Color? {
