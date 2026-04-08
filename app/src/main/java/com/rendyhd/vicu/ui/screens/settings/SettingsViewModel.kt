@@ -255,6 +255,52 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    // --- Projects ---
+
+    fun createProject(name: String, hexColor: String, parentProjectId: Long) {
+        viewModelScope.launch {
+            val project = Project(id = 0, title = name, hexColor = hexColor, parentProjectId = parentProjectId)
+            when (val result = projectRepository.create(project)) {
+                is NetworkResult.Success -> {
+                    _messages.update { null to "Project created" }
+                }
+                is NetworkResult.Error -> {
+                    _messages.update { result.message to null }
+                }
+                is NetworkResult.Loading -> {}
+            }
+        }
+    }
+
+    fun updateProject(project: Project, name: String, hexColor: String, parentProjectId: Long) {
+        viewModelScope.launch {
+            val updated = project.copy(title = name, hexColor = hexColor, parentProjectId = parentProjectId)
+            when (val result = projectRepository.update(updated)) {
+                is NetworkResult.Success -> {
+                    _messages.update { null to "Project updated" }
+                }
+                is NetworkResult.Error -> {
+                    _messages.update { result.message to null }
+                }
+                is NetworkResult.Loading -> {}
+            }
+        }
+    }
+
+    fun deleteProject(projectId: Long) {
+        viewModelScope.launch {
+            when (val result = projectRepository.delete(projectId)) {
+                is NetworkResult.Success -> {
+                    _messages.update { null to "Project deleted" }
+                }
+                is NetworkResult.Error -> {
+                    _messages.update { result.message to null }
+                }
+                is NetworkResult.Loading -> {}
+            }
+        }
+    }
+
     // --- Labels ---
 
     fun createLabel(name: String, hexColor: String) {

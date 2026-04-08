@@ -3,11 +3,16 @@ package com.rendyhd.vicu.ui.screens.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -70,6 +76,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -77,6 +86,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.rendyhd.vicu.data.local.ThemeMode
 import com.rendyhd.vicu.domain.model.BottomBarSlot
 import com.rendyhd.vicu.domain.model.BottomBarSlotType
+import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.util.parser.SyntaxMode
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
@@ -85,6 +95,7 @@ import com.rendyhd.vicu.ui.components.shared.BottomBarSlotEditor
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.LabelEditDialog
+import com.rendyhd.vicu.ui.components.shared.ProjectEditDialog
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,6 +110,9 @@ fun SettingsScreen(
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
     // Dialog state
+    var showProjectDialog by remember { mutableStateOf(false) }
+    var editingProject by remember { mutableStateOf<Project?>(null) }
+    var deletingProject by remember { mutableStateOf<Project?>(null) }
     var showLabelDialog by remember { mutableStateOf(false) }
     var editingLabel by remember { mutableStateOf<Label?>(null) }
     var deletingLabel by remember { mutableStateOf<Label?>(null) }
@@ -108,6 +122,7 @@ fun SettingsScreen(
     var showTimePicker by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
+    var showAuthDebugLog by remember { mutableStateOf(false) }
     var showInboxPicker by remember { mutableStateOf(false) }
     var editingSlotIndex by remember { mutableIntStateOf(-1) }
 
@@ -155,6 +170,12 @@ fun SettingsScreen(
                     onNlpSyntaxModeChange = viewModel::setNlpSyntaxMode,
                     onBangTodayChange = viewModel::setBangToday,
                     onShowInboxPicker = { showInboxPicker = true },
+                    onShowProjectDialog = { showProjectDialog = true },
+                    onEditProject = { project ->
+                        editingProject = project
+                        showProjectDialog = true
+                    },
+                    onDeleteProject = { deletingProject = it },
                     onShowLabelDialog = { showLabelDialog = true },
                     onEditLabel = { label ->
                         editingLabel = label
@@ -175,6 +196,7 @@ fun SettingsScreen(
                     onRetryFailed = viewModel::retryFailedActions,
                     onClearFailed = viewModel::clearFailedActions,
                     onClearCache = { showClearCacheDialog = true },
+                    onShowAuthLog = { showAuthDebugLog = true },
                     onLogout = { showLogoutDialog = true },
                 )
                 1 -> NotificationsTab(
@@ -219,6 +241,49 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showTimePicker = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    // Project create/edit dialog
+    if (showProjectDialog) {
+        ProjectEditDialog(
+            project = editingProject,
+            projects = state.projects,
+            onSave = { name, hexColor, parentId ->
+                if (editingProject != null) {
+                    viewModel.updateProject(editingProject!!, name, hexColor, parentId)
+                } else {
+                    viewModel.createProject(name, hexColor, parentId)
+                }
+                showProjectDialog = false
+                editingProject = null
+            },
+            onDismiss = {
+                showProjectDialog = false
+                editingProject = null
+            },
+        )
+    }
+
+    // Project delete confirmation
+    if (deletingProject != null) {
+        AlertDialog(
+            onDismissRequest = { deletingProject = null },
+            title = { Text("Delete Project") },
+            text = { Text("Delete \"${deletingProject!!.title}\"? All tasks in this project will be deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteProject(deletingProject!!.id)
+                    deletingProject = null
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingProject = null }) {
                     Text("Cancel")
                 }
             },
@@ -412,6 +477,11 @@ fun SettingsScreen(
             },
         )
     }
+
+    // Auth debug log viewer
+    if (showAuthDebugLog) {
+        AuthDebugLogDialog(onDismiss = { showAuthDebugLog = false })
+    }
 }
 
 // ========== General Tab ==========
@@ -424,6 +494,9 @@ private fun GeneralTab(
     onNlpSyntaxModeChange: (SyntaxMode) -> Unit,
     onBangTodayChange: (Boolean) -> Unit,
     onShowInboxPicker: () -> Unit,
+    onShowProjectDialog: () -> Unit,
+    onEditProject: (Project) -> Unit,
+    onDeleteProject: (Project) -> Unit,
     onShowLabelDialog: () -> Unit,
     onEditLabel: (Label) -> Unit,
     onDeleteLabel: (Label) -> Unit,
@@ -438,6 +511,7 @@ private fun GeneralTab(
     onRetryFailed: () -> Unit,
     onClearFailed: () -> Unit,
     onClearCache: () -> Unit,
+    onShowAuthLog: () -> Unit,
     onLogout: () -> Unit,
 ) {
     LazyColumn(
@@ -743,6 +817,40 @@ private fun GeneralTab(
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
 
+        // === Projects section ===
+        item(key = "projects_header") {
+            SectionTitle(
+                title = "Projects",
+                onAdd = onShowProjectDialog,
+            )
+        }
+
+        if (state.projects.isEmpty()) {
+            item(key = "projects_empty") {
+                Text(
+                    text = "No projects yet",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+        } else {
+            items(state.projects, key = { "project_${it.id}" }) { project ->
+                ProjectRow(
+                    project = project,
+                    parentTitle = if (project.parentProjectId != 0L) {
+                        state.projects.find { it.id == project.parentProjectId }?.title
+                    } else null,
+                    onEdit = { onEditProject(project) },
+                    onDelete = { onDeleteProject(project) },
+                )
+            }
+        }
+
+        item(key = "projects_divider") {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
         // === Labels section ===
         item(key = "labels_header") {
             SectionTitle(
@@ -893,6 +1001,35 @@ private fun GeneralTab(
                     )
                     Text(
                         text = "Delete local data and fetch everything from the server",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        item(key = "auth_debug_log") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onShowAuthLog)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Auth Debug Log",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        text = "View token refresh and auth state history",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1379,6 +1516,61 @@ private fun LabelRow(
 }
 
 @Composable
+private fun ProjectRow(
+    project: Project,
+    parentTitle: String?,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val dotColor = parseHexColor(project.hexColor)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onEdit)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .clip(CircleShape)
+                .background(dotColor ?: MaterialTheme.colorScheme.onSurfaceVariant),
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = project.title,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            if (parentTitle != null) {
+                Text(
+                    text = "in $parentTitle",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+            Icon(
+                Icons.Default.Edit,
+                contentDescription = "Edit",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+            Icon(
+                Icons.Default.Delete,
+                contentDescription = "Delete",
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun CustomListRow(
     customList: CustomList,
     onEdit: () -> Unit,
@@ -1527,4 +1719,55 @@ private fun parseHexColor(hex: String): Color? {
     } catch (_: Exception) {
         null
     }
+}
+
+@Composable
+private fun AuthDebugLogDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val logText = remember { AuthDebugLog.readLog() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Auth Debug Log") },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.6f),
+            ) {
+                val vScroll = rememberScrollState(Int.MAX_VALUE) // scroll to bottom
+                val hScroll = rememberScrollState()
+                Text(
+                    text = logText,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                    ),
+                    modifier = Modifier
+                        .verticalScroll(vScroll)
+                        .horizontalScroll(hScroll),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Auth Debug Log", logText))
+            }) {
+                Text("Copy")
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = {
+                    AuthDebugLog.clear()
+                    onDismiss()
+                }) {
+                    Text("Clear")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Close")
+                }
+            }
+        },
+    )
 }
