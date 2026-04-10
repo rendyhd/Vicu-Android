@@ -387,36 +387,72 @@ class AuthManager @Inject constructor(
     }
 
     /**
+     * Create a backup API token for this user and store it locally.
+     *
+     * The Vikunja server requires a concrete `permissions` map on token creation —
+     * `{"*": "*"}` is a frontend-only shorthand. We mirror the Vikunja frontend's
+     * "Full access" preset: fetch `/api/v1/routes` and expand every group to every
+     * permission key.
+     *
+     * Returns true on success. Logs both success and failure to [AuthDebugLog]
+     * so silent failures are visible in the persistent log viewer.
+     */
+    suspend fun createBackupApiToken(title: String = "Vicu Android Backup"): Boolean {
+        return try {
+            AuthDebugLog.log("BACKUP_API_TOKEN", "fetching /routes for permissions map")
+            val routes = apiServiceProvider.get().getApiTokenRoutes()
+            // Expand "full access": every group → every permission key in that group.
+            val permissions: Map<String, List<String>> = routes.mapValues { (_, routeMap) ->
+                routeMap.keys.toList()
+            }
+            if (permissions.isEmpty()) {
+                Log.w(TAG, "Routes endpoint returned no groups — cannot build permissions")
+                AuthDebugLog.log("BACKUP_API_TOKEN", "FAILED: /routes returned empty map")
+                return false
+            }
+
+            val expiry = Instant.now().plusSeconds(365L * 24 * 60 * 60)
+            val expiryStr = DateTimeFormatter.ISO_INSTANT.format(expiry)
+            val request = ApiTokenRequestDto(
+                title = title,
+                expiresAt = expiryStr,
+                permissions = permissions,
+            )
+            val response = apiServiceProvider.get().createApiToken(request)
+            if (response.token.isNotBlank()) {
+                tokenStorage.storeApiToken(response.token, expiry.epochSecond)
+                Log.i(TAG, "Backup API token created successfully (${permissions.size} groups)")
+                AuthDebugLog.log(
+                    "BACKUP_API_TOKEN",
+                    "created successfully (${permissions.size} groups, ${permissions.values.sumOf { it.size }} perms)",
+                )
+                true
+            } else {
+                Log.w(TAG, "Backup API token creation returned empty token")
+                AuthDebugLog.log("BACKUP_API_TOKEN", "FAILED: server returned empty token")
+                false
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Backup API token creation failed", e)
+            AuthDebugLog.logError("BACKUP_API_TOKEN failed", e)
+            false
+        }
+    }
+
+    /**
      * If authenticated but no backup API token exists, create one.
      * This self-heals the case where initial token creation failed during setup.
      * Runs in appScope so it doesn't block initialize().
      */
     private fun ensureBackupApiToken() {
         appScope.launch {
-            try {
-                if (tokenStorage.hasApiToken()) {
-                    AuthDebugLog.log("BACKUP_API_TOKEN", "already exists, skipping")
-                    return@launch
-                }
-
-                Log.w(TAG, "No backup API token found — attempting to create one")
-                AuthDebugLog.log("BACKUP_API_TOKEN", "missing — creating new one")
-                val expiry = Instant.now().plusSeconds(365L * 24 * 60 * 60)
-                val expiryStr = DateTimeFormatter.ISO_INSTANT.format(expiry)
-                val request = ApiTokenRequestDto(
-                    title = "Vicu Android Backup",
-                    expiresAt = expiryStr,
-                )
-                val response = apiServiceProvider.get().createApiToken(request)
-                if (response.token.isNotBlank()) {
-                    tokenStorage.storeApiToken(response.token, expiry.epochSecond)
-                    Log.i(TAG, "Backup API token created successfully (self-healed)")
-                } else {
-                    Log.w(TAG, "Backup API token creation returned empty token")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Backup API token self-heal failed (will retry next launch)", e)
+            if (tokenStorage.hasApiToken()) {
+                AuthDebugLog.log("BACKUP_API_TOKEN", "already exists, skipping")
+                return@launch
             }
+            Log.w(TAG, "No backup API token found — attempting to create one")
+            AuthDebugLog.log("BACKUP_API_TOKEN", "missing — creating new one")
+            createBackupApiToken()
         }
     }
 

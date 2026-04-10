@@ -9,7 +9,6 @@ import com.rendyhd.vicu.auth.OidcHandler
 import com.rendyhd.vicu.auth.OidcResult
 import com.rendyhd.vicu.auth.PasswordLoginHandler
 import com.rendyhd.vicu.auth.PasswordLoginResult
-import com.rendyhd.vicu.data.remote.api.ApiTokenRequestDto
 import com.rendyhd.vicu.data.local.VikunjaDatabase
 import com.rendyhd.vicu.data.remote.api.OidcProviderDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
@@ -27,9 +26,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.Instant
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 enum class SetupStep {
@@ -297,22 +293,14 @@ class SetupViewModel @Inject constructor(
     }
 
     private suspend fun createBackupApiToken() {
-        try {
-            val expiry = Instant.now().plusSeconds(365L * 24 * 60 * 60)
-            val expiryStr = DateTimeFormatter.ISO_INSTANT.format(expiry)
-            val request = ApiTokenRequestDto(
-                title = "Vicu Android Backup",
-                expiresAt = expiryStr,
-            )
-            val response = apiService.get().createApiToken(request)
-            if (response.token.isNotBlank()) {
-                authManager.onApiTokenSaved(response.token, expiry.epochSecond)
-                Log.i(TAG, "Backup API token created successfully during setup")
-            } else {
-                Log.w(TAG, "Backup API token creation returned empty token — AuthManager will retry on next launch")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Backup API token creation failed during setup — AuthManager will retry on next launch", e)
+        // Delegate to AuthManager so the /routes-expansion logic lives in one place.
+        // AuthManager logs both success and failure to AuthDebugLog; if creation fails here,
+        // AuthManager.ensureBackupApiToken() will retry on the next app launch.
+        val ok = authManager.createBackupApiToken()
+        if (ok) {
+            Log.i(TAG, "Backup API token created successfully during setup")
+        } else {
+            Log.w(TAG, "Backup API token creation failed during setup — AuthManager will retry on next launch")
         }
     }
 }
