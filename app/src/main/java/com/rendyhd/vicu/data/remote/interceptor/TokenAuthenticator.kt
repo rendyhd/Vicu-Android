@@ -34,6 +34,14 @@ class TokenAuthenticator @Inject constructor(
         val retryCount = responseCount(response)
         AuthDebugLog.log("401_RECEIVED", "path=$path retry=$retryCount/${MAX_RETRIES}")
 
+        // 401 from the refresh endpoint itself is terminal. Trying to recover by refreshing
+        // would just call the same endpoint with the same (now-consumed) refresh cookie.
+        // Let the caller of performV2Refresh()/tryV2Refresh() handle the 401 directly.
+        if (path.contains("/user/token/refresh")) {
+            AuthDebugLog.log("401_REFRESH_ENDPOINT", "not retrying refresh endpoint 401 — terminal")
+            return null
+        }
+
         if (retryCount >= MAX_RETRIES) {
             if (BuildConfig.DEBUG) Log.w(TAG, "Max retries reached, giving up (request fails but user stays logged in)")
             AuthDebugLog.log("401_MAX_RETRIES", "giving up on path=$path (user stays logged in)")

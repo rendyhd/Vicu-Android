@@ -140,13 +140,39 @@ class AuthManager @Inject constructor(
                     cachedToken = jwt
                     cachedJwtExpiry = jwtExpiry
                     val refreshed = if (isServerV2Cached) {
-                        performV2Refresh()
+                        // Serialize with proactive refresh / worker / authenticator so we don't
+                        // race on the single-use refresh cookie. If another caller refreshed
+                        // while we were waiting for the lock, skip the redundant HTTP call.
+                        withRefreshLock {
+                            if (cachedToken != null && !isExpired(cachedJwtExpiry)) {
+                                AuthDebugLog.log(
+                                    "INITIALIZE_REFRESH_SKIPPED",
+                                    "another caller already refreshed (cached JWT valid)",
+                                )
+                                true
+                            } else {
+                                performV2Refresh()
+                            }
+                        }
                     } else {
                         false // Legacy renewal requires a valid JWT — can't auto-recover
                     }
                     if (refreshed) {
                         Log.d(TAG, "initialize: V2 refresh succeeded → Authenticated")
                         AuthDebugLog.authStateChanged(oldState, "Authenticated", "V2 refresh succeeded during init")
+                        _authState.value = AuthState.Authenticated
+                        scheduleProactiveRefresh()
+                        ensureBackupApiToken()
+                    } else if (cachedToken != null && !isExpired(cachedJwtExpiry)) {
+                        // Defense-in-depth for fix #1: even if our refresh call returned false,
+                        // a concurrent refresh may have updated cachedToken/cachedJwtExpiry
+                        // before we reached this branch. Don't clobber a valid session.
+                        Log.i(TAG, "initialize: V2 refresh returned false but cached JWT is valid → Authenticated")
+                        AuthDebugLog.authStateChanged(
+                            oldState,
+                            "Authenticated",
+                            "V2 refresh call failed but cached JWT is valid (concurrent refresh)",
+                        )
                         _authState.value = AuthState.Authenticated
                         scheduleProactiveRefresh()
                         ensureBackupApiToken()
