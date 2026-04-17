@@ -47,8 +47,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -171,13 +175,26 @@ private fun ServerUrlStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(8.dp))
+        var hasBeenFocused by remember { mutableStateOf(false) }
         OutlinedTextField(
             value = url,
-            onValueChange = onUrlChange,
+            onValueChange = {
+                hasBeenFocused = true
+                onUrlChange(it)
+            },
             label = { Text("Server URL") },
             placeholder = { Text("https://app.vikunja.cloud") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focusState ->
+                    if (focusState.isFocused && !hasBeenFocused) {
+                        hasBeenFocused = true
+                        if (url == "https://app.vikunja.cloud") {
+                            onUrlChange("")
+                        }
+                    }
+                },
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Uri,
                 imeAction = ImeAction.Go,
