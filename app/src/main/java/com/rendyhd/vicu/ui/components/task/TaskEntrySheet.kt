@@ -1,6 +1,9 @@
 package com.rendyhd.vicu.ui.components.task
 
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -184,16 +187,24 @@ fun TaskEntrySheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
+            val entryImagePickerLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.PickVisualMedia(),
+            ) { uri -> uri?.let(viewModel::stagePendingImage) }
+
+            DescriptionField(
                 value = state.description,
                 onValueChange = viewModel::setDescription,
-                placeholder = { Text("Notes") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 2,
-                maxLines = 4,
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                ),
+                taskId = 0L,
+                isUploadingImage = false,
+                onAddImageClick = {
+                    entryImagePickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
+                },
+                onRemoveImageAttachment = {},
+                onImagePasted = viewModel::stagePendingImage,
+                pendingImages = state.pendingImages,
+                onRemovePending = viewModel::removePendingImage,
             )
 
             Spacer(modifier = Modifier.height(12.dp))

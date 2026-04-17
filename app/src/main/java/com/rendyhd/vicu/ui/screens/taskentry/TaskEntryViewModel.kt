@@ -19,6 +19,7 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.FileUtils
+import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.parser.ParseResult
 import com.rendyhd.vicu.util.parser.ParserConfig
@@ -59,6 +60,8 @@ data class TaskEntryUiState(
     val pendingAttachmentUris: List<Uri> = emptyList(),
     val pendingAttachmentMimeType: String? = null,
     val inboxProjectId: Long = 0L,
+    /** uuid → local URI for images pasted/staged before the task is saved. */
+    val pendingImages: Map<String, Uri> = emptyMap(),
 )
 
 @HiltViewModel
@@ -147,6 +150,23 @@ class TaskEntryViewModel @Inject constructor(
                 },
             )
         }
+    }
+
+    /** Stage a pasted image: append `[[image-pending:uuid]]` to description and remember the URI. */
+    fun stagePendingImage(uri: Uri) {
+        val uuid = java.util.UUID.randomUUID().toString().take(8)
+        _uiState.update { state ->
+            val (text, refs) = ImageTokens.parseValue(state.description)
+            val newRefs = refs + ImageTokens.ImageRef.Pending(uuid)
+            state.copy(
+                description = ImageTokens.buildValue(text, newRefs),
+                pendingImages = state.pendingImages + (uuid to uri),
+            )
+        }
+    }
+
+    fun removePendingImage(uuid: String) {
+        _uiState.update { it.copy(pendingImages = it.pendingImages - uuid) }
     }
 
     fun setTitle(title: String) {
@@ -323,13 +343,15 @@ class TaskEntryViewModel @Inject constructor(
         _uiState.update { it.copy(isSaving = true, error = null) }
 
         val pendingUris = state.pendingAttachmentUris
+        val pendingImages = state.pendingImages
+        val descriptionAtSave = state.description
 
         viewModelScope.launch {
             try {
                 val task = Task(
                     id = 0,
                     title = title,
-                    description = state.description,
+                    description = descriptionAtSave,
                     dueDate = dueDate,
                     priority = priority,
                     projectId = projectId,
@@ -344,9 +366,13 @@ class TaskEntryViewModel @Inject constructor(
                         for (labelId in labelIds) {
                             labelRepository.addToTask(createdTask.id, labelId)
                         }
-                        // Upload pending attachments in background (fire-and-forget)
                         if (pendingUris.isNotEmpty()) {
                             uploadPendingAttachments(createdTask.id, pendingUris)
+                        }
+                        // Upload pasted images, swap `[[image-pending:uuid]]` → `[[image:N]]`,
+                        // then update the task with the new description.
+                        if (pendingImages.isNotEmpty()) {
+                            uploadPendingImagesAndUpdateDescription(createdTask, pendingImages)
                         }
                         taskRepository.refreshAll()
                         _uiState.update {
@@ -365,6 +391,25 @@ class TaskEntryViewModel @Inject constructor(
                     it.copy(isSaving = false, error = e.message ?: "Failed to save task")
                 }
             }
+        }
+    }
+
+    private suspend fun uploadPendingImagesAndUpdateDescription(
+        task: Task,
+        pendingImages: Map<String, Uri>,
+    ) {
+        val mapping = mutableMapOf<String, Long>()
+        for ((uuid, uri) in pendingImages) {
+            val filePart = FileUtils.uriToMultipartPart(context, uri) ?: continue
+            when (val uploadResult = attachmentRepository.upload(task.id, filePart)) {
+                is NetworkResult.Success -> mapping[uuid] = uploadResult.data.id
+                else -> {} // skip failed uploads; pending token will remain and be ignored client-side
+            }
+        }
+        if (mapping.isEmpty()) return
+        val newDescription = ImageTokens.replacePendingTokens(task.description, mapping)
+        if (newDescription != task.description) {
+            taskRepository.update(task.copy(description = newDescription))
         }
     }
 
@@ -395,6 +440,7 @@ class TaskEntryViewModel @Inject constructor(
                 suppressedTypes = emptySet(),
                 pendingAttachmentUris = emptyList(),
                 pendingAttachmentMimeType = null,
+                pendingImages = emptyMap(),
             )
         }
     }

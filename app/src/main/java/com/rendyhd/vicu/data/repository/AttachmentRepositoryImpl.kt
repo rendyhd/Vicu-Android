@@ -27,10 +27,21 @@ class AttachmentRepositoryImpl @Inject constructor(
 
     override suspend fun upload(taskId: Long, filePart: MultipartBody.Part): NetworkResult<Attachment> {
         return try {
-            val responseDto = api.uploadAttachment(taskId, filePart)
-            val entity = with(attachmentMapper) { responseDto.toEntity(taskId) }
-            attachmentDao.upsert(entity)
-            NetworkResult.Success(with(attachmentMapper) { entity.toDomain() })
+            // Vikunja's PUT /tasks/{id}/attachments response doesn't reliably
+            // include the new attachment's ID, so snapshot before + refetch
+            // after and diff to find the newly-created one. Same approach as
+            // the desktop app's `useUploadAttachmentFromPaste` hook.
+            val beforeIds = api.getAttachments(taskId).map { it.id }.toSet()
+            api.uploadAttachment(taskId, filePart)
+            val afterDtos = api.getAttachments(taskId)
+            val newDto = afterDtos.filter { it.id !in beforeIds }.maxByOrNull { it.id }
+                ?: return NetworkResult.Error("Upload succeeded but new attachment not found")
+
+            val afterEntities = afterDtos.map { with(attachmentMapper) { it.toEntity(taskId) } }
+            attachmentDao.upsertAll(afterEntities)
+
+            val newEntity = with(attachmentMapper) { newDto.toEntity(taskId) }
+            NetworkResult.Success(with(attachmentMapper) { newEntity.toDomain() })
         } catch (e: Exception) {
             NetworkResult.Error(e.localizedMessage ?: "Failed to upload attachment")
         }

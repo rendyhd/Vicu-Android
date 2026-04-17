@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -69,8 +70,10 @@ import com.rendyhd.vicu.ui.components.picker.LabelPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.task.DescriptionField
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.FileUtils
+import com.rendyhd.vicu.util.ImageTokens
 
 private fun parseHexColor(hex: String): Color? {
     if (hex.isBlank()) return null
@@ -106,6 +109,17 @@ fun TaskDetailSheet(
             val part = FileUtils.uriToMultipartPart(context, it)
             if (part != null) {
                 viewModel.uploadAttachment(part)
+            }
+        }
+    }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        uri?.let {
+            val part = FileUtils.uriToMultipartPart(context, it)
+            if (part != null) {
+                viewModel.addImageAttachment(part)
             }
         }
     }
@@ -146,9 +160,18 @@ fun TaskDetailSheet(
             return@ModalBottomSheet
         }
 
+        val imageTokenIds = remember(task.description) {
+            ImageTokens.findImageRefs(task.description)
+                .filterIsInstance<ImageTokens.ImageRef.Image>()
+                .map { it.attachmentId }
+                .toSet()
+        }
+        val visibleAttachments = state.attachments.filter { it.id !in imageTokenIds }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.85f)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp)
                 .imePadding(),
@@ -171,16 +194,23 @@ fun TaskDetailSheet(
 
             // Description
             item(key = "description") {
-                OutlinedTextField(
+                DescriptionField(
                     value = task.description,
                     onValueChange = viewModel::updateDescription,
-                    placeholder = { Text("Add notes") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
-                    maxLines = 6,
-                    keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.Sentences,
-                    ),
+                    taskId = task.id,
+                    isUploadingImage = state.isUploadingImage,
+                    onAddImageClick = {
+                        imagePickerLauncher.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                            ),
+                        )
+                    },
+                    onRemoveImageAttachment = viewModel::deleteAttachment,
+                    onImagePasted = { uri ->
+                        val part = FileUtils.uriToMultipartPart(context, uri)
+                        if (part != null) viewModel.addImageAttachment(part)
+                    },
                 )
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -376,8 +406,9 @@ fun TaskDetailSheet(
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
-            // Attachments
-            items(state.attachments, key = { "att_${it.id}" }) { attachment ->
+            // Image-token-referenced attachments are hidden here — they render
+            // as thumbnails inside DescriptionField instead.
+            items(visibleAttachments, key = { "att_${it.id}" }) { attachment ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

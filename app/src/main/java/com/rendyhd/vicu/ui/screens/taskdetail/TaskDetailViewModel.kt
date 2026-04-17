@@ -15,6 +15,7 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.TaskLinkParser
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -40,6 +41,7 @@ data class TaskDetailUiState(
     val showDeleteConfirmation: Boolean = false,
     val isDeleted: Boolean = false,
     val inboxProjectId: Long = 0L,
+    val isUploadingImage: Boolean = false,
 )
 
 @HiltViewModel
@@ -243,8 +245,37 @@ class TaskDetailViewModel @Inject constructor(
         }
     }
 
+    fun addImageAttachment(filePart: MultipartBody.Part) {
+        val taskIdSnapshot = _uiState.value.task?.id ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isUploadingImage = true) }
+            when (val result = attachmentRepository.upload(taskIdSnapshot, filePart)) {
+                is NetworkResult.Success -> {
+                    // Read the LATEST description inside .update so keystrokes typed
+                    // during the upload aren't dropped by a pre-launch snapshot.
+                    _uiState.update { current ->
+                        val latestDesc = current.task?.description ?: ""
+                        val newDesc = ImageTokens.appendImageToken(latestDesc, result.data.id)
+                        current.copy(
+                            task = current.task?.copy(description = newDesc),
+                            isUploadingImage = false,
+                        )
+                    }
+                    // Persist immediately so a token added mid-session survives a
+                    // process kill before the sheet's onDispose save fires.
+                    saveIfChanged()
+                }
+                is NetworkResult.Error -> _uiState.update {
+                    it.copy(isUploadingImage = false, error = result.message)
+                }
+                else -> _uiState.update { it.copy(isUploadingImage = false) }
+            }
+        }
+    }
+
     fun deleteAttachment(attachmentId: Long) {
         val task = _uiState.value.task ?: return
+        _uiState.update { it.copy(attachments = it.attachments.filter { a -> a.id != attachmentId }) }
         viewModelScope.launch {
             when (val result = attachmentRepository.delete(task.id, attachmentId)) {
                 is NetworkResult.Error -> _uiState.update { it.copy(error = result.message) }
@@ -289,9 +320,11 @@ class TaskDetailViewModel @Inject constructor(
         if (task == original) return
 
         Log.d(TAG, "saveIfChanged: task has changes, saving...")
-        // Re-append preserved link HTML to description before saving
+        // Re-append preserved link HTML to description before saving.
+        // Defensive newline separator keeps image tokens readable when a task
+        // has both `[[image:N]]` tokens and `<!-- notelink:... -->` HTML.
         val fullDescription = if (preservedLinkHtml.isNotEmpty()) {
-            if (task.description.isNotEmpty()) task.description + preservedLinkHtml else preservedLinkHtml
+            if (task.description.isNotEmpty()) task.description + "\n" + preservedLinkHtml else preservedLinkHtml
         } else {
             task.description
         }
