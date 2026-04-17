@@ -18,7 +18,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.runBlocking
 import java.security.KeyStore
 import java.util.Base64
 import javax.inject.Inject
@@ -84,31 +83,13 @@ class SecureTokenStorage @Inject constructor(
         } catch (e: Exception) {
             Log.w(TAG, "Failed to delete master key", e)
         }
-        // Clear the Tink keyset SharedPreferences
+        // Clear the Tink keyset SharedPreferences so the next buildAead() regenerates the master key.
         context.getSharedPreferences(KEYSET_PREFS, Context.MODE_PRIVATE).edit().clear().apply()
-        // Clear encrypted tokens from DataStore — they can never be decrypted with a new key
-        clearEncryptedTokensBlocking()
-    }
-
-    /**
-     * Synchronously clear encrypted token values from DataStore.
-     * Called during [resetKeystore] (from lazy init) where coroutines aren't available.
-     */
-    private fun clearEncryptedTokensBlocking() {
-        try {
-            runBlocking {
-                context.authDataStore.edit { prefs ->
-                    prefs.remove(Keys.JWT)
-                    prefs.remove(Keys.JWT_EXPIRY)
-                    prefs.remove(Keys.API_TOKEN)
-                    prefs.remove(Keys.API_TOKEN_EXPIRY)
-                    prefs.remove(Keys.REFRESH_TOKEN)
-                }
-            }
-            Log.w(TAG, "Cleared encrypted tokens after keystore reset")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to clear encrypted tokens after keystore reset", e)
-        }
+        // Intentionally do NOT clear DataStore here: this path can fire from inside
+        // authDataStore.edit { encrypt(...) } (e.g. storeJwt), and runBlocking { edit { } }
+        // re-enters the same DataStore mutex and deadlocks. Stale ciphertext left in
+        // DataStore is harmless — decryptOrNull() returns null for it and the normal
+        // re-auth flow regenerates the values with the new key.
     }
 
     private fun encrypt(plaintext: String): String {
