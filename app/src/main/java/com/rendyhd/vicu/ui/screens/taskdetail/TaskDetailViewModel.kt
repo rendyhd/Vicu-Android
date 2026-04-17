@@ -15,9 +15,9 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.DescriptionHtml
 import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.NetworkResult
-import com.rendyhd.vicu.util.TaskLinkParser
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -72,7 +72,13 @@ class TaskDetailViewModel @Inject constructor(
         // Reset state for the new task so stale data from the previous task doesn't persist
         preservedLinkHtml = ""
         _uiState.update {
-            it.copy(task = null, originalTask = null, isLoading = true, isDeleted = false, error = null)
+            it.copy(
+                task = null,
+                originalTask = null,
+                isLoading = true,
+                isDeleted = false,
+                error = null,
+            )
         }
 
         viewModelScope.launch {
@@ -81,9 +87,10 @@ class TaskDetailViewModel @Inject constructor(
                     val subtasks = task.relatedTasks["subtask"] ?: emptyList()
                     val isFirstLoad = _uiState.value.originalTask == null
                     if (isFirstLoad) {
-                        preservedLinkHtml = TaskLinkParser.extractLinkHtml(task.description)
-                        val strippedDesc = TaskLinkParser.stripLinks(task.description)
-                        val displayTask = task.copy(description = strippedDesc)
+                        val split = DescriptionHtml.splitForEditor(task.description)
+                        preservedLinkHtml = split.linkHtml
+                        val displayDesc = ImageTokens.buildValue(split.htmlBody, split.imageRefs)
+                        val displayTask = task.copy(description = displayDesc)
                         _uiState.update {
                             it.copy(
                                 task = displayTask,
@@ -320,14 +327,11 @@ class TaskDetailViewModel @Inject constructor(
         if (task == original) return
 
         Log.d(TAG, "saveIfChanged: task has changes, saving...")
-        // Re-append preserved link HTML to description before saving.
-        // Defensive newline separator keeps image tokens readable when a task
-        // has both `[[image:N]]` tokens and `<!-- notelink:... -->` HTML.
-        val fullDescription = if (preservedLinkHtml.isNotEmpty()) {
-            if (task.description.isNotEmpty()) task.description + "\n" + preservedLinkHtml else preservedLinkHtml
-        } else {
-            task.description
-        }
+        // Re-append preserved link HTML before saving. task.description already
+        // contains the rich-text HTML body + [[image:N]] tokens; link metadata
+        // is stored separately and stitched back here.
+        val (bodyHtml, imageRefs) = ImageTokens.parseValue(task.description)
+        val fullDescription = DescriptionHtml.merge(bodyHtml, imageRefs, preservedLinkHtml)
         val taskToSave = task.copy(description = fullDescription)
 
         viewModelScope.launch {
@@ -335,12 +339,12 @@ class TaskDetailViewModel @Inject constructor(
             // Send COMPLETE task object (Go zero-value problem)
             when (val result = taskRepository.update(taskToSave)) {
                 is NetworkResult.Success -> {
-                    val strippedResult = result.data.copy(
-                        description = TaskLinkParser.stripLinks(result.data.description),
-                    )
-                    preservedLinkHtml = TaskLinkParser.extractLinkHtml(result.data.description)
+                    val split = DescriptionHtml.splitForEditor(result.data.description)
+                    preservedLinkHtml = split.linkHtml
+                    val displayDesc = ImageTokens.buildValue(split.htmlBody, split.imageRefs)
+                    val displayed = result.data.copy(description = displayDesc)
                     _uiState.update {
-                        it.copy(isSaving = false, task = strippedResult, originalTask = strippedResult)
+                        it.copy(isSaving = false, task = displayed, originalTask = displayed)
                     }
                 }
                 is NetworkResult.Error -> {

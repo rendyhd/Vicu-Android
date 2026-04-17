@@ -36,7 +36,7 @@ android {
     if (keystorePropsFile.exists()) {
         signingConfigs {
             create("release") {
-                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")
@@ -52,6 +52,13 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (keystorePropsFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+        debug {
+            // Sign debug builds with the release keystore so they install over
+            // release-signed APKs without wiping app data.
             if (keystorePropsFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }

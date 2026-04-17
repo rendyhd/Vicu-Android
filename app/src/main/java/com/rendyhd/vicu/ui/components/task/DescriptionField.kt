@@ -11,6 +11,8 @@ import androidx.compose.foundation.content.TransferableContent
 import androidx.compose.foundation.content.consume
 import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.content.hasMediaType
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -20,16 +22,12 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
@@ -46,13 +44,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.rendyhd.vicu.util.ImageTokens
@@ -73,25 +72,23 @@ fun DescriptionField(
 ) {
     val (externalText, allImageRefs) = remember(value) { ImageTokens.parseValue(value) }
 
-    val textFieldState = rememberTextFieldState(externalText)
+    var textFieldValue by remember { mutableStateOf(TextFieldValue(externalText)) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
 
     // Sync ViewModel-driven changes (e.g., token appended after upload) into the field.
     LaunchedEffect(externalText) {
-        val current = textFieldState.text.toString()
-        if (current != externalText) {
-            textFieldState.edit { replace(0, length, externalText) }
+        if (textFieldValue.text != externalText) {
+            textFieldValue = textFieldValue.copy(
+                text = externalText,
+                selection = TextRange(externalText.length.coerceAtMost(textFieldValue.selection.start)),
+            )
         }
     }
 
     // Propagate user typing back to the ViewModel.
     val currentOnValueChange by rememberUpdatedState(onValueChange)
     val currentImageRefs by rememberUpdatedState(allImageRefs)
-    LaunchedEffect(textFieldState) {
-        snapshotFlow { textFieldState.text.toString() }
-            .collect { typed ->
-                currentOnValueChange(ImageTokens.buildValue(typed, currentImageRefs))
-            }
-    }
 
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     val imageRefs = allImageRefs.filterIsInstance<ImageTokens.ImageRef.Image>()
@@ -117,16 +114,30 @@ fun DescriptionField(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         OutlinedTextField(
-            state = textFieldState,
+            value = textFieldValue,
+            onValueChange = { newValue ->
+                textFieldValue = newValue
+                currentOnValueChange(ImageTokens.buildValue(newValue.text, currentImageRefs))
+            },
             placeholder = { Text("Add notes") },
             modifier = Modifier
                 .fillMaxWidth()
                 .contentReceiver(pasteListener),
-            lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = 2, maxHeightInLines = 6),
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.Sentences,
-            ),
+            minLines = 2,
+            maxLines = 6,
+            interactionSource = interactionSource,
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
         )
+
+        if (isFocused) {
+            RichTextFormatBar(
+                value = textFieldValue,
+                onValueChange = { updated ->
+                    textFieldValue = updated
+                    currentOnValueChange(ImageTokens.buildValue(updated.text, currentImageRefs))
+                },
+            )
+        }
 
         if (allImageRefs.isNotEmpty()) {
             FlowRow(
@@ -147,7 +158,7 @@ fun DescriptionField(
                                         it is ImageTokens.ImageRef.Image && it.attachmentId == ref.attachmentId
                                     }
                                     currentOnValueChange(
-                                        ImageTokens.buildValue(textFieldState.text.toString(), next),
+                                        ImageTokens.buildValue(textFieldValue.text, next),
                                     )
                                     onRemoveImageAttachment(ref.attachmentId)
                                 },
@@ -163,7 +174,7 @@ fun DescriptionField(
                                             it is ImageTokens.ImageRef.Pending && it.uuid == ref.uuid
                                         }
                                         currentOnValueChange(
-                                            ImageTokens.buildValue(textFieldState.text.toString(), next),
+                                            ImageTokens.buildValue(textFieldValue.text, next),
                                         )
                                         onRemovePending(ref.uuid)
                                     },
