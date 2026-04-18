@@ -56,13 +56,6 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
-        debug {
-            // Sign debug builds with the release keystore so they install over
-            // release-signed APKs without wiping app data.
-            if (keystorePropsFile.exists()) {
-                signingConfig = signingConfigs.getByName("release")
-            }
-        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
