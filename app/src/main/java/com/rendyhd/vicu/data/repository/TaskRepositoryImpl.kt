@@ -6,10 +6,12 @@ import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
+import com.rendyhd.vicu.data.remote.api.TaskPositionDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.notification.AlarmScheduler
+import com.rendyhd.vicu.util.CompletionSoundPlayer
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.NetworkResult
@@ -35,6 +37,7 @@ class TaskRepositoryImpl @Inject constructor(
     private val pendingActionDao: PendingActionDao,
     private val taskMapper: TaskMapper,
     private val alarmScheduler: AlarmScheduler,
+    private val completionSoundPlayer: CompletionSoundPlayer,
     private val json: Json,
 ) : TaskRepository {
 
@@ -43,6 +46,29 @@ class TaskRepositoryImpl @Inject constructor(
     }
 
     private val tempIdCounter = AtomicLong(-(System.currentTimeMillis() / 1000))
+
+    /**
+     * Best-effort: after a successful task create, find the project's list view and POST
+     * the new task to the bottom of it. Vikunja position is per-view, so this is a separate
+     * round-trip. Any failure is logged and swallowed — the task is already created.
+     */
+    private suspend fun anchorNewTaskAtEnd(projectId: Long, newTaskId: Long) {
+        if (projectId <= 0L) return
+        try {
+            val views = api.getProjectViews(projectId)
+            val listView = views.firstOrNull { it.viewKind == "list" } ?: return
+            val existing = api.getViewTasks(projectId, listView.id)
+            val maxPos = existing.maxOfOrNull { it.position } ?: 0.0
+            api.updateTaskPosition(
+                newTaskId,
+                TaskPositionDto(position = maxPos + 65_536.0, projectViewId = listView.id),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "anchorNewTaskAtEnd failed (non-fatal) for project=$projectId task=$newTaskId", e)
+        }
+    }
 
     private suspend fun queueTaskAction(entityId: Long, actionType: String, payload: String) {
         val action = PendingActionEntity(
@@ -114,6 +140,10 @@ class TaskRepositoryImpl @Inject constructor(
             taskDao.upsert(responseEntity)
             val created = with(taskMapper) { responseEntity.toDomain() }
             alarmScheduler.scheduleForTask(created)
+            // Anchor the new task at the bottom of the project's list view. Best-effort:
+            // Vikunja's create endpoint defaults position to 0 (top), which makes fresh
+            // tasks jump above the user's custom-order list. Mirror desktop b1fb6f7.
+            anchorNewTaskAtEnd(task.projectId, created.id)
             WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
             NetworkResult.Success(created)
         } catch (e: CancellationException) {
@@ -249,6 +279,12 @@ class TaskRepositoryImpl @Inject constructor(
             done = !task.done,
             doneAt = if (!task.done) DateUtils.nowIso() else "",
         )
+        // Play completion sound on undone → done transition, regardless of network
+        // outcome — the user has visually confirmed the toggle and the offline
+        // path will sync later. Failure inside the player is silent (see its impl).
+        if (toggled.done) {
+            completionSoundPlayer.play()
+        }
         return try {
             // Don't update Room yet — let the ViewModel show strikethrough via
             // completedTaskIds so the task stays visible for undo.

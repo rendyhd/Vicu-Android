@@ -4,7 +4,6 @@ import android.util.Log
 import com.rendyhd.vicu.BuildConfig
 import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
-import com.rendyhd.vicu.auth.RefreshCookieExtractor
 import com.rendyhd.vicu.auth.SecureTokenStorage
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import kotlinx.coroutines.runBlocking
@@ -111,31 +110,18 @@ class TokenAuthenticator @Inject constructor(
     }
 
     private suspend fun tryV2Refresh(response: Response): Request? {
-        val refreshToken = tokenStorage.getRefreshToken()
-        if (refreshToken == null) {
-            Log.w(TAG, "No refresh token for v2 refresh")
+        if (!authManager.canAttemptRefreshNow()) {
+            AuthDebugLog.log("401_BACKOFF_GATE", "skipping refresh — backoff window active")
             return null
         }
-        return try {
-            val cookie = RefreshCookieExtractor.buildCookieHeader(refreshToken)
-            val refreshResponse = apiServiceProvider.get().refreshToken(cookie)
-            if (refreshResponse.isSuccessful) {
-                val body = refreshResponse.body()
-                val newJwt = body?.token.orEmpty()
-                if (newJwt.isNotBlank()) {
-                    val newRefresh = RefreshCookieExtractor.extractRefreshToken(refreshResponse)
-                    authManager.onJwtRenewed(newJwt, newRefresh)
-                    response.request.newBuilder()
-                        .header("Authorization", "Bearer $newJwt")
-                        .build()
-                } else null
-            } else {
-                Log.w(TAG, "V2 refresh HTTP ${refreshResponse.code()}")
-                null
+        return when (authManager.performV2RefreshTyped()) {
+            is com.rendyhd.vicu.auth.RefreshResult.Success -> {
+                val newToken = authManager.getBestTokenSync() ?: return null
+                response.request.newBuilder()
+                    .header("Authorization", "Bearer $newToken")
+                    .build()
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "V2 token refresh failed", e)
-            null
+            is com.rendyhd.vicu.auth.RefreshResult.Failure -> null
         }
     }
 

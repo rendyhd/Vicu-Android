@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.R
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.SecureTokenStorage
+import com.rendyhd.vicu.data.local.BehaviorPrefs
+import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.BottomBarPrefsStore
 import com.rendyhd.vicu.data.local.CustomListStore
 import com.rendyhd.vicu.data.local.NlpPrefsStore
@@ -61,6 +63,8 @@ data class SettingsUiState(
     val projects: List<Project> = emptyList(),
     // Notifications
     val notificationPrefs: NotificationPrefs = NotificationPrefs(),
+    // Behavior (delete confirm, completion sound)
+    val behaviorPrefs: BehaviorPrefs = BehaviorPrefs(),
     // Sync
     val pendingActionCount: Int = 0,
     val failedActionCount: Int = 0,
@@ -84,6 +88,7 @@ class SettingsViewModel @Inject constructor(
     private val projectRepository: ProjectRepository,
     private val customListStore: CustomListStore,
     private val notificationPrefsStore: NotificationPrefsStore,
+    private val behaviorPrefsStore: BehaviorPrefsStore,
     private val themePrefsStore: ThemePrefsStore,
     private val nlpPrefsStore: NlpPrefsStore,
     private val bottomBarPrefsStore: BottomBarPrefsStore,
@@ -134,8 +139,9 @@ class SettingsViewModel @Inject constructor(
         combine(
             widgetPrefsStore.smartAdd,
             widgetPrefsStore.contextNav,
-        ) { smartAdd, contextNav ->
-            listOf(smartAdd, contextNav)
+            behaviorPrefsStore.getPrefs(),
+        ) { smartAdd, contextNav, behaviorPrefs ->
+            listOf(smartAdd, contextNav, behaviorPrefs)
         },
     ) { base, syncTheme, userEtc, widgetPrefs ->
         @Suppress("UNCHECKED_CAST")
@@ -155,6 +161,7 @@ class SettingsViewModel @Inject constructor(
         val bbSlots = userEtc[3] as List<BottomBarSlot>
         val smartAdd = widgetPrefs[0] as Boolean
         val contextNav = widgetPrefs[1] as Boolean
+        val behaviorPrefs = widgetPrefs[2] as BehaviorPrefs
         SettingsUiState(
             username = userInfo.first,
             email = userInfo.second,
@@ -167,6 +174,7 @@ class SettingsViewModel @Inject constructor(
             customLists = customLists,
             projects = projects.filter { !it.isArchived },
             notificationPrefs = notifPrefs,
+            behaviorPrefs = behaviorPrefs,
             pendingActionCount = pendingCount,
             failedActionCount = failedCount,
             isOnline = isOnline,
@@ -221,6 +229,20 @@ class SettingsViewModel @Inject constructor(
 
     fun setBangToday(enabled: Boolean) {
         viewModelScope.launch { nlpPrefsStore.setBangToday(enabled) }
+    }
+
+    // --- Behavior preferences ---
+
+    fun setConfirmBeforeDelete(enabled: Boolean) {
+        viewModelScope.launch { behaviorPrefsStore.setConfirmBeforeDelete(enabled) }
+    }
+
+    fun setCompletionSoundEnabled(enabled: Boolean) {
+        viewModelScope.launch { behaviorPrefsStore.setCompletionSoundEnabled(enabled) }
+    }
+
+    fun setCompletionSoundUri(uri: String?) {
+        viewModelScope.launch { behaviorPrefsStore.setCompletionSoundUri(uri) }
     }
 
     // --- Inbox project ---

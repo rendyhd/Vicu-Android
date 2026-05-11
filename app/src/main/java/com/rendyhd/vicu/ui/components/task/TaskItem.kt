@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Repeat
@@ -56,6 +57,7 @@ import com.rendyhd.vicu.ui.theme.PriorityLow
 import com.rendyhd.vicu.ui.theme.PriorityMedium
 import com.rendyhd.vicu.ui.theme.PriorityUrgent
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.TaskLinkParser
 
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -120,6 +122,14 @@ fun TaskItem(
             ) {
                 PriorityDot(priority = task.priority)
                 TaskLinkIcons(description = task.description)
+                if (TaskLinkParser.hasNotesContent(task.description)) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.Notes,
+                        contentDescription = "Has notes",
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    )
+                }
                 if (task.repeatAfter > 0) {
                     Icon(
                         imageVector = Icons.Outlined.Repeat,

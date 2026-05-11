@@ -141,6 +141,12 @@ interface VikunjaApiService {
     @PUT("tokens")
     suspend fun createApiToken(@Body body: ApiTokenRequestDto): ApiTokenResponseDto
 
+    @GET("tokens")
+    suspend fun listApiTokens(): List<ApiTokenDto>
+
+    @DELETE("tokens/{id}")
+    suspend fun deleteApiToken(@Path("id") id: Long)
+
     // Returns the full set of routes an API token can be granted. Shape:
     // { "tasks": { "read_all": {path, method}, "create": {...}, ... }, "projects": {...}, ... }
     // Used to build the "full access" permissions map when creating a backup API token.

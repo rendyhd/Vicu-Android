@@ -55,6 +55,16 @@ object TaskLinkParser {
             .trim()
     }
 
+    /**
+     * Returns true if the description contains user-visible notes content once embedded
+     * Obsidian/page link HTML is stripped. Used to decide whether to show a "has notes"
+     * glyph on the collapsed task row separately from the existing link icons.
+     */
+    fun hasNotesContent(description: String?): Boolean {
+        if (description.isNullOrBlank()) return false
+        return stripLinks(description).isNotBlank()
+    }
+
     /** Extract the raw link HTML portion from a description (for re-appending on save). */
     fun extractLinkHtml(description: String?): String {
         if (description.isNullOrEmpty()) return ""

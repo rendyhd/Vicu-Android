@@ -1,10 +1,12 @@
 package com.rendyhd.vicu.auth
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import com.rendyhd.vicu.data.remote.api.ApiTokenRequestDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.di.ApplicationScope
+import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.worker.TokenRefreshScheduler
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -13,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -20,8 +23,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
+import java.io.IOException
 import java.time.Instant
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -32,12 +37,48 @@ enum class AuthState {
     Unauthenticated,
 }
 
+sealed class RefreshFailure {
+    object NoRefreshToken : RefreshFailure()
+    object Unauthorized : RefreshFailure()
+    data class RateLimited(val retryAfterSecs: Long) : RefreshFailure()
+    object ServerError : RefreshFailure()
+    object NetworkError : RefreshFailure()
+    object EmptyTokenReturned : RefreshFailure()
+}
+
+sealed class RefreshResult {
+    object Success : RefreshResult()
+    data class Failure(val kind: RefreshFailure) : RefreshResult()
+}
+
+/**
+ * Pure backoff math, extracted so it can be unit-tested without a Hilt graph.
+ *
+ * - Transient errors (5xx, network, empty body): exponential 5s → 120s cap, doubling per failure.
+ * - 429 RateLimited: honors `Retry-After` but never less than 60s.
+ * - Terminal (Unauthorized, NoRefreshToken): a very large delay so the next attempt is gated
+ *   until [AuthManager.resetBackoff] is called (login, logout, online-restored).
+ */
+internal object RefreshBackoffPolicy {
+    const val BASE_MS = 5_000L
+    const val CAP_MS = 120_000L
+    const val RATE_LIMITED_FLOOR_MS = 60_000L
+    const val TERMINAL_MS = Long.MAX_VALUE / 2
+
+    fun nextDelayMs(failure: RefreshFailure, consecutiveFailures: Int): Long = when (failure) {
+        is RefreshFailure.RateLimited -> maxOf(failure.retryAfterSecs * 1000L, RATE_LIMITED_FLOOR_MS)
+        RefreshFailure.Unauthorized, RefreshFailure.NoRefreshToken -> TERMINAL_MS
+        else -> minOf(BASE_MS * (1L shl consecutiveFailures.coerceAtMost(5)), CAP_MS)
+    }
+}
+
 @Singleton
 class AuthManager @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val tokenStorage: SecureTokenStorage,
     private val apiServiceProvider: dagger.Lazy<VikunjaApiService>,
     @ApplicationScope private val appScope: CoroutineScope,
+    private val networkMonitor: NetworkMonitor,
 ) {
     companion object {
         private const val TAG = "AuthManager"
@@ -66,6 +107,44 @@ class AuthManager @Inject constructor(
 
     @Volatile
     private var isInitialized = false
+
+    private data class BackoffState(val nextAllowedAtMs: Long = 0L, val consecutiveFailures: Int = 0)
+    private val refreshBackoff = AtomicReference(BackoffState())
+
+    init {
+        // Reset backoff when connectivity transitions offline → online so a network blip
+        // doesn't leave the user stuck behind a backoff window after their phone reconnects.
+        // StateFlow already dedupes equal emissions, so we just drop the initial value
+        // and listen for transitions.
+        appScope.launch {
+            networkMonitor.isOnline
+                .drop(1)
+                .collect { online ->
+                    if (online) {
+                        AuthDebugLog.log("REFRESH_BACKOFF", "connectivity restored — resetting backoff")
+                        resetBackoff()
+                    }
+                }
+        }
+    }
+
+    fun canAttemptRefreshNow(): Boolean =
+        System.currentTimeMillis() >= refreshBackoff.get().nextAllowedAtMs
+
+    private fun applyBackoff(failure: RefreshFailure) {
+        val now = System.currentTimeMillis()
+        val cur = refreshBackoff.get()
+        val nextDelayMs = RefreshBackoffPolicy.nextDelayMs(failure, cur.consecutiveFailures)
+        refreshBackoff.set(BackoffState(now + nextDelayMs, cur.consecutiveFailures + 1))
+        AuthDebugLog.log(
+            "REFRESH_BACKOFF",
+            "failure=${failure::class.simpleName} nextDelay=${nextDelayMs}ms consecutive=${cur.consecutiveFailures + 1}",
+        )
+    }
+
+    fun resetBackoff() {
+        refreshBackoff.set(BackoffState())
+    }
 
     /**
      * Ensure AuthManager has loaded tokens from DataStore.
@@ -238,6 +317,7 @@ class AuthManager @Inject constructor(
         }
         cachedToken = jwt
         cachedJwtExpiry = expiry
+        resetBackoff()
         _authState.value = AuthState.Authenticated
 
         if (isServerV2Cached && refreshToken != null) {
@@ -302,6 +382,7 @@ class AuthManager @Inject constructor(
         cachedToken = null
         cachedJwtExpiry = 0L
         isInitialized = false
+        resetBackoff()
         tokenStorage.clear()
         _authState.value = AuthState.Unauthenticated
         AuthDebugLog.authStateChanged("*", "Unauthenticated", "user-initiated logout")
@@ -323,66 +404,110 @@ class AuthManager @Inject constructor(
     /**
      * Proactively refresh the JWT before it expires (Vikunja 2.0+).
      * Schedules a coroutine that waits until [PROACTIVE_REFRESH_AHEAD_SECS] before expiry,
-     * then performs a cookie-based refresh.
+     * then performs a cookie-based refresh. Clamped by the refresh backoff window so
+     * repeated failures can't drive us into a tight retry loop.
      */
     fun scheduleProactiveRefresh() {
         proactiveRefreshJob?.cancel()
         val expiry = cachedJwtExpiry
         if (expiry <= 0L) return
 
-        val now = System.currentTimeMillis() / 1000
-        val delaySecs = expiry - now - PROACTIVE_REFRESH_AHEAD_SECS
-        AuthDebugLog.log("PROACTIVE_REFRESH_SCHEDULED", "willFireIn=${delaySecs}s (${delaySecs / 60}min)")
+        val nowMs = System.currentTimeMillis()
+        val expiryMs = expiry * 1000L
+        val targetFireMs = expiryMs - PROACTIVE_REFRESH_AHEAD_SECS * 1000L
+        val backoffFloorMs = refreshBackoff.get().nextAllowedAtMs
+        val fireAtMs = maxOf(targetFireMs, backoffFloorMs)
+        val delayMs = (fireAtMs - nowMs).coerceAtLeast(0L)
+
+        AuthDebugLog.log(
+            "PROACTIVE_REFRESH_SCHEDULED",
+            "willFireIn=${delayMs / 1000}s (${delayMs / 60_000}min)",
+        )
 
         proactiveRefreshJob = appScope.launch {
-            if (delaySecs > 0) {
-                delay(delaySecs * 1000)
+            if (delayMs > 0L) {
+                delay(delayMs)
             }
             AuthDebugLog.refreshAttempt("proactive (scheduled)")
-            val success = withRefreshLock {
-                performV2Refresh()
-            }
-            AuthDebugLog.refreshResult("proactive", success)
+            val result = withRefreshLock { performV2RefreshTyped() }
+            AuthDebugLog.refreshResult("proactive", result is RefreshResult.Success)
         }
     }
 
     /**
-     * Perform a Vikunja 2.0 cookie-based token refresh.
-     * Returns true if successful.
+     * Boolean-result wrapper for callers that only care about success/failure.
+     * Backoff and failure typing happen inside [performV2RefreshTyped].
      */
-    suspend fun performV2Refresh(): Boolean {
+    suspend fun performV2Refresh(): Boolean = performV2RefreshTyped() is RefreshResult.Success
+
+    /**
+     * Perform a Vikunja 2.0 cookie-based token refresh. Returns a typed result so
+     * callers (and the backoff machinery) can react to specific failure categories.
+     */
+    suspend fun performV2RefreshTyped(): RefreshResult {
         val refreshToken = tokenStorage.getRefreshToken()
         if (refreshToken == null) {
             Log.w(TAG, "No refresh token available for v2 refresh")
             AuthDebugLog.refreshResult("V2", false, "no refresh token stored")
-            return false
+            applyBackoff(RefreshFailure.NoRefreshToken)
+            return RefreshResult.Failure(RefreshFailure.NoRefreshToken)
         }
         return try {
             val cookie = RefreshCookieExtractor.buildCookieHeader(refreshToken)
             val response = apiServiceProvider.get().refreshToken(cookie)
-            if (response.isSuccessful) {
-                val body = response.body()
-                val newJwt = body?.token.orEmpty()
-                if (newJwt.isNotBlank()) {
-                    val newRefreshToken = RefreshCookieExtractor.extractRefreshToken(response)
-                    onJwtRenewed(newJwt, newRefreshToken)
-                    Log.d(TAG, "V2 proactive refresh succeeded")
-                    AuthDebugLog.refreshResult("V2", true)
-                    true
-                } else {
-                    Log.w(TAG, "V2 refresh returned empty token")
-                    AuthDebugLog.refreshResult("V2", false, "server returned empty token")
-                    false
+            when {
+                response.isSuccessful -> {
+                    val newJwt = response.body()?.token.orEmpty()
+                    if (newJwt.isNotBlank()) {
+                        val newRefreshToken = RefreshCookieExtractor.extractRefreshToken(response)
+                        onJwtRenewed(newJwt, newRefreshToken)
+                        Log.d(TAG, "V2 refresh succeeded")
+                        AuthDebugLog.refreshResult("V2", true)
+                        resetBackoff()
+                        RefreshResult.Success
+                    } else {
+                        Log.w(TAG, "V2 refresh returned empty token")
+                        AuthDebugLog.refreshResult("V2", false, "server returned empty token")
+                        applyBackoff(RefreshFailure.EmptyTokenReturned)
+                        RefreshResult.Failure(RefreshFailure.EmptyTokenReturned)
+                    }
                 }
-            } else {
-                Log.w(TAG, "V2 refresh failed: HTTP ${response.code()}")
-                AuthDebugLog.refreshResult("V2", false, "HTTP ${response.code()}")
-                false
+                response.code() == 401 || response.code() == 403 -> {
+                    Log.w(TAG, "V2 refresh unauthorized: HTTP ${response.code()}")
+                    AuthDebugLog.refreshResult("V2", false, "HTTP ${response.code()} (unauthorized)")
+                    applyBackoff(RefreshFailure.Unauthorized)
+                    RefreshResult.Failure(RefreshFailure.Unauthorized)
+                }
+                response.code() == 429 -> {
+                    val retryAfter = response.headers()["Retry-After"]?.toLongOrNull() ?: 60L
+                    Log.w(TAG, "V2 refresh rate limited: HTTP 429, Retry-After=${retryAfter}s")
+                    AuthDebugLog.refreshResult("V2", false, "HTTP 429, Retry-After=${retryAfter}s")
+                    applyBackoff(RefreshFailure.RateLimited(retryAfter))
+                    RefreshResult.Failure(RefreshFailure.RateLimited(retryAfter))
+                }
+                response.code() in 500..599 -> {
+                    Log.w(TAG, "V2 refresh server error: HTTP ${response.code()}")
+                    AuthDebugLog.refreshResult("V2", false, "HTTP ${response.code()}")
+                    applyBackoff(RefreshFailure.ServerError)
+                    RefreshResult.Failure(RefreshFailure.ServerError)
+                }
+                else -> {
+                    Log.w(TAG, "V2 refresh failed: HTTP ${response.code()}")
+                    AuthDebugLog.refreshResult("V2", false, "HTTP ${response.code()}")
+                    applyBackoff(RefreshFailure.ServerError)
+                    RefreshResult.Failure(RefreshFailure.ServerError)
+                }
             }
+        } catch (e: IOException) {
+            Log.w(TAG, "V2 refresh network error", e)
+            AuthDebugLog.logError("V2 refresh network error", e)
+            applyBackoff(RefreshFailure.NetworkError)
+            RefreshResult.Failure(RefreshFailure.NetworkError)
         } catch (e: Exception) {
             Log.w(TAG, "V2 refresh exception", e)
             AuthDebugLog.logError("V2 refresh exception", e)
-            false
+            applyBackoff(RefreshFailure.ServerError)
+            RefreshResult.Failure(RefreshFailure.ServerError)
         }
     }
 
@@ -397,7 +522,7 @@ class AuthManager @Inject constructor(
      * Returns true on success. Logs both success and failure to [AuthDebugLog]
      * so silent failures are visible in the persistent log viewer.
      */
-    suspend fun createBackupApiToken(title: String = "Vicu Android Backup"): Boolean {
+    suspend fun createBackupApiToken(title: String = defaultTokenTitle()): Boolean {
         return try {
             AuthDebugLog.log("BACKUP_API_TOKEN", "fetching /routes for permissions map")
             val routes = apiServiceProvider.get().getApiTokenRoutes()
@@ -420,12 +545,14 @@ class AuthManager @Inject constructor(
             )
             val response = apiServiceProvider.get().createApiToken(request)
             if (response.token.isNotBlank()) {
+                val newTokenId = response.id
                 tokenStorage.storeApiToken(response.token, expiry.epochSecond)
                 Log.i(TAG, "Backup API token created successfully (${permissions.size} groups)")
                 AuthDebugLog.log(
                     "BACKUP_API_TOKEN",
                     "created successfully (${permissions.size} groups, ${permissions.values.sumOf { it.size }} perms)",
                 )
+                cleanupSiblingTokens(title, newTokenId)
                 true
             } else {
                 Log.w(TAG, "Backup API token creation returned empty token")
@@ -436,6 +563,33 @@ class AuthManager @Inject constructor(
             Log.w(TAG, "Backup API token creation failed", e)
             AuthDebugLog.logError("BACKUP_API_TOKEN failed", e)
             false
+        }
+    }
+
+    private fun defaultTokenTitle(): String {
+        val device = Build.MODEL.ifBlank { Build.DEVICE }.ifBlank { "Android" }
+        val manuf = Build.MANUFACTURER
+            .takeIf { it.isNotBlank() && !device.startsWith(it, ignoreCase = true) }
+        val suffix = if (manuf != null) "$manuf $device" else device
+        return "Vicu — $suffix"
+    }
+
+    private fun cleanupSiblingTokens(title: String, newTokenId: Long) {
+        appScope.launch {
+            try {
+                val siblings = apiServiceProvider.get().listApiTokens()
+                    .filter { it.title == title && it.id != newTokenId }
+                for (sibling in siblings) {
+                    try {
+                        apiServiceProvider.get().deleteApiToken(sibling.id)
+                        AuthDebugLog.log("TOKEN_CLEANUP", "deleted sibling id=${sibling.id}")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to delete sibling token ${sibling.id}", e)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Token list/cleanup failed (non-fatal)", e)
+            }
         }
     }
 

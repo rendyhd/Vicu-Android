@@ -63,6 +63,7 @@ data class LabelTaskDto(
 @Serializable
 data class TaskPositionDto(
     val position: Double,
+    @SerialName("project_view_id") val projectViewId: Long = 0,
 )
 
 @Serializable
@@ -85,6 +86,12 @@ data class ApiTokenRequestDto(
 data class ApiTokenResponseDto(
     val id: Long = 0,
     val token: String = "",
+)
+
+@Serializable
+data class ApiTokenDto(
+    val id: Long = 0,
+    val title: String = "",
 )
 
 @Serializable

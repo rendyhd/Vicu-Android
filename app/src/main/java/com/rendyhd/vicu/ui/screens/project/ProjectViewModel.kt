@@ -9,6 +9,7 @@ import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.sortProjectTasks
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,7 +68,7 @@ class ProjectViewModel @Inject constructor(
                         ProjectUiState(
                             project = project,
                             sections = emptyList(),
-                            unsectionedTasks = parentTasks.filter { !it.done },
+                            unsectionedTasks = sortProjectTasks(parentTasks.filter { !it.done }),
                             isLoading = false,
                         )
                     )
@@ -77,7 +78,7 @@ class ProjectViewModel @Inject constructor(
                         taskRepository.getByProjectId(child.id).map { tasks ->
                             ProjectSection(
                                 project = child,
-                                tasks = tasks.filter { !it.done },
+                                tasks = sortProjectTasks(tasks.filter { !it.done }),
                             )
                         }
                     }
@@ -85,7 +86,7 @@ class ProjectViewModel @Inject constructor(
                         ProjectUiState(
                             project = project,
                             sections = sectionArray.toList(),
-                            unsectionedTasks = parentTasks.filter { !it.done },
+                            unsectionedTasks = sortProjectTasks(parentTasks.filter { !it.done }),
                             isLoading = false,
                         )
                     }

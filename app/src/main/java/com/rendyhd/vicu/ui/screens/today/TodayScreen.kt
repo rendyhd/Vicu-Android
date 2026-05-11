@@ -34,6 +34,7 @@ import com.rendyhd.vicu.ui.components.section.SectionHeader
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.task.AddTaskButton
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.util.DateUtils
 
@@ -148,6 +149,12 @@ fun TodayScreen(
                             onClick = { onTaskClick(task.id) },
                             onSchedule = { schedulingTask = task },
                             modifier = Modifier.animateItem(),
+                        )
+                    }
+
+                    item(key = "add_task_button") {
+                        AddTaskButton(
+                            onClick = { onShowTaskEntry(null, DateUtils.todayEndIso()) },
                         )
                     }
                 }

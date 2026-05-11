@@ -2,6 +2,7 @@ package com.rendyhd.vicu.ui.screens.taskentry
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
@@ -307,18 +308,9 @@ class TaskEntryViewModel @Inject constructor(
             }
         }
 
-        // Determine labels: manual + parsed (merged)
-        val labelIds = state.selectedLabelIds.toMutableSet()
-        if (config.enabled && parseResult != null) {
-            for (labelName in parseResult.labels) {
-                val matchedLabel = state.allLabels.find {
-                    it.title.equals(labelName, ignoreCase = true)
-                }
-                if (matchedLabel != null) {
-                    labelIds.add(matchedLabel.id)
-                }
-            }
-        }
+        // Manual label selections; parsed @label tokens are resolved inside the coroutine
+        // below (so unknown labels can be auto-created via the repository).
+        val manualLabelIds = state.selectedLabelIds.toMutableSet()
 
         // Determine recurrence: parsed
         var repeatAfter = 0L
@@ -348,6 +340,25 @@ class TaskEntryViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
+                // Resolve parsed @label tokens: attach existing labels by case-insensitive
+                // title match; auto-create any that don't exist. Best-effort — a failed
+                // create is logged and dropped so the task itself still saves.
+                val resolvedLabelIds = manualLabelIds
+                if (config.enabled && parseResult != null) {
+                    for (labelName in parseResult.labels) {
+                        val matched = state.allLabels.find { it.title.equals(labelName, ignoreCase = true) }
+                        if (matched != null) {
+                            resolvedLabelIds.add(matched.id)
+                        } else {
+                            when (val res = labelRepository.create(Label(id = 0L, title = labelName, hexColor = ""))) {
+                                is NetworkResult.Success -> resolvedLabelIds.add(res.data.id)
+                                is NetworkResult.Error -> Log.w("TaskEntryVM", "Auto-create label '$labelName' failed: ${res.message}")
+                                is NetworkResult.Loading -> {}
+                            }
+                        }
+                    }
+                }
+
                 val task = Task(
                     id = 0,
                     title = title,
@@ -363,7 +374,7 @@ class TaskEntryViewModel @Inject constructor(
                 when (val result = taskRepository.create(task)) {
                     is NetworkResult.Success -> {
                         val createdTask = result.data
-                        for (labelId in labelIds) {
+                        for (labelId in resolvedLabelIds) {
                             labelRepository.addToTask(createdTask.id, labelId)
                         }
                         if (pendingUris.isNotEmpty()) {

@@ -33,6 +33,7 @@ import com.rendyhd.vicu.ui.components.section.CollapsibleSection
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.task.AddTaskButton
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -183,6 +184,12 @@ fun AnytimeScreen(
                                 }
                             }
                         }
+                    }
+
+                    item(key = "add_task_button") {
+                        AddTaskButton(
+                            onClick = { onShowTaskEntry(null, null) },
+                        )
                     }
                 }
             }

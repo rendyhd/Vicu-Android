@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Repeat
@@ -67,6 +68,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.rendyhd.vicu.ui.components.picker.LabelPickerDialog
+import com.rendyhd.vicu.ui.components.picker.PriorityPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
@@ -99,6 +101,7 @@ fun TaskDetailSheet(
     var showProjectPicker by remember { mutableStateOf(false) }
     var showLabelPicker by remember { mutableStateOf(false) }
     var showReminderPicker by remember { mutableStateOf(false) }
+    var showPriorityPicker by remember { mutableStateOf(false) }
     var subtaskInput by remember { mutableStateOf("") }
     var showSubtaskInput by remember { mutableStateOf(false) }
 
@@ -310,6 +313,32 @@ fun TaskDetailSheet(
                 }
             }
 
+            // Priority
+            item(key = "priority") {
+                val priorityLabel = when (task.priority) {
+                    1 -> "Low"
+                    2 -> "Medium"
+                    3 -> "High"
+                    4 -> "Urgent"
+                    else -> null
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showPriorityPicker = true }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Flag, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    if (priorityLabel != null) {
+                        Text(priorityLabel)
+                    } else {
+                        Text("Set priority", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
             // Recurrence (read-only)
             if (task.repeatAfter > 0) {
                 item(key = "recurrence") {
@@ -463,7 +492,7 @@ fun TaskDetailSheet(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(
-                    onClick = viewModel::showDeleteConfirmation,
+                    onClick = viewModel::requestDeleteTask,
                     modifier = Modifier.fillMaxWidth(),
                     colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -553,6 +582,14 @@ fun TaskDetailSheet(
             onRemoveReminder = viewModel::removeReminder,
             onDismiss = { showReminderPicker = false },
             onEditReminder = viewModel::editReminder,
+        )
+    }
+
+    if (showPriorityPicker) {
+        PriorityPickerDialog(
+            current = state.task?.priority ?: 0,
+            onPick = viewModel::setPriority,
+            onDismiss = { showPriorityPicker = false },
         )
     }
 }

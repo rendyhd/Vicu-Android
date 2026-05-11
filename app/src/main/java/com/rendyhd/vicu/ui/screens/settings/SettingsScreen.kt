@@ -42,6 +42,7 @@ import androidx.compose.material.icons.outlined.SwipeLeft
 import androidx.compose.material.icons.outlined.SwipeRight
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.TouchApp
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -76,6 +77,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -126,6 +130,27 @@ fun SettingsScreen(
     var showInboxPicker by remember { mutableStateOf(false) }
     var editingSlotIndex by remember { mutableIntStateOf(-1) }
 
+    // Custom completion-sound picker. Uses OpenDocument so we get a persistable
+    // URI that survives reboots. The picker grants persistent read permission;
+    // we re-claim it on result and stash the URI string in BehaviorPrefsStore.
+    val context = LocalContext.current
+    val pickSoundLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            } catch (_: SecurityException) {
+                // Some pickers don't grant persistable permission. The URI may still
+                // work for the current process; if not, the player will log and skip.
+            }
+            viewModel.setCompletionSoundUri(uri.toString())
+        }
+    }
+
     // Show snackbar messages
     LaunchedEffect(state.error, state.successMessage) {
         val msg = state.error ?: state.successMessage
@@ -175,23 +200,47 @@ fun SettingsScreen(
                         editingProject = project
                         showProjectDialog = true
                     },
-                    onDeleteProject = { deletingProject = it },
+                    onDeleteProject = { project ->
+                        if (state.behaviorPrefs.confirmBeforeDelete) {
+                            deletingProject = project
+                        } else {
+                            viewModel.deleteProject(project.id)
+                        }
+                    },
                     onShowLabelDialog = { showLabelDialog = true },
                     onEditLabel = { label ->
                         editingLabel = label
                         showLabelDialog = true
                     },
-                    onDeleteLabel = { deletingLabel = it },
+                    onDeleteLabel = { label ->
+                        if (state.behaviorPrefs.confirmBeforeDelete) {
+                            deletingLabel = label
+                        } else {
+                            viewModel.deleteLabel(label.id)
+                        }
+                    },
                     onShowCustomListDialog = { showCustomListDialog = true },
                     onEditCustomList = { list ->
                         editingCustomList = list
                         showCustomListDialog = true
                     },
-                    onDeleteCustomList = { deletingCustomList = it },
+                    onDeleteCustomList = { customList ->
+                        if (state.behaviorPrefs.confirmBeforeDelete) {
+                            deletingCustomList = customList
+                        } else {
+                            viewModel.deleteCustomList(customList.id)
+                        }
+                    },
                     onEditBottomBarSlot = { index -> editingSlotIndex = index },
                     onResetBottomBar = viewModel::resetBottomBar,
                     onSetWidgetSmartAdd = viewModel::setWidgetSmartAdd,
                     onSetWidgetContextNav = viewModel::setWidgetContextNav,
+                    onSetConfirmBeforeDelete = viewModel::setConfirmBeforeDelete,
+                    onSetCompletionSoundEnabled = viewModel::setCompletionSoundEnabled,
+                    onPickCompletionSound = {
+                        pickSoundLauncher.launch(arrayOf("audio/*"))
+                    },
+                    onResetCompletionSound = { viewModel.setCompletionSoundUri(null) },
                     onTriggerSync = viewModel::triggerSync,
                     onRetryFailed = viewModel::retryFailedActions,
                     onClearFailed = viewModel::clearFailedActions,
@@ -507,6 +556,10 @@ private fun GeneralTab(
     onResetBottomBar: () -> Unit,
     onSetWidgetSmartAdd: (Boolean) -> Unit,
     onSetWidgetContextNav: (Boolean) -> Unit,
+    onSetConfirmBeforeDelete: (Boolean) -> Unit,
+    onSetCompletionSoundEnabled: (Boolean) -> Unit,
+    onPickCompletionSound: () -> Unit,
+    onResetCompletionSound: () -> Unit,
     onTriggerSync: () -> Unit,
     onRetryFailed: () -> Unit,
     onClearFailed: () -> Unit,
@@ -814,6 +867,63 @@ private fun GeneralTab(
         }
 
         item(key = "nlp_divider") {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
+        // === Behavior section ===
+        item(key = "behavior_header") {
+            SectionHeader(icon = Icons.Outlined.Tune, title = "Preferences")
+        }
+
+        item(key = "confirm_before_delete") {
+            SwitchRow(
+                label = "Confirm before deleting",
+                description = "Show a confirmation dialog before deleting tasks, projects, labels and lists",
+                checked = state.behaviorPrefs.confirmBeforeDelete,
+                onCheckedChange = onSetConfirmBeforeDelete,
+            )
+        }
+
+        item(key = "completion_sound_enabled") {
+            SwitchRow(
+                label = "Play sound when completing a task",
+                description = "Uses the system notification sound by default. Tap below to choose a custom audio file.",
+                checked = state.behaviorPrefs.completionSoundEnabled,
+                onCheckedChange = onSetCompletionSoundEnabled,
+            )
+        }
+
+        if (state.behaviorPrefs.completionSoundEnabled) {
+            item(key = "completion_sound_custom") {
+                val hasCustom = !state.behaviorPrefs.completionSoundUri.isNullOrBlank()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onPickCompletionSound)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (hasCustom) "Custom sound selected" else "Pick a custom sound",
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Text(
+                            text = if (hasCustom) "Tap to change" else "Default: system notification sound",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (hasCustom) {
+                        TextButton(onClick = onResetCompletionSound) {
+                            Text("Reset")
+                        }
+                    }
+                }
+            }
+        }
+
+        item(key = "behavior_divider") {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
 

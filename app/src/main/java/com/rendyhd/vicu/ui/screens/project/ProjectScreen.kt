@@ -33,6 +33,7 @@ import com.rendyhd.vicu.ui.components.section.CollapsibleSection
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.task.AddTaskButton
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -104,6 +105,14 @@ fun ProjectScreen(
                         )
                     }
 
+                    // Add-task affordance for the parent project (always visible, even if no
+                    // unsectioned tasks yet — gives users a clear way to add to the parent).
+                    item(key = "add_task_parent") {
+                        AddTaskButton(
+                            onClick = { onShowTaskEntry(projectId, null) },
+                        )
+                    }
+
                     // Sections (child projects)
                     state.sections.forEachIndexed { index, section ->
                         val sectionColor = try {
@@ -149,6 +158,13 @@ fun ProjectScreen(
                                     modifier = Modifier
                                         .padding(start = 16.dp)
                                         .animateItem(),
+                                )
+                            }
+
+                            item(key = "add_task_section_${section.project.id}") {
+                                AddTaskButton(
+                                    onClick = { onShowTaskEntry(section.project.id, null) },
+                                    modifier = Modifier.padding(start = 16.dp),
                                 )
                             }
                         }

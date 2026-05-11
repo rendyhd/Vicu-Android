@@ -3,6 +3,7 @@ package com.rendyhd.vicu.ui.screens.taskdetail
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.domain.model.Attachment
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
@@ -22,6 +23,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import okhttp3.MultipartBody
@@ -51,6 +53,7 @@ class TaskDetailViewModel @Inject constructor(
     private val attachmentRepository: AttachmentRepository,
     private val projectRepository: ProjectRepository,
     private val authManager: AuthManager,
+    private val behaviorPrefsStore: BehaviorPrefsStore,
 ) : ViewModel() {
 
     companion object {
@@ -159,6 +162,10 @@ class TaskDetailViewModel @Inject constructor(
             val current = it.task?.priority ?: 0
             it.copy(task = it.task?.copy(priority = (current + 1) % 5))
         }
+    }
+
+    fun setPriority(value: Int) {
+        _uiState.update { it.copy(task = it.task?.copy(priority = value.coerceIn(0, 4))) }
     }
 
     fun setProject(projectId: Long) {
@@ -301,6 +308,21 @@ class TaskDetailViewModel @Inject constructor(
 
     fun showDeleteConfirmation() {
         _uiState.update { it.copy(showDeleteConfirmation = true) }
+    }
+
+    /**
+     * Entry point for the trash button. Respects the "Confirm before deleting"
+     * behavior pref — when off, deletes immediately; when on, raises the dialog.
+     */
+    fun requestDeleteTask() {
+        viewModelScope.launch {
+            val prefs = behaviorPrefsStore.getPrefs().first()
+            if (prefs.confirmBeforeDelete) {
+                _uiState.update { it.copy(showDeleteConfirmation = true) }
+            } else {
+                deleteTask()
+            }
+        }
     }
 
     fun dismissDeleteConfirmation() {

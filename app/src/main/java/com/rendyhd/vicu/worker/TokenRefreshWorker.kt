@@ -8,6 +8,8 @@ import androidx.work.WorkerParameters
 import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.AuthState
+import com.rendyhd.vicu.auth.RefreshFailure
+import com.rendyhd.vicu.auth.RefreshResult
 import com.rendyhd.vicu.auth.SecureTokenStorage
 import com.rendyhd.vicu.data.remote.interceptor.BaseUrlHolder
 import dagger.assisted.Assisted
@@ -61,19 +63,35 @@ class TokenRefreshWorker @AssistedInject constructor(
             return Result.success()
         }
 
+        // Respect AuthManager's backoff window so WorkManager doesn't pile on retries
+        // when the server is rate-limiting or 5xx-flapping.
+        if (!authManager.canAttemptRefreshNow()) {
+            AuthDebugLog.log("WORKER_REFRESH", "skipped: backoff window active")
+            return Result.success()
+        }
+
         return try {
             AuthDebugLog.refreshAttempt("WorkManager periodic")
-            val success = authManager.withRefreshLock {
-                authManager.performV2Refresh()
+            val result = authManager.withRefreshLock {
+                authManager.performV2RefreshTyped()
             }
-            if (success) {
-                Log.d(TAG, "Periodic token refresh succeeded")
-                AuthDebugLog.refreshResult("WorkManager periodic", true)
-                Result.success()
-            } else {
-                Log.w(TAG, "Periodic token refresh failed, will retry")
-                AuthDebugLog.refreshResult("WorkManager periodic", false, "will retry")
-                Result.retry()
+            when (result) {
+                is RefreshResult.Success -> {
+                    Log.d(TAG, "Periodic token refresh succeeded")
+                    AuthDebugLog.refreshResult("WorkManager periodic", true)
+                    Result.success()
+                }
+                is RefreshResult.Failure -> when (result.kind) {
+                    // Terminal failures — don't churn WorkManager retries.
+                    RefreshFailure.Unauthorized, RefreshFailure.NoRefreshToken -> {
+                        AuthDebugLog.refreshResult("WorkManager periodic", false, "terminal=${result.kind::class.simpleName}")
+                        Result.success()
+                    }
+                    else -> {
+                        AuthDebugLog.refreshResult("WorkManager periodic", false, "transient=${result.kind::class.simpleName}, will retry")
+                        Result.retry()
+                    }
+                }
             }
         } catch (e: CancellationException) {
             throw e
