@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Task
 
@@ -41,6 +42,7 @@ fun SwipeableTaskItem(
     onClick: () -> Unit,
     onSchedule: () -> Unit,
     modifier: Modifier = Modifier,
+    contentStartPadding: Dp = 0.dp,
     enabled: Boolean = true,
 ) {
     val haptic = LocalHapticFeedback.current
@@ -83,7 +85,7 @@ fun SwipeableTaskItem(
             task = task,
             onToggleDone = onToggleDone,
             onClick = onClick,
-            modifier = modifier,
+            modifier = modifier.padding(start = contentStartPadding),
         )
         return
     }
@@ -101,6 +103,7 @@ fun SwipeableTaskItem(
             task = task,
             onToggleDone = onToggleDone,
             onClick = onClick,
+            modifier = Modifier.padding(start = contentStartPadding),
         )
     }
 }

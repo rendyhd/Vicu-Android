@@ -34,7 +34,6 @@ import com.rendyhd.vicu.ui.components.shared.CompletionUndoSnackbar
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
-import com.rendyhd.vicu.ui.components.task.AddTaskButton
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -182,20 +181,13 @@ fun AnytimeScreen(
                                             },
                                             onClick = { onTaskClick(task.id) },
                                             onSchedule = { schedulingTask = task },
-                                            modifier = Modifier
-                                                .padding(start = 16.dp)
-                                                .animateItem(),
+                                            modifier = Modifier.animateItem(),
+                                            contentStartPadding = 16.dp,
                                         )
                                     }
                                 }
                             }
                         }
-                    }
-
-                    item(key = "add_task_button") {
-                        AddTaskButton(
-                            onClick = { onShowTaskEntry(null, null) },
-                        )
                     }
                 }
             }

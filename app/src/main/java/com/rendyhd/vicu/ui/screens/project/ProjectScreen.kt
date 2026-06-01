@@ -111,12 +111,16 @@ fun ProjectScreen(
                         )
                     }
 
-                    // Add-task affordance for the parent project (always visible, even if no
-                    // unsectioned tasks yet — gives users a clear way to add to the parent).
-                    item(key = "add_task_parent") {
-                        AddTaskButton(
-                            onClick = { onShowTaskEntry(projectId, null) },
-                        )
+                    // Add-task affordance for the parent project. Shown only when the project
+                    // has sub-projects (sections): it then adds to the parent specifically,
+                    // alongside the per-section add rows. With no sub-projects it would merely
+                    // duplicate the FAB, so it is omitted and the FAB covers adding.
+                    if (state.sections.isNotEmpty()) {
+                        item(key = "add_task_parent") {
+                            AddTaskButton(
+                                onClick = { onShowTaskEntry(projectId, null) },
+                            )
+                        }
                     }
 
                     // Sections (child projects)
@@ -161,9 +165,8 @@ fun ProjectScreen(
                                     },
                                     onClick = { onTaskClick(task.id) },
                                     onSchedule = { schedulingTask = task },
-                                    modifier = Modifier
-                                        .padding(start = 16.dp)
-                                        .animateItem(),
+                                    modifier = Modifier.animateItem(),
+                                    contentStartPadding = 16.dp,
                                 )
                             }
 
