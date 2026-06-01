@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.NlpPrefsStore
+import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.SharedContent
@@ -19,6 +20,7 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.DefaultReminder
 import com.rendyhd.vicu.util.FileUtils
 import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.NetworkResult
@@ -35,6 +37,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.ZoneId
@@ -73,6 +76,7 @@ class TaskEntryViewModel @Inject constructor(
     private val attachmentRepository: AttachmentRepository,
     private val authManager: AuthManager,
     private val nlpPrefsStore: NlpPrefsStore,
+    private val notificationPrefsStore: NotificationPrefsStore,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -371,7 +375,21 @@ class TaskEntryViewModel @Inject constructor(
                     repeatMode = repeatMode,
                 )
 
-                when (val result = taskRepository.create(task)) {
+                // Synthesize a default reminder when the user set a due date but no
+                // manual reminder (desktop parity).
+                val prefs = notificationPrefsStore.getPrefs().first()
+                val taskToCreate = if (task.reminders.isEmpty()) {
+                    val synthesized = DefaultReminder.build(
+                        dueDate = task.dueDate,
+                        offsetSeconds = prefs.defaultReminderOffset,
+                        relativeTo = prefs.defaultReminderRelativeTo,
+                    )
+                    if (synthesized != null) task.copy(reminders = listOf(synthesized)) else task
+                } else {
+                    task
+                }
+
+                when (val result = taskRepository.create(taskToCreate)) {
                     is NetworkResult.Success -> {
                         val createdTask = result.data
                         for (labelId in resolvedLabelIds) {
