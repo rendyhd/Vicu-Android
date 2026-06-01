@@ -22,6 +22,7 @@ data class BehaviorPrefs(
     val completionSoundEnabled: Boolean = true,
     val completionSoundUri: String? = null,
     val confirmBeforeDelete: Boolean = true,
+    val inboxExcludeDated: Boolean = false,
 )
 
 private val Context.behaviorPrefsDataStore: DataStore<Preferences> by preferencesDataStore(name = "behavior_prefs")
@@ -34,6 +35,7 @@ class BehaviorPrefsStore @Inject constructor(
         private val KEY_COMPLETION_SOUND_ENABLED = booleanPreferencesKey("completion_sound_enabled")
         private val KEY_COMPLETION_SOUND_URI = stringPreferencesKey("completion_sound_uri")
         private val KEY_CONFIRM_BEFORE_DELETE = booleanPreferencesKey("confirm_before_delete")
+        private val KEY_INBOX_EXCLUDE_DATED = booleanPreferencesKey("inbox_exclude_dated")
     }
 
     fun getPrefs(): Flow<BehaviorPrefs> =
@@ -42,6 +44,7 @@ class BehaviorPrefsStore @Inject constructor(
                 completionSoundEnabled = prefs[KEY_COMPLETION_SOUND_ENABLED] ?: true,
                 completionSoundUri = prefs[KEY_COMPLETION_SOUND_URI]?.takeIf { it.isNotBlank() },
                 confirmBeforeDelete = prefs[KEY_CONFIRM_BEFORE_DELETE] ?: true,
+                inboxExcludeDated = prefs[KEY_INBOX_EXCLUDE_DATED] ?: false,
             )
         }
 
@@ -58,5 +61,9 @@ class BehaviorPrefsStore @Inject constructor(
 
     suspend fun setConfirmBeforeDelete(enabled: Boolean) {
         context.behaviorPrefsDataStore.edit { it[KEY_CONFIRM_BEFORE_DELETE] = enabled }
+    }
+
+    suspend fun setInboxExcludeDated(enabled: Boolean) {
+        context.behaviorPrefsDataStore.edit { it[KEY_INBOX_EXCLUDE_DATED] = enabled }
     }
 }

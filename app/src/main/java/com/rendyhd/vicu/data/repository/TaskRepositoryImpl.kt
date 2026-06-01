@@ -2,6 +2,7 @@ package com.rendyhd.vicu.data.repository
 
 import android.content.Context
 import android.util.Log
+import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
@@ -19,8 +20,11 @@ import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
 import com.rendyhd.vicu.worker.SyncScheduler
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -29,6 +33,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
 class TaskRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -39,6 +44,7 @@ class TaskRepositoryImpl @Inject constructor(
     private val alarmScheduler: AlarmScheduler,
     private val completionSoundPlayer: CompletionSoundPlayer,
     private val json: Json,
+    private val behaviorPrefsStore: BehaviorPrefsStore,
 ) : TaskRepository {
 
     companion object {
@@ -88,9 +94,14 @@ class TaskRepositoryImpl @Inject constructor(
     }
 
     override fun getInboxTasks(inboxProjectId: Long): Flow<List<Task>> =
-        taskDao.getInboxTasks(inboxProjectId).map { entities ->
-            entities.map { with(taskMapper) { it.toDomain() } }
-        }
+        behaviorPrefsStore.getPrefs()
+            .map { it.inboxExcludeDated }
+            .distinctUntilChanged()
+            .flatMapLatest { excludeDated ->
+                taskDao.getInboxTasks(inboxProjectId, includeDated = !excludeDated).map { entities ->
+                    entities.map { with(taskMapper) { it.toDomain() } }
+                }
+            }
 
     override fun getTodayTasks(): Flow<List<Task>> =
         taskDao.getTodayTasks(DateUtils.getEndOfToday()).map { entities ->

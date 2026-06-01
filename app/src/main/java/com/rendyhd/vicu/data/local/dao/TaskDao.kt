@@ -9,8 +9,15 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TaskDao {
 
-    @Query("SELECT * FROM tasks WHERE done = 0 AND projectId = :inboxProjectId ORDER BY created DESC")
-    fun getInboxTasks(inboxProjectId: Long): Flow<List<TaskEntity>>
+    @Query(
+        """
+        SELECT * FROM tasks
+        WHERE done = 0 AND projectId = :inboxProjectId
+        AND (:includeDated = 1 OR dueDate = '' OR dueDate = '0001-01-01T00:00:00Z')
+        ORDER BY created DESC
+        """
+    )
+    fun getInboxTasks(inboxProjectId: Long, includeDated: Boolean): Flow<List<TaskEntity>>
 
     @Query(
         """
@@ -110,8 +117,15 @@ interface TaskDao {
     )
     suspend fun getTodayTasksSync(endOfToday: String, limit: Int): List<TaskEntity>
 
-    @Query("SELECT * FROM tasks WHERE done = 0 AND projectId = :inboxProjectId ORDER BY created DESC LIMIT :limit")
-    suspend fun getInboxTasksSync(inboxProjectId: Long, limit: Int): List<TaskEntity>
+    @Query(
+        """
+        SELECT * FROM tasks
+        WHERE done = 0 AND projectId = :inboxProjectId
+        AND (:includeDated = 1 OR dueDate = '' OR dueDate = '0001-01-01T00:00:00Z')
+        ORDER BY created DESC LIMIT :limit
+        """
+    )
+    suspend fun getInboxTasksSync(inboxProjectId: Long, limit: Int, includeDated: Boolean): List<TaskEntity>
 
     @Query(
         """

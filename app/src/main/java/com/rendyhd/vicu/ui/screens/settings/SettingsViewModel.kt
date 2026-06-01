@@ -498,6 +498,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { reviewPrefsStore.setExcludeInbox(enabled) }
     }
 
+    fun setInboxExcludeDated(enabled: Boolean) {
+        viewModelScope.launch { behaviorPrefsStore.setInboxExcludeDated(enabled) }
+    }
+
     fun sendTestNotification() {
         val tapIntent = Intent(appContext, com.rendyhd.vicu.MainActivity::class.java)
         val tapPending = PendingIntent.getActivity(

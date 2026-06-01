@@ -259,6 +259,7 @@ fun SettingsScreen(
                     onSetReviewEnabled = viewModel::setReviewEnabled,
                     onSetReviewExcludeInbox = viewModel::setReviewExcludeInbox,
                     onShowCadenceDialog = { showCadenceDialog = true },
+                    onSetInboxExcludeDated = viewModel::setInboxExcludeDated,
                     onSetConfirmBeforeDelete = viewModel::setConfirmBeforeDelete,
                     onSetCompletionSoundEnabled = viewModel::setCompletionSoundEnabled,
                     onPickCompletionSound = {
@@ -728,6 +729,7 @@ private fun GeneralTab(
     onSetReviewEnabled: (Boolean) -> Unit,
     onSetReviewExcludeInbox: (Boolean) -> Unit,
     onShowCadenceDialog: () -> Unit,
+    onSetInboxExcludeDated: (Boolean) -> Unit,
     onSetConfirmBeforeDelete: (Boolean) -> Unit,
     onSetCompletionSoundEnabled: (Boolean) -> Unit,
     onPickCompletionSound: () -> Unit,
@@ -1000,6 +1002,28 @@ private fun GeneralTab(
             }
         }
         item(key = "review_divider") {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
+        // === Inbox section ===
+        item(key = "inbox_header") {
+            Text(
+                text = "Inbox",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+            )
+        }
+        item(key = "inbox_exclude_dated") {
+            SwitchRow(
+                label = "Move dated tasks out of Inbox",
+                description = "Tasks with a due date leave the Inbox (like Things 3)",
+                checked = state.behaviorPrefs.inboxExcludeDated,
+                onCheckedChange = onSetInboxExcludeDated,
+            )
+        }
+        item(key = "inbox_divider") {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
 

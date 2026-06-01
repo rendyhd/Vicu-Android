@@ -8,6 +8,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.rendyhd.vicu.auth.SecureTokenStorage
+import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.CustomListStore
 import com.rendyhd.vicu.data.local.WidgetPrefsStore
 import com.rendyhd.vicu.data.local.dao.ProjectDao
@@ -30,6 +31,7 @@ class TaskWidgetWorker @AssistedInject constructor(
     private val secureTokenStorage: SecureTokenStorage,
     private val customListStore: CustomListStore,
     private val widgetPrefsStore: WidgetPrefsStore,
+    private val behaviorPrefsStore: BehaviorPrefsStore,
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -171,7 +173,11 @@ class TaskWidgetWorker @AssistedInject constructor(
                 taskDao.getTodayTasksSync(endOfToday, MAX_WIDGET_TASKS)
 
             WidgetViewType.INBOX ->
-                taskDao.getInboxTasksSync(inboxId, MAX_WIDGET_TASKS)
+                taskDao.getInboxTasksSync(
+                    inboxId,
+                    MAX_WIDGET_TASKS,
+                    includeDated = !behaviorPrefsStore.getPrefs().first().inboxExcludeDated,
+                )
 
             WidgetViewType.UPCOMING ->
                 taskDao.getUpcomingTasksSync(endOfToday, MAX_WIDGET_TASKS)
