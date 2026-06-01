@@ -70,6 +70,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.rendyhd.vicu.ui.components.picker.LabelPickerDialog
 import com.rendyhd.vicu.ui.components.picker.PriorityPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
+import com.rendyhd.vicu.ui.components.picker.RelationTaskPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
 import com.rendyhd.vicu.ui.components.task.DescriptionField
@@ -104,6 +105,8 @@ fun TaskDetailSheet(
     var showPriorityPicker by remember { mutableStateOf(false) }
     var subtaskInput by remember { mutableStateOf("") }
     var showSubtaskInput by remember { mutableStateOf(false) }
+    var showRelationPicker by remember { mutableStateOf(false) }
+    val relationSearchResults by viewModel.relationSearchResults.collectAsState()
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
@@ -428,6 +431,62 @@ fun TaskDetailSheet(
                 }
             }
 
+            // Relations
+            if (state.relations.isNotEmpty()) {
+                item(key = "divider_relations") {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text(
+                        "Relations",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                state.relations.forEach { (kind, tasks) ->
+                    item(key = "relation_header_$kind") {
+                        Text(
+                            text = com.rendyhd.vicu.util.RelationKind.label(kind),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                    items(tasks, key = { "relation_${kind}_${it.id}" }) { related ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                        ) {
+                            Text(
+                                text = related.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (kind != com.rendyhd.vicu.util.RelationKind.PARENTTASK) {
+                                IconButton(onClick = { viewModel.removeRelation(kind, related.id) }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove relation",
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            item(key = "add_relation") {
+                TextButton(onClick = {
+                    viewModel.setRelationSearchQuery("")
+                    showRelationPicker = true
+                }) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add relation")
+                }
+            }
+
             // Divider
             item(key = "divider_attachments") {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -590,6 +649,18 @@ fun TaskDetailSheet(
             current = state.task?.priority ?: 0,
             onPick = viewModel::setPriority,
             onDismiss = { showPriorityPicker = false },
+        )
+    }
+
+    if (showRelationPicker) {
+        RelationTaskPickerDialog(
+            searchResults = relationSearchResults.filter { it.id != state.task?.id },
+            onQueryChange = { viewModel.setRelationSearchQuery(it) },
+            onConfirm = { otherId, kind ->
+                viewModel.addRelation(otherId, kind)
+                showRelationPicker = false
+            },
+            onDismiss = { showRelationPicker = false },
         )
     }
 }
