@@ -434,6 +434,11 @@ class TaskDetailViewModel @Inject constructor(
 
         if (task == original) return
 
+        // When the task's project changed, move its subtasks too: each subtask is a full
+        // task with its own project_id and Vikunja does not cascade the move (issue #6).
+        val movedSubtasks = if (task.projectId != original.projectId) state.subtasks else emptyList()
+        val newProjectId = task.projectId
+
         Log.d(TAG, "saveIfChanged: task has changes, saving...")
         // Re-append preserved link HTML before saving. task.description already
         // contains the rich-text HTML body + [[image:N]] tokens; link metadata
@@ -447,6 +452,10 @@ class TaskDetailViewModel @Inject constructor(
             // Send COMPLETE task object (Go zero-value problem)
             when (val result = taskRepository.update(taskToSave)) {
                 is NetworkResult.Success -> {
+                    // Cascade the project move to direct subtasks.
+                    movedSubtasks.forEach { sub ->
+                        taskRepository.moveToProject(sub.id, newProjectId)
+                    }
                     val split = DescriptionHtml.splitForEditor(result.data.description)
                     preservedLinkHtml = split.linkHtml
                     val displayDesc = ImageTokens.buildValue(split.htmlBody, split.imageRefs)

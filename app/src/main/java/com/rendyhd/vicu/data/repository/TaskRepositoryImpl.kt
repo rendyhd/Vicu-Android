@@ -208,6 +208,20 @@ class TaskRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun moveToProject(taskId: Long, newProjectId: Long): NetworkResult<Unit> {
+        val entity = taskDao.getByIdSync(taskId)
+            ?: return NetworkResult.Error("Task $taskId not in local cache; cannot move")
+        val task = with(taskMapper) { entity.toDomain() }
+        if (task.projectId == newProjectId) return NetworkResult.Success(Unit)
+        // Reuse update() so the move goes through the same optimistic + complete-object
+        // (Go zero-value) path, including the offline pending-action queue.
+        return when (val r = update(task.copy(projectId = newProjectId))) {
+            is NetworkResult.Success -> NetworkResult.Success(Unit)
+            is NetworkResult.Error -> r
+            NetworkResult.Loading -> NetworkResult.Success(Unit)
+        }
+    }
+
     override suspend fun delete(taskId: Long): NetworkResult<Unit> {
         return try {
             alarmScheduler.cancelForTask(taskId)

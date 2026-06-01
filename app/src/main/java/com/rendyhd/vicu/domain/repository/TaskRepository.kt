@@ -18,6 +18,7 @@ interface TaskRepository {
 
     suspend fun create(task: Task): NetworkResult<Task>
     suspend fun update(task: Task): NetworkResult<Task>
+    suspend fun moveToProject(taskId: Long, newProjectId: Long): NetworkResult<Unit>
     suspend fun delete(taskId: Long): NetworkResult<Unit>
     suspend fun toggleDone(task: Task): NetworkResult<Task>
     suspend fun createSubtask(parentTaskId: Long, subtask: Task): NetworkResult<Task>
