@@ -82,7 +82,7 @@ fun AppNavHost(
             )
         }
         composable<ReviewRoute> {
-            ReviewScreen(onOpenDrawer = onOpenDrawer)
+            ReviewScreen(onOpenDrawer = onOpenDrawer, onTaskClick = onTaskClick)
         }
         composable<ProjectRoute> { backStackEntry ->
             val route = backStackEntry.toRoute<ProjectRoute>()

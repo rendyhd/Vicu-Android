@@ -6,7 +6,9 @@ import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.ReviewPrefs
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
 import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.ProjectRepository
+import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.ReviewMetadata
 import com.rendyhd.vicu.util.ReviewState
 import com.rendyhd.vicu.util.ReviewStatus
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -26,11 +29,26 @@ data class ReviewItem(
     val status: ReviewStatus,
 )
 
+/** A child project shown nested under an expanded review item, with its open tasks. */
+data class ReviewSubProject(
+    val project: Project,
+    val tasks: List<Task>,
+)
+
+/** Lazily-loaded contents of an expanded review item: the project's open tasks + its subprojects. */
+data class ReviewProjectContent(
+    val tasks: List<Task> = emptyList(),
+    val subProjects: List<ReviewSubProject> = emptyList(),
+    val isLoading: Boolean = true,
+)
+
 data class ReviewUiState(
     val tab: ReviewTab = ReviewTab.DUE,
     val due: List<ReviewItem> = emptyList(),
     val all: List<ReviewItem> = emptyList(),
     val reviewedThisSession: Set<Long> = emptySet(),
+    val expanded: Set<Long> = emptySet(),
+    val content: Map<Long, ReviewProjectContent> = emptyMap(),
     val enabled: Boolean = true,
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
@@ -41,6 +59,7 @@ data class ReviewUiState(
 @HiltViewModel
 class ReviewViewModel @Inject constructor(
     private val projectRepository: ProjectRepository,
+    private val taskRepository: TaskRepository,
     private val reviewPrefsStore: ReviewPrefsStore,
     private val authManager: AuthManager,
 ) : ViewModel() {
@@ -94,6 +113,38 @@ class ReviewViewModel @Inject constructor(
     }
 
     fun setTab(tab: ReviewTab) = _uiState.update { it.copy(tab = tab) }
+
+    fun toggleExpanded(projectId: Long) {
+        val expanding = projectId !in _uiState.value.expanded
+        _uiState.update {
+            it.copy(expanded = if (expanding) it.expanded + projectId else it.expanded - projectId)
+        }
+        // Load lazily the first time a project is expanded; keep the result cached afterwards.
+        if (expanding && _uiState.value.content[projectId] == null) {
+            loadContent(projectId)
+        }
+    }
+
+    private fun loadContent(projectId: Long) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(content = it.content + (projectId to ReviewProjectContent(isLoading = true)))
+            }
+            val loaded = try {
+                val parentTasks = taskRepository.getByProjectId(projectId).first().filter { !it.done }
+                val subProjects = projectRepository.getChildren(projectId).first().map { child ->
+                    ReviewSubProject(
+                        project = child,
+                        tasks = taskRepository.getByProjectId(child.id).first().filter { !it.done },
+                    )
+                }
+                ReviewProjectContent(parentTasks, subProjects, isLoading = false)
+            } catch (e: Exception) {
+                ReviewProjectContent(isLoading = false)
+            }
+            _uiState.update { it.copy(content = it.content + (projectId to loaded)) }
+        }
+    }
 
     fun refresh() {
         viewModelScope.launch {
