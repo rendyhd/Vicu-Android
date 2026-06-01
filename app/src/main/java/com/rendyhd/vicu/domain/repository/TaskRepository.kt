@@ -13,6 +13,7 @@ interface TaskRepository {
     fun getByProjectId(projectId: Long): Flow<List<Task>>
     fun getById(id: Long): Flow<Task?>
     fun searchByTitle(query: String): Flow<List<Task>>
+    fun searchByTitleIncludingDone(query: String): Flow<List<Task>>
     fun getAllOpenTasks(): Flow<List<Task>>
 
     suspend fun create(task: Task): NetworkResult<Task>
@@ -21,6 +22,7 @@ interface TaskRepository {
     suspend fun toggleDone(task: Task): NetworkResult<Task>
     suspend fun createSubtask(parentTaskId: Long, subtask: Task): NetworkResult<Task>
     suspend fun deleteRelation(taskId: Long, relationKind: String, otherTaskId: Long): NetworkResult<Unit>
+    suspend fun createRelation(taskId: Long, otherTaskId: Long, relationKind: String): NetworkResult<Unit>
     suspend fun deleteLocalByIds(ids: Set<Long>)
     suspend fun refreshAll(filters: Map<String, String> = emptyMap()): NetworkResult<Unit>
 }

@@ -127,6 +127,11 @@ class TaskRepositoryImpl @Inject constructor(
             entities.map { with(taskMapper) { it.toDomain() } }
         }
 
+    override fun searchByTitleIncludingDone(query: String): Flow<List<Task>> =
+        taskDao.searchByTitleIncludingDone(query).map { list ->
+            list.map { with(taskMapper) { it.toDomain() } }
+        }
+
     override fun getAllOpenTasks(): Flow<List<Task>> =
         taskDao.getAllOpenTasks().map { entities ->
             entities.map { with(taskMapper) { it.toDomain() } }
@@ -257,6 +262,34 @@ class TaskRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun createRelation(
+        taskId: Long,
+        otherTaskId: Long,
+        relationKind: String,
+    ): NetworkResult<Unit> {
+        return try {
+            api.createRelation(
+                taskId,
+                com.rendyhd.vicu.data.remote.api.CreateRelationDto(
+                    otherTaskId = otherTaskId,
+                    relationKind = relationKind,
+                ),
+            )
+            // Re-fetch base task; Vikunja auto-creates the reciprocal on the other task.
+            val dto = api.getTask(taskId)
+            taskDao.upsert(with(taskMapper) { dto.toEntity() })
+            try {
+                val otherDto = api.getTask(otherTaskId)
+                taskDao.upsert(with(taskMapper) { otherDto.toEntity() })
+            } catch (e: Exception) {
+                // Best-effort: the other task's cache refresh is non-critical.
+            }
+            NetworkResult.Success(Unit)
+        } catch (e: Exception) {
+            NetworkResult.Error(e.localizedMessage ?: "Failed to create relation")
+        }
+    }
+
     override suspend fun deleteRelation(
         taskId: Long,
         relationKind: String,
@@ -268,6 +301,12 @@ class TaskRepositoryImpl @Inject constructor(
             val dto = api.getTask(taskId)
             val entity = with(taskMapper) { dto.toEntity() }
             taskDao.upsert(entity)
+            try {
+                val otherDto = api.getTask(otherTaskId)
+                taskDao.upsert(with(taskMapper) { otherDto.toEntity() })
+            } catch (e: Exception) {
+                // Best-effort.
+            }
             NetworkResult.Success(Unit)
         } catch (e: Exception) {
             NetworkResult.Error(e.localizedMessage ?: "Failed to delete relation")

@@ -51,6 +51,9 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE title LIKE '%' || :query || '%' AND done = 0")
     fun searchByTitle(query: String): Flow<List<TaskEntity>>
 
+    @Query("SELECT * FROM tasks WHERE title LIKE '%' || :query || '%'")
+    fun searchByTitleIncludingDone(query: String): Flow<List<TaskEntity>>
+
     @Query("SELECT * FROM tasks WHERE done = 0 ORDER BY updated DESC")
     fun getAllOpenTasks(): Flow<List<TaskEntity>>
 
