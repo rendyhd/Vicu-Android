@@ -577,11 +577,20 @@ class AuthManager @Inject constructor(
     private fun cleanupSiblingTokens(title: String, newTokenId: Long) {
         appScope.launch {
             try {
-                val siblings = apiServiceProvider.get().listApiTokens()
-                    .filter { it.title == title && it.id != newTokenId }
+                val api = apiServiceProvider.get()
+                val allTokens = mutableListOf<com.rendyhd.vicu.data.remote.api.ApiTokenDto>()
+                val maxPages = 10
+                var page = 1
+                while (page <= maxPages) {
+                    val batch = api.listApiTokens(page = page, perPage = 100)
+                    if (batch.isEmpty()) break
+                    allTokens.addAll(batch)
+                    page++
+                }
+                val siblings = allTokens.filter { it.title == title && it.id != newTokenId }
                 for (sibling in siblings) {
                     try {
-                        apiServiceProvider.get().deleteApiToken(sibling.id)
+                        api.deleteApiToken(sibling.id)
                         AuthDebugLog.log("TOKEN_CLEANUP", "deleted sibling id=${sibling.id}")
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to delete sibling token ${sibling.id}", e)
