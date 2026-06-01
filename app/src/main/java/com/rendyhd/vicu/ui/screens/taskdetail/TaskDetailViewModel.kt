@@ -20,10 +20,17 @@ import com.rendyhd.vicu.util.DescriptionHtml
 import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.NetworkResult
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import okhttp3.MultipartBody
@@ -39,6 +46,7 @@ data class TaskDetailUiState(
     val allProjects: List<Project> = emptyList(),
     val allLabels: List<Label> = emptyList(),
     val subtasks: List<Task> = emptyList(),
+    val relations: Map<String, List<Task>> = emptyMap(),
     val attachments: List<Attachment> = emptyList(),
     val showDeleteConfirmation: Boolean = false,
     val isDeleted: Boolean = false,
@@ -68,6 +76,17 @@ class TaskDetailViewModel @Inject constructor(
     /** Preserved link HTML stripped from description for display, re-appended on save. */
     private var preservedLinkHtml = ""
 
+    private val _relationSearchQuery = MutableStateFlow("")
+
+    @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
+    val relationSearchResults: StateFlow<List<Task>> = _relationSearchQuery
+        .debounce(250)
+        .flatMapLatest { q ->
+            if (q.isBlank()) flowOf(emptyList())
+            else taskRepository.searchByTitleIncludingDone(q)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     fun loadTask(taskId: Long) {
         if (taskId == taskIdLoaded) return
         taskIdLoaded = taskId
@@ -88,6 +107,9 @@ class TaskDetailViewModel @Inject constructor(
             taskRepository.getById(taskId).collect { task ->
                 if (task != null) {
                     val subtasks = task.relatedTasks["subtask"] ?: emptyList()
+                    val relations = task.relatedTasks
+                        .filterKeys { it in com.rendyhd.vicu.util.RelationKind.DISPLAYABLE }
+                        .filterValues { it.isNotEmpty() }
                     val isFirstLoad = _uiState.value.originalTask == null
                     if (isFirstLoad) {
                         val split = DescriptionHtml.splitForEditor(task.description)
@@ -99,12 +121,13 @@ class TaskDetailViewModel @Inject constructor(
                                 task = displayTask,
                                 originalTask = displayTask,
                                 subtasks = subtasks,
+                                relations = relations,
                                 isLoading = false,
                             )
                         }
                     } else {
                         _uiState.update {
-                            it.copy(subtasks = subtasks, isLoading = false)
+                            it.copy(subtasks = subtasks, relations = relations, isLoading = false)
                         }
                     }
                 } else {
@@ -240,6 +263,33 @@ class TaskDetailViewModel @Inject constructor(
                 is NetworkResult.Error -> _uiState.update { it.copy(error = result.message) }
                 else -> {}
             }
+        }
+    }
+
+    fun addRelation(otherTaskId: Long, relationKind: String) {
+        val task = _uiState.value.task ?: return
+        viewModelScope.launch {
+            when (val result = taskRepository.createRelation(task.id, otherTaskId, relationKind)) {
+                is NetworkResult.Error -> _uiState.update { it.copy(error = result.message) }
+                else -> {}
+            }
+        }
+    }
+
+    fun removeRelation(relationKind: String, otherTaskId: Long) {
+        val task = _uiState.value.task ?: return
+        viewModelScope.launch {
+            when (val result = taskRepository.deleteRelation(task.id, relationKind, otherTaskId)) {
+                is NetworkResult.Error -> _uiState.update { it.copy(error = result.message) }
+                else -> {}
+            }
+        }
+    }
+
+    fun setRelationSearchQuery(q: String) {
+        _relationSearchQuery.value = q
+        if (q.isNotBlank()) {
+            viewModelScope.launch { taskRepository.refreshAll(mapOf("s" to q)) }
         }
     }
 
