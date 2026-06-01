@@ -16,7 +16,10 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.CustomListFilterBuilder
 import com.rendyhd.vicu.util.NetworkResult
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,6 +58,9 @@ class CustomListViewModel @Inject constructor(
 
     val labels: StateFlow<List<Label>> = labelRepository.getAll()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    private val _completionEvents = Channel<Task>(Channel.BUFFERED)
+    val completionEvents: Flow<Task> = _completionEvents.receiveAsFlow()
 
     init {
         viewModelScope.launch {
@@ -117,6 +123,7 @@ class CustomListViewModel @Inject constructor(
         viewModelScope.launch {
             if (!task.done) {
                 _uiState.update { it.copy(completedTaskIds = it.completedTaskIds + task.id) }
+                _completionEvents.trySend(task)
             }
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {

@@ -10,7 +10,10 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.NetworkResult
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -35,6 +38,9 @@ class TodayViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(TodayUiState())
     val uiState: StateFlow<TodayUiState> = _uiState.asStateFlow()
+
+    private val _completionEvents = Channel<Task>(Channel.BUFFERED)
+    val completionEvents: Flow<Task> = _completionEvents.receiveAsFlow()
 
     init {
         viewModelScope.launch {
@@ -74,6 +80,7 @@ class TodayViewModel @Inject constructor(
         viewModelScope.launch {
             if (!task.done) {
                 _uiState.update { it.copy(completedTaskIds = it.completedTaskIds + task.id) }
+                _completionEvents.trySend(task)
             }
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {

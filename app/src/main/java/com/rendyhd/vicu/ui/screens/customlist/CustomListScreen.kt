@@ -30,6 +30,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
+import com.rendyhd.vicu.ui.components.shared.CompletionUndoSnackbar
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
@@ -49,6 +50,11 @@ fun CustomListScreen(
     val projects by viewModel.projects.collectAsState()
     val labels by viewModel.labels.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    CompletionUndoSnackbar(
+        snackbarHostState = snackbarHostState,
+        events = viewModel.completionEvents,
+        onUndo = viewModel::undoComplete,
+    )
     var schedulingTask by remember { mutableStateOf<Task?>(null) }
     var showEditDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()

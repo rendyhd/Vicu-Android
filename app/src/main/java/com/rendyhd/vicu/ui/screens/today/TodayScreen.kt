@@ -31,6 +31,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
 import com.rendyhd.vicu.ui.components.section.SectionHeader
+import com.rendyhd.vicu.ui.components.shared.CompletionUndoSnackbar
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
@@ -49,6 +50,11 @@ fun TodayScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    CompletionUndoSnackbar(
+        snackbarHostState = snackbarHostState,
+        events = viewModel.completionEvents,
+        onUndo = viewModel::undoComplete,
+    )
     var schedulingTask by remember { mutableStateOf<Task?>(null) }
     val listState = rememberLazyListState()
 
