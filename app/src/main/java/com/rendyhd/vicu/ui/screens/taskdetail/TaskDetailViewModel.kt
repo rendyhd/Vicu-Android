@@ -126,8 +126,16 @@ class TaskDetailViewModel @Inject constructor(
                             )
                         }
                     } else {
-                        _uiState.update {
-                            it.copy(subtasks = subtasks, relations = relations, isLoading = false)
+                        // Preserve the user's in-progress title/description edits, but adopt
+                        // server-confirmed labels from later Room emissions so an added/removed
+                        // label is reflected here (issue #6 — the checkbox previously went stale).
+                        _uiState.update { st ->
+                            st.copy(
+                                task = st.task?.copy(labels = task.labels),
+                                subtasks = subtasks,
+                                relations = relations,
+                                isLoading = false,
+                            )
                         }
                     }
                 } else {
@@ -196,20 +204,48 @@ class TaskDetailViewModel @Inject constructor(
     }
 
     fun addLabel(labelId: Long) {
-        val task = _uiState.value.task ?: return
+        val current = _uiState.value.task ?: return
+        if (current.labels.any { it.id == labelId }) return
+        // Optimistically reflect the label so the picker checkbox + chips update immediately,
+        // without waiting for the server round-trip and Room re-emission (issue #6).
+        val label = _uiState.value.allLabels.find { it.id == labelId }
+        if (label != null) {
+            _uiState.update { st ->
+                val t = st.task ?: return@update st
+                st.copy(task = t.copy(labels = t.labels + label))
+            }
+        }
         viewModelScope.launch {
-            when (val result = labelRepository.addToTask(task.id, labelId)) {
-                is NetworkResult.Error -> _uiState.update { it.copy(error = result.message) }
+            when (val result = labelRepository.addToTask(current.id, labelId)) {
+                is NetworkResult.Error -> _uiState.update { st ->
+                    // Roll back the optimistic add and surface the failure.
+                    val t = st.task ?: return@update st.copy(error = result.message)
+                    st.copy(
+                        task = t.copy(labels = t.labels.filterNot { it.id == labelId }),
+                        error = result.message,
+                    )
+                }
                 else -> {}
             }
         }
     }
 
     fun removeLabel(labelId: Long) {
-        val task = _uiState.value.task ?: return
+        val current = _uiState.value.task ?: return
+        val removed = current.labels.find { it.id == labelId } ?: return
+        // Optimistic remove.
+        _uiState.update { st ->
+            val t = st.task ?: return@update st
+            st.copy(task = t.copy(labels = t.labels.filterNot { it.id == labelId }))
+        }
         viewModelScope.launch {
-            when (val result = labelRepository.removeFromTask(task.id, labelId)) {
-                is NetworkResult.Error -> _uiState.update { it.copy(error = result.message) }
+            when (val result = labelRepository.removeFromTask(current.id, labelId)) {
+                is NetworkResult.Error -> _uiState.update { st ->
+                    // Roll back the optimistic remove and surface the failure.
+                    val t = st.task ?: return@update st.copy(error = result.message)
+                    val restored = if (t.labels.none { it.id == labelId }) t.labels + removed else t.labels
+                    st.copy(task = t.copy(labels = restored), error = result.message)
+                }
                 else -> {}
             }
         }

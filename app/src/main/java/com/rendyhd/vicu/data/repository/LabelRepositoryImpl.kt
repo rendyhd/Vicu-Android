@@ -123,13 +123,24 @@ class LabelRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun addToTask(taskId: Long, labelId: Long): NetworkResult<Unit> {
-        return try {
-            api.addLabelToTask(taskId, LabelTaskDto(labelId = labelId))
-            // Re-fetch task to get updated labels
+    /**
+     * Best-effort refresh of the cached task after a label change. A failure here (e.g. the
+     * task was deleted server-side, or still has a not-yet-synced temp id) must NOT void an
+     * already-successful label add/remove — otherwise a working change is reported as failed
+     * (issue #6: "sometimes it adds, sometimes it doesn't").
+     */
+    private suspend fun refreshCachedTask(taskId: Long) {
+        try {
             val taskDto = api.getTask(taskId)
-            val taskEntity = with(taskMapper) { taskDto.toEntity() }
-            taskDao.upsert(taskEntity)
+            taskDao.upsert(with(taskMapper) { taskDto.toEntity() })
+        } catch (_: Exception) {
+            // Ignore: the label change already succeeded on the server.
+        }
+    }
+
+    override suspend fun addToTask(taskId: Long, labelId: Long): NetworkResult<Unit> {
+        val result = try {
+            api.addLabelToTask(taskId, LabelTaskDto(labelId = labelId))
             NetworkResult.Success(Unit)
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
@@ -139,15 +150,13 @@ class LabelRepositoryImpl @Inject constructor(
                 NetworkResult.Error(e.localizedMessage ?: "Failed to add label to task")
             }
         }
+        if (result is NetworkResult.Success) refreshCachedTask(taskId)
+        return result
     }
 
     override suspend fun removeFromTask(taskId: Long, labelId: Long): NetworkResult<Unit> {
-        return try {
+        val result = try {
             api.removeLabelFromTask(taskId, labelId)
-            // Re-fetch task to get updated labels
-            val taskDto = api.getTask(taskId)
-            val taskEntity = with(taskMapper) { taskDto.toEntity() }
-            taskDao.upsert(taskEntity)
             NetworkResult.Success(Unit)
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
@@ -157,6 +166,8 @@ class LabelRepositoryImpl @Inject constructor(
                 NetworkResult.Error(e.localizedMessage ?: "Failed to remove label from task")
             }
         }
+        if (result is NetworkResult.Success) refreshCachedTask(taskId)
+        return result
     }
 
     override suspend fun refreshAll(): NetworkResult<Unit> {
