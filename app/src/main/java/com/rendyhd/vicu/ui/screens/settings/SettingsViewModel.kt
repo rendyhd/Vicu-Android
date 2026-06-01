@@ -433,6 +433,49 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setAfternoonSummaryEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            notificationPrefsStore.setAfternoonSummaryEnabled(enabled)
+            val prefs = uiState.value.notificationPrefs
+            dailySummaryScheduler.scheduleIfEnabled(
+                DailySummaryScheduler.SLOT_AFTERNOON,
+                enabled,
+                prefs.afternoonSummaryHour,
+                prefs.afternoonSummaryMinute,
+            )
+        }
+    }
+
+    fun setAfternoonSummaryTime(hour: Int, minute: Int) {
+        viewModelScope.launch {
+            notificationPrefsStore.setAfternoonSummaryTime(hour, minute)
+            val prefs = uiState.value.notificationPrefs
+            if (prefs.afternoonSummaryEnabled) {
+                dailySummaryScheduler.schedule(DailySummaryScheduler.SLOT_AFTERNOON, hour, minute)
+            }
+        }
+    }
+
+    fun setNotifyOverdueEnabled(enabled: Boolean) {
+        viewModelScope.launch { notificationPrefsStore.setNotifyOverdueEnabled(enabled) }
+    }
+
+    fun setNotifyDueTodayEnabled(enabled: Boolean) {
+        viewModelScope.launch { notificationPrefsStore.setNotifyDueTodayEnabled(enabled) }
+    }
+
+    fun setNotifyUpcomingEnabled(enabled: Boolean) {
+        viewModelScope.launch { notificationPrefsStore.setNotifyUpcomingEnabled(enabled) }
+    }
+
+    fun setDefaultReminderOffset(seconds: Int) {
+        viewModelScope.launch { notificationPrefsStore.setDefaultReminderOffset(seconds) }
+    }
+
+    fun setDefaultReminderRelativeTo(value: String) {
+        viewModelScope.launch { notificationPrefsStore.setDefaultReminderRelativeTo(value) }
+    }
+
     fun sendTestNotification() {
         val tapIntent = Intent(appContext, com.rendyhd.vicu.MainActivity::class.java)
         val tapPending = PendingIntent.getActivity(
