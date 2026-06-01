@@ -11,12 +11,14 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.rendyhd.vicu.MainActivity
 import com.rendyhd.vicu.R
+import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.notification.NotificationChannelManager
 import com.rendyhd.vicu.util.DateUtils
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.flow.first
 
 @HiltWorker
 class DailySummaryWorker @AssistedInject constructor(
@@ -24,6 +26,7 @@ class DailySummaryWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val taskDao: TaskDao,
     private val taskMapper: TaskMapper,
+    private val notificationPrefsStore: NotificationPrefsStore,
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -37,9 +40,10 @@ class DailySummaryWorker @AssistedInject constructor(
             val startOfToday = DateUtils.todayStartIso()
             val endOfToday = DateUtils.getEndOfToday()
 
-            val overdueCount = taskDao.countOverdue(startOfToday)
-            val todayCount = taskDao.countDueToday(startOfToday, endOfToday)
-            val upcomingCount = taskDao.countUpcoming(endOfToday)
+            val prefs = notificationPrefsStore.getPrefs().first()
+            val overdueCount = if (prefs.notifyOverdueEnabled) taskDao.countOverdue(startOfToday) else 0
+            val todayCount = if (prefs.notifyDueTodayEnabled) taskDao.countDueToday(startOfToday, endOfToday) else 0
+            val upcomingCount = if (prefs.notifyUpcomingEnabled) taskDao.countUpcoming(endOfToday) else 0
 
             val total = overdueCount + todayCount + upcomingCount
             if (total == 0) {
