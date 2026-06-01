@@ -39,6 +39,12 @@ class BootReceiver : BroadcastReceiver() {
                     prefs.dailySummaryHour,
                     prefs.dailySummaryMinute,
                 )
+                dailySummaryScheduler.scheduleIfEnabled(
+                    DailySummaryScheduler.SLOT_AFTERNOON,
+                    prefs.afternoonSummaryEnabled,
+                    prefs.afternoonSummaryHour,
+                    prefs.afternoonSummaryMinute,
+                )
                 WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
                 SyncScheduler.enqueueWhenOnline(context)
             } catch (e: Exception) {
