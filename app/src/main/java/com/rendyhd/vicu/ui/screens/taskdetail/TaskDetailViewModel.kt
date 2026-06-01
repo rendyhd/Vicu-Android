@@ -330,8 +330,23 @@ class TaskDetailViewModel @Inject constructor(
     }
 
     fun toggleSubtaskDone(subtask: Task) {
+        val parentId = _uiState.value.task?.id ?: return
+        val target = !subtask.done
+        // Optimistically flip the checkbox so it responds instantly; the repository also flips
+        // the parent's cached relatedTasks, so the Room re-emission reconciles to the same state.
+        _uiState.update { st ->
+            st.copy(
+                subtasks = st.subtasks.map { if (it.id == subtask.id) it.copy(done = target) else it },
+                relations = st.relations.mapValues { (_, list) ->
+                    list.map { if (it.id == subtask.id) it.copy(done = target) else it }
+                },
+            )
+        }
         viewModelScope.launch {
-            taskRepository.toggleDone(subtask)
+            when (val result = taskRepository.toggleSubtaskDone(parentId, subtask)) {
+                is NetworkResult.Error -> _uiState.update { it.copy(error = result.message) }
+                else -> {}
+            }
         }
     }
 

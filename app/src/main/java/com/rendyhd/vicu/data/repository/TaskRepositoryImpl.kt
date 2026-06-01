@@ -283,14 +283,76 @@ class TaskRepositoryImpl @Inject constructor(
                 ),
             )
 
-            // Re-fetch parent to get updated relatedTasks
-            val parentDto = api.getTask(parentTaskId)
-            val parentEntity = with(taskMapper) { parentDto.toEntity() }
-            taskDao.upsert(parentEntity)
+            // Merge the new child into the parent's cached relatedTasks directly rather than
+            // re-fetching: GET /tasks/{id} immediately after creating a relation can lag and omit
+            // it, which left the first subtask invisible until the next mutation (issue #6).
+            taskDao.getByIdSync(parentTaskId)?.let { parent ->
+                taskDao.upsert(with(taskMapper) { parent.withRelatedTaskAdded("subtask", createdDto) })
+            }
 
             NetworkResult.Success(with(taskMapper) { createdEntity.toDomain() })
         } catch (e: Exception) {
             NetworkResult.Error(e.localizedMessage ?: "Failed to create subtask")
+        }
+    }
+
+    override suspend fun toggleSubtaskDone(parentTaskId: Long, subtask: Task): NetworkResult<Task> {
+        // Read the child's full cached row first so the toggle is computed from the authoritative
+        // state and we preserve its other fields (labels/reminders/attachments) when flipping.
+        val cached = taskDao.getByIdSync(subtask.id)
+        val current = cached?.let { with(taskMapper) { it.toDomain() } } ?: subtask
+        val toggled = current.copy(
+            done = !current.done,
+            doneAt = if (!current.done) DateUtils.nowIso() else "",
+        )
+        if (toggled.done) {
+            completionSoundPlayer.play()
+        }
+
+        // Optimistic local writes. UNLIKE the list toggleDone path (which keeps Room untouched so
+        // a row stays visible for undo), the detail sheet has no completedTaskIds fallback — the
+        // subtask checkbox reads done from the parent's cached relatedTasks, so we must flip it
+        // here or it never updates (issue #6). Parent cache first so the first Room emission
+        // already carries the new state, then the child's own row (other fields preserved).
+        taskDao.getByIdSync(parentTaskId)?.let { parent ->
+            taskDao.upsert(with(taskMapper) { parent.withRelatedTaskDone(subtask.id, toggled.done) })
+        }
+        cached?.let {
+            taskDao.upsert(it.copy(done = toggled.done, doneAt = DateUtils.normalizeToUtc(toggled.doneAt)))
+        }
+
+        return try {
+            val responseDto = api.updateTask(subtask.id, with(taskMapper) { toggled.toDto() })
+            val responseEntity = with(taskMapper) { responseDto.toEntity() }
+            taskDao.upsert(responseEntity)
+            taskDao.getByIdSync(parentTaskId)?.let { parent ->
+                taskDao.upsert(with(taskMapper) { parent.withRelatedTaskDone(subtask.id, responseDto.done) })
+            }
+            val result = with(taskMapper) { responseEntity.toDomain() }
+            if (toggled.done) alarmScheduler.cancelForTask(subtask.id) else alarmScheduler.scheduleForTask(result)
+            WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
+            NetworkResult.Success(result)
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) {
+                queueTaskAction(subtask.id, "toggle_done", json.encodeToString(Task.serializer(), toggled))
+                if (toggled.done) alarmScheduler.cancelForTask(subtask.id)
+                WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
+            }
+            throw e
+        } catch (e: Exception) {
+            if (isRetriableNetworkError(e)) {
+                queueTaskAction(subtask.id, "toggle_done", json.encodeToString(Task.serializer(), toggled))
+                if (toggled.done) alarmScheduler.cancelForTask(subtask.id)
+                WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
+                NetworkResult.Success(toggled)
+            } else {
+                // Hard failure — roll back the optimistic writes.
+                cached?.let { taskDao.upsert(it) }
+                taskDao.getByIdSync(parentTaskId)?.let { parent ->
+                    taskDao.upsert(with(taskMapper) { parent.withRelatedTaskDone(subtask.id, current.done) })
+                }
+                NetworkResult.Error(e.localizedMessage ?: "Failed to update subtask")
+            }
         }
     }
 
@@ -307,14 +369,24 @@ class TaskRepositoryImpl @Inject constructor(
                     relationKind = relationKind,
                 ),
             )
-            // Re-fetch base task; Vikunja auto-creates the reciprocal on the other task.
-            val dto = api.getTask(taskId)
-            taskDao.upsert(with(taskMapper) { dto.toEntity() })
-            try {
-                val otherDto = api.getTask(otherTaskId)
-                taskDao.upsert(with(taskMapper) { otherDto.toEntity() })
+            // Fetch the other task so we can show the relation with its real title and refresh
+            // its cache (Vikunja auto-creates the reciprocal on it), then merge it into the base
+            // task's cached relatedTasks directly. We deliberately do NOT re-fetch the base task:
+            // GET /tasks/{id} right after creating a relation can lag and omit the new relation,
+            // which made it briefly show stale/wrong data (e.g. the base's own title) until a
+            // reload (issue #6).
+            val otherDto = try {
+                api.getTask(otherTaskId).also { taskDao.upsert(with(taskMapper) { it.toEntity() }) }
             } catch (e: Exception) {
-                // Best-effort: the other task's cache refresh is non-critical.
+                null
+            }
+            val baseEntity = taskDao.getByIdSync(taskId)
+            if (otherDto != null && baseEntity != null) {
+                taskDao.upsert(with(taskMapper) { baseEntity.withRelatedTaskAdded(relationKind, otherDto) })
+            } else {
+                // Couldn't merge locally — fall back to a server re-fetch of the base task.
+                val dto = api.getTask(taskId)
+                taskDao.upsert(with(taskMapper) { dto.toEntity() })
             }
             NetworkResult.Success(Unit)
         } catch (e: Exception) {
@@ -329,10 +401,13 @@ class TaskRepositoryImpl @Inject constructor(
     ): NetworkResult<Unit> {
         return try {
             api.deleteRelation(taskId, relationKind, otherTaskId)
-            // Re-fetch to get updated relatedTasks
-            val dto = api.getTask(taskId)
-            val entity = with(taskMapper) { dto.toEntity() }
-            taskDao.upsert(entity)
+            // Optimistically drop it from the base task's cached relatedTasks so it disappears
+            // immediately (same eventual-consistency reasoning as createRelation). Removing the
+            // relation only unlinks the tasks — the other task itself is NOT deleted.
+            taskDao.getByIdSync(taskId)?.let { base ->
+                taskDao.upsert(with(taskMapper) { base.withRelatedTaskRemoved(relationKind, otherTaskId) })
+            }
+            // Refresh the other task's cache (its reciprocal relation was removed server-side).
             try {
                 val otherDto = api.getTask(otherTaskId)
                 taskDao.upsert(with(taskMapper) { otherDto.toEntity() })

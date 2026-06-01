@@ -145,6 +145,51 @@ class TaskMapper @Inject constructor(private val json: Json) {
         )
     }
 
+    private val relatedTasksSerializer =
+        MapSerializer(String.serializer(), ListSerializer(TaskDto.serializer()))
+
+    private fun decodeRelatedTasks(encoded: String): Map<String, List<TaskDto>> =
+        try {
+            json.decodeFromString(relatedTasksSerializer, encoded)
+        } catch (_: Exception) {
+            emptyMap()
+        }
+
+    /**
+     * Returns a copy of this entity with [other] added under [kind] in relatedTasks (deduped by
+     * id). Lets the repository optimistically reflect a new relation/subtask in the parent's
+     * cached copy immediately, instead of relying on an eventually-consistent server re-fetch.
+     */
+    fun TaskEntity.withRelatedTaskAdded(kind: String, other: TaskDto): TaskEntity {
+        val current = decodeRelatedTasks(relatedTasksJson)
+        val list = current[kind].orEmpty().filterNot { it.id == other.id } + other
+        val updated = current + (kind to list)
+        return copy(relatedTasksJson = json.encodeToString(relatedTasksSerializer, updated))
+    }
+
+    /** Returns a copy of this entity with related task [otherId] removed from [kind]. */
+    fun TaskEntity.withRelatedTaskRemoved(kind: String, otherId: Long): TaskEntity {
+        val current = decodeRelatedTasks(relatedTasksJson)
+        val list = current[kind].orEmpty().filterNot { it.id == otherId }
+        val updated = if (list.isEmpty()) current - kind else current + (kind to list)
+        return copy(relatedTasksJson = json.encodeToString(relatedTasksSerializer, updated))
+    }
+
+    /** Returns a copy with related task [otherId] flipped to [done] across every relation kind. */
+    fun TaskEntity.withRelatedTaskDone(otherId: Long, done: Boolean): TaskEntity {
+        val current = decodeRelatedTasks(relatedTasksJson)
+        val updated = current.mapValues { (_, tasks) ->
+            tasks.map {
+                if (it.id == otherId) {
+                    it.copy(done = done, doneAt = if (done) DateUtils.nowIso() else "")
+                } else {
+                    it
+                }
+            }
+        }
+        return copy(relatedTasksJson = json.encodeToString(relatedTasksSerializer, updated))
+    }
+
     private fun dateOrNull(value: String): String =
         if (value.isBlank()) Constants.NULL_DATE_STRING else value
 

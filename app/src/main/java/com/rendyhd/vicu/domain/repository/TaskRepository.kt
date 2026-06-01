@@ -22,6 +22,7 @@ interface TaskRepository {
     suspend fun delete(taskId: Long): NetworkResult<Unit>
     suspend fun toggleDone(task: Task): NetworkResult<Task>
     suspend fun createSubtask(parentTaskId: Long, subtask: Task): NetworkResult<Task>
+    suspend fun toggleSubtaskDone(parentTaskId: Long, subtask: Task): NetworkResult<Task>
     suspend fun deleteRelation(taskId: Long, relationKind: String, otherTaskId: Long): NetworkResult<Unit>
     suspend fun createRelation(taskId: Long, otherTaskId: Long, relationKind: String): NetworkResult<Unit>
     suspend fun deleteLocalByIds(ids: Set<Long>)
