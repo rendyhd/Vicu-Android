@@ -62,7 +62,10 @@ object TaskLinkParser {
      */
     fun hasNotesContent(description: String?): Boolean {
         if (description.isNullOrBlank()) return false
-        return stripLinks(description).isNotBlank()
+        val stripped = stripLinks(description)
+            .replace(Regex("<[^>]+>"), "")
+            .replace(Regex("\\s|&nbsp;"), "")
+        return stripped.isNotEmpty()
     }
 
     /** Extract the raw link HTML portion from a description (for re-appending on save). */
