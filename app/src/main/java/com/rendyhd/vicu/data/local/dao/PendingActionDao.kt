@@ -57,6 +57,12 @@ interface PendingActionDao {
     @Query("SELECT entityId FROM pending_actions WHERE entityType = 'task' AND status IN ('pending', 'failed', 'processing')")
     suspend fun getTaskIdsWithPendingActions(): List<Long>
 
+    @Query("SELECT * FROM pending_actions WHERE status IN ('pending', 'failed')")
+    suspend fun getRemappable(): List<PendingActionEntity>
+
+    @Query("UPDATE pending_actions SET entityId = :entityId, payload = :payload, status = :status, retryCount = 0 WHERE id = :id")
+    suspend fun remapEntity(id: Long, entityId: Long, payload: String, status: String)
+
     @Transaction
     suspend fun replaceForEntity(entityType: String, entityId: Long, action: PendingActionEntity) {
         deleteByEntity(entityType, entityId)

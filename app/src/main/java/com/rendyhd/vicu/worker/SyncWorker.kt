@@ -25,6 +25,18 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.serialization.json.Json
 
+/**
+ * Rewrites an "add_label"/"remove_label" pending-action payload ("taskId:labelId") so the task id
+ * changes from [tempId] to [realId]. Returns null if the payload does not reference [tempId].
+ * Pure helper (unit-tested) used when an offline-created task finally syncs (issue #6).
+ */
+fun remapLabelTaskPayload(payload: String, tempId: Long, realId: Long): String? {
+    val parts = payload.split(":")
+    if (parts.size != 2) return null
+    if (parts[0].toLongOrNull() != tempId) return null
+    return "$realId:${parts[1]}"
+}
+
 @HiltWorker
 class SyncWorker @AssistedInject constructor(
     @Assisted appContext: Context,
@@ -44,6 +56,8 @@ class SyncWorker @AssistedInject constructor(
     companion object {
         private const val TAG = "SyncWorker"
         private const val MAX_RETRIES = 5
+        private val TASK_DEPENDENT_ACTIONS = setOf("update", "toggle_done", "delete")
+        private val LABEL_TASK_ACTIONS = setOf("add_label", "remove_label")
     }
 
     override suspend fun doWork(): Result {
@@ -56,13 +70,18 @@ class SyncWorker @AssistedInject constructor(
         var hasRetriableFailures = false
 
         try {
+            // Process task "create" actions first so dependent actions (label add/remove, updates)
+            // queued against an offline-created task's temp id can be remapped to the real server id
+            // within the same run (issue #6). tempIdMap accumulates temp -> real ids.
             val actions = pendingActionDao.getRetryable()
+                .sortedBy { if (it.entityType == "task" && it.actionType == "create") 0 else 1 }
             Log.d(TAG, "Processing ${actions.size} pending actions")
+            val tempIdMap = mutableMapOf<Long, Long>()
 
             for (action in actions) {
                 pendingActionDao.updateStatus(action.id, "processing")
                 try {
-                    processAction(action)
+                    processAction(action, tempIdMap)
                     pendingActionDao.updateStatus(action.id, "completed")
                     Log.d(TAG, "Action ${action.id} (${action.entityType}/${action.actionType}) completed")
                 } catch (e: Exception) {
@@ -91,15 +110,15 @@ class SyncWorker @AssistedInject constructor(
         return if (hasRetriableFailures) Result.retry() else Result.success()
     }
 
-    private suspend fun processAction(action: PendingActionEntity) {
+    private suspend fun processAction(action: PendingActionEntity, tempIdMap: MutableMap<Long, Long>) {
         when (action.entityType) {
-            "task" -> processTaskAction(action)
-            "label" -> processLabelAction(action)
+            "task" -> processTaskAction(action, tempIdMap)
+            "label" -> processLabelAction(action, tempIdMap)
             else -> Log.w(TAG, "Unknown entity type: ${action.entityType}")
         }
     }
 
-    private suspend fun processTaskAction(action: PendingActionEntity) {
+    private suspend fun processTaskAction(action: PendingActionEntity, tempIdMap: MutableMap<Long, Long>) {
         when (action.actionType) {
             "create" -> {
                 val task = json.decodeFromString<Task>(action.payload)
@@ -111,9 +130,16 @@ class SyncWorker @AssistedInject constructor(
                 taskDao.upsert(responseEntity)
                 val created = with(taskMapper) { responseEntity.toDomain() }
                 alarmScheduler.scheduleForTask(created)
+                // Remap any queued actions that referenced this task's temp id to the real id —
+                // in-memory for this run and in the queue for future runs / healing failed ones.
+                if (action.entityId != responseEntity.id) {
+                    tempIdMap[action.entityId] = responseEntity.id
+                    remapPendingDependents(action.entityId, responseEntity.id)
+                }
             }
             "update", "toggle_done" -> {
-                val task = json.decodeFromString<Task>(action.payload)
+                val decoded = json.decodeFromString<Task>(action.payload)
+                val task = tempIdMap[decoded.id]?.let { decoded.copy(id = it) } ?: decoded
                 val dto = with(taskMapper) { task.toDto() }
                 val responseDto = api.updateTask(task.id, dto)
                 val responseEntity = with(taskMapper) { responseDto.toEntity() }
@@ -126,12 +152,12 @@ class SyncWorker @AssistedInject constructor(
                 }
             }
             "delete" -> {
-                api.deleteTask(action.entityId)
+                api.deleteTask(tempIdMap[action.entityId] ?: action.entityId)
             }
         }
     }
 
-    private suspend fun processLabelAction(action: PendingActionEntity) {
+    private suspend fun processLabelAction(action: PendingActionEntity, tempIdMap: MutableMap<Long, Long>) {
         when (action.actionType) {
             "create" -> {
                 val label = json.decodeFromString<Label>(action.payload)
@@ -154,15 +180,40 @@ class SyncWorker @AssistedInject constructor(
             }
             "add_label" -> {
                 val parts = action.payload.split(":")
-                val taskId = parts[0].toLong()
+                val taskId = parts[0].toLong().let { tempIdMap[it] ?: it }
                 val labelId = parts[1].toLong()
                 api.addLabelToTask(taskId, LabelTaskDto(labelId = labelId))
             }
             "remove_label" -> {
                 val parts = action.payload.split(":")
-                val taskId = parts[0].toLong()
+                val taskId = parts[0].toLong().let { tempIdMap[it] ?: it }
                 val labelId = parts[1].toLong()
                 api.removeLabelFromTask(taskId, labelId)
+            }
+        }
+    }
+
+    /**
+     * Heals the offline-create-then-modify case (issue #6): once a task's temp id maps to a real
+     * server id, rewrite any queued actions still referencing the temp id and re-activate ones that
+     * already failed (e.g. an add_label that 404'd before the create synced).
+     */
+    private suspend fun remapPendingDependents(tempId: Long, realId: Long) {
+        for (a in pendingActionDao.getRemappable()) {
+            when {
+                a.entityType == "task" && a.entityId == tempId &&
+                    a.actionType in TASK_DEPENDENT_ACTIONS -> {
+                    val newPayload = runCatching {
+                        val t = json.decodeFromString<Task>(a.payload)
+                        json.encodeToString(Task.serializer(), t.copy(id = realId))
+                    }.getOrDefault(a.payload)
+                    pendingActionDao.remapEntity(a.id, realId, newPayload, "pending")
+                }
+                a.entityType == "label" && a.actionType in LABEL_TASK_ACTIONS -> {
+                    remapLabelTaskPayload(a.payload, tempId, realId)?.let { newPayload ->
+                        pendingActionDao.remapEntity(a.id, a.entityId, newPayload, "pending")
+                    }
+                }
             }
         }
     }
