@@ -378,7 +378,7 @@ fun DrawerContent(
                     }
                     item(key = "header_tags") {
                         SectionHeader(
-                            title = "TAGS",
+                            title = "LABELS",
                             expanded = state.tagsExpanded,
                             onToggle = onToggleTags,
                         )

@@ -50,7 +50,7 @@ fun TagScreen(
     Scaffold(
         topBar = {
             VicuTopAppBar(
-                title = { Text(state.label?.title ?: "Tag") },
+                title = { Text(state.label?.title ?: "Label") },
                 onOpenDrawer = onOpenDrawer,
                 onNavigateToSearch = onNavigateToSearch,
             )

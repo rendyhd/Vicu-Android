@@ -19,6 +19,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -50,13 +51,11 @@ fun SwipeableTaskItem(
             when (value) {
                 SwipeToDismissBoxValue.StartToEnd -> {
                     // Swipe right → complete
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onToggleDone()
                     false // reset to settled so row stays visible (undo pattern)
                 }
                 SwipeToDismissBoxValue.EndToStart -> {
                     // Swipe left → schedule
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onSchedule()
                     false // reset, date picker opens
                 }
@@ -64,6 +63,20 @@ fun SwipeableTaskItem(
             }
         },
     )
+
+    // Fire a single haptic when a swipe crosses the threshold into a dismiss
+    // direction. Driving this from targetValue (edge-triggered, one emission per
+    // gesture) instead of from confirmValueChange — which re-runs every frame while
+    // a swipe is held past the threshold — fixes the rapid repeated vibration on
+    // the right-to-left (schedule) swipe reported in issue #6.
+    LaunchedEffect(dismissState) {
+        snapshotFlow { dismissState.targetValue }
+            .collect { target ->
+                if (target != SwipeToDismissBoxValue.Settled) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+            }
+    }
 
     if (!enabled) {
         TaskItem(

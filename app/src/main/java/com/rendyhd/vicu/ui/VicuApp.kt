@@ -359,13 +359,19 @@ fun VicuApp(
                                 },
                                 selected = currentRoute == item.routeName,
                                 onClick = {
-                                    val isStartDest = item.route is InboxRoute
-                                    navController.navigate(item.route) {
-                                        popUpTo(navController.graph.startDestinationId) {
-                                            saveState = !item.isParameterized && !isStartDest
+                                    // Ignore taps on the already-selected destination so we don't
+                                    // re-navigate onto the current screen. Inbox is the start
+                                    // destination and would otherwise be re-created (replaying its
+                                    // loading state) on every re-tap — see issue #6.
+                                    if (currentRoute != item.routeName) {
+                                        val isStartDest = item.route is InboxRoute
+                                        navController.navigate(item.route) {
+                                            popUpTo(navController.graph.startDestinationId) {
+                                                saveState = !item.isParameterized && !isStartDest
+                                            }
+                                            launchSingleTop = !item.isParameterized
+                                            restoreState = !item.isParameterized && !isStartDest
                                         }
-                                        launchSingleTop = !item.isParameterized
-                                        restoreState = !item.isParameterized && !isStartDest
                                     }
                                 },
                             )
