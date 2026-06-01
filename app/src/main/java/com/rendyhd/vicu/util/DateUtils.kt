@@ -7,6 +7,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 
 object DateUtils {
@@ -27,6 +28,11 @@ object DateUtils {
 
     fun nowIso(): String {
         return isoFormatter.format(Instant.now())
+    }
+
+    /** ISO-8601 UTC timestamp for [days] days before now (used for logbook retention cutoffs). */
+    fun isoDaysAgo(days: Int): String {
+        return isoFormatter.format(Instant.now().minus(days.toLong(), ChronoUnit.DAYS))
     }
 
     fun parseIsoDate(dateStr: String?): Instant? {

@@ -14,6 +14,8 @@ import com.rendyhd.vicu.data.local.BehaviorPrefs
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.BottomBarPrefsStore
 import com.rendyhd.vicu.data.local.CustomListStore
+import com.rendyhd.vicu.data.local.LogbookPrefs
+import com.rendyhd.vicu.data.local.LogbookPrefsStore
 import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.data.local.NotificationPrefs
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
@@ -78,6 +80,8 @@ data class SettingsUiState(
     val widgetContextNav: Boolean = true,
     // Review
     val reviewPrefs: ReviewPrefs = ReviewPrefs(),
+    // Logbook retention
+    val logbookPrefs: LogbookPrefs = LogbookPrefs(),
     // Messages
     val error: String? = null,
     val successMessage: String? = null,
@@ -99,6 +103,7 @@ class SettingsViewModel @Inject constructor(
     private val dailySummaryScheduler: DailySummaryScheduler,
     private val widgetPrefsStore: WidgetPrefsStore,
     private val reviewPrefsStore: ReviewPrefsStore,
+    private val logbookPrefsStore: LogbookPrefsStore,
     private val pendingActionDao: PendingActionDao,
     private val networkMonitor: NetworkMonitor,
     private val database: VikunjaDatabase,
@@ -146,8 +151,9 @@ class SettingsViewModel @Inject constructor(
             widgetPrefsStore.contextNav,
             behaviorPrefsStore.getPrefs(),
             reviewPrefsStore.getPrefs(),
-        ) { smartAdd, contextNav, behaviorPrefs, reviewPrefs ->
-            listOf(smartAdd, contextNav, behaviorPrefs, reviewPrefs)
+            logbookPrefsStore.getPrefs(),
+        ) { smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs ->
+            listOf(smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs)
         },
     ) { base, syncTheme, userEtc, widgetPrefs ->
         @Suppress("UNCHECKED_CAST")
@@ -169,6 +175,7 @@ class SettingsViewModel @Inject constructor(
         val contextNav = widgetPrefs[1] as Boolean
         val behaviorPrefs = widgetPrefs[2] as BehaviorPrefs
         val reviewPrefs = widgetPrefs[3] as ReviewPrefs
+        val logbookPrefs = widgetPrefs[4] as LogbookPrefs
         SettingsUiState(
             username = userInfo.first,
             email = userInfo.second,
@@ -189,6 +196,7 @@ class SettingsViewModel @Inject constructor(
             widgetSmartAdd = smartAdd,
             widgetContextNav = contextNav,
             reviewPrefs = reviewPrefs,
+            logbookPrefs = logbookPrefs,
             error = messages.first,
             successMessage = messages.second,
         )
@@ -500,6 +508,14 @@ class SettingsViewModel @Inject constructor(
 
     fun setInboxExcludeDated(enabled: Boolean) {
         viewModelScope.launch { behaviorPrefsStore.setInboxExcludeDated(enabled) }
+    }
+
+    fun setLogbookRetentionEnabled(enabled: Boolean) {
+        viewModelScope.launch { logbookPrefsStore.setEnabled(enabled) }
+    }
+
+    fun setLogbookRetentionDays(days: Int) {
+        viewModelScope.launch { logbookPrefsStore.setRetentionDays(days) }
     }
 
     fun sendTestNotification() {

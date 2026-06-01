@@ -46,8 +46,15 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE done = 0 AND projectId != :inboxProjectId ORDER BY updated DESC")
     fun getAnytimeTasks(inboxProjectId: Long): Flow<List<TaskEntity>>
 
-    @Query("SELECT * FROM tasks WHERE done = 1 ORDER BY doneAt DESC")
-    fun getLogbookTasks(): Flow<List<TaskEntity>>
+    @Query(
+        """
+        SELECT * FROM tasks
+        WHERE done = 1
+        AND (:cutoff = '' OR doneAt = '' OR doneAt = '0001-01-01T00:00:00Z' OR doneAt >= :cutoff)
+        ORDER BY doneAt DESC
+        """
+    )
+    fun getLogbookTasks(cutoff: String): Flow<List<TaskEntity>>
 
     @Query("SELECT * FROM tasks WHERE projectId = :projectId ORDER BY position ASC")
     fun getByProjectId(projectId: Long): Flow<List<TaskEntity>>

@@ -3,6 +3,7 @@ package com.rendyhd.vicu.data.repository
 import android.content.Context
 import android.util.Log
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
+import com.rendyhd.vicu.data.local.LogbookPrefsStore
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
@@ -45,6 +46,7 @@ class TaskRepositoryImpl @Inject constructor(
     private val completionSoundPlayer: CompletionSoundPlayer,
     private val json: Json,
     private val behaviorPrefsStore: BehaviorPrefsStore,
+    private val logbookPrefsStore: LogbookPrefsStore,
 ) : TaskRepository {
 
     companion object {
@@ -119,9 +121,14 @@ class TaskRepositoryImpl @Inject constructor(
         }
 
     override fun getLogbookTasks(): Flow<List<Task>> =
-        taskDao.getLogbookTasks().map { entities ->
-            entities.map { with(taskMapper) { it.toDomain() } }
-        }
+        logbookPrefsStore.getPrefs()
+            .map { if (it.enabled) DateUtils.isoDaysAgo(it.retentionDays) else "" }
+            .distinctUntilChanged()
+            .flatMapLatest { cutoff ->
+                taskDao.getLogbookTasks(cutoff).map { entities ->
+                    entities.map { with(taskMapper) { it.toDomain() } }
+                }
+            }
 
     override fun getByProjectId(projectId: Long): Flow<List<Task>> =
         taskDao.getByProjectId(projectId).map { entities ->

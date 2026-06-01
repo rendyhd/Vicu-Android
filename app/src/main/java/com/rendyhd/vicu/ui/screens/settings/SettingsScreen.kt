@@ -145,6 +145,7 @@ fun SettingsScreen(
     var showOffsetPicker by remember { mutableStateOf(false) }
     var showRelativePicker by remember { mutableStateOf(false) }
     var showCadenceDialog by remember { mutableStateOf(false) }
+    var showRetentionDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showAuthDebugLog by remember { mutableStateOf(false) }
@@ -260,6 +261,8 @@ fun SettingsScreen(
                     onSetReviewExcludeInbox = viewModel::setReviewExcludeInbox,
                     onShowCadenceDialog = { showCadenceDialog = true },
                     onSetInboxExcludeDated = viewModel::setInboxExcludeDated,
+                    onSetLogbookRetentionEnabled = viewModel::setLogbookRetentionEnabled,
+                    onShowRetentionDialog = { showRetentionDialog = true },
                     onSetConfirmBeforeDelete = viewModel::setConfirmBeforeDelete,
                     onSetCompletionSoundEnabled = viewModel::setCompletionSoundEnabled,
                     onPickCompletionSound = {
@@ -462,6 +465,41 @@ fun SettingsScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showCadenceDialog = false }) { Text("Close") }
+            },
+        )
+    }
+
+    // Logbook retention period picker
+    if (showRetentionDialog) {
+        AlertDialog(
+            onDismissRequest = { showRetentionDialog = false },
+            title = { Text("Keep completed tasks for") },
+            text = {
+                Column {
+                    listOf(30, 60, 90, 180, 365).forEach { d ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setLogbookRetentionDays(d)
+                                    showRetentionDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = d == state.logbookPrefs.retentionDays,
+                                onClick = null,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("$d days")
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showRetentionDialog = false }) { Text("Close") }
             },
         )
     }
@@ -730,6 +768,8 @@ private fun GeneralTab(
     onSetReviewExcludeInbox: (Boolean) -> Unit,
     onShowCadenceDialog: () -> Unit,
     onSetInboxExcludeDated: (Boolean) -> Unit,
+    onSetLogbookRetentionEnabled: (Boolean) -> Unit,
+    onShowRetentionDialog: () -> Unit,
     onSetConfirmBeforeDelete: (Boolean) -> Unit,
     onSetCompletionSoundEnabled: (Boolean) -> Unit,
     onPickCompletionSound: () -> Unit,
@@ -1024,6 +1064,37 @@ private fun GeneralTab(
             )
         }
         item(key = "inbox_divider") {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
+        // === Logbook section ===
+        item(key = "logbook_header") {
+            Text(
+                text = "Logbook",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+            )
+        }
+        item(key = "logbook_retention_enabled") {
+            SwitchRow(
+                label = "Hide old completed tasks",
+                description = "Tasks finished long ago disappear from the Logbook view (nothing is deleted)",
+                checked = state.logbookPrefs.enabled,
+                onCheckedChange = onSetLogbookRetentionEnabled,
+            )
+        }
+        if (state.logbookPrefs.enabled) {
+            item(key = "logbook_retention_days") {
+                SettingsValueRow(
+                    label = "Keep completed tasks for",
+                    value = "${state.logbookPrefs.retentionDays} days",
+                    onClick = onShowRetentionDialog,
+                )
+            }
+        }
+        item(key = "logbook_divider") {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
 
