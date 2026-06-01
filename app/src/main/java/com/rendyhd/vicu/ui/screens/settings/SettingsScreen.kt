@@ -144,6 +144,7 @@ fun SettingsScreen(
     var showAfternoonTimePicker by remember { mutableStateOf(false) }
     var showOffsetPicker by remember { mutableStateOf(false) }
     var showRelativePicker by remember { mutableStateOf(false) }
+    var showCadenceDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showAuthDebugLog by remember { mutableStateOf(false) }
@@ -255,6 +256,9 @@ fun SettingsScreen(
                     onResetBottomBar = viewModel::resetBottomBar,
                     onSetWidgetSmartAdd = viewModel::setWidgetSmartAdd,
                     onSetWidgetContextNav = viewModel::setWidgetContextNav,
+                    onSetReviewEnabled = viewModel::setReviewEnabled,
+                    onSetReviewExcludeInbox = viewModel::setReviewExcludeInbox,
+                    onShowCadenceDialog = { showCadenceDialog = true },
                     onSetConfirmBeforeDelete = viewModel::setConfirmBeforeDelete,
                     onSetCompletionSoundEnabled = viewModel::setCompletionSoundEnabled,
                     onPickCompletionSound = {
@@ -422,6 +426,41 @@ fun SettingsScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showRelativePicker = false }) { Text("Close") }
+            },
+        )
+    }
+
+    // Default review cadence picker
+    if (showCadenceDialog) {
+        AlertDialog(
+            onDismissRequest = { showCadenceDialog = false },
+            title = { Text("Default review cadence") },
+            text = {
+                Column {
+                    listOf(7, 14, 30, 60, 90).forEach { d ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setReviewDefaultCadence(d)
+                                    showCadenceDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = d == state.reviewPrefs.defaultCadenceDays,
+                                onClick = null,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("$d days")
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showCadenceDialog = false }) { Text("Close") }
             },
         )
     }
@@ -686,6 +725,9 @@ private fun GeneralTab(
     onResetBottomBar: () -> Unit,
     onSetWidgetSmartAdd: (Boolean) -> Unit,
     onSetWidgetContextNav: (Boolean) -> Unit,
+    onSetReviewEnabled: (Boolean) -> Unit,
+    onSetReviewExcludeInbox: (Boolean) -> Unit,
+    onShowCadenceDialog: () -> Unit,
     onSetConfirmBeforeDelete: (Boolean) -> Unit,
     onSetCompletionSoundEnabled: (Boolean) -> Unit,
     onPickCompletionSound: () -> Unit,
@@ -919,6 +961,45 @@ private fun GeneralTab(
         }
 
         item(key = "widget_divider") {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
+        // === Review section ===
+        item(key = "review_header") {
+            Text(
+                text = "Review",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+            )
+        }
+        item(key = "review_enabled") {
+            SwitchRow(
+                label = "Enable project review tracking",
+                description = "Periodically review your projects",
+                checked = state.reviewPrefs.enabled,
+                onCheckedChange = onSetReviewEnabled,
+            )
+        }
+        if (state.reviewPrefs.enabled) {
+            item(key = "review_cadence") {
+                SettingsValueRow(
+                    label = "Default review cadence",
+                    value = "${state.reviewPrefs.defaultCadenceDays} days",
+                    onClick = onShowCadenceDialog,
+                )
+            }
+            item(key = "review_exclude_inbox") {
+                SwitchRow(
+                    label = "Exclude Inbox from review",
+                    description = "Don't track the inbox project",
+                    checked = state.reviewPrefs.excludeInbox,
+                    onCheckedChange = onSetReviewExcludeInbox,
+                )
+            }
+        }
+        item(key = "review_divider") {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
 

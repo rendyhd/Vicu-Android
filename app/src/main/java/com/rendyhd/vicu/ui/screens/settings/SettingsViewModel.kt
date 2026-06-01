@@ -17,6 +17,8 @@ import com.rendyhd.vicu.data.local.CustomListStore
 import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.data.local.NotificationPrefs
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
+import com.rendyhd.vicu.data.local.ReviewPrefs
+import com.rendyhd.vicu.data.local.ReviewPrefsStore
 import com.rendyhd.vicu.data.local.ThemeMode
 import com.rendyhd.vicu.data.local.ThemePrefsStore
 import com.rendyhd.vicu.data.local.WidgetPrefsStore
@@ -74,6 +76,8 @@ data class SettingsUiState(
     // Widget
     val widgetSmartAdd: Boolean = true,
     val widgetContextNav: Boolean = true,
+    // Review
+    val reviewPrefs: ReviewPrefs = ReviewPrefs(),
     // Messages
     val error: String? = null,
     val successMessage: String? = null,
@@ -94,6 +98,7 @@ class SettingsViewModel @Inject constructor(
     private val bottomBarPrefsStore: BottomBarPrefsStore,
     private val dailySummaryScheduler: DailySummaryScheduler,
     private val widgetPrefsStore: WidgetPrefsStore,
+    private val reviewPrefsStore: ReviewPrefsStore,
     private val pendingActionDao: PendingActionDao,
     private val networkMonitor: NetworkMonitor,
     private val database: VikunjaDatabase,
@@ -140,8 +145,9 @@ class SettingsViewModel @Inject constructor(
             widgetPrefsStore.smartAdd,
             widgetPrefsStore.contextNav,
             behaviorPrefsStore.getPrefs(),
-        ) { smartAdd, contextNav, behaviorPrefs ->
-            listOf(smartAdd, contextNav, behaviorPrefs)
+            reviewPrefsStore.getPrefs(),
+        ) { smartAdd, contextNav, behaviorPrefs, reviewPrefs ->
+            listOf(smartAdd, contextNav, behaviorPrefs, reviewPrefs)
         },
     ) { base, syncTheme, userEtc, widgetPrefs ->
         @Suppress("UNCHECKED_CAST")
@@ -162,6 +168,7 @@ class SettingsViewModel @Inject constructor(
         val smartAdd = widgetPrefs[0] as Boolean
         val contextNav = widgetPrefs[1] as Boolean
         val behaviorPrefs = widgetPrefs[2] as BehaviorPrefs
+        val reviewPrefs = widgetPrefs[3] as ReviewPrefs
         SettingsUiState(
             username = userInfo.first,
             email = userInfo.second,
@@ -181,6 +188,7 @@ class SettingsViewModel @Inject constructor(
             bottomBarSlots = bbSlots,
             widgetSmartAdd = smartAdd,
             widgetContextNav = contextNav,
+            reviewPrefs = reviewPrefs,
             error = messages.first,
             successMessage = messages.second,
         )
@@ -474,6 +482,20 @@ class SettingsViewModel @Inject constructor(
 
     fun setDefaultReminderRelativeTo(value: String) {
         viewModelScope.launch { notificationPrefsStore.setDefaultReminderRelativeTo(value) }
+    }
+
+    // --- Review ---
+
+    fun setReviewEnabled(enabled: Boolean) {
+        viewModelScope.launch { reviewPrefsStore.setEnabled(enabled) }
+    }
+
+    fun setReviewDefaultCadence(days: Int) {
+        viewModelScope.launch { reviewPrefsStore.setDefaultCadenceDays(days) }
+    }
+
+    fun setReviewExcludeInbox(enabled: Boolean) {
+        viewModelScope.launch { reviewPrefsStore.setExcludeInbox(enabled) }
     }
 
     fun sendTestNotification() {
