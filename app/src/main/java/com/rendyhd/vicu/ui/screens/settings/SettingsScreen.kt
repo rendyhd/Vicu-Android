@@ -103,6 +103,22 @@ import com.rendyhd.vicu.ui.components.shared.LabelEditDialog
 import com.rendyhd.vicu.ui.components.shared.ProjectEditDialog
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 
+private val REMINDER_OFFSET_OPTIONS = listOf(
+    "None" to 0,
+    "At due time" to -1,
+    "5 min before" to 300,
+    "15 min before" to 900,
+    "30 min before" to 1800,
+    "1 hour before" to 3600,
+    "3 hours before" to 10800,
+    "1 day before" to 86400,
+)
+private val REMINDER_RELATIVE_OPTIONS = listOf(
+    "Due date" to "due_date",
+    "Start date" to "start_date",
+    "End date" to "end_date",
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -125,6 +141,9 @@ fun SettingsScreen(
     var editingCustomList by remember { mutableStateOf<CustomList?>(null) }
     var deletingCustomList by remember { mutableStateOf<CustomList?>(null) }
     var showTimePicker by remember { mutableStateOf(false) }
+    var showAfternoonTimePicker by remember { mutableStateOf(false) }
+    var showOffsetPicker by remember { mutableStateOf(false) }
+    var showRelativePicker by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showAuthDebugLog by remember { mutableStateOf(false) }
@@ -255,6 +274,13 @@ fun SettingsScreen(
                     onSoundChanged = viewModel::setSoundEnabled,
                     onDailySummaryChanged = viewModel::setDailySummaryEnabled,
                     onShowTimePicker = { showTimePicker = true },
+                    onAfternoonChanged = viewModel::setAfternoonSummaryEnabled,
+                    onShowAfternoonTimePicker = { showAfternoonTimePicker = true },
+                    onNotifyOverdueChanged = viewModel::setNotifyOverdueEnabled,
+                    onNotifyDueTodayChanged = viewModel::setNotifyDueTodayEnabled,
+                    onNotifyUpcomingChanged = viewModel::setNotifyUpcomingEnabled,
+                    onShowOffsetPicker = { showOffsetPicker = true },
+                    onShowRelativePicker = { showRelativePicker = true },
                     onSendTest = viewModel::sendTestNotification,
                 )
                 2 -> GesturesTab()
@@ -293,6 +319,109 @@ fun SettingsScreen(
                 TextButton(onClick = { showTimePicker = false }) {
                     Text("Cancel")
                 }
+            },
+        )
+    }
+
+    // Afternoon time picker dialog
+    if (showAfternoonTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = state.notificationPrefs.afternoonSummaryHour,
+            initialMinute = state.notificationPrefs.afternoonSummaryMinute,
+        )
+        AlertDialog(
+            onDismissRequest = { showAfternoonTimePicker = false },
+            title = { Text("Afternoon Summary Time") },
+            text = {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    TimePicker(state = timePickerState)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.setAfternoonSummaryTime(timePickerState.hour, timePickerState.minute)
+                    showAfternoonTimePicker = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAfternoonTimePicker = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    // Default reminder offset picker
+    if (showOffsetPicker) {
+        AlertDialog(
+            onDismissRequest = { showOffsetPicker = false },
+            title = { Text("Default Reminder") },
+            text = {
+                Column {
+                    REMINDER_OFFSET_OPTIONS.forEach { (label, seconds) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setDefaultReminderOffset(seconds)
+                                    showOffsetPicker = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = seconds == state.notificationPrefs.defaultReminderOffset,
+                                onClick = null,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(label)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showOffsetPicker = false }) { Text("Close") }
+            },
+        )
+    }
+
+    // Default reminder relative-to picker
+    if (showRelativePicker) {
+        AlertDialog(
+            onDismissRequest = { showRelativePicker = false },
+            title = { Text("Relative To") },
+            text = {
+                Column {
+                    REMINDER_RELATIVE_OPTIONS.forEach { (label, value) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setDefaultReminderRelativeTo(value)
+                                    showRelativePicker = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = value == state.notificationPrefs.defaultReminderRelativeTo,
+                                onClick = null,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(label)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showRelativePicker = false }) { Text("Close") }
             },
         )
     }
@@ -1192,6 +1321,13 @@ private fun NotificationsTab(
     onSoundChanged: (Boolean) -> Unit,
     onDailySummaryChanged: (Boolean) -> Unit,
     onShowTimePicker: () -> Unit,
+    onAfternoonChanged: (Boolean) -> Unit,
+    onShowAfternoonTimePicker: () -> Unit,
+    onNotifyOverdueChanged: (Boolean) -> Unit,
+    onNotifyDueTodayChanged: (Boolean) -> Unit,
+    onNotifyUpcomingChanged: (Boolean) -> Unit,
+    onShowOffsetPicker: () -> Unit,
+    onShowRelativePicker: () -> Unit,
     onSendTest: () -> Unit,
 ) {
     LazyColumn(
@@ -1249,6 +1385,91 @@ private fun NotificationsTab(
                     hour = state.notificationPrefs.dailySummaryHour,
                     minute = state.notificationPrefs.dailySummaryMinute,
                     onClick = onShowTimePicker,
+                )
+            }
+        }
+
+        item(key = "notif_afternoon_enabled") {
+            SwitchRow(
+                label = "Afternoon Summary",
+                description = "A second daily digest in the afternoon",
+                checked = state.notificationPrefs.afternoonSummaryEnabled,
+                onCheckedChange = onAfternoonChanged,
+            )
+        }
+
+        if (state.notificationPrefs.afternoonSummaryEnabled) {
+            item(key = "notif_afternoon_time") {
+                TimePickerRow(
+                    label = "Afternoon Time",
+                    hour = state.notificationPrefs.afternoonSummaryHour,
+                    minute = state.notificationPrefs.afternoonSummaryMinute,
+                    onClick = onShowAfternoonTimePicker,
+                )
+            }
+        }
+
+        item(key = "notif_overdue") {
+            SwitchRow(
+                label = "Include Overdue",
+                description = "Count overdue tasks in the summary",
+                checked = state.notificationPrefs.notifyOverdueEnabled,
+                onCheckedChange = onNotifyOverdueChanged,
+            )
+        }
+
+        item(key = "notif_due_today") {
+            SwitchRow(
+                label = "Include Due Today",
+                description = "Count tasks due today in the summary",
+                checked = state.notificationPrefs.notifyDueTodayEnabled,
+                onCheckedChange = onNotifyDueTodayChanged,
+            )
+        }
+
+        item(key = "notif_upcoming") {
+            SwitchRow(
+                label = "Include Upcoming",
+                description = "Count tomorrow's tasks in the summary",
+                checked = state.notificationPrefs.notifyUpcomingEnabled,
+                onCheckedChange = onNotifyUpcomingChanged,
+            )
+        }
+
+        item(key = "notif_divider_reminder") {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
+        item(key = "notif_reminder_header") {
+            Text(
+                text = "Default Reminder",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+            )
+        }
+
+        item(key = "notif_default_offset") {
+            val offsetLabel = REMINDER_OFFSET_OPTIONS.firstOrNull {
+                it.second == state.notificationPrefs.defaultReminderOffset
+            }?.first ?: "None"
+            SettingsValueRow(
+                label = "Reminder Offset",
+                value = offsetLabel,
+                onClick = onShowOffsetPicker,
+            )
+        }
+
+        if (state.notificationPrefs.defaultReminderOffset != 0) {
+            item(key = "notif_default_relative") {
+                val relativeLabel = REMINDER_RELATIVE_OPTIONS.firstOrNull {
+                    it.second == state.notificationPrefs.defaultReminderRelativeTo
+                }?.first ?: "Due date"
+                SettingsValueRow(
+                    label = "Relative To",
+                    value = relativeLabel,
+                    onClick = onShowRelativePicker,
                 )
             }
         }
