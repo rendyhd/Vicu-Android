@@ -339,6 +339,7 @@ fun VicuApp(
                 },
                 onReorderProject = drawerViewModel::reorderProject,
                 onReorderList = drawerViewModel::reorderCustomList,
+                onReorderLabel = drawerViewModel::reorderLabel,
             )
         },
     ) {

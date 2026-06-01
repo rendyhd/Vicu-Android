@@ -69,6 +69,7 @@ fun DrawerContent(
     onCreateNewList: () -> Unit = {},
     onReorderProject: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
     onReorderList: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
+    onReorderLabel: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
 ) {
     val hapticFeedback = LocalHapticFeedback.current
     ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
@@ -317,25 +318,57 @@ fun DrawerContent(
                         )
                     }
                     if (state.tagsExpanded) {
-                        items(state.labels, key = { "tag_${it.id}" }) { label ->
-                            val dotColor = parseHexColor(label.hexColor)
-                            NavigationDrawerItem(
-                                label = { Text(label.title) },
-                                icon = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(12.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                dotColor
-                                                    ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                                            ),
-                                    )
+                        item(key = "tags_reorderable") {
+                            ReorderableColumn(
+                                list = state.labels,
+                                onSettle = { fromIndex, toIndex ->
+                                    onReorderLabel(fromIndex, toIndex)
                                 },
-                                selected = currentRoute == "TagRoute/${label.id}",
-                                onClick = { onNavigate(TagRoute(label.id)) },
-                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                            )
+                                onMove = {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                },
+                            ) { _, label, isDragging ->
+                                key(label.id) {
+                                    val elevation = animateDpAsState(
+                                        if (isDragging) 4.dp else 0.dp,
+                                        label = "dragElevation",
+                                    )
+                                    val dotColor = parseHexColor(label.hexColor)
+                                    Surface(
+                                        modifier = Modifier.longPressDraggableHandle(
+                                            onDragStarted = {
+                                                hapticFeedback.performHapticFeedback(
+                                                    HapticFeedbackType.LongPress,
+                                                )
+                                            },
+                                        ),
+                                        shadowElevation = elevation.value,
+                                        color = if (isDragging) {
+                                            MaterialTheme.colorScheme.surfaceContainerHigh
+                                        } else {
+                                            Color.Transparent
+                                        },
+                                    ) {
+                                        NavigationDrawerItem(
+                                            label = { Text(label.title) },
+                                            icon = {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(12.dp)
+                                                        .clip(CircleShape)
+                                                        .background(
+                                                            dotColor
+                                                                ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        ),
+                                                )
+                                            },
+                                            selected = currentRoute == "TagRoute/${label.id}",
+                                            onClick = { onNavigate(TagRoute(label.id)) },
+                                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.BottomBarPrefsStore
 import com.rendyhd.vicu.data.local.CustomListStore
+import com.rendyhd.vicu.data.local.LabelOrderPrefsStore
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
 import com.rendyhd.vicu.domain.model.BottomBarSlot
 import com.rendyhd.vicu.domain.model.BottomBarSlotType
@@ -61,6 +62,7 @@ class DrawerViewModel @Inject constructor(
     private val authManager: AuthManager,
     private val bottomBarPrefsStore: BottomBarPrefsStore,
     private val reviewPrefsStore: ReviewPrefsStore,
+    private val labelOrderPrefsStore: LabelOrderPrefsStore,
 ) : ViewModel() {
 
     private val _sectionsExpanded = MutableStateFlow(
@@ -87,7 +89,8 @@ class DrawerViewModel @Inject constructor(
         },
         bottomBarPrefsStore.slots,
         reviewPrefsStore.getPrefs(),
-    ) { base, slots, reviewPrefs ->
+        labelOrderPrefsStore.getOrder(),
+    ) { base, slots, reviewPrefs, labelOrder ->
         @Suppress("UNCHECKED_CAST")
         val projects = base[0] as List<Project>
         val labels = base[1] as List<Label>
@@ -121,7 +124,7 @@ class DrawerViewModel @Inject constructor(
         DrawerUiState(
             projectTree = tree,
             allProjects = nonArchived,
-            labels = labels.sortedBy { it.title.lowercase() },
+            labels = applyLabelOrder(labels, labelOrder),
             customLists = customLists,
             projectsExpanded = expanded.first,
             listsExpanded = expanded.second,
@@ -178,5 +181,27 @@ class DrawerViewModel @Inject constructor(
         viewModelScope.launch {
             customListStore.reorder(fromIndex, toIndex)
         }
+    }
+
+    fun reorderLabel(fromIndex: Int, toIndex: Int) {
+        viewModelScope.launch {
+            val current = uiState.value.labels
+            if (fromIndex == toIndex || fromIndex !in current.indices || toIndex !in current.indices) {
+                return@launch
+            }
+            val mutable = current.toMutableList()
+            val moved = mutable.removeAt(fromIndex)
+            mutable.add(toIndex, moved)
+            labelOrderPrefsStore.setOrder(mutable.map { it.id })
+        }
+    }
+
+    /** Orders [labels] by the stored client-side [order]; ids not present fall back to A→Z at the end. */
+    private fun applyLabelOrder(labels: List<Label>, order: List<Long>): List<Label> {
+        if (order.isEmpty()) return labels.sortedBy { it.title.lowercase() }
+        val byId = labels.associateBy { it.id }
+        val ordered = order.mapNotNull { byId[it] }
+        val remaining = labels.filterNot { it.id in order }.sortedBy { it.title.lowercase() }
+        return ordered + remaining
     }
 }
