@@ -25,8 +25,8 @@ android {
         applicationId = "com.rendyhd.vicu"
         minSdk = 26
         targetSdk = 36
-        versionCode = 27
-        versionName = "1.5.0-beta.1"
+        versionCode = 28
+        versionName = "1.5.0-beta.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
