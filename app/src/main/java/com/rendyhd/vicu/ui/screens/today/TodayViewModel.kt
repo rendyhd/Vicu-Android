@@ -94,7 +94,11 @@ class TodayViewModel @Inject constructor(
     fun undoComplete(task: Task) {
         viewModelScope.launch {
             _uiState.update { it.copy(completedTaskIds = it.completedTaskIds - task.id) }
-            taskRepository.toggleDone(task)
+            // The row still renders done=false (Room is never flipped on complete — the
+            // strikethrough is driven by completedTaskIds), and toggleDone flips whatever
+            // it's handed. Pass done=true so it reverts to done=false remotely; passing the
+            // raw task would re-send done=true and the completion would survive a refresh.
+            taskRepository.toggleDone(task.copy(done = true))
         }
     }
 
