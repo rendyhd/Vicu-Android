@@ -55,6 +55,7 @@ import com.rendyhd.vicu.ui.navigation.DrawerViewModel
 import com.rendyhd.vicu.ui.navigation.InboxRoute
 import com.rendyhd.vicu.ui.navigation.LogbookRoute
 import com.rendyhd.vicu.ui.navigation.ProjectRoute
+import com.rendyhd.vicu.ui.navigation.ReviewRoute
 import com.rendyhd.vicu.ui.navigation.SearchRoute
 import com.rendyhd.vicu.ui.navigation.SettingsRoute
 import com.rendyhd.vicu.ui.navigation.SetupRoute
@@ -267,6 +268,7 @@ fun VicuApp(
             dest.hasRoute(UpcomingRoute::class) -> "UpcomingRoute"
             dest.hasRoute(AnytimeRoute::class) -> "AnytimeRoute"
             dest.hasRoute(LogbookRoute::class) -> "LogbookRoute"
+            dest.hasRoute(ReviewRoute::class) -> "ReviewRoute"
             dest.hasRoute(SettingsRoute::class) -> "SettingsRoute"
             dest.hasRoute(ProjectRoute::class) -> {
                 val id = navBackStackEntry?.arguments?.getLong("projectId")

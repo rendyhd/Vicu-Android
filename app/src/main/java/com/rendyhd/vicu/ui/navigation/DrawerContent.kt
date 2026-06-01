@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AllInclusive
+import androidx.compose.material.icons.outlined.Autorenew
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.DragHandle
@@ -62,6 +63,7 @@ private val SmartListTodayColor = Color(0xFFEAB308)
 private val SmartListUpcomingColor = Color(0xFF3B82F6)
 private val SmartListAnytimeColor = Color(0xFF8B5CF6)
 private val SmartListLogbookColor = Color(0xFF16A34A)
+private val SmartListReviewColor = Color(0xFF8B5CF6)
 
 @Composable
 fun DrawerContent(
@@ -134,6 +136,33 @@ fun DrawerContent(
                         selected = currentRoute == "LogbookRoute",
                         onClick = { onNavigate(LogbookRoute) },
                     )
+                }
+
+                // Review (with overdue badge); hidden when the feature is disabled
+                if (state.reviewEnabled) {
+                    item(key = "smart_review") {
+                        NavigationDrawerItem(
+                            label = { Text("Review") },
+                            icon = {
+                                Icon(
+                                    Icons.Outlined.Autorenew,
+                                    contentDescription = null,
+                                    tint = SmartListReviewColor,
+                                )
+                            },
+                            badge = {
+                                if (state.reviewOverdueCount > 0) {
+                                    Text(
+                                        state.reviewOverdueCount.toString(),
+                                        color = SmartListReviewColor,
+                                    )
+                                }
+                            },
+                            selected = currentRoute == "ReviewRoute",
+                            onClick = { onNavigate(ReviewRoute) },
+                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                        )
+                    }
                 }
 
                 // Projects section

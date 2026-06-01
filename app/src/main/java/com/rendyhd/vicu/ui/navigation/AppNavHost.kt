@@ -11,6 +11,7 @@ import com.rendyhd.vicu.ui.screens.customlist.CustomListScreen
 import com.rendyhd.vicu.ui.screens.inbox.InboxScreen
 import com.rendyhd.vicu.ui.screens.logbook.LogbookScreen
 import com.rendyhd.vicu.ui.screens.project.ProjectScreen
+import com.rendyhd.vicu.ui.screens.review.ReviewScreen
 import com.rendyhd.vicu.ui.screens.search.SearchScreen
 import com.rendyhd.vicu.ui.screens.settings.SettingsScreen
 import com.rendyhd.vicu.ui.screens.setup.SetupScreen
@@ -79,6 +80,9 @@ fun AppNavHost(
                 onOpenDrawer = onOpenDrawer,
                 onNavigateToSearch = onNavigateToSearch,
             )
+        }
+        composable<ReviewRoute> {
+            ReviewScreen(onOpenDrawer = onOpenDrawer)
         }
         composable<ProjectRoute> { backStackEntry ->
             val route = backStackEntry.toRoute<ProjectRoute>()

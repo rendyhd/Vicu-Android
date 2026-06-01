@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.BottomBarPrefsStore
 import com.rendyhd.vicu.data.local.CustomListStore
+import com.rendyhd.vicu.data.local.ReviewPrefsStore
 import com.rendyhd.vicu.domain.model.BottomBarSlot
 import com.rendyhd.vicu.domain.model.BottomBarSlotType
 import com.rendyhd.vicu.domain.model.CustomList
@@ -12,6 +13,8 @@ import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
+import com.rendyhd.vicu.util.ReviewMetadata
+import com.rendyhd.vicu.util.ReviewState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -36,6 +39,8 @@ data class DrawerUiState(
     val tagsExpanded: Boolean = true,
     val bottomBarSlots: List<BottomBarSlot> = BottomBarSlot.DEFAULT_SLOTS,
     val inboxProjectId: Long = 0L,
+    val reviewEnabled: Boolean = true,
+    val reviewOverdueCount: Int = 0,
 ) {
     val displacedSmartLists: Set<BottomBarSlotType>
         get() {
@@ -55,6 +60,7 @@ class DrawerViewModel @Inject constructor(
     private val customListStore: CustomListStore,
     private val authManager: AuthManager,
     private val bottomBarPrefsStore: BottomBarPrefsStore,
+    private val reviewPrefsStore: ReviewPrefsStore,
 ) : ViewModel() {
 
     private val _sectionsExpanded = MutableStateFlow(
@@ -80,13 +86,22 @@ class DrawerViewModel @Inject constructor(
             listOf(projects, labels, customLists, expanded, inboxId)
         },
         bottomBarPrefsStore.slots,
-    ) { base, slots ->
+        reviewPrefsStore.getPrefs(),
+    ) { base, slots, reviewPrefs ->
         @Suppress("UNCHECKED_CAST")
         val projects = base[0] as List<Project>
         val labels = base[1] as List<Label>
         val customLists = base[2] as List<CustomList>
         val expanded = base[3] as Triple<Boolean, Boolean, Boolean>
         val inboxId = base[4] as Long?
+
+        val reviewOverdue = projects
+            .asSequence()
+            .filterNot { it.isArchived }
+            .filterNot { reviewPrefs.excludeInbox && inboxId != null && it.id == inboxId }
+            .map { ReviewMetadata.computeStatus(ReviewMetadata.parse(it.description), reviewPrefs.defaultCadenceDays) }
+            .filter { it.metadata.state != ReviewState.EXCLUDED }
+            .count { it.isOverdue }
 
         val nonArchived = projects.filter { !it.isArchived && it.id != inboxId }
         val roots = nonArchived
@@ -113,6 +128,8 @@ class DrawerViewModel @Inject constructor(
             tagsExpanded = expanded.third,
             bottomBarSlots = slots,
             inboxProjectId = inboxId ?: 0L,
+            reviewEnabled = reviewPrefs.enabled,
+            reviewOverdueCount = reviewOverdue,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DrawerUiState())
 
