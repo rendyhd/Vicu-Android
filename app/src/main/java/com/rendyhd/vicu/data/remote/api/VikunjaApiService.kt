@@ -12,6 +12,7 @@ import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
+import retrofit2.http.Query
 import retrofit2.http.QueryMap
 import retrofit2.http.Streaming
 
@@ -142,7 +143,10 @@ interface VikunjaApiService {
     suspend fun createApiToken(@Body body: ApiTokenRequestDto): ApiTokenResponseDto
 
     @GET("tokens")
-    suspend fun listApiTokens(): List<ApiTokenDto>
+    suspend fun listApiTokens(
+        @Query("page") page: Int = 1,
+        @Query("per_page") perPage: Int = 100,
+    ): List<ApiTokenDto>
 
     @DELETE("tokens/{id}")
     suspend fun deleteApiToken(@Path("id") id: Long)
