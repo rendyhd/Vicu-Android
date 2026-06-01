@@ -19,7 +19,7 @@ import javax.inject.Singleton
  *  - Whether to require confirmation before destructive deletes
  */
 data class BehaviorPrefs(
-    val completionSoundEnabled: Boolean = true,
+    val completionSoundEnabled: Boolean = false,
     val completionSoundUri: String? = null,
     val confirmBeforeDelete: Boolean = true,
     val inboxExcludeDated: Boolean = false,
@@ -41,7 +41,7 @@ class BehaviorPrefsStore @Inject constructor(
     fun getPrefs(): Flow<BehaviorPrefs> =
         context.behaviorPrefsDataStore.data.map { prefs ->
             BehaviorPrefs(
-                completionSoundEnabled = prefs[KEY_COMPLETION_SOUND_ENABLED] ?: true,
+                completionSoundEnabled = prefs[KEY_COMPLETION_SOUND_ENABLED] ?: false,
                 completionSoundUri = prefs[KEY_COMPLETION_SOUND_URI]?.takeIf { it.isNotBlank() },
                 confirmBeforeDelete = prefs[KEY_CONFIRM_BEFORE_DELETE] ?: true,
                 inboxExcludeDated = prefs[KEY_INBOX_EXCLUDE_DATED] ?: false,
