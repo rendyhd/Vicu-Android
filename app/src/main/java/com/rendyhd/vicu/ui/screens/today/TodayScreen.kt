@@ -21,22 +21,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.rendyhd.vicu.domain.model.Task
-import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
-import com.rendyhd.vicu.ui.components.section.SectionHeader
-import com.rendyhd.vicu.ui.components.shared.CompletionUndoSnackbar
+import com.rendyhd.vicu.ui.components.section.CollapsibleSection
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,7 +43,6 @@ fun TodayScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    var schedulingTask by remember { mutableStateOf<Task?>(null) }
     val listState = rememberLazyListState()
 
     Scaffold(
@@ -83,14 +76,11 @@ fun TodayScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            val allEmpty = state.overdueTasks.isEmpty() && state.todayTasks.isEmpty()
-            val hasOverdue = state.overdueTasks.isNotEmpty()
-
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                if (allEmpty && !state.isLoading) {
+                if (state.projectGroups.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(
                             icon = Icons.Outlined.WbSunny,
@@ -99,56 +89,36 @@ fun TodayScreen(
                         )
                     }
                 } else {
-                    if (hasOverdue) {
-                        item(key = "header_overdue") {
-                            SectionHeader(
-                                title = "Overdue",
-                                color = Color(0xFFEF4444),
-                                modifier = Modifier.padding(top = 8.dp),
+                    state.projectGroups.forEach { group ->
+                        item(key = "header_${group.projectId}") {
+                            CollapsibleSection(
+                                title = group.title,
+                                color = parseHexColor(group.hexColor)
+                                    ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                                taskCount = group.tasks.size,
+                                isExpanded = group.isExpanded,
+                                onToggle = { viewModel.toggleProject(group.projectId) },
                             )
                         }
-                        items(state.overdueTasks, key = { it.id }) { task ->
-                            val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
-                            SwipeableTaskItem(
-                                task = displayTask,
-                                onToggleDone = {
-                                    if (task.id in state.completedTaskIds) {
-                                        viewModel.undoComplete(task)
-                                    } else {
-                                        viewModel.toggleDone(task)
-                                    }
-                                },
-                                onClick = { onTaskClick(task.id) },
-                                onSchedule = { viewModel.scheduleTask(task) },
-                                modifier = Modifier.animateItem(),
-                            )
+                        if (group.isExpanded) {
+                            items(group.tasks, key = { it.id }) { task ->
+                                val displayTask =
+                                    if (task.id in state.completedTaskIds) task.copy(done = true) else task
+                                SwipeableTaskItem(
+                                    task = displayTask,
+                                    onToggleDone = {
+                                        if (task.id in state.completedTaskIds) {
+                                            viewModel.undoComplete(task)
+                                        } else {
+                                            viewModel.toggleDone(task)
+                                        }
+                                    },
+                                    onClick = { onTaskClick(task.id) },
+                                    onSchedule = { viewModel.scheduleTask(task) },
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
                         }
-                    }
-
-                    if (hasOverdue && state.todayTasks.isNotEmpty()) {
-                        item(key = "header_today") {
-                            SectionHeader(
-                                title = "Today",
-                                modifier = Modifier.padding(top = 8.dp),
-                            )
-                        }
-                    }
-
-                    items(state.todayTasks, key = { it.id }) { task ->
-                        val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
-                        SwipeableTaskItem(
-                            task = displayTask,
-                            onToggleDone = {
-                                if (task.id in state.completedTaskIds) {
-                                    viewModel.undoComplete(task)
-                                } else {
-                                    viewModel.toggleDone(task)
-                                }
-                            },
-                            onClick = { onTaskClick(task.id) },
-                            onSchedule = { viewModel.scheduleTask(task) },
-                            modifier = Modifier.animateItem(),
-                        )
                     }
                 }
             }
@@ -168,20 +138,5 @@ fun TodayScreen(
             }
             viewModel.clearError()
         }
-    }
-
-    schedulingTask?.let { task ->
-        VicuDatePickerDialog(
-            currentDate = task.dueDate,
-            onDateSelected = { date ->
-                viewModel.rescheduleTask(task, date)
-                schedulingTask = null
-            },
-            onClearDate = {
-                viewModel.rescheduleTask(task, "")
-                schedulingTask = null
-            },
-            onDismiss = { schedulingTask = null },
-        )
     }
 }

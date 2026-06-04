@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -19,20 +20,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.rendyhd.vicu.domain.model.Task
-import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
-import com.rendyhd.vicu.ui.components.section.SectionHeader
-import com.rendyhd.vicu.ui.components.shared.CompletionUndoSnackbar
+import com.rendyhd.vicu.ui.components.section.CollapsibleSection
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
+import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,7 +41,6 @@ fun UpcomingScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    var schedulingTask by remember { mutableStateOf<Task?>(null) }
     val listState = rememberLazyListState()
 
     Scaffold(
@@ -71,7 +66,7 @@ fun UpcomingScreen(
                 .padding(padding),
         ) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                if (state.dateGroups.isEmpty() && !state.isLoading) {
+                if (state.projectGroups.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(
                             icon = Icons.Outlined.CalendarMonth,
@@ -80,28 +75,35 @@ fun UpcomingScreen(
                         )
                     }
                 } else {
-                    state.dateGroups.forEach { group ->
-                        item(key = "header_${group.key}") {
-                            SectionHeader(
-                                title = group.label,
-                                modifier = Modifier.padding(top = 8.dp),
+                    state.projectGroups.forEach { group ->
+                        item(key = "header_${group.projectId}") {
+                            CollapsibleSection(
+                                title = group.title,
+                                color = parseHexColor(group.hexColor)
+                                    ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                                taskCount = group.tasks.size,
+                                isExpanded = group.isExpanded,
+                                onToggle = { viewModel.toggleProject(group.projectId) },
                             )
                         }
-                        items(group.tasks, key = { it.id }) { task ->
-                            val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
-                            SwipeableTaskItem(
-                                task = displayTask,
-                                onToggleDone = {
-                                    if (task.id in state.completedTaskIds) {
-                                        viewModel.undoComplete(task)
-                                    } else {
-                                        viewModel.toggleDone(task)
-                                    }
-                                },
-                                onClick = { onTaskClick(task.id) },
-                                onSchedule = { viewModel.scheduleTask(task) },
-                                modifier = Modifier.animateItem(),
-                            )
+                        if (group.isExpanded) {
+                            items(group.tasks, key = { it.id }) { task ->
+                                val displayTask =
+                                    if (task.id in state.completedTaskIds) task.copy(done = true) else task
+                                SwipeableTaskItem(
+                                    task = displayTask,
+                                    onToggleDone = {
+                                        if (task.id in state.completedTaskIds) {
+                                            viewModel.undoComplete(task)
+                                        } else {
+                                            viewModel.toggleDone(task)
+                                        }
+                                    },
+                                    onClick = { onTaskClick(task.id) },
+                                    onSchedule = { viewModel.scheduleTask(task) },
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
                         }
                     }
                 }
@@ -121,21 +123,5 @@ fun UpcomingScreen(
             }
             viewModel.clearError()
         }
-    }
-
-    // Date picker for swipe-to-schedule
-    schedulingTask?.let { task ->
-        VicuDatePickerDialog(
-            currentDate = task.dueDate,
-            onDateSelected = { date ->
-                viewModel.rescheduleTask(task, date)
-                schedulingTask = null
-            },
-            onClearDate = {
-                viewModel.rescheduleTask(task, "")
-                schedulingTask = null
-            },
-            onDismiss = { schedulingTask = null },
-        )
     }
 }

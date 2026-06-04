@@ -3,29 +3,26 @@ package com.rendyhd.vicu.ui.screens.upcoming
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
-import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
+import com.rendyhd.vicu.ui.screens.shared.buildTaskProjectGroups
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.util.NetworkResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class DateGroup(
-    val key: String,
-    val label: String,
-    val tasks: List<Task>,
-)
-
 data class UpcomingUiState(
-    val dateGroups: List<DateGroup> = emptyList(),
+    val projectGroups: List<TaskProjectGroup> = emptyList(),
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val error: String? = null,
@@ -37,6 +34,7 @@ class UpcomingViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
+    private val authManager: AuthManager,
     private val syncStaleness: SyncStaleness,
 ) : ViewModel() {
 
@@ -45,21 +43,35 @@ class UpcomingViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            taskRepository.getUpcomingTasks().collect { tasks ->
-                val groups = tasks
-                    .groupBy { DateUtils.getDateKey(it.dueDate) }
-                    .toSortedMap()
-                    .map { (key, groupTasks) ->
-                        DateGroup(
-                            key = key,
-                            label = DateUtils.formatDateHeader(groupTasks.first().dueDate),
-                            tasks = groupTasks,
+            val inboxId = authManager.getInboxProjectId()
+            combine(
+                taskRepository.getUpcomingTasks(),
+                projectRepository.getAll(),
+            ) { tasks, projects ->
+                buildTaskProjectGroups(tasks, projects, inboxId)
+            }.collect { groups ->
+                _uiState.update { current ->
+                    val merged = groups.map { g ->
+                        g.copy(
+                            isExpanded = current.projectGroups
+                                .find { it.projectId == g.projectId }?.isExpanded ?: true,
                         )
                     }
-                _uiState.update { it.copy(dateGroups = groups, isLoading = false) }
+                    current.copy(projectGroups = merged, isLoading = false)
+                }
             }
         }
         if (syncStaleness.isStale()) refresh()
+    }
+
+    fun toggleProject(projectId: Long) {
+        _uiState.update { state ->
+            state.copy(
+                projectGroups = state.projectGroups.map {
+                    if (it.projectId == projectId) it.copy(isExpanded = !it.isExpanded) else it
+                },
+            )
+        }
     }
 
     fun refresh(showSpinner: Boolean = false) {
