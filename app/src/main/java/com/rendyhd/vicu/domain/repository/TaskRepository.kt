@@ -12,6 +12,7 @@ interface TaskRepository {
     fun getLogbookTasks(): Flow<List<Task>>
     fun getByProjectId(projectId: Long): Flow<List<Task>>
     fun getById(id: Long): Flow<Task?>
+    suspend fun getByIds(ids: Set<Long>): List<Task>
     fun searchByTitle(query: String): Flow<List<Task>>
     fun searchByTitleIncludingDone(query: String): Flow<List<Task>>
     fun getAllOpenTasks(): Flow<List<Task>>

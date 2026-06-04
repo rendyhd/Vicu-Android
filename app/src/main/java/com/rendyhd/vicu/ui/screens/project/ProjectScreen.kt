@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.project
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,9 +29,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.rendyhd.vicu.domain.model.Task
-import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
 import com.rendyhd.vicu.ui.components.section.CollapsibleSection
-import com.rendyhd.vicu.ui.components.shared.CompletionUndoSnackbar
+import com.rendyhd.vicu.ui.components.selection.SelectionPickers
+import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
+import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
@@ -49,21 +51,38 @@ fun ProjectScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    var schedulingTask by remember { mutableStateOf<Task?>(null) }
     val listState = rememberLazyListState()
+
+    val selectionVm: SelectionViewModel = hiltViewModel()
+    val selectedIds by selectionVm.selectedIds.collectAsState()
+    val selectionActive = selectedIds.isNotEmpty()
+    var showMovePicker by remember { mutableStateOf(false) }
+    var showLabelPicker by remember { mutableStateOf(false) }
+    BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
         topBar = {
-            VicuTopAppBar(
-                title = { Text(state.project?.title ?: "Project") },
-                onOpenDrawer = onOpenDrawer,
-                onNavigateToSearch = onNavigateToSearch,
-            )
+            if (selectionActive) {
+                SelectionTopBar(
+                    count = selectedIds.size,
+                    onClose = { selectionVm.clear() },
+                    onComplete = { selectionVm.bulkComplete() },
+                    onMove = { showMovePicker = true },
+                    onSchedule = { selectionVm.bulkSchedule() },
+                    onApplyLabel = { showLabelPicker = true },
+                )
+            } else {
+                VicuTopAppBar(
+                    title = { Text(state.project?.title ?: "Project") },
+                    onOpenDrawer = onOpenDrawer,
+                    onNavigateToSearch = onNavigateToSearch,
+                )
+            }
         },
         floatingActionButton = {
-            VicuFab(
-                onClick = { onShowTaskEntry(projectId, null) },
-            )
+            if (!selectionActive) {
+                VicuFab(onClick = { onShowTaskEntry(projectId, null) })
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
@@ -99,8 +118,13 @@ fun ProjectScreen(
                                     viewModel.toggleDone(task)
                                 }
                             },
-                            onClick = { onTaskClick(task.id) },
+                            onClick = {
+                                if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id)
+                            },
                             onSchedule = { viewModel.scheduleTask(task) },
+                            selectionActive = selectionActive,
+                            selected = task.id in selectedIds,
+                            onLongClick = { selectionVm.toggle(task.id) },
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -157,8 +181,13 @@ fun ProjectScreen(
                                             viewModel.toggleDone(task)
                                         }
                                     },
-                                    onClick = { onTaskClick(task.id) },
+                                    onClick = {
+                                        if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id)
+                                    },
                                     onSchedule = { viewModel.scheduleTask(task) },
+                                    selectionActive = selectionActive,
+                                    selected = task.id in selectedIds,
+                                    onLongClick = { selectionVm.toggle(task.id) },
                                     modifier = Modifier.animateItem(),
                                     contentStartPadding = 16.dp,
                                 )
@@ -191,19 +220,11 @@ fun ProjectScreen(
         }
     }
 
-    // Date picker for swipe-to-schedule
-    schedulingTask?.let { task ->
-        VicuDatePickerDialog(
-            currentDate = task.dueDate,
-            onDateSelected = { date ->
-                viewModel.rescheduleTask(task, date)
-                schedulingTask = null
-            },
-            onClearDate = {
-                viewModel.rescheduleTask(task, "")
-                schedulingTask = null
-            },
-            onDismiss = { schedulingTask = null },
-        )
-    }
+    SelectionPickers(
+        selectionVm = selectionVm,
+        showMove = showMovePicker,
+        showLabel = showLabelPicker,
+        onDismissMove = { showMovePicker = false },
+        onDismissLabel = { showLabelPicker = false },
+    )
 }

@@ -39,6 +39,9 @@ fun SwipeableTaskItem(
     modifier: Modifier = Modifier,
     contentStartPadding: Dp = 0.dp,
     enabled: Boolean = true,
+    selectionActive: Boolean = false,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val haptic = LocalHapticFeedback.current
 
@@ -68,12 +71,17 @@ fun SwipeableTaskItem(
             }
     }
 
-    if (!enabled) {
+    // Swipe is disabled while selecting (or when explicitly disabled): render the plain row,
+    // which still carries the long-press-to-select and selection checkbox.
+    if (!enabled || selectionActive) {
         TaskItem(
             task = task,
             onToggleDone = onToggleDone,
             onClick = onClick,
             modifier = modifier.padding(start = contentStartPadding),
+            selectionActive = selectionActive,
+            selected = selected,
+            onLongClick = onLongClick,
         )
         return
     }
@@ -95,6 +103,7 @@ fun SwipeableTaskItem(
             onToggleDone = onToggleDone,
             onClick = onClick,
             modifier = Modifier.padding(start = contentStartPadding),
+            onLongClick = onLongClick,
         )
     }
 }

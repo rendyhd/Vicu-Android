@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.customlist
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,10 +28,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.rendyhd.vicu.domain.model.Task
-import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.selection.SelectionPickers
+import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
+import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
-import com.rendyhd.vicu.ui.components.shared.CompletionUndoSnackbar
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
@@ -50,28 +51,45 @@ fun CustomListScreen(
     val projects by viewModel.projects.collectAsState()
     val labels by viewModel.labels.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    var schedulingTask by remember { mutableStateOf<Task?>(null) }
     var showEditDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
+    val selectionVm: SelectionViewModel = hiltViewModel()
+    val selectedIds by selectionVm.selectedIds.collectAsState()
+    val selectionActive = selectedIds.isNotEmpty()
+    var showMovePicker by remember { mutableStateOf(false) }
+    var showLabelPicker by remember { mutableStateOf(false) }
+    BackHandler(enabled = selectionActive) { selectionVm.clear() }
+
     Scaffold(
         topBar = {
-            VicuTopAppBar(
-                title = { Text(state.customList?.name ?: "List") },
-                onOpenDrawer = onOpenDrawer,
-                onNavigateToSearch = onNavigateToSearch,
-                extraActions = {
-                    IconButton(onClick = { showEditDialog = true }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit list")
-                    }
-                },
-            )
+            if (selectionActive) {
+                SelectionTopBar(
+                    count = selectedIds.size,
+                    onClose = { selectionVm.clear() },
+                    onComplete = { selectionVm.bulkComplete() },
+                    onMove = { showMovePicker = true },
+                    onSchedule = { selectionVm.bulkSchedule() },
+                    onApplyLabel = { showLabelPicker = true },
+                )
+            } else {
+                VicuTopAppBar(
+                    title = { Text(state.customList?.name ?: "List") },
+                    onOpenDrawer = onOpenDrawer,
+                    onNavigateToSearch = onNavigateToSearch,
+                    extraActions = {
+                        IconButton(onClick = { showEditDialog = true }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit list")
+                        }
+                    },
+                )
+            }
         },
         floatingActionButton = {
-            val addToProject = state.customList?.filter?.addToProjectId?.takeIf { it != 0L }
-            VicuFab(
-                onClick = { onShowTaskEntry(addToProject, null) },
-            )
+            if (!selectionActive) {
+                val addToProject = state.customList?.filter?.addToProjectId?.takeIf { it != 0L }
+                VicuFab(onClick = { onShowTaskEntry(addToProject, null) })
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
@@ -103,8 +121,13 @@ fun CustomListScreen(
                                     viewModel.toggleDone(task)
                                 }
                             },
-                            onClick = { onTaskClick(task.id) },
+                            onClick = {
+                                if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id)
+                            },
                             onSchedule = { viewModel.scheduleTask(task) },
+                            selectionActive = selectionActive,
+                            selected = task.id in selectedIds,
+                            onLongClick = { selectionVm.toggle(task.id) },
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -127,21 +150,13 @@ fun CustomListScreen(
         }
     }
 
-    // Date picker for swipe-to-schedule
-    schedulingTask?.let { task ->
-        VicuDatePickerDialog(
-            currentDate = task.dueDate,
-            onDateSelected = { date ->
-                viewModel.rescheduleTask(task, date)
-                schedulingTask = null
-            },
-            onClearDate = {
-                viewModel.rescheduleTask(task, "")
-                schedulingTask = null
-            },
-            onDismiss = { schedulingTask = null },
-        )
-    }
+    SelectionPickers(
+        selectionVm = selectionVm,
+        showMove = showMovePicker,
+        showLabel = showLabelPicker,
+        onDismissMove = { showMovePicker = false },
+        onDismissLabel = { showLabelPicker = false },
+    )
 
     // Edit list dialog
     if (showEditDialog && state.customList != null) {

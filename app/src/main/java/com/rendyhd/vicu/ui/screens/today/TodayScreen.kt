@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.today
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -21,10 +22,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.rendyhd.vicu.ui.components.section.CollapsibleSection
+import com.rendyhd.vicu.ui.components.selection.SelectionPickers
+import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
+import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
@@ -45,27 +51,45 @@ fun TodayScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
 
+    val selectionVm: SelectionViewModel = hiltViewModel()
+    val selectedIds by selectionVm.selectedIds.collectAsState()
+    val selectionActive = selectedIds.isNotEmpty()
+    var showMovePicker by remember { mutableStateOf(false) }
+    var showLabelPicker by remember { mutableStateOf(false) }
+    BackHandler(enabled = selectionActive) { selectionVm.clear() }
+
     Scaffold(
         topBar = {
-            VicuTopAppBar(
-                title = {
-                    Column {
-                        Text("Today")
-                        Text(
-                            text = DateUtils.formatTodaySubtitle(),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-                onOpenDrawer = onOpenDrawer,
-                onNavigateToSearch = onNavigateToSearch,
-            )
+            if (selectionActive) {
+                SelectionTopBar(
+                    count = selectedIds.size,
+                    onClose = { selectionVm.clear() },
+                    onComplete = { selectionVm.bulkComplete() },
+                    onMove = { showMovePicker = true },
+                    onSchedule = { selectionVm.bulkSchedule() },
+                    onApplyLabel = { showLabelPicker = true },
+                )
+            } else {
+                VicuTopAppBar(
+                    title = {
+                        Column {
+                            Text("Today")
+                            Text(
+                                text = DateUtils.formatTodaySubtitle(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    onOpenDrawer = onOpenDrawer,
+                    onNavigateToSearch = onNavigateToSearch,
+                )
+            }
         },
         floatingActionButton = {
-            VicuFab(
-                onClick = { onShowTaskEntry(null, DateUtils.todayEndIso()) },
-            )
+            if (!selectionActive) {
+                VicuFab(onClick = { onShowTaskEntry(null, DateUtils.todayEndIso()) })
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
@@ -113,8 +137,17 @@ fun TodayScreen(
                                             viewModel.toggleDone(task)
                                         }
                                     },
-                                    onClick = { onTaskClick(task.id) },
+                                    onClick = {
+                                        if (selectionActive) {
+                                            selectionVm.toggle(task.id)
+                                        } else {
+                                            onTaskClick(task.id)
+                                        }
+                                    },
                                     onSchedule = { viewModel.scheduleTask(task) },
+                                    selectionActive = selectionActive,
+                                    selected = task.id in selectedIds,
+                                    onLongClick = { selectionVm.toggle(task.id) },
                                     modifier = Modifier.animateItem(),
                                 )
                             }
@@ -124,6 +157,14 @@ fun TodayScreen(
             }
         }
     }
+
+    SelectionPickers(
+        selectionVm = selectionVm,
+        showMove = showMovePicker,
+        showLabel = showLabelPicker,
+        onDismissMove = { showMovePicker = false },
+        onDismissLabel = { showLabelPicker = false },
+    )
 
     // Error snackbar with retry
     LaunchedEffect(state.error) {

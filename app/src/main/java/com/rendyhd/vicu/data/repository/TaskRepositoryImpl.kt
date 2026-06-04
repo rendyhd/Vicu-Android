@@ -232,6 +232,9 @@ class TaskRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getByIds(ids: Set<Long>): List<Task> =
+        taskDao.getByIds(ids.toList()).map { with(taskMapper) { it.toDomain() } }
+
     override suspend fun applyScheduleAction(task: Task): NetworkResult<Task> {
         val action = behaviorPrefsStore.getPrefs().first().scheduleAction
         val updated = when (action) {
