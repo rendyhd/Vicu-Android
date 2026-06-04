@@ -510,6 +510,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { behaviorPrefsStore.setInboxExcludeDated(enabled) }
     }
 
+    fun setScheduleAction(action: com.rendyhd.vicu.data.local.ScheduleAction) {
+        viewModelScope.launch { behaviorPrefsStore.setScheduleAction(action) }
+    }
+
     fun setLogbookRetentionEnabled(enabled: Boolean) {
         viewModelScope.launch { logbookPrefsStore.setEnabled(enabled) }
     }

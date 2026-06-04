@@ -263,6 +263,7 @@ fun SettingsScreen(
                     onSetReviewExcludeInbox = viewModel::setReviewExcludeInbox,
                     onShowCadenceDialog = { showCadenceDialog = true },
                     onSetInboxExcludeDated = viewModel::setInboxExcludeDated,
+                    onSetScheduleAction = viewModel::setScheduleAction,
                     onSetLogbookRetentionEnabled = viewModel::setLogbookRetentionEnabled,
                     onShowRetentionDialog = { showRetentionDialog = true },
                     onSetConfirmBeforeDelete = viewModel::setConfirmBeforeDelete,
@@ -770,6 +771,7 @@ private fun GeneralTab(
     onSetReviewExcludeInbox: (Boolean) -> Unit,
     onShowCadenceDialog: () -> Unit,
     onSetInboxExcludeDated: (Boolean) -> Unit,
+    onSetScheduleAction: (com.rendyhd.vicu.data.local.ScheduleAction) -> Unit,
     onSetLogbookRetentionEnabled: (Boolean) -> Unit,
     onShowRetentionDialog: () -> Unit,
     onSetConfirmBeforeDelete: (Boolean) -> Unit,
@@ -1190,6 +1192,38 @@ private fun GeneralTab(
                 checked = state.behaviorPrefs.confirmBeforeDelete,
                 onCheckedChange = onSetConfirmBeforeDelete,
             )
+        }
+
+        item(key = "schedule_action") {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(text = "Swipe to schedule", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    text = "What swiping a task (and bulk Schedule) does",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                @OptIn(ExperimentalMaterial3Api::class)
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    val options = listOf(
+                        com.rendyhd.vicu.data.local.ScheduleAction.DUE_TODAY to "Due today",
+                        com.rendyhd.vicu.data.local.ScheduleAction.PRIORITY_URGENT to "Urgent",
+                    )
+                    options.forEachIndexed { index, (action, label) ->
+                        SegmentedButton(
+                            selected = state.behaviorPrefs.scheduleAction == action,
+                            onClick = { onSetScheduleAction(action) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                        ) {
+                            Text(label)
+                        }
+                    }
+                }
+            }
         }
 
         item(key = "completion_sound_enabled") {

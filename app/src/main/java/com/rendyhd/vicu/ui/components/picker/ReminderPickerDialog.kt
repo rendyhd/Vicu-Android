@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.TaskReminder
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.ReminderFormat
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -54,17 +55,6 @@ private val RELATIVE_OPTIONS = listOf(
     RelativeOption("1 day before", -86400, "due_date"),
 )
 
-/**
- * Format a reminder's absolute time in the user's local timezone.
- */
-private fun formatReminderLocal(dateStr: String): String {
-    val instant = DateUtils.parseIsoDate(dateStr) ?: return dateStr
-    val zoned = instant.atZone(ZoneId.systemDefault())
-    val datePart = zoned.toLocalDate().format(DateTimeFormatter.ofPattern("MMM d, yyyy"))
-    val timePart = zoned.toLocalTime().format(DateTimeFormatter.ofPattern("h:mm a"))
-    return "$datePart $timePart"
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReminderPickerDialog(
@@ -73,7 +63,11 @@ fun ReminderPickerDialog(
     onRemoveReminder: (Int) -> Unit,
     onDismiss: () -> Unit,
     onEditReminder: ((Int, TaskReminder) -> Unit)? = null,
+    dueDate: String = "",
 ) {
+    // Relative reminders ("15 min before" etc.) anchor to the due date; without one they'd
+    // never fire, so disable them and tell the user why.
+    val hasDueDate = dueDate.isNotBlank() && !DateUtils.isNullDate(dueDate)
     var showAddOptions by remember { mutableStateOf(false) }
     var showDateTimePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
@@ -202,14 +196,7 @@ fun ReminderPickerDialog(
                                     .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                val text = if (reminder.reminder.isNotBlank() && !DateUtils.isNullDate(reminder.reminder)) {
-                                    formatReminderLocal(reminder.reminder)
-                                } else if (reminder.relativePeriod != 0L) {
-                                    RELATIVE_OPTIONS.find { it.seconds == reminder.relativePeriod }?.label
-                                        ?: "${reminder.relativePeriod}s relative"
-                                } else {
-                                    "At due time"
-                                }
+                                val text = ReminderFormat.format(reminder)
 
                                 Text(
                                     text = text,
@@ -244,6 +231,13 @@ fun ReminderPickerDialog(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (!hasDueDate) {
+                            Text(
+                                "Set a due date to use relative reminders",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         RELATIVE_OPTIONS.forEach { option ->
                             FilledTonalButton(
                                 onClick = {
@@ -255,6 +249,7 @@ fun ReminderPickerDialog(
                                     )
                                     showAddOptions = false
                                 },
+                                enabled = hasDueDate,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Text(option.label)

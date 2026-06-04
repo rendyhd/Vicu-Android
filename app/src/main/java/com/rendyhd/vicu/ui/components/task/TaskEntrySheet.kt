@@ -381,6 +381,7 @@ fun TaskEntrySheet(
             onRemoveReminder = viewModel::removeReminder,
             onDismiss = { showReminderPicker = false },
             onEditReminder = viewModel::editReminder,
+            dueDate = state.dueDate,
         )
     }
 

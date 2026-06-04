@@ -79,6 +79,7 @@ import com.rendyhd.vicu.ui.components.task.DescriptionField
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.FileUtils
 import com.rendyhd.vicu.util.ImageTokens
+import com.rendyhd.vicu.util.ReminderFormat
 import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -291,7 +292,7 @@ fun TaskDetailSheet(
                     Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(12.dp))
                     if (task.reminders.isNotEmpty()) {
-                        Text("${task.reminders.size} reminder${if (task.reminders.size > 1) "s" else ""}")
+                        Text(ReminderFormat.summary(task.reminders))
                     } else {
                         Text("Add reminder", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -660,6 +661,7 @@ fun TaskDetailSheet(
             onRemoveReminder = viewModel::removeReminder,
             onDismiss = { showReminderPicker = false },
             onEditReminder = viewModel::editReminder,
+            dueDate = state.task?.dueDate ?: "",
         )
     }
 
