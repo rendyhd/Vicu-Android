@@ -70,7 +70,10 @@ class MainActivity : ComponentActivity() {
             val themeMode = themePrefsStore.themeMode.collectAsStateWithLifecycle(
                 initialValue = ThemeMode.System,
             )
-            VicuTheme(themeMode = themeMode.value) {
+            val useDeviceColors = themePrefsStore.useDeviceColors.collectAsStateWithLifecycle(
+                initialValue = true,
+            )
+            VicuTheme(themeMode = themeMode.value, dynamicColor = useDeviceColors.value) {
                 VicuApp(
                     authManager = authManager,
                     initialTaskId = _initialTaskId,

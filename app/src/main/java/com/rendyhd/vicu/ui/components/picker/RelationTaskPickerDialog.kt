@@ -34,7 +34,7 @@ fun RelationTaskPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add relation") },
+        title = { Text("Relation") },
         text = {
             Column {
                 // Kind selector

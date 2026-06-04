@@ -74,7 +74,7 @@ fun VicuDatePickerDialog(
     } else {
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Set due date") },
+            title = { Text("Due date") },
             text = {
                 Column {
                     val hasDate = currentDate != null && !DateUtils.isNullDate(currentDate)

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.outlined.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.CloudOff
@@ -129,6 +130,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val useDeviceColors by viewModel.useDeviceColors.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
@@ -264,6 +266,10 @@ fun SettingsScreen(
                     onShowCadenceDialog = { showCadenceDialog = true },
                     onSetInboxExcludeDated = viewModel::setInboxExcludeDated,
                     onSetScheduleAction = viewModel::setScheduleAction,
+                    onSetKeepEntryOpen = viewModel::setKeepEntryOpen,
+                    onSetFabAlignStart = viewModel::setFabAlignStart,
+                    useDeviceColors = useDeviceColors,
+                    onSetUseDeviceColors = viewModel::setUseDeviceColors,
                     onSetLogbookRetentionEnabled = viewModel::setLogbookRetentionEnabled,
                     onShowRetentionDialog = { showRetentionDialog = true },
                     onSetConfirmBeforeDelete = viewModel::setConfirmBeforeDelete,
@@ -772,6 +778,10 @@ private fun GeneralTab(
     onShowCadenceDialog: () -> Unit,
     onSetInboxExcludeDated: (Boolean) -> Unit,
     onSetScheduleAction: (com.rendyhd.vicu.data.local.ScheduleAction) -> Unit,
+    onSetKeepEntryOpen: (Boolean) -> Unit,
+    onSetFabAlignStart: (Boolean) -> Unit,
+    useDeviceColors: Boolean,
+    onSetUseDeviceColors: (Boolean) -> Unit,
     onSetLogbookRetentionEnabled: (Boolean) -> Unit,
     onShowRetentionDialog: () -> Unit,
     onSetConfirmBeforeDelete: (Boolean) -> Unit,
@@ -841,8 +851,8 @@ private fun GeneralTab(
                     )
                 }
                 Icon(
-                    Icons.Outlined.CheckCircle,
-                    contentDescription = null,
+                    Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                    contentDescription = "Choose inbox project",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
                 )
@@ -895,6 +905,15 @@ private fun GeneralTab(
                     }
                 }
             }
+        }
+
+        item(key = "use_device_colors") {
+            SwitchRow(
+                label = "Use device colors",
+                description = "Match Android's wallpaper-based Material You palette (Android 12+)",
+                checked = useDeviceColors,
+                onCheckedChange = onSetUseDeviceColors,
+            )
         }
 
         item(key = "theme_divider") {
@@ -1191,6 +1210,24 @@ private fun GeneralTab(
                 description = "Show a confirmation dialog before deleting tasks, projects, labels and lists",
                 checked = state.behaviorPrefs.confirmBeforeDelete,
                 onCheckedChange = onSetConfirmBeforeDelete,
+            )
+        }
+
+        item(key = "keep_entry_open") {
+            SwitchRow(
+                label = "Keep add-task open",
+                description = "Stay in the new-task sheet after saving, to add several quickly",
+                checked = state.behaviorPrefs.keepEntryOpen,
+                onCheckedChange = onSetKeepEntryOpen,
+            )
+        }
+
+        item(key = "fab_align_start") {
+            SwitchRow(
+                label = "Left-handed add button",
+                description = "Move the + button to the bottom-left corner",
+                checked = state.behaviorPrefs.fabAlignStart,
+                onCheckedChange = onSetFabAlignStart,
             )
         }
 

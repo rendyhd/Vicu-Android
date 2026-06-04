@@ -27,6 +27,8 @@ data class BehaviorPrefs(
     val confirmBeforeDelete: Boolean = true,
     val inboxExcludeDated: Boolean = false,
     val scheduleAction: ScheduleAction = ScheduleAction.DUE_TODAY,
+    val keepEntryOpen: Boolean = false,
+    val fabAlignStart: Boolean = false,
 )
 
 private val Context.behaviorPrefsDataStore: DataStore<Preferences> by preferencesDataStore(name = "behavior_prefs")
@@ -41,6 +43,8 @@ class BehaviorPrefsStore @Inject constructor(
         private val KEY_CONFIRM_BEFORE_DELETE = booleanPreferencesKey("confirm_before_delete")
         private val KEY_INBOX_EXCLUDE_DATED = booleanPreferencesKey("inbox_exclude_dated")
         private val KEY_SCHEDULE_ACTION = stringPreferencesKey("schedule_action")
+        private val KEY_KEEP_ENTRY_OPEN = booleanPreferencesKey("keep_entry_open")
+        private val KEY_FAB_ALIGN_START = booleanPreferencesKey("fab_align_start")
     }
 
     fun getPrefs(): Flow<BehaviorPrefs> =
@@ -53,6 +57,8 @@ class BehaviorPrefsStore @Inject constructor(
                 scheduleAction = prefs[KEY_SCHEDULE_ACTION]
                     ?.let { runCatching { ScheduleAction.valueOf(it) }.getOrNull() }
                     ?: ScheduleAction.DUE_TODAY,
+                keepEntryOpen = prefs[KEY_KEEP_ENTRY_OPEN] ?: false,
+                fabAlignStart = prefs[KEY_FAB_ALIGN_START] ?: false,
             )
         }
 
@@ -77,5 +83,13 @@ class BehaviorPrefsStore @Inject constructor(
 
     suspend fun setScheduleAction(action: ScheduleAction) {
         context.behaviorPrefsDataStore.edit { it[KEY_SCHEDULE_ACTION] = action.name }
+    }
+
+    suspend fun setKeepEntryOpen(enabled: Boolean) {
+        context.behaviorPrefsDataStore.edit { it[KEY_KEEP_ENTRY_OPEN] = enabled }
+    }
+
+    suspend fun setFabAlignStart(enabled: Boolean) {
+        context.behaviorPrefsDataStore.edit { it[KEY_FAB_ALIGN_START] = enabled }
     }
 }

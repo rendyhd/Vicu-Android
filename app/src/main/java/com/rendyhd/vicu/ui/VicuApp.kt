@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui
 
 import android.util.Log
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -18,6 +19,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -28,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -45,6 +48,7 @@ import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.SharedContent
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
+import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.OfflineBanner
 import com.rendyhd.vicu.ui.components.task.TaskEntrySheet
 import com.rendyhd.vicu.ui.navigation.AnytimeRoute
@@ -299,6 +303,7 @@ fun VicuApp(
 
     val drawerViewModel: DrawerViewModel = hiltViewModel()
     val drawerUiState by drawerViewModel.uiState.collectAsStateWithLifecycle()
+    val fabAlignStart by drawerViewModel.fabAlignStart.collectAsStateWithLifecycle()
 
     // Build dynamic bottom bar items from config
     val bottomNavItems = remember(drawerUiState.bottomBarSlots, drawerUiState.allProjects, drawerUiState.customLists) {
@@ -350,7 +355,20 @@ fun VicuApp(
                     NavigationBar {
                         bottomNavItems.forEach { item ->
                             NavigationBarItem(
-                                icon = { Icon(item.icon, contentDescription = item.label) },
+                                icon = {
+                                    val iconSelected = currentRoute == item.routeName
+                                    val scale by animateFloatAsState(
+                                        targetValue = if (iconSelected) 1.15f else 1f,
+                                        label = "navIconScale",
+                                    )
+                                    // contentDescription = null: the label Text already announces
+                                    // the destination, so this avoids a double TalkBack announcement.
+                                    Icon(
+                                        item.icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.scale(scale),
+                                    )
+                                },
                                 label = {
                                     Text(
                                         item.label,
@@ -388,18 +406,21 @@ fun VicuApp(
                         pendingCount = pendingCount,
                     )
                 }
-                AppNavHost(
-                    navController = navController,
-                    onOpenDrawer = { scope.launch { drawerState.open() } },
-                    onNavigateToSearch = {
-                        navController.navigate(SearchRoute) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onTaskClick = onTaskClick,
-                    onShowTaskEntry = onShowTaskEntry,
-                    modifier = Modifier.weight(1f),
-                )
+                val navHostModifier = Modifier.weight(1f)
+                CompositionLocalProvider(LocalFabAlignStart provides fabAlignStart) {
+                    AppNavHost(
+                        navController = navController,
+                        onOpenDrawer = { scope.launch { drawerState.open() } },
+                        onNavigateToSearch = {
+                            navController.navigate(SearchRoute) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onTaskClick = onTaskClick,
+                        onShowTaskEntry = onShowTaskEntry,
+                        modifier = navHostModifier,
+                    )
+                }
             }
         }
     }

@@ -124,9 +124,15 @@ fun TaskEntrySheet(
     LaunchedEffect(state.savedTaskId) {
         state.savedTaskId?.let { id ->
             onTaskCreated(id)
+            val keepOpen = state.keepEntryOpen
             viewModel.reset()
             textFieldValue = TextFieldValue("")
-            onDismiss()
+            if (keepOpen) {
+                // Mass-add: stay open and re-focus for the next task.
+                focusRequester.requestFocus()
+            } else {
+                onDismiss()
+            }
         }
     }
 

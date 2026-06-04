@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -63,7 +64,13 @@ class DrawerViewModel @Inject constructor(
     private val bottomBarPrefsStore: BottomBarPrefsStore,
     private val reviewPrefsStore: ReviewPrefsStore,
     private val labelOrderPrefsStore: LabelOrderPrefsStore,
+    behaviorPrefsStore: com.rendyhd.vicu.data.local.BehaviorPrefsStore,
 ) : ViewModel() {
+
+    /** Exposed for the app-root CompositionLocal that positions the FAB. */
+    val fabAlignStart: StateFlow<Boolean> = behaviorPrefsStore.getPrefs()
+        .map { it.fabAlignStart }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _sectionsExpanded = MutableStateFlow(
         Triple(true, true, true), // projects, lists, tags

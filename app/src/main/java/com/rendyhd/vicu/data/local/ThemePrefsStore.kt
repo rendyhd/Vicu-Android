@@ -3,6 +3,7 @@ package com.rendyhd.vicu.data.local
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -25,6 +26,7 @@ class ThemePrefsStore @Inject constructor(
 ) {
     companion object {
         private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
+        private val KEY_USE_DEVICE_COLORS = booleanPreferencesKey("use_device_colors")
     }
 
     val themeMode: Flow<ThemeMode> = context.themePrefsDataStore.data.map { prefs ->
@@ -35,6 +37,11 @@ class ThemePrefsStore @Inject constructor(
         }
     }
 
+    /** Material You: use the wallpaper-derived dynamic color scheme (default on). */
+    val useDeviceColors: Flow<Boolean> = context.themePrefsDataStore.data.map { prefs ->
+        prefs[KEY_USE_DEVICE_COLORS] ?: true
+    }
+
     suspend fun setThemeMode(mode: ThemeMode) {
         context.themePrefsDataStore.edit { prefs ->
             prefs[KEY_THEME_MODE] = when (mode) {
@@ -43,5 +50,9 @@ class ThemePrefsStore @Inject constructor(
                 ThemeMode.Dark -> "dark"
             }
         }
+    }
+
+    suspend fun setUseDeviceColors(enabled: Boolean) {
+        context.themePrefsDataStore.edit { it[KEY_USE_DEVICE_COLORS] = enabled }
     }
 }

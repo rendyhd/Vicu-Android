@@ -52,7 +52,7 @@ fun ProjectPickerDialog(
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Move to project") },
+        title = { Text("Project") },
         text = {
             LazyColumn {
                 items(sorted, key = { it.id }) { project ->

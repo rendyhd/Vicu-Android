@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -29,6 +30,7 @@ import com.rendyhd.vicu.ui.components.selection.SelectionPickers
 import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
 import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
+import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
@@ -77,6 +79,7 @@ fun InboxScreen(
                 VicuFab(onClick = { onShowTaskEntry(state.inboxProjectId, null) })
             }
         },
+        floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         PullToRefreshBox(

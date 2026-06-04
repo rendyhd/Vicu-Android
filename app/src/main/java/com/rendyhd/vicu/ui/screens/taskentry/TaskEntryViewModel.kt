@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.domain.model.Label
@@ -66,6 +67,8 @@ data class TaskEntryUiState(
     val inboxProjectId: Long = 0L,
     /** uuid → local URI for images pasted/staged before the task is saved. */
     val pendingImages: Map<String, Uri> = emptyMap(),
+    /** When true, keep the entry sheet open after saving (mass-add). */
+    val keepEntryOpen: Boolean = false,
 )
 
 @HiltViewModel
@@ -77,6 +80,7 @@ class TaskEntryViewModel @Inject constructor(
     private val authManager: AuthManager,
     private val nlpPrefsStore: NlpPrefsStore,
     private val notificationPrefsStore: NotificationPrefsStore,
+    private val behaviorPrefsStore: BehaviorPrefsStore,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -102,6 +106,11 @@ class TaskEntryViewModel @Inject constructor(
         viewModelScope.launch {
             val inboxId = authManager.getInboxProjectId() ?: 0L
             _uiState.update { it.copy(inboxProjectId = inboxId) }
+        }
+        viewModelScope.launch {
+            behaviorPrefsStore.getPrefs().collect { prefs ->
+                _uiState.update { it.copy(keepEntryOpen = prefs.keepEntryOpen) }
+            }
         }
         viewModelScope.launch {
             nlpPrefsStore.config.collect { config ->

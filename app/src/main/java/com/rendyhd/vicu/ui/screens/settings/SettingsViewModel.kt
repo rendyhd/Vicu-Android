@@ -227,10 +227,18 @@ class SettingsViewModel @Inject constructor(
 
     // --- Theme ---
 
+    // Exposed separately from the main combine to avoid widening it.
+    val useDeviceColors: StateFlow<Boolean> = themePrefsStore.useDeviceColors
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch {
             themePrefsStore.setThemeMode(mode)
         }
+    }
+
+    fun setUseDeviceColors(enabled: Boolean) {
+        viewModelScope.launch { themePrefsStore.setUseDeviceColors(enabled) }
     }
 
     // --- NLP Parser ---
@@ -512,6 +520,14 @@ class SettingsViewModel @Inject constructor(
 
     fun setScheduleAction(action: com.rendyhd.vicu.data.local.ScheduleAction) {
         viewModelScope.launch { behaviorPrefsStore.setScheduleAction(action) }
+    }
+
+    fun setKeepEntryOpen(enabled: Boolean) {
+        viewModelScope.launch { behaviorPrefsStore.setKeepEntryOpen(enabled) }
+    }
+
+    fun setFabAlignStart(enabled: Boolean) {
+        viewModelScope.launch { behaviorPrefsStore.setFabAlignStart(enabled) }
     }
 
     fun setLogbookRetentionEnabled(enabled: Boolean) {

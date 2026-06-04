@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -33,6 +34,7 @@ import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
 import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.EmptyState
+import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
@@ -91,6 +93,7 @@ fun CustomListScreen(
                 VicuFab(onClick = { onShowTaskEntry(addToProject, null) })
             }
         },
+        floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         PullToRefreshBox(
