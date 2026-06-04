@@ -44,11 +44,6 @@ fun TagScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    CompletionUndoSnackbar(
-        snackbarHostState = snackbarHostState,
-        events = viewModel.completionEvents,
-        onUndo = viewModel::undoComplete,
-    )
     var schedulingTask by remember { mutableStateOf<Task?>(null) }
     val listState = rememberLazyListState()
 
@@ -63,14 +58,13 @@ fun TagScreen(
         floatingActionButton = {
             VicuFab(
                 onClick = { onShowTaskEntry(null, null) },
-                listState = listState,
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
-            onRefresh = viewModel::refresh,
+            onRefresh = { viewModel.refresh(showSpinner = true) },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
@@ -96,7 +90,7 @@ fun TagScreen(
                                 }
                             },
                             onClick = { onTaskClick(task.id) },
-                            onSchedule = { schedulingTask = task },
+                            onSchedule = { viewModel.scheduleTask(task) },
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -113,7 +107,7 @@ fun TagScreen(
                 duration = SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed) {
-                viewModel.refresh()
+                viewModel.refresh(true)
             }
             viewModel.clearError()
         }

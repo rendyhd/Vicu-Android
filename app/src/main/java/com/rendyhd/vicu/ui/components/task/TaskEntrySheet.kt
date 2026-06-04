@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Sell
@@ -37,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -62,9 +64,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil3.compose.AsyncImage
 import com.rendyhd.vicu.domain.model.SharedContent
 import com.rendyhd.vicu.ui.components.picker.LabelPickerDialog
+import com.rendyhd.vicu.ui.components.picker.PriorityPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.shared.VicuDragHandle
 import com.rendyhd.vicu.ui.screens.taskentry.TaskEntryViewModel
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.FileUtils
@@ -89,6 +93,7 @@ fun TaskEntrySheet(
     var showProjectPicker by remember { mutableStateOf(false) }
     var showLabelPicker by remember { mutableStateOf(false) }
     var showReminderPicker by remember { mutableStateOf(false) }
+    var showPriorityPicker by remember { mutableStateOf(false) }
 
     // TextFieldValue for cursor position tracking (needed for autocomplete)
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
@@ -108,8 +113,12 @@ fun TaskEntrySheet(
         }
     }
 
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+    // Defer focus until the sheet has fully expanded, so the keyboard-show animation doesn't
+    // fight the sheet-enter animation (open-task stutter).
+    LaunchedEffect(sheetState.currentValue) {
+        if (sheetState.currentValue == SheetValue.Expanded) {
+            focusRequester.requestFocus()
+        }
     }
 
     LaunchedEffect(state.savedTaskId) {
@@ -124,6 +133,7 @@ fun TaskEntrySheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        dragHandle = { VicuDragHandle() },
     ) {
         Column(
             modifier = Modifier
@@ -141,7 +151,7 @@ fun TaskEntrySheet(
                         viewModel.setTitle(newValue.text)
                     },
                     placeholder = { Text("New task") },
-                    singleLine = true,
+                    maxLines = 3,
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester),
@@ -265,7 +275,9 @@ fun TaskEntrySheet(
 
                 // Reminder chip
                 val reminderCount = state.reminders.size
-                val reminderText = if (reminderCount > 0) "$reminderCount" else "Remind"
+                val reminderText = if (reminderCount > 0) {
+                    "$reminderCount reminder${if (reminderCount > 1) "s" else ""}"
+                } else "Reminder"
                 AssistChip(
                     onClick = { showReminderPicker = true },
                     label = { Text(reminderText) },
@@ -274,6 +286,21 @@ fun TaskEntrySheet(
                     },
                 )
 
+                // Priority chip
+                val priorityLabel = when (state.priority) {
+                    1 -> "Low"
+                    2 -> "Medium"
+                    3 -> "High"
+                    4 -> "Urgent"
+                    else -> "Priority"
+                }
+                AssistChip(
+                    onClick = { showPriorityPicker = true },
+                    label = { Text(priorityLabel) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Flag, contentDescription = null, modifier = Modifier.size(16.dp))
+                    },
+                )
             }
 
             // Pending attachment previews
@@ -298,7 +325,9 @@ fun TaskEntrySheet(
 
             Button(
                 onClick = viewModel::save,
-                enabled = state.title.isNotBlank() && !state.isSaving,
+                // Gate on the effective (parsed) title so NLP-only input like "@work !1"
+                // doesn't look enabled and then silently no-op in save().
+                enabled = viewModel.effectiveTitle().isNotBlank() && !state.isSaving,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(if (state.isSaving) "Saving..." else "Save")
@@ -340,10 +369,7 @@ fun TaskEntrySheet(
             allLabels = state.allLabels,
             selectedLabelIds = state.selectedLabelIds,
             onToggleLabel = viewModel::toggleLabel,
-            onCreateLabel = { name, color ->
-                // Create label via repo, then add to selected set
-                // For now, labels are created on save
-            },
+            onCreateLabel = viewModel::createAndAddLabel,
             onDismiss = { showLabelPicker = false },
         )
     }
@@ -355,6 +381,14 @@ fun TaskEntrySheet(
             onRemoveReminder = viewModel::removeReminder,
             onDismiss = { showReminderPicker = false },
             onEditReminder = viewModel::editReminder,
+        )
+    }
+
+    if (showPriorityPicker) {
+        PriorityPickerDialog(
+            current = state.priority,
+            onPick = viewModel::setPriority,
+            onDismiss = { showPriorityPicker = false },
         )
     }
 }

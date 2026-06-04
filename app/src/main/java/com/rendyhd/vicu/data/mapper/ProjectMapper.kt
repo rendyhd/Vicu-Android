@@ -41,6 +41,21 @@ class ProjectMapper @Inject constructor() {
         ownerId = ownerId,
     )
 
+    fun Project.toEntity(): ProjectEntity = ProjectEntity(
+        id = id,
+        title = title,
+        description = description,
+        hexColor = hexColor,
+        parentProjectId = parentProjectId,
+        position = position,
+        isArchived = isArchived,
+        isFavorite = isFavorite,
+        identifier = identifier,
+        created = created,
+        updated = updated,
+        ownerId = ownerId,
+    )
+
     fun Project.toCreateDto(): CreateProjectDto = CreateProjectDto(
         title = title,
         description = description,

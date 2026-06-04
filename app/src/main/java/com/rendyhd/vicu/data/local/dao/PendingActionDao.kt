@@ -16,7 +16,7 @@ interface PendingActionDao {
     @Query("SELECT COUNT(*) FROM pending_actions WHERE status = 'pending'")
     fun getPendingCount(): Flow<Int>
 
-    @Query("SELECT * FROM pending_actions WHERE status = 'pending' AND retryCount < maxRetries")
+    @Query("SELECT * FROM pending_actions WHERE status = 'pending' AND retryCount < maxRetries ORDER BY createdAt ASC, id ASC")
     suspend fun getRetryable(): List<PendingActionEntity>
 
     @Insert

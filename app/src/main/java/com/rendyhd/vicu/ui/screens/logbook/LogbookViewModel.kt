@@ -64,10 +64,10 @@ class LogbookViewModel @Inject constructor(
         }
     }
 
-    fun refresh() {
+    fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
             val uncompletedIds = _uiState.value.uncompletedTaskIds
-            _uiState.update { it.copy(isRefreshing = true, error = null, uncompletedTaskIds = emptySet()) }
+            _uiState.update { it.copy(isRefreshing = showSpinner, error = null, uncompletedTaskIds = emptySet()) }
             try {
                 if (uncompletedIds.isNotEmpty()) taskRepository.deleteLocalByIds(uncompletedIds)
                 taskRepository.refreshAll(mapOf("filter" to "done = true"))

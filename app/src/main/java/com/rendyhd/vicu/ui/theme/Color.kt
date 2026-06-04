@@ -2,12 +2,12 @@ package com.rendyhd.vicu.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Light theme colors (Things 3 inspired blue)
+// Dark theme tones (light/high-luminance "80" roles, per Material naming)
 val Blue80 = Color(0xFF99C8FF)
 val BlueGrey80 = Color(0xFFB8C8DC)
 val Teal80 = Color(0xFF80CBC4)
 
-// Dark theme colors
+// Light theme tones (darker "40" roles — Things 3 inspired blue)
 val Blue40 = Color(0xFF007AFF)
 val BlueGrey40 = Color(0xFF546E7A)
 val Teal40 = Color(0xFF00897B)

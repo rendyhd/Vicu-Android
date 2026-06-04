@@ -124,6 +124,21 @@ interface TaskDao {
     )
     suspend fun getTodayTasksSync(endOfToday: String, limit: Int): List<TaskEntity>
 
+    /** Tasks due strictly within today's window (excludes overdue) — for the daily summary list. */
+    @Query(
+        """
+        SELECT * FROM tasks
+        WHERE done = 0
+        AND dueDate >= :startOfToday
+        AND dueDate <= :endOfToday
+        AND dueDate != '0001-01-01T00:00:00Z'
+        AND dueDate != ''
+        ORDER BY dueDate ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun getDueTodaySync(startOfToday: String, endOfToday: String, limit: Int): List<TaskEntity>
+
     @Query(
         """
         SELECT * FROM tasks

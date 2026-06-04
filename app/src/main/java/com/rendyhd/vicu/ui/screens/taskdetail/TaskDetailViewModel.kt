@@ -199,6 +199,11 @@ class TaskDetailViewModel @Inject constructor(
         _uiState.update { it.copy(task = it.task?.copy(priority = value.coerceIn(0, 4))) }
     }
 
+    /** Clears a recurrence set elsewhere (e.g. desktop); persisted on dismiss via saveIfChanged. */
+    fun clearRecurrence() {
+        _uiState.update { it.copy(task = it.task?.copy(repeatAfter = 0, repeatMode = 0)) }
+    }
+
     fun setProject(projectId: Long) {
         _uiState.update { it.copy(task = it.task?.copy(projectId = projectId)) }
     }

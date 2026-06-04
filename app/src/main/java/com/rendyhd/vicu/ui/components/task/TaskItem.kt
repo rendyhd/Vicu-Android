@@ -58,6 +58,7 @@ import com.rendyhd.vicu.ui.theme.PriorityMedium
 import com.rendyhd.vicu.ui.theme.PriorityUrgent
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.TaskLinkParser
+import com.rendyhd.vicu.util.parseHexColor
 
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -130,7 +131,7 @@ fun TaskItem(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     )
                 }
-                if (task.repeatAfter > 0) {
+                if (task.repeatAfter > 0 || task.repeatMode == 1) {
                     Icon(
                         imageVector = Icons.Outlined.Repeat,
                         contentDescription = "Repeating",
@@ -350,11 +351,7 @@ fun LabelChip(
     hexColor: String,
     modifier: Modifier = Modifier,
 ) {
-    val chipColor = try {
-        Color(android.graphics.Color.parseColor(if (hexColor.startsWith("#")) hexColor else "#$hexColor"))
-    } catch (_: Exception) {
-        MaterialTheme.colorScheme.primary
-    }
+    val chipColor = parseHexColor(hexColor) ?: MaterialTheme.colorScheme.primary
 
     Text(
         text = title,

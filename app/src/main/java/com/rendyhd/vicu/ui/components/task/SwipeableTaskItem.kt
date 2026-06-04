@@ -5,7 +5,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -13,6 +12,7 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -29,11 +29,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Task
 
-private val CompleteGreen = Color(0xFF34C759)
-private val CompleteGreenBg = Color(0xFF34C759)
-private val ScheduleOrange = Color(0xFFFF9800)
-private val ScheduleOrangeBg = Color(0xFFFF9800)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SwipeableTaskItem(
@@ -48,29 +43,22 @@ fun SwipeableTaskItem(
     val haptic = LocalHapticFeedback.current
 
     val dismissState = rememberSwipeToDismissBoxState(
-        positionalThreshold = { totalDistance -> totalDistance * 0.35f },
+        // Require dragging half the row (was 0.35) to commit, so a quick flick near the
+        // screen edge no longer triggers an accidental complete/schedule.
+        positionalThreshold = { totalDistance -> totalDistance * 0.5f },
         confirmValueChange = { value ->
             when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    // Swipe right → complete
-                    onToggleDone()
-                    false // reset to settled so row stays visible (undo pattern)
-                }
-                SwipeToDismissBoxValue.EndToStart -> {
-                    // Swipe left → schedule
-                    onSchedule()
-                    false // reset, date picker opens
-                }
-                SwipeToDismissBoxValue.Settled -> false
+                SwipeToDismissBoxValue.StartToEnd -> onToggleDone()
+                SwipeToDismissBoxValue.EndToStart -> onSchedule()
+                SwipeToDismissBoxValue.Settled -> {}
             }
+            // Return false so the row springs back and stays visible (the undo pattern relies
+            // on the row remaining) rather than dismissing.
+            false
         },
     )
 
-    // Fire a single haptic when a swipe crosses the threshold into a dismiss
-    // direction. Driving this from targetValue (edge-triggered, one emission per
-    // gesture) instead of from confirmValueChange — which re-runs every frame while
-    // a swipe is held past the threshold — fixes the rapid repeated vibration on
-    // the right-to-left (schedule) swipe reported in issue #6.
+    // One haptic per threshold crossing (edge-triggered via targetValue).
     LaunchedEffect(dismissState) {
         snapshotFlow { dismissState.targetValue }
             .collect { target ->
@@ -94,7 +82,10 @@ fun SwipeableTaskItem(
         state = dismissState,
         modifier = modifier,
         backgroundContent = {
-            SwipeBackground(dismissState.dismissDirection)
+            SwipeBackground(
+                dismissDirection = dismissState.dismissDirection,
+                progress = dismissState.progress,
+            )
         },
         enableDismissFromStartToEnd = !task.done,
         enableDismissFromEndToStart = !task.done,
@@ -111,18 +102,28 @@ fun SwipeableTaskItem(
 @Composable
 private fun SwipeBackground(
     dismissDirection: SwipeToDismissBoxValue,
+    progress: Float,
 ) {
+    // M3 color roles instead of hardcoded iOS green/orange, so the swipe backgrounds match
+    // the dynamic theme. Neither action is destructive, so NOT errorContainer.
+    val completeBg = MaterialTheme.colorScheme.tertiaryContainer
+    val onCompleteBg = MaterialTheme.colorScheme.onTertiaryContainer
+    val scheduleBg = MaterialTheme.colorScheme.secondaryContainer
+    val onScheduleBg = MaterialTheme.colorScheme.onSecondaryContainer
+
     val bgColor by animateColorAsState(
         targetValue = when (dismissDirection) {
-            SwipeToDismissBoxValue.StartToEnd -> CompleteGreenBg
-            SwipeToDismissBoxValue.EndToStart -> ScheduleOrangeBg
+            SwipeToDismissBoxValue.StartToEnd -> completeBg
+            SwipeToDismissBoxValue.EndToStart -> scheduleBg
             SwipeToDismissBoxValue.Settled -> Color.Transparent
         },
         animationSpec = tween(200),
         label = "swipeBg",
     )
 
-    val iconTint = Color.White
+    // Reveal the action icon only once the drag is far enough to commit, so the background
+    // check doesn't collide with the row's own checkbox early in the gesture.
+    val showIcon = progress >= 0.5f
 
     Row(
         modifier = Modifier
@@ -131,27 +132,18 @@ private fun SwipeBackground(
             .padding(horizontal = 24.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = when (dismissDirection) {
-            SwipeToDismissBoxValue.StartToEnd -> Arrangement.Start
             SwipeToDismissBoxValue.EndToStart -> Arrangement.End
-            SwipeToDismissBoxValue.Settled -> Arrangement.Start
+            else -> Arrangement.Start
         },
     ) {
-        when (dismissDirection) {
-            SwipeToDismissBoxValue.StartToEnd -> {
-                Icon(
-                    imageVector = Icons.Outlined.Check,
-                    contentDescription = "Complete",
-                    tint = iconTint,
-                )
+        if (showIcon) {
+            when (dismissDirection) {
+                SwipeToDismissBoxValue.StartToEnd ->
+                    Icon(Icons.Outlined.Check, contentDescription = "Complete", tint = onCompleteBg)
+                SwipeToDismissBoxValue.EndToStart ->
+                    Icon(Icons.Outlined.CalendarMonth, contentDescription = "Schedule", tint = onScheduleBg)
+                SwipeToDismissBoxValue.Settled -> {}
             }
-            SwipeToDismissBoxValue.EndToStart -> {
-                Icon(
-                    imageVector = Icons.Outlined.CalendarMonth,
-                    contentDescription = "Schedule",
-                    tint = iconTint,
-                )
-            }
-            SwipeToDismissBoxValue.Settled -> {}
         }
     }
 }

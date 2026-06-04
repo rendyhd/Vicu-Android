@@ -47,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.debounce
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -90,6 +91,9 @@ fun DescriptionField(
     val currentImageRefs by rememberUpdatedState(allImageRefs)
     LaunchedEffect(textFieldState) {
         snapshotFlow { textFieldState.text.toString() }
+            // Coalesce rapid typing so we don't re-serialize image tokens on every keystroke.
+            // 150ms is shorter than the sheet-dismiss animation, so trailing text isn't lost.
+            .debounce(150)
             .collect { typed ->
                 currentOnValueChange(ImageTokens.buildValue(typed, currentImageRefs))
             }

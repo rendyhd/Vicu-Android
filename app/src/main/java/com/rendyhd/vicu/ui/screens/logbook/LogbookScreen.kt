@@ -48,7 +48,7 @@ fun LogbookScreen(
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
-            onRefresh = viewModel::refresh,
+            onRefresh = { viewModel.refresh(showSpinner = true) },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
@@ -90,7 +90,7 @@ fun LogbookScreen(
                 duration = SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed) {
-                viewModel.refresh()
+                viewModel.refresh(true)
             }
             viewModel.clearError()
         }

@@ -49,11 +49,6 @@ fun TodayScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    CompletionUndoSnackbar(
-        snackbarHostState = snackbarHostState,
-        events = viewModel.completionEvents,
-        onUndo = viewModel::undoComplete,
-    )
     var schedulingTask by remember { mutableStateOf<Task?>(null) }
     val listState = rememberLazyListState()
 
@@ -77,14 +72,13 @@ fun TodayScreen(
         floatingActionButton = {
             VicuFab(
                 onClick = { onShowTaskEntry(null, DateUtils.todayEndIso()) },
-                listState = listState,
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
-            onRefresh = viewModel::refresh,
+            onRefresh = { viewModel.refresh(showSpinner = true) },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
@@ -125,7 +119,7 @@ fun TodayScreen(
                                     }
                                 },
                                 onClick = { onTaskClick(task.id) },
-                                onSchedule = { schedulingTask = task },
+                                onSchedule = { viewModel.scheduleTask(task) },
                                 modifier = Modifier.animateItem(),
                             )
                         }
@@ -152,7 +146,7 @@ fun TodayScreen(
                                 }
                             },
                             onClick = { onTaskClick(task.id) },
-                            onSchedule = { schedulingTask = task },
+                            onSchedule = { viewModel.scheduleTask(task) },
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -170,7 +164,7 @@ fun TodayScreen(
                 duration = SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed) {
-                viewModel.refresh()
+                viewModel.refresh(true)
             }
             viewModel.clearError()
         }

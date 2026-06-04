@@ -9,8 +9,9 @@ import androidx.work.workDataOf
 import com.rendyhd.vicu.worker.DailySummaryWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Duration
-import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -46,7 +47,11 @@ class DailySummaryScheduler @Inject constructor(
     }
 
     fun schedule(slot: String, hour: Int, minute: Int) {
-        val now = LocalDateTime.now()
+        // Compute the delay in the system zone so the FIRST fire lands on the correct wall-clock
+        // time across DST transitions. (The 24h periodic interval re-anchors on each schedule()
+        // call — boot, settings change — keeping drift bounded.)
+        val zone = ZoneId.systemDefault()
+        val now = ZonedDateTime.now(zone)
         var target = now.with(LocalTime.of(hour, minute))
         if (!target.isAfter(now)) target = target.plusDays(1)
         val initialDelay = Duration.between(now, target)

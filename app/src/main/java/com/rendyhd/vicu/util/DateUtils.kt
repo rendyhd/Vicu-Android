@@ -133,6 +133,8 @@ object DateUtils {
     }
 
     fun formatRecurrence(repeatAfter: Long, repeatMode: Int): String {
+        // repeatMode == 1 is Vikunja's "monthly" mode, which carries repeatAfter == 0.
+        if (repeatAfter <= 0 && repeatMode == 1) return "Every month"
         if (repeatAfter <= 0) return ""
         val days = repeatAfter / 86400
         val weeks = days / 7

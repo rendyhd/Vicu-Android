@@ -9,12 +9,10 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.util.NetworkResult
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -36,15 +34,13 @@ class TagViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
+    private val syncStaleness: SyncStaleness,
 ) : ViewModel() {
 
     private val labelId: Long = savedStateHandle["labelId"]!!
 
     private val _uiState = MutableStateFlow(TagUiState())
     val uiState: StateFlow<TagUiState> = _uiState.asStateFlow()
-
-    private val _completionEvents = Channel<Task>(Channel.BUFFERED)
-    val completionEvents: Flow<Task> = _completionEvents.receiveAsFlow()
 
     init {
         viewModelScope.launch {
@@ -59,18 +55,19 @@ class TagViewModel @Inject constructor(
                 _uiState.update { it.copy(tasks = filtered, isLoading = false) }
             }
         }
-        refresh()
+        if (syncStaleness.isStale()) refresh()
     }
 
-    fun refresh() {
+    fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
             val completedIds = _uiState.value.completedTaskIds
-            _uiState.update { it.copy(isRefreshing = true, error = null, completedTaskIds = emptySet()) }
+            _uiState.update { it.copy(isRefreshing = showSpinner, error = null, completedTaskIds = emptySet()) }
             try {
                 if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
                 taskRepository.refreshAll()
                 projectRepository.refreshAll()
                 labelRepository.refreshAll()
+                syncStaleness.markSynced()
                 // Re-fetch label in case it was updated
                 val label = labelRepository.getById(labelId)
                 _uiState.update { it.copy(label = label) }
@@ -86,7 +83,6 @@ class TagViewModel @Inject constructor(
         viewModelScope.launch {
             if (!task.done) {
                 _uiState.update { it.copy(completedTaskIds = it.completedTaskIds + task.id) }
-                _completionEvents.trySend(task)
             }
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {
@@ -105,6 +101,13 @@ class TagViewModel @Inject constructor(
             // it's handed. Pass done=true so it reverts to done=false remotely; passing the
             // raw task would re-send done=true and the completion would survive a refresh.
             taskRepository.toggleDone(task.copy(done = true))
+        }
+    }
+
+    /** Swipe-schedule: applies the configured Today/Urgent action via the repository. */
+    fun scheduleTask(task: Task) {
+        viewModelScope.launch {
+            taskRepository.applyScheduleAction(task)
         }
     }
 

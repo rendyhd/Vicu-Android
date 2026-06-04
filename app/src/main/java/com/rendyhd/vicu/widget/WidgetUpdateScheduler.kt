@@ -18,7 +18,9 @@ object WidgetUpdateScheduler {
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             PERIODIC_WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
+            // UPDATE (not KEEP) so changes to the refresh cadence/config replace the
+            // existing periodic job instead of being ignored until it's cancelled.
+            ExistingPeriodicWorkPolicy.UPDATE,
             request,
         )
     }

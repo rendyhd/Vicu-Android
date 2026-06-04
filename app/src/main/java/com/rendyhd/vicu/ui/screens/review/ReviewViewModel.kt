@@ -69,6 +69,10 @@ class ReviewViewModel @Inject constructor(
 
     private val inboxId = MutableStateFlow<Long?>(null)
 
+    // Session-only "reviewed" set kept OUT of _uiState so that updating UI state (expand,
+    // undo, lazy content) doesn't feed back into the combine and re-run buildState on every tap.
+    private val reviewedThisSession = MutableStateFlow<Set<Long>>(emptySet())
+
     init {
         viewModelScope.launch { inboxId.value = authManager.getInboxProjectId() }
         viewModelScope.launch {
@@ -76,9 +80,9 @@ class ReviewViewModel @Inject constructor(
                 projectRepository.getAll(),
                 reviewPrefsStore.getPrefs(),
                 inboxId,
-                _uiState,
-            ) { projects, prefs, inbox, state ->
-                buildState(projects, prefs, inbox, state)
+                reviewedThisSession,
+            ) { projects, prefs, inbox, reviewed ->
+                buildState(projects, prefs, inbox, reviewed, _uiState.value)
             }.collect { built -> _uiState.value = built }
         }
         refresh()
@@ -88,6 +92,7 @@ class ReviewViewModel @Inject constructor(
         projects: List<Project>,
         prefs: ReviewPrefs,
         inbox: Long?,
+        reviewed: Set<Long>,
         state: ReviewUiState,
     ): ReviewUiState {
         val tracked = projects
@@ -103,10 +108,11 @@ class ReviewViewModel @Inject constructor(
             .filter { it.status.metadata.state != ReviewState.EXCLUDED }
             .sortedBy { it.status.daysUntilDue ?: Long.MIN_VALUE }
             .toList()
-        val due = tracked.filter { it.status.isOverdue || it.project.id in state.reviewedThisSession }
+        val due = tracked.filter { it.status.isOverdue || it.project.id in reviewed }
         return state.copy(
             all = tracked,
             due = due,
+            reviewedThisSession = reviewed,
             enabled = prefs.enabled,
             isLoading = false,
         )
@@ -165,9 +171,8 @@ class ReviewViewModel @Inject constructor(
             val meta = ReviewMetadata.parse(project.description)
                 .let { ReviewMetadata(ReviewState.REVIEWED, ReviewMetadata.todayLocalIsoDate(), it.cadenceDaysOverride) }
             val updated = project.copy(description = ReviewMetadata.upsert(project.description, meta))
-            _uiState.update {
-                it.copy(reviewedThisSession = it.reviewedThisSession + project.id, undo = prev)
-            }
+            reviewedThisSession.value = reviewedThisSession.value + project.id
+            _uiState.update { it.copy(undo = prev) }
             projectRepository.update(updated)
         }
     }
@@ -197,9 +202,8 @@ class ReviewViewModel @Inject constructor(
     fun undo() {
         val prev = _uiState.value.undo ?: return
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(reviewedThisSession = it.reviewedThisSession - prev.id, undo = null)
-            }
+            reviewedThisSession.value = reviewedThisSession.value - prev.id
+            _uiState.update { it.copy(undo = null) }
             projectRepository.update(prev)
         }
     }

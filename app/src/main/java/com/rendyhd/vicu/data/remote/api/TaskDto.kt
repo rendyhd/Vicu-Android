@@ -41,6 +41,8 @@ data class CreateTaskDto(
     @SerialName("due_date") val dueDate: String? = null,
     @SerialName("start_date") val startDate: String? = null,
     val priority: Int = 0,
+    @SerialName("repeat_after") val repeatAfter: Long = 0,
+    @SerialName("repeat_mode") val repeatMode: Int = 0,
     val labels: List<LabelDto>? = null,
     val reminders: List<TaskReminderDto>? = null,
 )

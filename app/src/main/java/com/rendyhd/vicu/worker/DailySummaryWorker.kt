@@ -32,10 +32,16 @@ class DailySummaryWorker @AssistedInject constructor(
     companion object {
         private const val TAG = "DailySummaryWorker"
         private const val NOTIFICATION_ID = 999_999
+        private const val NOTIFICATION_ID_AFTERNOON = 999_998
+        const val KEY_SLOT = "slot"
+        const val SLOT_AFTERNOON = "afternoon"
     }
 
     override suspend fun doWork(): Result {
-        Log.d(TAG, "Running daily summary")
+        val isAfternoon = inputData.getString(KEY_SLOT) == SLOT_AFTERNOON
+        val notificationId = if (isAfternoon) NOTIFICATION_ID_AFTERNOON else NOTIFICATION_ID
+        val heading = if (isAfternoon) "Afternoon Summary" else "Daily Summary"
+        Log.d(TAG, "Running daily summary (afternoon=$isAfternoon)")
         return try {
             val startOfToday = DateUtils.todayStartIso()
             val endOfToday = DateUtils.getEndOfToday()
@@ -51,7 +57,8 @@ class DailySummaryWorker @AssistedInject constructor(
                 return Result.success()
             }
 
-            val todayTasks = taskDao.getTodayTasksSync(endOfToday, 3)
+            // Today-only (excludes overdue, which is summarized separately below).
+            val todayTasks = taskDao.getDueTodaySync(startOfToday, endOfToday, 3)
                 .map { with(taskMapper) { it.toDomain() } }
 
             val tapIntent = Intent(applicationContext, MainActivity::class.java).apply {
@@ -59,7 +66,7 @@ class DailySummaryWorker @AssistedInject constructor(
             }
             val tapPending = PendingIntent.getActivity(
                 applicationContext,
-                NOTIFICATION_ID,
+                notificationId,
                 tapIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
@@ -73,7 +80,7 @@ class DailySummaryWorker @AssistedInject constructor(
             }
 
             val style = NotificationCompat.InboxStyle()
-                .setBigContentTitle("Daily Summary")
+                .setBigContentTitle(heading)
 
             todayTasks.forEach { task ->
                 style.addLine(task.title)
@@ -91,7 +98,7 @@ class DailySummaryWorker @AssistedInject constructor(
                 NotificationChannelManager.CHANNEL_DAILY_SUMMARY,
             )
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Daily Summary")
+                .setContentTitle(heading)
                 .setContentText(title)
                 .setStyle(style)
                 .setAutoCancel(true)
@@ -99,7 +106,7 @@ class DailySummaryWorker @AssistedInject constructor(
                 .build()
 
             try {
-                NotificationManagerCompat.from(applicationContext).notify(NOTIFICATION_ID, notification)
+                NotificationManagerCompat.from(applicationContext).notify(notificationId, notification)
             } catch (e: SecurityException) {
                 Log.w(TAG, "Missing POST_NOTIFICATIONS permission", e)
             }

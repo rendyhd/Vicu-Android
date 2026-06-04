@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -21,6 +23,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -50,15 +53,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.util.ReviewState
-
-private fun parseHexColor(hex: String): Color? {
-    if (hex.isBlank()) return null
-    return try {
-        Color(android.graphics.Color.parseColor(if (hex.startsWith("#")) hex else "#$hex"))
-    } catch (_: Exception) {
-        null
-    }
-}
+import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,9 +90,12 @@ fun ReviewScreen(
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             val reviewedCount = state.reviewedThisSession.size
             val remaining = state.due.count { !state.reviewedThisSession.contains(it.project.id) }
-            val total = (reviewedCount + remaining).coerceAtLeast(1)
+            val reviewable = reviewedCount + remaining
+            val total = reviewable.coerceAtLeast(1)
             LinearProgressIndicator(
-                progress = { reviewedCount.toFloat() / total.toFloat() },
+                // When there's nothing to review, show a full (caught-up) bar rather than
+                // an empty track.
+                progress = { if (reviewable == 0) 1f else reviewedCount.toFloat() / total.toFloat() },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             )
             TabRow(selectedTabIndex = if (state.tab == ReviewTab.DUE) 0 else 1) {
@@ -131,6 +129,7 @@ fun ReviewScreen(
                             onSetCadence = { days -> viewModel.setCadence(item.project, days) },
                             onExclude = { viewModel.setExcluded(item.project, true) },
                         )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     }
                 }
             }
@@ -180,7 +179,11 @@ private fun ReviewRow(
                 Text(text = stalenessLabel(item), style = MaterialTheme.typography.bodySmall)
             }
             if (reviewed) {
-                Text("✓ Reviewed")
+                Text(
+                    text = "Reviewed",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             } else {
                 OutlinedButton(onClick = onMarkReviewed) { Text("Mark reviewed") }
             }
@@ -280,16 +283,27 @@ private fun ReviewTaskRow(
     onTaskClick: (Long) -> Unit,
     extraIndent: Boolean = false,
 ) {
-    Text(
-        text = task.title,
-        style = MaterialTheme.typography.bodyMedium,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onTaskClick(task.id) }
             .padding(start = if (extraIndent) 52.dp else 38.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
-    )
+    ) {
+        Box(
+            modifier = Modifier
+                .size(4.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant),
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = task.title,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 private fun stalenessLabel(item: ReviewItem): String {

@@ -190,6 +190,28 @@ class TaskMapper @Inject constructor(private val json: Json) {
         return copy(relatedTasksJson = json.encodeToString(relatedTasksSerializer, updated))
     }
 
+    private val labelsSerializer = ListSerializer(LabelDto.serializer())
+
+    private fun decodeLabels(encoded: String): List<LabelDto> =
+        try {
+            json.decodeFromString(labelsSerializer, encoded)
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+    /** Returns a copy with [label] added (deduped by id) for optimistic offline label adds. */
+    fun TaskEntity.withLabelAdded(label: LabelDto): TaskEntity {
+        val current = decodeLabels(labelsJson)
+        if (current.any { it.id == label.id }) return this
+        return copy(labelsJson = json.encodeToString(labelsSerializer, current + label))
+    }
+
+    /** Returns a copy with label [labelId] removed for optimistic offline label removals. */
+    fun TaskEntity.withLabelRemoved(labelId: Long): TaskEntity {
+        val current = decodeLabels(labelsJson)
+        return copy(labelsJson = json.encodeToString(labelsSerializer, current.filterNot { it.id == labelId }))
+    }
+
     private fun dateOrNull(value: String): String =
         if (value.isBlank()) Constants.NULL_DATE_STRING else value
 
@@ -202,6 +224,8 @@ class TaskMapper @Inject constructor(private val json: Json) {
         dueDate = dateOrNullable(dueDate),
         startDate = dateOrNullable(startDate),
         priority = priority,
+        repeatAfter = repeatAfter,
+        repeatMode = repeatMode,
         reminders = reminders.map { it.toDto() }.ifEmpty { null },
     )
 

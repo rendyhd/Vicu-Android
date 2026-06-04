@@ -46,12 +46,28 @@ class LabelRepositoryImpl @Inject constructor(
             createdAt = DateUtils.nowIso(),
             updatedAt = DateUtils.nowIso(),
         )
-        if (actionType == "create") {
+        // add_label/remove_label are per-task operations keyed by labelId; they must NOT
+        // dedup against each other (replaceForEntity would let adding label L to task B
+        // delete the still-pending add of L to task A). Only create/update/delete dedup.
+        if (actionType == "create" || actionType == "add_label" || actionType == "remove_label") {
             pendingActionDao.insert(action)
         } else {
             pendingActionDao.replaceForEntity("label", entityId, action)
         }
         SyncScheduler.enqueueWhenOnline(context)
+    }
+
+    /** Optimistically reflect an offline label add/remove in the cached task's labels. */
+    private suspend fun patchTaskLabelLocally(taskId: Long, labelId: Long, add: Boolean) {
+        val entity = taskDao.getByIdSync(taskId) ?: return
+        if (add) {
+            val labelDto = labelDao.getById(labelId)
+                ?.let { with(labelMapper) { it.toDomain() } }
+                ?.let { with(labelMapper) { it.toDto() } } ?: return
+            taskDao.upsert(with(taskMapper) { entity.withLabelAdded(labelDto) })
+        } else {
+            taskDao.upsert(with(taskMapper) { entity.withLabelRemoved(labelId) })
+        }
     }
 
     override fun getAll(): Flow<List<Label>> =
@@ -145,7 +161,8 @@ class LabelRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
                 queueLabelAction(labelId, "add_label", "$taskId:$labelId")
-                NetworkResult.Success(Unit)
+                patchTaskLabelLocally(taskId, labelId, add = true)
+                return NetworkResult.Success(Unit)
             } else {
                 NetworkResult.Error(e.localizedMessage ?: "Failed to add label to task")
             }
@@ -161,7 +178,8 @@ class LabelRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
                 queueLabelAction(labelId, "remove_label", "$taskId:$labelId")
-                NetworkResult.Success(Unit)
+                patchTaskLabelLocally(taskId, labelId, add = false)
+                return NetworkResult.Success(Unit)
             } else {
                 NetworkResult.Error(e.localizedMessage ?: "Failed to remove label from task")
             }

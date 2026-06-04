@@ -256,6 +256,29 @@ class TaskEntryViewModel @Inject constructor(
         }
     }
 
+    /** Create a brand-new label inline and select it (mirrors the detail sheet). */
+    fun createAndAddLabel(name: String, hexColor: String) {
+        viewModelScope.launch {
+            when (val res = labelRepository.create(Label(id = 0L, title = name, hexColor = hexColor))) {
+                is NetworkResult.Success ->
+                    _uiState.update { it.copy(selectedLabelIds = it.selectedLabelIds + res.data.id) }
+                is NetworkResult.Error ->
+                    _uiState.update { it.copy(error = res.message) }
+                is NetworkResult.Loading -> {}
+            }
+        }
+    }
+
+    /** The title that will actually be saved (NLP tokens stripped). Used to gate the Save button. */
+    fun effectiveTitle(): String {
+        val state = _uiState.value
+        return if (state.parserConfig.enabled && state.parseResult != null) {
+            state.parseResult.title
+        } else {
+            state.title.trim()
+        }
+    }
+
     fun addReminder(reminder: TaskReminder) {
         _uiState.update { it.copy(reminders = it.reminders + reminder) }
     }
@@ -403,10 +426,12 @@ class TaskEntryViewModel @Inject constructor(
                         if (pendingImages.isNotEmpty()) {
                             uploadPendingImagesAndUpdateDescription(createdTask, pendingImages)
                         }
-                        taskRepository.refreshAll()
+                        // Dismiss immediately; run the full refresh in the background so the
+                        // sheet doesn't hang on the network round-trip (save-task stutter).
                         _uiState.update {
                             it.copy(isSaving = false, savedTaskId = createdTask.id)
                         }
+                        viewModelScope.launch { taskRepository.refreshAll() }
                     }
                     is NetworkResult.Error -> {
                         _uiState.update {

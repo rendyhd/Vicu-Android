@@ -38,17 +38,23 @@ object CustomListFilterBuilder {
                 parts.add("due_date != '$nullDate'")
             }
             "today" -> {
+                val startOfToday = now.atStartOfDay().toInstant(ZoneOffset.UTC)
                 val endOfToday = now.plusDays(1).atStartOfDay().minusNanos(1).toInstant(ZoneOffset.UTC)
+                parts.add("due_date >= '${isoFormatter.format(startOfToday)}'")
                 parts.add("due_date <= '${isoFormatter.format(endOfToday)}'")
                 parts.add("due_date != '$nullDate'")
             }
             "this_week" -> {
+                val startOfToday = now.atStartOfDay().toInstant(ZoneOffset.UTC)
                 val endOfWeek = now.plusWeeks(1).atStartOfDay().minusNanos(1).toInstant(ZoneOffset.UTC)
+                parts.add("due_date >= '${isoFormatter.format(startOfToday)}'")
                 parts.add("due_date <= '${isoFormatter.format(endOfWeek)}'")
                 parts.add("due_date != '$nullDate'")
             }
             "this_month" -> {
+                val startOfToday = now.atStartOfDay().toInstant(ZoneOffset.UTC)
                 val endOfMonth = now.plusMonths(1).atStartOfDay().minusNanos(1).toInstant(ZoneOffset.UTC)
+                parts.add("due_date >= '${isoFormatter.format(startOfToday)}'")
                 parts.add("due_date <= '${isoFormatter.format(endOfMonth)}'")
                 parts.add("due_date != '$nullDate'")
             }
@@ -133,24 +139,27 @@ object CustomListFilterBuilder {
                 }
             }
             "today" -> {
+                val startOfToday = now.atStartOfDay(localZone).toInstant()
                 val endOfToday = now.plusDays(1).atStartOfDay(localZone).toInstant()
                 result = result.filter { task ->
                     val instant = DateUtils.parseIsoDate(task.dueDate)
-                    instant != null && instant.isBefore(endOfToday)
+                    instant != null && !instant.isBefore(startOfToday) && instant.isBefore(endOfToday)
                 }
             }
             "this_week" -> {
+                val startOfToday = now.atStartOfDay(localZone).toInstant()
                 val endOfWeek = now.plusWeeks(1).atStartOfDay(localZone).toInstant()
                 result = result.filter { task ->
                     val instant = DateUtils.parseIsoDate(task.dueDate)
-                    instant != null && instant.isBefore(endOfWeek)
+                    instant != null && !instant.isBefore(startOfToday) && instant.isBefore(endOfWeek)
                 }
             }
             "this_month" -> {
+                val startOfToday = now.atStartOfDay(localZone).toInstant()
                 val endOfMonth = now.plusMonths(1).atStartOfDay(localZone).toInstant()
                 result = result.filter { task ->
                     val instant = DateUtils.parseIsoDate(task.dueDate)
-                    instant != null && instant.isBefore(endOfMonth)
+                    instant != null && !instant.isBefore(startOfToday) && instant.isBefore(endOfMonth)
                 }
             }
             "has_due_date" -> {

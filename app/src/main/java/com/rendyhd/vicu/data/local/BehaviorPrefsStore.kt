@@ -18,11 +18,15 @@ import javax.inject.Singleton
  *  - Whether to play a sound on task completion (+ optional custom sound file URI)
  *  - Whether to require confirmation before destructive deletes
  */
+/** What the swipe-"schedule" and multi-select "Schedule" actions do to a task. */
+enum class ScheduleAction { DUE_TODAY, PRIORITY_URGENT }
+
 data class BehaviorPrefs(
     val completionSoundEnabled: Boolean = false,
     val completionSoundUri: String? = null,
     val confirmBeforeDelete: Boolean = true,
     val inboxExcludeDated: Boolean = false,
+    val scheduleAction: ScheduleAction = ScheduleAction.DUE_TODAY,
 )
 
 private val Context.behaviorPrefsDataStore: DataStore<Preferences> by preferencesDataStore(name = "behavior_prefs")
@@ -36,6 +40,7 @@ class BehaviorPrefsStore @Inject constructor(
         private val KEY_COMPLETION_SOUND_URI = stringPreferencesKey("completion_sound_uri")
         private val KEY_CONFIRM_BEFORE_DELETE = booleanPreferencesKey("confirm_before_delete")
         private val KEY_INBOX_EXCLUDE_DATED = booleanPreferencesKey("inbox_exclude_dated")
+        private val KEY_SCHEDULE_ACTION = stringPreferencesKey("schedule_action")
     }
 
     fun getPrefs(): Flow<BehaviorPrefs> =
@@ -45,6 +50,9 @@ class BehaviorPrefsStore @Inject constructor(
                 completionSoundUri = prefs[KEY_COMPLETION_SOUND_URI]?.takeIf { it.isNotBlank() },
                 confirmBeforeDelete = prefs[KEY_CONFIRM_BEFORE_DELETE] ?: true,
                 inboxExcludeDated = prefs[KEY_INBOX_EXCLUDE_DATED] ?: false,
+                scheduleAction = prefs[KEY_SCHEDULE_ACTION]
+                    ?.let { runCatching { ScheduleAction.valueOf(it) }.getOrNull() }
+                    ?: ScheduleAction.DUE_TODAY,
             )
         }
 
@@ -65,5 +73,9 @@ class BehaviorPrefsStore @Inject constructor(
 
     suspend fun setInboxExcludeDated(enabled: Boolean) {
         context.behaviorPrefsDataStore.edit { it[KEY_INBOX_EXCLUDE_DATED] = enabled }
+    }
+
+    suspend fun setScheduleAction(action: ScheduleAction) {
+        context.behaviorPrefsDataStore.edit { it[KEY_SCHEDULE_ACTION] = action.name }
     }
 }

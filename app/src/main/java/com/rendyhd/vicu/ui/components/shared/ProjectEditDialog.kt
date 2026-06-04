@@ -35,6 +35,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Project
 
+/**
+ * Collects all descendant project ids of [rootId] with a visited guard, so pre-existing
+ * cyclic parent data can't cause infinite recursion.
+ */
+private fun collectDescendantIds(rootId: Long, projects: List<Project>): Set<Long> {
+    val childrenByParent = projects.groupBy { it.parentProjectId }
+    val result = mutableSetOf<Long>()
+    val stack = ArrayDeque<Long>()
+    childrenByParent[rootId]?.forEach { stack.addLast(it.id) }
+    while (stack.isNotEmpty()) {
+        val id = stack.removeLast()
+        if (!result.add(id)) continue // visited guard breaks cycles
+        childrenByParent[id]?.forEach { stack.addLast(it.id) }
+    }
+    return result
+}
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectEditDialog(
@@ -45,16 +62,21 @@ fun ProjectEditDialog(
 ) {
     val isEdit = project != null
     var name by remember { mutableStateOf(project?.title ?: "") }
-    var selectedColor by remember {
-        mutableStateOf(
-            project?.hexColor?.ifBlank { null } ?: PRESET_COLORS.first()
-        )
-    }
+    // New projects default to "None" (empty hex → renderer falls back to the theme color).
+    var selectedColor by remember { mutableStateOf(project?.hexColor.orEmpty()) }
     var parentId by remember { mutableLongStateOf(project?.parentProjectId ?: 0L) }
     var parentDropdownExpanded by remember { mutableStateOf(false) }
 
-    // Exclude the project being edited (and its children) from parent options
-    val availableParents = projects.filter { it.id != project?.id }
+    // Exclude the project being edited AND its descendants from parent options, so a cycle
+    // (A→B→A) can't be created — such a cycle would StackOverflow any recursive tree walk.
+    val availableParents = remember(projects, project?.id) {
+        if (project == null) {
+            projects
+        } else {
+            val descendants = collectDescendantIds(project.id, projects)
+            projects.filter { it.id != project.id && it.id !in descendants }
+        }
+    }
 
     val parentLabel = if (parentId == 0L) {
         "None (top-level)"
@@ -131,6 +153,23 @@ fun ProjectEditDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    // "None" — hollow swatch; empty hex renders with the theme color.
+                    val noneSelected = selectedColor.isBlank()
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .border(
+                                width = if (noneSelected) 3.dp else 1.dp,
+                                color = if (noneSelected) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                },
+                                shape = CircleShape,
+                            )
+                            .clickable { selectedColor = "" },
+                    )
                     PRESET_COLORS.forEach { hex ->
                         val color = Color(android.graphics.Color.parseColor(hex))
                         val normalizedSelected = selectedColor.let {

@@ -46,7 +46,7 @@ class AlarmScheduler @Inject constructor(
     fun cancelForTask(taskId: Long) {
         // Cancel up to 100 potential reminders per task
         for (i in 0 until 100) {
-            val requestCode = taskId.toInt() * 100 + i
+            val requestCode = alarmRequestCode(taskId, i)
             val intent = Intent(context, AlarmReceiver::class.java)
             val pending = PendingIntent.getBroadcast(
                 context,
@@ -83,8 +83,16 @@ class AlarmScheduler @Inject constructor(
         scheduleAlarm(taskId, taskTitle, 99, triggerAtMillis)
     }
 
+    /**
+     * Stable, collision-resistant PendingIntent request code from (taskId, index).
+     * Hashing the 64-bit (taskId*100+index) avoids the Int truncation/overflow of large
+     * server IDs that let one task's cancel hit another task's alarms.
+     */
+    private fun alarmRequestCode(taskId: Long, index: Int): Int =
+        (taskId * 100 + index).hashCode()
+
     private fun scheduleAlarm(taskId: Long, taskTitle: String, reminderIndex: Int, triggerAtMillis: Long) {
-        val requestCode = taskId.toInt() * 100 + reminderIndex
+        val requestCode = alarmRequestCode(taskId, reminderIndex)
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra(AlarmReceiver.EXTRA_TASK_ID, taskId)
             putExtra(AlarmReceiver.EXTRA_TASK_TITLE, taskTitle)
@@ -97,7 +105,11 @@ class AlarmScheduler @Inject constructor(
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-            Log.w(TAG, "Cannot schedule exact alarms — permission not granted")
+            // Without the exact-alarm permission, fall back to an inexact alarm so the
+            // reminder still fires (approximately) instead of silently dying. The Settings
+            // banner prompts the user to grant exact alarms for precise timing.
+            Log.w(TAG, "Exact alarms not permitted — scheduling inexact fallback")
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pending)
             return
         }
 
@@ -116,8 +128,10 @@ class AlarmScheduler @Inject constructor(
             if (instant != null) return instant.toEpochMilli()
         }
 
-        // Relative reminder: offset from due_date (or start_date/end_date via relativeTo)
-        if (reminder.relativePeriod != 0L) {
+        // Relative reminder: offset from due_date (or start_date/end_date via relativeTo).
+        // A period of 0 with a non-blank relativeTo means "at the base date" (e.g. "At due
+        // time"), which previously fell through to null and never scheduled an alarm.
+        if (reminder.relativePeriod != 0L || reminder.relativeTo.isNotBlank()) {
             val baseDate = DateUtils.parseIsoDate(dueDate)
             if (baseDate != null) {
                 // relativePeriod is in seconds, negative = before due date

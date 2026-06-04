@@ -24,7 +24,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
+import com.rendyhd.vicu.data.local.ScheduleAction
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -192,6 +194,7 @@ class TaskRepositoryImpl @Inject constructor(
     }
 
     override suspend fun update(task: Task): NetworkResult<Task> {
+        val previous = taskDao.getByIdSync(task.id)
         return try {
             // Optimistic local update
             val dto = with(taskMapper) { task.toDto() }
@@ -221,9 +224,22 @@ class TaskRepositoryImpl @Inject constructor(
                 WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
                 NetworkResult.Success(task)
             } else {
+                // Roll back the optimistic write on a hard (non-retriable) failure
+                // so a server-rejected change doesn't persist locally until a refetch.
+                previous?.let { taskDao.upsert(it) }
                 NetworkResult.Error(e.localizedMessage ?: "Failed to update task")
             }
         }
+    }
+
+    override suspend fun applyScheduleAction(task: Task): NetworkResult<Task> {
+        val action = behaviorPrefsStore.getPrefs().first().scheduleAction
+        val updated = when (action) {
+            ScheduleAction.DUE_TODAY -> task.copy(dueDate = DateUtils.todayEndIso())
+            ScheduleAction.PRIORITY_URGENT -> task.copy(priority = 4)
+        }
+        // Sends the COMPLETE Task (Go zero-value problem).
+        return update(updated)
     }
 
     override suspend fun moveToProject(taskId: Long, newProjectId: Long): NetworkResult<Unit> {
@@ -505,6 +521,13 @@ class TaskRepositoryImpl @Inject constructor(
             val pendingTaskIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
             val safeEntities = entities.filter { it.id !in pendingTaskIds }
             taskDao.upsertAll(safeEntities)
+            // Only prune on a FULL fetch — a filtered fetch returns a subset, so deleting
+            // "missing" tasks would wrongly drop everything outside the filter. Keep pending
+            // (e.g. locally-created temp-id) tasks regardless.
+            if (filters.isEmpty()) {
+                val serverTaskIds = allTasks.map { it.id }.toSet() + pendingTaskIds
+                taskDao.deleteNotIn(serverTaskIds)
+            }
             alarmScheduler.rescheduleAll()
             WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
             Log.d(TAG, "refreshAll() SUCCESS: upserted ${safeEntities.size} total tasks (skipped ${entities.size - safeEntities.size} with pending actions)")

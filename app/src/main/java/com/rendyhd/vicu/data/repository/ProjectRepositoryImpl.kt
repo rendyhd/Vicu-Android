@@ -46,6 +46,11 @@ class ProjectRepositoryImpl @Inject constructor(
     }
 
     override suspend fun update(project: Project): NetworkResult<Project> {
+        // Optimistic local write first, so a network failure doesn't silently drop the change
+        // (e.g. a review's "reviewed" state) — the project re-appears as due on next refresh
+        // otherwise. Roll back to the cached value if the server rejects it.
+        val previous = projectDao.getByIdSync(project.id)
+        with(projectMapper) { projectDao.upsert(project.toEntity()) }
         return try {
             val dto = with(projectMapper) { project.toUpdateDto() }
             val responseDto = api.updateProject(project.id, dto)
@@ -53,6 +58,7 @@ class ProjectRepositoryImpl @Inject constructor(
             projectDao.upsert(responseEntity)
             NetworkResult.Success(with(projectMapper) { responseEntity.toDomain() })
         } catch (e: Exception) {
+            previous?.let { projectDao.upsert(it) }
             NetworkResult.Error(e.localizedMessage ?: "Failed to update project")
         }
     }

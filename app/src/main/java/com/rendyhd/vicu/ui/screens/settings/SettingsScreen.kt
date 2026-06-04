@@ -100,6 +100,8 @@ import com.rendyhd.vicu.ui.components.shared.BottomBarSlotEditor
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.LabelEditDialog
+import com.rendyhd.vicu.ui.components.settings.ExactAlarmBanner
+import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.ui.components.shared.ProjectEditDialog
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 
@@ -1058,7 +1060,7 @@ private fun GeneralTab(
         item(key = "inbox_exclude_dated") {
             SwitchRow(
                 label = "Move dated tasks out of Inbox",
-                description = "Tasks with a due date leave the Inbox (like Things 3)",
+                description = "Tasks with a due date no longer appear in Inbox.",
                 checked = state.behaviorPrefs.inboxExcludeDated,
                 onCheckedChange = onSetInboxExcludeDated,
             )
@@ -1080,7 +1082,7 @@ private fun GeneralTab(
         item(key = "logbook_retention_enabled") {
             SwitchRow(
                 label = "Hide old completed tasks",
-                description = "Tasks finished long ago disappear from the Logbook view (nothing is deleted)",
+                description = "Older completed tasks are hidden from Logbook. Nothing is deleted.",
                 checked = state.logbookPrefs.enabled,
                 onCheckedChange = onSetLogbookRetentionEnabled,
             )
@@ -1166,7 +1168,7 @@ private fun GeneralTab(
         item(key = "nlp_bang_today") {
             SwitchRow(
                 label = "! sets due date to today",
-                description = "Prefix or suffix ! to set due date to today",
+                description = "Add ! to set the due date to today.",
                 checked = state.nlpConfig.bangToday,
                 onCheckedChange = onBangTodayChange,
             )
@@ -1193,7 +1195,7 @@ private fun GeneralTab(
         item(key = "completion_sound_enabled") {
             SwitchRow(
                 label = "Play sound when completing a task",
-                description = "Uses the system notification sound by default. Tap below to choose a custom audio file.",
+                description = "Plays the system notification sound. Tap below for a custom sound.",
                 checked = state.behaviorPrefs.completionSoundEnabled,
                 onCheckedChange = onSetCompletionSoundEnabled,
             )
@@ -1257,6 +1259,7 @@ private fun GeneralTab(
                 ProjectRow(
                     project = project,
                     depth = depth,
+                    canDelete = project.id != state.inboxProjectId,
                     onEdit = { onEditProject(project) },
                     onDelete = { onDeleteProject(project) },
                 )
@@ -1513,6 +1516,10 @@ private fun NotificationsTab(
             SectionHeader(icon = Icons.Outlined.Notifications, title = "Reminders")
         }
 
+        item(key = "notif_exact_alarm_banner") {
+            ExactAlarmBanner()
+        }
+
         item(key = "notif_task_reminders") {
             SwitchRow(
                 label = "Task Reminders",
@@ -1738,15 +1745,6 @@ private fun GesturesTab() {
             )
         }
 
-        item(key = "gesture_fab") {
-            GestureRow(
-                icon = Icons.Filled.Add,
-                gesture = "FAB (+)",
-                description = "Create a new task",
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-
         item(key = "gesture_checkbox") {
             GestureRow(
                 icon = Icons.Outlined.CheckCircle,
@@ -1899,7 +1897,10 @@ private fun SwitchRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyLarge,
@@ -2049,6 +2050,7 @@ private fun LabelRow(
 private fun ProjectRow(
     project: Project,
     depth: Int = 0,
+    canDelete: Boolean = true,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -2082,13 +2084,15 @@ private fun ProjectRow(
                 modifier = Modifier.size(18.dp),
             )
         }
-        IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-            Icon(
-                Icons.Default.Delete,
-                contentDescription = "Delete",
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(18.dp),
-            )
+        if (canDelete) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }
@@ -2237,8 +2241,12 @@ private fun buildFilterSummary(list: CustomList): String {
 private fun buildProjectTree(projects: List<Project>): List<Pair<Project, Int>> {
     val childrenMap = projects.groupBy { it.parentProjectId }
     val result = mutableListOf<Pair<Project, Int>>()
+    val visited = mutableSetOf<Long>()
     fun addChildren(parentId: Long, depth: Int) {
         childrenMap[parentId]?.forEach { project ->
+            // Visited guard: pre-existing cyclic parent data (A→B→A) would otherwise recurse
+            // forever and StackOverflow the settings list.
+            if (!visited.add(project.id)) return@forEach
             result.add(project to depth)
             addChildren(project.id, depth + 1)
         }
@@ -2248,16 +2256,6 @@ private fun buildProjectTree(projects: List<Project>): List<Pair<Project, Int>> 
     val addedIds = result.map { it.first.id }.toSet()
     projects.filter { it.id !in addedIds }.forEach { result.add(it to 0) }
     return result
-}
-
-private fun parseHexColor(hex: String): Color? {
-    if (hex.isBlank()) return null
-    return try {
-        val normalized = if (hex.startsWith("#")) hex else "#$hex"
-        Color(android.graphics.Color.parseColor(normalized))
-    } catch (_: Exception) {
-        null
-    }
 }
 
 @Composable

@@ -10,9 +10,9 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -62,6 +62,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
@@ -73,19 +74,12 @@ import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
 import com.rendyhd.vicu.ui.components.picker.RelationTaskPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.shared.VicuDragHandle
 import com.rendyhd.vicu.ui.components.task.DescriptionField
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.FileUtils
 import com.rendyhd.vicu.util.ImageTokens
-
-private fun parseHexColor(hex: String): Color? {
-    if (hex.isBlank()) return null
-    return try {
-        Color(android.graphics.Color.parseColor(if (hex.startsWith("#")) hex else "#$hex"))
-    } catch (_: Exception) {
-        null
-    }
-}
+import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -138,7 +132,8 @@ fun TaskDetailSheet(
         if (state.isDeleted) onDismiss()
     }
 
-    // Auto-save on dismiss
+    // Auto-save once, on dispose. (onDismissRequest also disposes the sheet, so saving in
+    // both places double-fires the Go zero-value full-object PUT and widens the clobber window.)
     DisposableEffect(Unit) {
         onDispose {
             viewModel.saveIfChanged()
@@ -146,11 +141,9 @@ fun TaskDetailSheet(
     }
 
     ModalBottomSheet(
-        onDismissRequest = {
-            viewModel.saveIfChanged()
-            onDismiss()
-        },
+        onDismissRequest = onDismiss,
         sheetState = sheetState,
+        dragHandle = { VicuDragHandle() },
     ) {
         val task = state.task
 
@@ -177,7 +170,9 @@ fun TaskDetailSheet(
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.85f)
+                // Content-sized up to a cap, instead of a fixed 0.85 fraction that fought the
+                // drag-to-dismiss settle and caused the swipe-up shake.
+                .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.9f).dp)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp)
                 .imePadding(),
@@ -189,7 +184,7 @@ fun TaskDetailSheet(
                     value = task.title,
                     onValueChange = viewModel::updateTitle,
                     placeholder = { Text("Task title") },
-                    singleLine = true,
+                    maxLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                     textStyle = MaterialTheme.typography.titleMedium,
                     keyboardOptions = KeyboardOptions(
@@ -248,7 +243,10 @@ fun TaskDetailSheet(
 
                     AssistChip(
                         onClick = { showLabelPicker = true },
-                        label = { Text("+") },
+                        label = { Text("Add label") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        },
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -343,7 +341,7 @@ fun TaskDetailSheet(
             }
 
             // Recurrence (read-only)
-            if (task.repeatAfter > 0) {
+            if (task.repeatAfter > 0 || task.repeatMode == 1) {
                 item(key = "recurrence") {
                     Row(
                         modifier = Modifier
@@ -356,7 +354,16 @@ fun TaskDetailSheet(
                         Text(
                             text = DateUtils.formatRecurrence(task.repeatAfter, task.repeatMode),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
                         )
+                        IconButton(onClick = { viewModel.clearRecurrence() }, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear recurrence",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -542,6 +549,18 @@ fun TaskDetailSheet(
                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Add attachment")
+                }
+            }
+
+            // Created date (read-only; data already round-trips)
+            if (!DateUtils.isNullDate(task.created)) {
+                item(key = "created") {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Created ${DateUtils.formatFullDate(task.created)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 

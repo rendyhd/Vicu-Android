@@ -16,10 +16,7 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.CustomListFilterBuilder
 import com.rendyhd.vicu.util.NetworkResult
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,9 +56,6 @@ class CustomListViewModel @Inject constructor(
     val labels: StateFlow<List<Label>> = labelRepository.getAll()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    private val _completionEvents = Channel<Task>(Channel.BUFFERED)
-    val completionEvents: Flow<Task> = _completionEvents.receiveAsFlow()
-
     init {
         viewModelScope.launch {
             customListStore.getById(listId).collect { customList ->
@@ -98,10 +92,10 @@ class CustomListViewModel @Inject constructor(
         }
     }
 
-    fun refresh() {
+    fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
             val completedIds = _uiState.value.completedTaskIds
-            _uiState.update { it.copy(isRefreshing = true, error = null, completedTaskIds = emptySet()) }
+            _uiState.update { it.copy(isRefreshing = showSpinner, error = null, completedTaskIds = emptySet()) }
             try {
                 if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
                 val customList = _uiState.value.customList
@@ -123,7 +117,6 @@ class CustomListViewModel @Inject constructor(
         viewModelScope.launch {
             if (!task.done) {
                 _uiState.update { it.copy(completedTaskIds = it.completedTaskIds + task.id) }
-                _completionEvents.trySend(task)
             }
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {
@@ -142,6 +135,13 @@ class CustomListViewModel @Inject constructor(
             // it's handed. Pass done=true so it reverts to done=false remotely; passing the
             // raw task would re-send done=true and the completion would survive a refresh.
             taskRepository.toggleDone(task.copy(done = true))
+        }
+    }
+
+    /** Swipe-schedule: applies the configured Today/Urgent action via the repository. */
+    fun scheduleTask(task: Task) {
+        viewModelScope.launch {
+            taskRepository.applyScheduleAction(task)
         }
     }
 

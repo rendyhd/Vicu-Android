@@ -21,6 +21,9 @@ interface ProjectDao {
     @Query("SELECT * FROM projects ORDER BY position ASC")
     suspend fun getAllSync(): List<ProjectEntity>
 
+    @Query("SELECT * FROM projects WHERE id = :id")
+    suspend fun getByIdSync(id: Long): ProjectEntity?
+
     @Upsert
     suspend fun upsert(project: ProjectEntity)
 
