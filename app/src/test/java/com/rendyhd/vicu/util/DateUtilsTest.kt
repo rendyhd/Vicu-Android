@@ -24,4 +24,22 @@ class DateUtilsTest {
         val older = DateUtils.parseIsoDate(DateUtils.isoDaysAgo(365))!!
         assertTrue("365-day cutoff should be before 30-day cutoff", older.isBefore(recent))
     }
+
+    @Test
+    fun `formatRecurrence treats monthly (repeatMode 1, repeatAfter 0) as recurring`() {
+        // Regression: monthly recurrence carries repeatAfter==0 and was previously shown as
+        // non-recurring because the gate only checked repeatAfter > 0.
+        assertTrue(DateUtils.formatRecurrence(0, 1).isNotBlank())
+        assertTrue(DateUtils.formatRecurrence(0, 1).contains("month", ignoreCase = true))
+    }
+
+    @Test
+    fun `formatRecurrence is blank for non-recurring`() {
+        assertTrue(DateUtils.formatRecurrence(0, 0).isBlank())
+    }
+
+    @Test
+    fun `formatRecurrence weekly from repeatAfter`() {
+        assertTrue(DateUtils.formatRecurrence(7 * 86400, 0).contains("week", ignoreCase = true))
+    }
 }
