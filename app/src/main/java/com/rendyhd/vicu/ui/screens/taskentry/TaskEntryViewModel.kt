@@ -362,7 +362,8 @@ class TaskEntryViewModel @Inject constructor(
             val bang = extractBangToday(title)
             if (bang.dueDate != null) {
                 title = bang.title
-                dueDate = DateUtils.todayEndIso()
+                // Match the NLP parser and desktop: bang-today means start of today.
+                dueDate = DateUtils.todayStartIso()
             }
         }
 
