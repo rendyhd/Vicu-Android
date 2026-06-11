@@ -33,6 +33,7 @@ class BootReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 alarmScheduler.rescheduleAll()
+                alarmScheduler.rescheduleSnoozes()
                 val prefs = prefsStore.getPrefs().first()
                 dailySummaryScheduler.scheduleIfEnabled(
                     prefs.dailySummaryEnabled,

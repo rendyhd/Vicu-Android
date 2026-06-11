@@ -12,6 +12,7 @@ import com.rendyhd.vicu.R
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
+import com.rendyhd.vicu.data.local.SnoozeStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
@@ -22,14 +23,20 @@ class AlarmReceiver : BroadcastReceiver() {
         private const val TAG = "AlarmReceiver"
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_TASK_TITLE = "task_title"
+        const val EXTRA_IS_SNOOZE = "is_snooze"
     }
 
     @Inject lateinit var prefsStore: NotificationPrefsStore
+    @Inject lateinit var snoozeStore: SnoozeStore
 
     override fun onReceive(context: Context, intent: Intent) {
         val taskId = intent.getLongExtra(EXTRA_TASK_ID, 0L)
         val taskTitle = intent.getStringExtra(EXTRA_TASK_TITLE) ?: "Task Reminder"
         Log.d(TAG, "Alarm fired for taskId=$taskId title=$taskTitle")
+
+        if (intent.getBooleanExtra(EXTRA_IS_SNOOZE, false)) {
+            runBlocking { snoozeStore.remove(taskId) }
+        }
 
         // Check if reminders are enabled
         val prefs = runBlocking { prefsStore.getPrefs().first() }

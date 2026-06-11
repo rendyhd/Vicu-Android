@@ -105,6 +105,13 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val taskTitle = intent.getStringExtra(AlarmReceiver.EXTRA_TASK_TITLE) ?: "Task Reminder"
         val triggerAt = System.currentTimeMillis() + 15 * 60 * 1000
         Log.d(TAG, "Snoozing task $taskId for 15 minutes")
-        alarmScheduler.scheduleSnooze(taskId, taskTitle, triggerAt)
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                alarmScheduler.scheduleSnooze(taskId, taskTitle, triggerAt)
+            } finally {
+                pendingResult.finish()
+            }
+        }
     }
 }

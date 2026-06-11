@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import com.rendyhd.vicu.data.local.SnoozeEntry
+import com.rendyhd.vicu.data.local.SnoozeStore
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.domain.model.Task
@@ -22,6 +24,7 @@ class AlarmScheduler @Inject constructor(
     @ApplicationContext private val context: Context,
     private val taskDao: TaskDao,
     private val taskMapper: TaskMapper,
+    private val snoozeStore: SnoozeStore,
 ) {
     companion object {
         private const val TAG = "AlarmScheduler"
@@ -31,7 +34,7 @@ class AlarmScheduler @Inject constructor(
         get() = context.getSystemService(AlarmManager::class.java)
 
     fun scheduleForTask(task: Task) {
-        cancelForTask(task.id)
+        cancelReminders(task.id)
 
         if (task.done || task.reminders.isEmpty()) return
 
@@ -43,7 +46,7 @@ class AlarmScheduler @Inject constructor(
         }
     }
 
-    fun cancelForTask(taskId: Long) {
+    private fun cancelReminders(taskId: Long) {
         // Cancel up to 100 potential reminders per task
         for (i in 0 until 100) {
             val requestCode = alarmRequestCode(taskId, i)
@@ -75,12 +78,59 @@ class AlarmScheduler @Inject constructor(
         }
     }
 
-    /**
-     * Schedule a single alarm for snooze (absolute time).
-     */
-    fun scheduleSnooze(taskId: Long, taskTitle: String, triggerAtMillis: Long) {
-        // Use index 99 for snooze to avoid colliding with regular reminders
-        scheduleAlarm(taskId, taskTitle, 99, triggerAtMillis)
+    /** Cancels everything for a task, including a pending snooze (task done/deleted). */
+    suspend fun cancelForTask(taskId: Long) {
+        cancelReminders(taskId)
+        cancelSnooze(taskId)
+    }
+
+    suspend fun scheduleSnooze(taskId: Long, taskTitle: String, triggerAtMillis: Long) {
+        snoozeStore.put(SnoozeEntry(taskId, taskTitle, triggerAtMillis))
+        registerSnoozeAlarm(taskId, taskTitle, triggerAtMillis)
+    }
+
+    suspend fun cancelSnooze(taskId: Long) {
+        val pending = PendingIntent.getBroadcast(
+            context,
+            snoozeRequestCode(taskId),
+            Intent(context, AlarmReceiver::class.java),
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        )
+        if (pending != null) {
+            alarmManager.cancel(pending)
+            pending.cancel()
+        }
+        snoozeStore.remove(taskId)
+    }
+
+    /** Re-registers persisted snoozes after a reboot; past-due ones fire one minute out. */
+    suspend fun rescheduleSnoozes() {
+        val now = System.currentTimeMillis()
+        snoozeStore.all().forEach { entry ->
+            registerSnoozeAlarm(entry.taskId, entry.title, maxOf(entry.triggerAtMillis, now + 60_000L))
+        }
+    }
+
+    /** Snoozes live in their own request-code space so the reminder sweep can't hit them. */
+    private fun snoozeRequestCode(taskId: Long): Int = "snooze:$taskId".hashCode()
+
+    private fun registerSnoozeAlarm(taskId: Long, taskTitle: String, triggerAtMillis: Long) {
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra(AlarmReceiver.EXTRA_TASK_ID, taskId)
+            putExtra(AlarmReceiver.EXTRA_TASK_TITLE, taskTitle)
+            putExtra(AlarmReceiver.EXTRA_IS_SNOOZE, true)
+        }
+        val pending = PendingIntent.getBroadcast(
+            context,
+            snoozeRequestCode(taskId),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pending)
+            return
+        }
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pending)
     }
 
     /**
