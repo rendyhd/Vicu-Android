@@ -22,6 +22,7 @@ import com.rendyhd.vicu.util.NetworkResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -73,6 +74,10 @@ class TaskDetailViewModel @Inject constructor(
 
     private var taskIdLoaded = 0L
 
+    /** Collectors started by loadTask; cancelled when a different task is loaded so a
+     *  previously opened task's Room emissions can't overwrite the current task's state. */
+    private val loadJobs = mutableListOf<Job>()
+
     /** Preserved link HTML stripped from description for display, re-appended on save. */
     private var preservedLinkHtml = ""
 
@@ -91,6 +96,9 @@ class TaskDetailViewModel @Inject constructor(
         if (taskId == taskIdLoaded) return
         taskIdLoaded = taskId
 
+        loadJobs.forEach { it.cancel() }
+        loadJobs.clear()
+
         // Reset state for the new task so stale data from the previous task doesn't persist
         preservedLinkHtml = ""
         _uiState.update {
@@ -103,7 +111,7 @@ class TaskDetailViewModel @Inject constructor(
             )
         }
 
-        viewModelScope.launch {
+        loadJobs += viewModelScope.launch {
             taskRepository.getById(taskId).collect { task ->
                 if (task != null) {
                     val subtasks = task.relatedTasks["subtask"] ?: emptyList()
@@ -144,30 +152,30 @@ class TaskDetailViewModel @Inject constructor(
             }
         }
 
-        viewModelScope.launch {
+        loadJobs += viewModelScope.launch {
             projectRepository.getAll().collect { projects ->
                 _uiState.update { it.copy(allProjects = projects) }
             }
         }
 
-        viewModelScope.launch {
+        loadJobs += viewModelScope.launch {
             val inboxId = authManager.getInboxProjectId() ?: 0L
             _uiState.update { it.copy(inboxProjectId = inboxId) }
         }
 
-        viewModelScope.launch {
+        loadJobs += viewModelScope.launch {
             labelRepository.getAll().collect { labels ->
                 _uiState.update { it.copy(allLabels = labels) }
             }
         }
 
-        viewModelScope.launch {
+        loadJobs += viewModelScope.launch {
             attachmentRepository.getByTaskId(taskId).collect { attachments ->
                 _uiState.update { it.copy(attachments = attachments) }
             }
         }
 
-        viewModelScope.launch {
+        loadJobs += viewModelScope.launch {
             attachmentRepository.refreshForTask(taskId)
         }
     }
