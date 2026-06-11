@@ -3,10 +3,15 @@ package com.rendyhd.vicu.ui.components.task
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Check
@@ -14,20 +19,31 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.max
 import com.rendyhd.vicu.domain.model.Task
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,21 +61,31 @@ fun SwipeableTaskItem(
 ) {
     val haptic = LocalHapticFeedback.current
 
+    // SwipeToDismissBox commits on fling velocity regardless of positionalThreshold, so a
+    // quick flick could still trigger below the 50% mark. Track the live offset (Ref dance:
+    // confirmValueChange is created before the state exists) and only fire when the row was
+    // actually dragged at least half way.
+    var rowWidthPx by remember { mutableStateOf(0f) }
+    var dismissStateRef by remember { mutableStateOf<SwipeToDismissBoxState?>(null) }
     val dismissState = rememberSwipeToDismissBoxState(
-        // Require dragging half the row (was 0.35) to commit, so a quick flick near the
-        // screen edge no longer triggers an accidental complete/schedule.
         positionalThreshold = { totalDistance -> totalDistance * 0.5f },
         confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> onToggleDone()
-                SwipeToDismissBoxValue.EndToStart -> onSchedule()
-                SwipeToDismissBoxValue.Settled -> {}
+            val draggedFraction = dismissStateRef
+                ?.let { state -> runCatching { abs(state.requireOffset()) }.getOrNull() }
+                ?.let { offset -> if (rowWidthPx > 0f) offset / rowWidthPx else 1f }
+                ?: 1f
+            if (draggedFraction >= 0.5f) {
+                when (value) {
+                    SwipeToDismissBoxValue.StartToEnd -> onToggleDone()
+                    SwipeToDismissBoxValue.EndToStart -> onSchedule()
+                    SwipeToDismissBoxValue.Settled -> {}
+                }
             }
-            // Return false so the row springs back and stays visible (the undo pattern relies
-            // on the row remaining) rather than dismissing.
+            // Always spring back: the undo pattern relies on the row remaining visible.
             false
         },
     )
+    SideEffect { dismissStateRef = dismissState }
 
     // One haptic per threshold crossing (edge-triggered via targetValue).
     LaunchedEffect(dismissState) {
@@ -86,17 +112,40 @@ fun SwipeableTaskItem(
         return
     }
 
+    // Edge dead-zone: gestures that begin inside the system-gesture insets (24dp minimum)
+    // belong to OS back / the nav drawer, not the row swipe. The dismiss directions are
+    // disabled for that gesture instead of consuming its events, so the drawer edge-swipe
+    // still works on top of task rows.
+    val layoutDirection = LocalLayoutDirection.current
+    val gestureInsets = WindowInsets.systemGestures.asPaddingValues()
+    val leftDeadZone = max(gestureInsets.calculateLeftPadding(layoutDirection), 24.dp)
+    val rightDeadZone = max(gestureInsets.calculateRightPadding(layoutDirection), 24.dp)
+    var gestureFromEdge by remember { mutableStateOf(false) }
+
     SwipeToDismissBox(
         state = dismissState,
-        modifier = modifier,
+        modifier = modifier
+            .onSizeChanged { rowWidthPx = it.width.toFloat() }
+            .pointerInput(leftDeadZone, rightDeadZone) {
+                val leftPx = leftDeadZone.toPx()
+                val rightPx = rightDeadZone.toPx()
+                awaitEachGesture {
+                    val down = awaitFirstDown(
+                        requireUnconsumed = false,
+                        pass = PointerEventPass.Initial,
+                    )
+                    gestureFromEdge = down.position.x < leftPx ||
+                        down.position.x > size.width - rightPx
+                }
+            },
         backgroundContent = {
             SwipeBackground(
                 dismissDirection = dismissState.dismissDirection,
                 progress = dismissState.progress,
             )
         },
-        enableDismissFromStartToEnd = !task.done,
-        enableDismissFromEndToStart = !task.done,
+        enableDismissFromStartToEnd = !task.done && !gestureFromEdge,
+        enableDismissFromEndToStart = !task.done && !gestureFromEdge,
     ) {
         TaskItem(
             task = task,
