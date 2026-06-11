@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.util.buildProjectTree
 
 private fun parseHexColor(hex: String): Color? {
     if (hex.isBlank()) return null
@@ -43,21 +44,19 @@ fun ProjectPickerDialog(
     inboxProjectId: Long = 0L,
 ) {
     val sorted = remember(projects, inboxProjectId) {
-        projects.filter { !it.isArchived }
-            .sortedWith(
-                compareBy<Project> { it.id != inboxProjectId }
-                    .thenBy { it.parentProjectId }
-                    .thenBy { it.position },
-            )
+        val visible = projects
+            .filter { !it.isArchived }
+            .sortedWith(compareBy({ it.id != inboxProjectId }, { it.position }, { it.title }))
+        buildProjectTree(visible)
     }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Project") },
         text = {
             LazyColumn {
-                items(sorted, key = { it.id }) { project ->
+                items(sorted, key = { it.first.id }) { (project, depth) ->
                     val isSelected = project.id == selectedProjectId
-                    val indent = if (project.parentProjectId > 0) 24.dp else 0.dp
+                    val indent = (depth * 16).coerceAtMost(48).dp
 
                     Row(
                         modifier = Modifier

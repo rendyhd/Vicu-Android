@@ -103,6 +103,7 @@ import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.LabelEditDialog
 import com.rendyhd.vicu.ui.components.settings.ExactAlarmBanner
 import com.rendyhd.vicu.ui.components.settings.NotificationsDisabledBanner
+import com.rendyhd.vicu.util.buildProjectTree
 import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.ui.components.shared.ProjectEditDialog
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
@@ -2314,25 +2315,6 @@ private fun buildFilterSummary(list: CustomList): String {
     return parts.joinToString(" · ")
 }
 
-private fun buildProjectTree(projects: List<Project>): List<Pair<Project, Int>> {
-    val childrenMap = projects.groupBy { it.parentProjectId }
-    val result = mutableListOf<Pair<Project, Int>>()
-    val visited = mutableSetOf<Long>()
-    fun addChildren(parentId: Long, depth: Int) {
-        childrenMap[parentId]?.forEach { project ->
-            // Visited guard: pre-existing cyclic parent data (A→B→A) would otherwise recurse
-            // forever and StackOverflow the settings list.
-            if (!visited.add(project.id)) return@forEach
-            result.add(project to depth)
-            addChildren(project.id, depth + 1)
-        }
-    }
-    addChildren(0L, 0)
-    // Add any orphans (parent not in list) at root level
-    val addedIds = result.map { it.first.id }.toSet()
-    projects.filter { it.id !in addedIds }.forEach { result.add(it to 0) }
-    return result
-}
 
 @Composable
 private fun AuthDebugLogDialog(onDismiss: () -> Unit) {
