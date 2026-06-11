@@ -16,6 +16,7 @@ interface TaskRepository {
     fun searchByTitle(query: String): Flow<List<Task>>
     fun searchByTitleIncludingDone(query: String): Flow<List<Task>>
     fun getAllOpenTasks(): Flow<List<Task>>
+    fun getAllTasks(): Flow<List<Task>>
 
     suspend fun create(task: Task): NetworkResult<Task>
     suspend fun update(task: Task): NetworkResult<Task>

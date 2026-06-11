@@ -186,6 +186,30 @@ object CustomListFilterBuilder {
         return result
     }
 
+    /** A date key that sorts the null sentinel and blanks after every real date. */
+    private fun sortableDate(value: String): String =
+        if (DateUtils.isNullDate(value)) "9999-12-31T23:59:59Z" else value
+
+    /**
+     * Applies the custom list's configured sort client-side. The displayed list comes from
+     * Room (not the API response), so the API-side sort_by/order_by alone has no effect on
+     * what the user sees — this is the authoritative ordering.
+     */
+    fun sortTasks(tasks: List<Task>, sortBy: String, orderBy: String): List<Task> {
+        val comparator: Comparator<Task> = when (sortBy) {
+            "due_date" -> compareBy { sortableDate(it.dueDate) }
+            "created" -> compareBy { it.created }
+            "updated" -> compareBy { it.updated }
+            "priority" -> compareBy { it.priority }
+            "title" -> compareBy { it.title.lowercase() }
+            "done_at" -> compareBy { sortableDate(it.doneAt) }
+            "position" -> compareBy { it.position }
+            else -> return tasks.sortedByDescending { it.updated }
+        }
+        val sorted = tasks.sortedWith(comparator)
+        return if (orderBy.equals("desc", ignoreCase = true)) sorted.reversed() else sorted
+    }
+
     private fun isTaskDueToday(dueDate: String): Boolean {
         val instant = DateUtils.parseIsoDate(dueDate) ?: return false
         val now = LocalDate.now()

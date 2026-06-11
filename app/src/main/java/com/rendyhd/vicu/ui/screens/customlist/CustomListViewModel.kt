@@ -16,10 +16,15 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.CustomListFilterBuilder
 import com.rendyhd.vicu.util.NetworkResult
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -35,6 +40,7 @@ data class CustomListUiState(
     val inboxProjectId: Long = 0L,
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class CustomListViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -57,38 +63,47 @@ class CustomListViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
+        // Render from Room with client-side filter + sort. flatMapLatest cancels the previous
+        // collector when the list config changes (the old code leaked one collector per edit).
         viewModelScope.launch {
-            customListStore.getById(listId).collect { customList ->
-                _uiState.update { it.copy(customList = customList) }
-                if (customList != null) {
-                    loadTasks(customList)
-                } else {
-                    _uiState.update { it.copy(isLoading = false) }
+            customListStore.getById(listId)
+                .flatMapLatest { customList ->
+                    if (customList == null) {
+                        flowOf<Pair<CustomList?, List<Task>>>(null to emptyList())
+                    } else {
+                        val source = if (customList.filter.includeDone) {
+                            taskRepository.getAllTasks()
+                        } else {
+                            taskRepository.getAllOpenTasks()
+                        }
+                        source.map { tasks ->
+                            val filtered = CustomListFilterBuilder.applyClientSideFilters(tasks, customList.filter)
+                            customList to CustomListFilterBuilder.sortTasks(
+                                filtered,
+                                customList.filter.sortBy,
+                                customList.filter.orderBy,
+                            )
+                        }
+                    }
                 }
-            }
+                .collect { (customList, tasks) ->
+                    _uiState.update { it.copy(customList = customList, tasks = tasks, isLoading = false) }
+                }
+        }
+        // Background network refresh, once per distinct filter config (Room paints first).
+        viewModelScope.launch {
+            customListStore.getById(listId)
+                .map { it?.filter }
+                .distinctUntilChanged()
+                .collect { filter ->
+                    if (filter != null) {
+                        taskRepository.refreshAll(CustomListFilterBuilder.buildQueryParams(filter))
+                    }
+                }
         }
         viewModelScope.launch {
             val inboxId = authManager.getInboxProjectId() ?: 0L
             _uiState.update { it.copy(inboxProjectId = inboxId) }
-        }
-    }
-
-    private fun loadTasks(customList: CustomList) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
-            val params = CustomListFilterBuilder.buildQueryParams(customList.filter)
-            taskRepository.refreshAll(params)
-
-            // Observe all tasks and apply client-side filters
-            taskRepository.getAllOpenTasks().collect { tasks ->
-                val allTasks = if (customList.filter.includeDone) {
-                    tasks // getAllOpenTasks only returns non-done; for includeDone we'd need a broader query
-                } else {
-                    tasks
-                }
-                val filtered = CustomListFilterBuilder.applyClientSideFilters(allTasks, customList.filter)
-                _uiState.update { it.copy(tasks = filtered, isLoading = false) }
-            }
         }
     }
 

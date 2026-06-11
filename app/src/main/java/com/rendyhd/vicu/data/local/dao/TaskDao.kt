@@ -71,6 +71,9 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE done = 0 ORDER BY updated DESC")
     fun getAllOpenTasks(): Flow<List<TaskEntity>>
 
+    @Query("SELECT * FROM tasks")
+    fun getAllTasksFlow(): Flow<List<TaskEntity>>
+
     @Query("SELECT * FROM tasks WHERE id IN (:ids)")
     suspend fun getByIds(ids: List<Long>): List<TaskEntity>
 

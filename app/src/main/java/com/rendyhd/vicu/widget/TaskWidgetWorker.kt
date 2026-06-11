@@ -195,12 +195,14 @@ class TaskWidgetWorker @AssistedInject constructor(
                 if (customList != null) {
                     val allTasks = taskDao.getAllOpenTasksSync(200)
                     val domainTasks = allTasks.map { with(taskMapper) { it.toDomain() } }
-                    val filtered = CustomListFilterBuilder.applyClientSideFilters(
-                        domainTasks, customList.filter
+                    val filtered = CustomListFilterBuilder.sortTasks(
+                        CustomListFilterBuilder.applyClientSideFilters(domainTasks, customList.filter),
+                        customList.filter.sortBy,
+                        customList.filter.orderBy,
                     )
-                    // Convert back to entities for uniform handling
-                    val filteredIds = filtered.map { it.id }.toSet()
-                    allTasks.filter { it.id in filteredIds }.take(MAX_WIDGET_TASKS)
+                    // Convert back to entities for uniform handling, preserving the sorted order.
+                    val entitiesById = allTasks.associateBy { it.id }
+                    filtered.mapNotNull { entitiesById[it.id] }.take(MAX_WIDGET_TASKS)
                 } else {
                     emptyList()
                 }

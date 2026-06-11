@@ -157,6 +157,11 @@ class TaskRepositoryImpl @Inject constructor(
             entities.map { with(taskMapper) { it.toDomain() } }
         }
 
+    override fun getAllTasks(): Flow<List<Task>> =
+        taskDao.getAllTasksFlow().map { entities ->
+            entities.map { with(taskMapper) { it.toDomain() } }
+        }
+
     override suspend fun create(task: Task): NetworkResult<Task> {
         return try {
             val createDto = with(taskMapper) { task.toCreateDto() }
