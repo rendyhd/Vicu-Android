@@ -64,16 +64,19 @@ fun SwipeableTaskItem(
     // SwipeToDismissBox commits on fling velocity regardless of positionalThreshold, so a
     // quick flick could still trigger below the 50% mark. Track the live offset (Ref dance:
     // confirmValueChange is created before the state exists) and only fire when the row was
-    // actually dragged at least half way.
+    // actually dragged at least half way. If the offset or row width is unavailable (cannot
+    // happen in practice once a real drag has occurred), the action is suppressed rather
+    // than fired.
     var rowWidthPx by remember { mutableStateOf(0f) }
     var dismissStateRef by remember { mutableStateOf<SwipeToDismissBoxState?>(null) }
+    var gestureFromEdge by remember { mutableStateOf(false) }
     val dismissState = rememberSwipeToDismissBoxState(
         positionalThreshold = { totalDistance -> totalDistance * 0.5f },
         confirmValueChange = { value ->
             val draggedFraction = dismissStateRef
                 ?.let { state -> runCatching { abs(state.requireOffset()) }.getOrNull() }
-                ?.let { offset -> if (rowWidthPx > 0f) offset / rowWidthPx else 1f }
-                ?: 1f
+                ?.let { offset -> if (rowWidthPx > 0f) offset / rowWidthPx else 0f }
+                ?: 0f
             if (draggedFraction >= 0.5f) {
                 when (value) {
                     SwipeToDismissBoxValue.StartToEnd -> onToggleDone()
@@ -120,7 +123,6 @@ fun SwipeableTaskItem(
     val gestureInsets = WindowInsets.systemGestures.asPaddingValues()
     val leftDeadZone = max(gestureInsets.calculateLeftPadding(layoutDirection), 24.dp)
     val rightDeadZone = max(gestureInsets.calculateRightPadding(layoutDirection), 24.dp)
-    var gestureFromEdge by remember { mutableStateOf(false) }
 
     SwipeToDismissBox(
         state = dismissState,
