@@ -108,14 +108,22 @@ class TaskRepositoryImpl @Inject constructor(
             }
 
     override fun getTodayTasks(): Flow<List<Task>> =
-        taskDao.getTodayTasks(DateUtils.getEndOfToday()).map { entities ->
-            entities.map { with(taskMapper) { it.toDomain() } }
-        }
+        DateUtils.endOfTodayFlow()
+            .distinctUntilChanged()
+            .flatMapLatest { endOfToday ->
+                taskDao.getTodayTasks(endOfToday).map { entities ->
+                    entities.map { with(taskMapper) { it.toDomain() } }
+                }
+            }
 
     override fun getUpcomingTasks(): Flow<List<Task>> =
-        taskDao.getUpcomingTasks(DateUtils.getEndOfToday()).map { entities ->
-            entities.map { with(taskMapper) { it.toDomain() } }
-        }
+        DateUtils.endOfTodayFlow()
+            .distinctUntilChanged()
+            .flatMapLatest { endOfToday ->
+                taskDao.getUpcomingTasks(endOfToday).map { entities ->
+                    entities.map { with(taskMapper) { it.toDomain() } }
+                }
+            }
 
     override fun getAnytimeTasks(inboxProjectId: Long): Flow<List<Task>> =
         taskDao.getAnytimeTasks(inboxProjectId).map { entities ->

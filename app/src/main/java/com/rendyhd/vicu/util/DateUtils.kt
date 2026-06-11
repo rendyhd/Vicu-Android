@@ -1,10 +1,15 @@
 package com.rendyhd.vicu.util
 
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
@@ -24,6 +29,24 @@ object DateUtils {
             .atStartOfDay(localZone)
             .toInstant()
         return isoFormatter.format(endOfToday)
+    }
+
+    /** Milliseconds from [now] to the next local midnight; never less than one second. */
+    fun millisUntilNextMidnight(now: ZonedDateTime = ZonedDateTime.now(localZone)): Long {
+        val nextMidnight = now.toLocalDate().plusDays(1).atStartOfDay(now.zone)
+        return Duration.between(now, nextMidnight).toMillis().coerceAtLeast(1_000L)
+    }
+
+    /**
+     * Emits the current end-of-today boundary immediately, then again just after each local
+     * midnight. Lets day-bounded Room flows re-query when the date rolls over instead of
+     * keeping the boundary captured at ViewModel creation.
+     */
+    fun endOfTodayFlow(): Flow<String> = flow {
+        while (true) {
+            emit(getEndOfToday())
+            delay(millisUntilNextMidnight() + 1_000L)
+        }
     }
 
     fun nowIso(): String {
