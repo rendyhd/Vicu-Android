@@ -164,10 +164,6 @@ class TaskWidgetWorker @AssistedInject constructor(
         val inboxId = secureTokenStorage.getInboxProjectId() ?: 0L
         Log.d(TAG, "queryTasks: viewType=${config.viewType}, endOfToday=$endOfToday, inboxId=$inboxId")
 
-        // Debug: count all tasks in Room
-        val allCount = taskDao.getAllOpenTasksSync(999).size
-        Log.d(TAG, "queryTasks: total open tasks in Room=$allCount")
-
         return when (config.viewType) {
             WidgetViewType.TODAY ->
                 taskDao.getTodayTasksSync(endOfToday, MAX_WIDGET_TASKS)

@@ -2,6 +2,7 @@ package com.rendyhd.vicu.widget
 
 import android.content.Context
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -36,6 +37,12 @@ object WidgetUpdateScheduler {
         val request = OneTimeWorkRequestBuilder<TaskWidgetWorker>()
             .setInputData(workDataOf("update_all" to true))
             .build()
-        WorkManager.getInstance(context).enqueue(request)
+        // Unique + REPLACE: rapid mutations collapse into one refresh instead of queueing
+        // a redundant worker per repository write.
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "widget_immediate_refresh",
+            ExistingWorkPolicy.REPLACE,
+            request,
+        )
     }
 }
