@@ -54,7 +54,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
@@ -150,6 +152,7 @@ fun TaskEntrySheet(
         ) {
             // Title field with NLP highlighting and autocomplete
             Box {
+                var fieldSize by remember { mutableStateOf(IntSize.Zero) }
                 OutlinedTextField(
                     value = textFieldValue,
                     onValueChange = { newValue ->
@@ -160,7 +163,8 @@ fun TaskEntrySheet(
                     maxLines = 3,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .focusRequester(focusRequester),
+                        .focusRequester(focusRequester)
+                        .onSizeChanged { fieldSize = it },
                     textStyle = MaterialTheme.typography.titleMedium,
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.Sentences,
@@ -187,6 +191,7 @@ fun TaskEntrySheet(
                         )
                         viewModel.setTitle(newText)
                     },
+                    anchorSize = fieldSize,
                 )
             }
 

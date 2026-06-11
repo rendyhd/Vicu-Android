@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
@@ -16,6 +17,9 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
@@ -40,6 +44,7 @@ fun NlpAutocompleteDropdown(
     labels: List<Label>,
     enabled: Boolean,
     onSelect: (newText: String, newCursor: Int) -> Unit,
+    anchorSize: IntSize = IntSize.Zero,
 ) {
     if (!enabled) return
 
@@ -51,7 +56,11 @@ fun NlpAutocompleteDropdown(
 
     if (suggestions.isEmpty()) return
 
+    val density = LocalDensity.current
     Popup(
+        // Place the suggestion list just below the anchor (title field) instead of on
+        // top of it — the default Popup position covers the field being typed in.
+        offset = IntOffset(0, anchorSize.height),
         properties = PopupProperties(focusable = false),
     ) {
         Surface(
@@ -62,7 +71,13 @@ fun NlpAutocompleteDropdown(
         ) {
             LazyColumn(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .then(
+                        if (anchorSize.width > 0) {
+                            Modifier.width(with(density) { anchorSize.width.toDp() })
+                        } else {
+                            Modifier.fillMaxWidth()
+                        },
+                    )
                     .heightIn(max = 200.dp),
             ) {
                 items(suggestions) { item ->
