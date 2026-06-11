@@ -100,7 +100,14 @@ class TodayViewModel @Inject constructor(
             }
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {
-                    _uiState.update { it.copy(error = result.message) }
+                    // Hard failure: revert the optimistic strikethrough along with surfacing
+                    // the error, otherwise the row stays visually completed.
+                    _uiState.update {
+                        it.copy(
+                            error = result.message,
+                            completedTaskIds = it.completedTaskIds - task.id,
+                        )
+                    }
                 }
                 else -> {}
             }

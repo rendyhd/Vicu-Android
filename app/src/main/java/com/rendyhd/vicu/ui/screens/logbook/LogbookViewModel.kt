@@ -50,7 +50,14 @@ class LogbookViewModel @Inject constructor(
             }
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {
-                    _uiState.update { it.copy(error = result.message) }
+                    // Hard failure: revert the optimistic un-complete along with surfacing
+                    // the error, otherwise the row stays visually un-struck.
+                    _uiState.update {
+                        it.copy(
+                            error = result.message,
+                            uncompletedTaskIds = it.uncompletedTaskIds - task.id,
+                        )
+                    }
                 }
                 else -> {}
             }
