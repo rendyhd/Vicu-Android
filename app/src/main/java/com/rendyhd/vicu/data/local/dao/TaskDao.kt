@@ -192,6 +192,9 @@ interface TaskDao {
     @Query("DELETE FROM tasks WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 
+    @Query("UPDATE tasks SET position = :position WHERE id = :taskId")
+    suspend fun updatePosition(taskId: Long, position: Double)
+
     @Query("DELETE FROM tasks WHERE id NOT IN (:ids)")
     suspend fun deleteNotIn(ids: Set<Long>)
 

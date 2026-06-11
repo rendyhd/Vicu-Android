@@ -23,6 +23,8 @@ interface TaskRepository {
     /** Applies the user's configured "schedule" action (set due today / set urgent) to a task. */
     suspend fun applyScheduleAction(task: Task): NetworkResult<Task>
     suspend fun moveToProject(taskId: Long, newProjectId: Long): NetworkResult<Unit>
+    /** Manual reorder: optimistic local position write + best-effort remote view-position POST. */
+    suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double)
     suspend fun delete(taskId: Long): NetworkResult<Unit>
     suspend fun toggleDone(task: Task): NetworkResult<Task>
     suspend fun createSubtask(parentTaskId: Long, subtask: Task): NetworkResult<Task>

@@ -86,6 +86,25 @@ class TaskRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double) {
+        // Optimistic: Room first so the list resorts immediately.
+        taskDao.updatePosition(taskId, newPosition)
+        // Remote is best-effort, like anchorNewTaskAtEnd: positions are per-view and
+        // re-sync on the next refresh, so a failure only loses the manual order.
+        try {
+            val views = api.getProjectViews(projectId)
+            val listView = views.firstOrNull { it.viewKind == "list" } ?: return
+            api.updateTaskPosition(
+                taskId,
+                TaskPositionDto(position = newPosition, projectViewId = listView.id),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "updatePosition failed (non-fatal) for task=$taskId", e)
+        }
+    }
+
     private suspend fun queueTaskAction(entityId: Long, actionType: String, payload: String) {
         val action = PendingActionEntity(
             entityType = "task",
