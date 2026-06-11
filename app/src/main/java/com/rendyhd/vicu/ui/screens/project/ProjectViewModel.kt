@@ -10,6 +10,8 @@ import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.dropPositionFor
+import com.rendyhd.vicu.util.moveTaskInList
 import com.rendyhd.vicu.util.sortProjectTasks
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -111,6 +113,47 @@ class ProjectViewModel @Inject constructor(
             }
         }
         if (syncStaleness.isStale()) refresh()
+    }
+
+    /**
+     * Live reorder while dragging: move [fromId] into the slot of [toId] within its group
+     * (unsectioned list or one section). Cross-group and dated-task moves are vetoed by
+     * moveTaskInList. Returns true when a move was applied.
+     */
+    fun onTaskMoved(fromId: Long, toId: Long): Boolean {
+        var moved = false
+        _uiState.update { state ->
+            moveTaskInList(state.unsectionedTasks, fromId, toId)?.let { reordered ->
+                moved = true
+                return@update state.copy(unsectionedTasks = reordered)
+            }
+            val idx = state.sections.indexOfFirst { s -> s.tasks.any { it.id == fromId } }
+            if (idx < 0) return@update state
+            val reordered = moveTaskInList(state.sections[idx].tasks, fromId, toId)
+                ?: return@update state
+            moved = true
+            val sections = state.sections.toMutableList()
+            sections[idx] = sections[idx].copy(tasks = reordered)
+            state.copy(sections = sections)
+        }
+        return moved
+    }
+
+    /** Drag released: persist the dropped task's new position from its current neighbors. */
+    fun onTaskDropped(taskId: Long) {
+        val state = _uiState.value
+        val inUnsectioned = state.unsectionedTasks.any { it.id == taskId }
+        val (tasks, groupProjectId) = if (inUnsectioned) {
+            state.unsectionedTasks to projectId
+        } else {
+            val section = state.sections.firstOrNull { s -> s.tasks.any { it.id == taskId } }
+                ?: return
+            section.tasks to section.project.id
+        }
+        val newPosition = dropPositionFor(tasks, taskId) ?: return
+        viewModelScope.launch {
+            taskRepository.updatePosition(taskId, groupProjectId, newPosition)
+        }
     }
 
     fun toggleSection(sectionIndex: Int) {
