@@ -92,7 +92,7 @@ class ToggleTaskCallback : ActionCallback {
                 createdAt = DateUtils.nowIso(),
                 updatedAt = DateUtils.nowIso(),
             )
-            pendingActionDao.replaceForEntity("task", taskId, action)
+            pendingActionDao.queueTaskActionMerging(action)
 
             // 4. Cancel reminders + schedule background sync
             alarmScheduler.cancelForTask(taskId)

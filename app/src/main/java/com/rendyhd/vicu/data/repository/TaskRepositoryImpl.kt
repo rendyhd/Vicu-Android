@@ -92,7 +92,7 @@ class TaskRepositoryImpl @Inject constructor(
         if (actionType == "create") {
             pendingActionDao.insert(action)
         } else {
-            pendingActionDao.replaceForEntity("task", entityId, action)
+            pendingActionDao.queueTaskActionMerging(action)
         }
         SyncScheduler.enqueueWhenOnline(context)
     }

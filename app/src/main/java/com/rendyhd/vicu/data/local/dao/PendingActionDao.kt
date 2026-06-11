@@ -68,4 +68,17 @@ interface PendingActionDao {
         deleteByEntity(entityType, entityId)
         insert(action)
     }
+
+    @Query("SELECT * FROM pending_actions WHERE entityType = :entityType AND entityId = :entityId AND status IN ('pending', 'failed', 'processing')")
+    suspend fun getActiveByEntity(entityType: String, entityId: Long): List<PendingActionEntity>
+
+    @Transaction
+    suspend fun queueTaskActionMerging(action: PendingActionEntity) {
+        val existing = getActiveByEntity(action.entityType, action.entityId)
+        when (val op = resolveTaskQueueMerge(existing, action.actionType, action.payload)) {
+            QueueMergeOp.ReplaceForEntity -> replaceForEntity(action.entityType, action.entityId, action)
+            is QueueMergeOp.UpdateCreatePayload -> remapEntity(op.createActionId, action.entityId, op.newPayload, "pending")
+            QueueMergeOp.DropAll -> deleteByEntity(action.entityType, action.entityId)
+        }
+    }
 }

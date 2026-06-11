@@ -87,7 +87,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                         createdAt = DateUtils.nowIso(),
                         updatedAt = DateUtils.nowIso(),
                     )
-                    pendingActionDao.replaceForEntity("task", taskId, action)
+                    pendingActionDao.queueTaskActionMerging(action)
                     SyncScheduler.enqueueWhenOnline(context)
                 }
 

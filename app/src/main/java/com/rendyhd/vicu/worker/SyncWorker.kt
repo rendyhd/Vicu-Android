@@ -19,6 +19,7 @@ import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.notification.AlarmScheduler
 import com.rendyhd.vicu.util.Constants
+import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
 import dagger.assisted.Assisted
@@ -128,8 +129,25 @@ class SyncWorker @AssistedInject constructor(
                 // Delete the temp-ID entity and insert the real one
                 taskDao.deleteById(action.entityId)
                 taskDao.upsert(responseEntity)
-                val created = with(taskMapper) { responseEntity.toDomain() }
-                alarmScheduler.scheduleForTask(created)
+                // A create that was completed while still offline carries done=true in its
+                // folded payload; CreateTaskDto cannot express it, so replay it as a
+                // follow-up complete-object update.
+                var finalEntity = responseEntity
+                if (task.done) {
+                    val toggled = with(taskMapper) { responseEntity.toDomain() }.copy(
+                        done = true,
+                        doneAt = task.doneAt.ifBlank { DateUtils.nowIso() },
+                    )
+                    val doneDto = api.updateTask(responseEntity.id, with(taskMapper) { toggled.toDto() })
+                    finalEntity = with(taskMapper) { doneDto.toEntity() }
+                    taskDao.upsert(finalEntity)
+                }
+                val created = with(taskMapper) { finalEntity.toDomain() }
+                if (created.done) {
+                    alarmScheduler.cancelForTask(created.id)
+                } else {
+                    alarmScheduler.scheduleForTask(created)
+                }
                 // Remap any queued actions that referenced this task's temp id to the real id —
                 // in-memory for this run and in the queue for future runs / healing failed ones.
                 if (action.entityId != responseEntity.id) {
