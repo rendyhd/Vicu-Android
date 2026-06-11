@@ -13,6 +13,7 @@ import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.mapper.LabelMapper
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.LabelTaskDto
+import com.rendyhd.vicu.data.remote.api.TaskDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.remote.interceptor.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.Label
@@ -57,6 +58,7 @@ class SyncWorker @AssistedInject constructor(
     companion object {
         private const val TAG = "SyncWorker"
         private const val MAX_RETRIES = 5
+        private const val DUPLICATE_WINDOW_SECS = 900L
         private val TASK_DEPENDENT_ACTIONS = setOf("update", "toggle_done", "delete")
         private val LABEL_TASK_ACTIONS = setOf("add_label", "remove_label")
     }
@@ -119,12 +121,35 @@ class SyncWorker @AssistedInject constructor(
         }
     }
 
+    /**
+     * The original create request may have timed out AFTER the server committed it
+     * (timeouts are retriable, so the action got queued anyway). Before re-creating,
+     * look for a server-side task with the same title in the same project created
+     * around the time the action was queued. Best-effort: any failure means "no match".
+     */
+    private suspend fun findRecentDuplicate(task: Task): TaskDto? = try {
+        val queuedAt = DateUtils.parseIsoDate(task.created)
+        if (queuedAt == null) {
+            null
+        } else {
+            api.getAllTasks(mapOf("s" to task.title, "filter" to "project_id = ${task.projectId}"))
+                .firstOrNull { dto ->
+                    dto.title == task.title &&
+                        dto.projectId == task.projectId &&
+                        DateUtils.parseIsoDate(dto.created)
+                            ?.isAfter(queuedAt.minusSeconds(DUPLICATE_WINDOW_SECS)) == true
+                }
+        }
+    } catch (e: Exception) {
+        null
+    }
+
     private suspend fun processTaskAction(action: PendingActionEntity, tempIdMap: MutableMap<Long, Long>) {
         when (action.actionType) {
             "create" -> {
                 val task = json.decodeFromString<Task>(action.payload)
-                val createDto = with(taskMapper) { task.toCreateDto() }
-                val responseDto = api.createTask(task.projectId, createDto)
+                val responseDto = findRecentDuplicate(task)
+                    ?: api.createTask(task.projectId, with(taskMapper) { task.toCreateDto() })
                 val responseEntity = with(taskMapper) { responseDto.toEntity() }
                 // Delete the temp-ID entity and insert the real one
                 taskDao.deleteById(action.entityId)
