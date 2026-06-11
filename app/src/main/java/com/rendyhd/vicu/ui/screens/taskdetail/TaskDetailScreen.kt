@@ -1,15 +1,18 @@
 package com.rendyhd.vicu.ui.screens.taskdetail
 
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -44,12 +47,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -72,7 +75,6 @@ import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
 import com.rendyhd.vicu.ui.components.picker.RelationTaskPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
-import com.rendyhd.vicu.ui.components.shared.VicuDragHandle
 import com.rendyhd.vicu.ui.components.task.DescriptionField
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.FileUtils
@@ -82,13 +84,12 @@ import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun TaskDetailSheet(
+fun TaskDetailScreen(
     taskId: Long,
     onDismiss: () -> Unit,
     viewModel: TaskDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
 
     var showDatePicker by remember { mutableStateOf(false) }
@@ -131,52 +132,63 @@ fun TaskDetailSheet(
         if (state.isDeleted) onDismiss()
     }
 
-    // Auto-save once, on dispose. (onDismissRequest also disposes the sheet, so saving in
-    // both places double-fires the Go zero-value full-object PUT and widens the clobber window.)
+    // Auto-save once, on dispose. Closing the screen (back, the close icon, or state.isDeleted)
+    // leaves composition and fires this exactly once.
     DisposableEffect(Unit) {
         onDispose {
             viewModel.saveIfChanged()
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = { VicuDragHandle() },
-    ) {
-        val task = state.task
+    // Full-screen instead of a ModalBottomSheet: the M3 sheet's anchored-drag has a nested-scroll
+    // anchor-recovery bug (issuetracker.google.com/issues/486562294, fixed only in alpha Compose)
+    // that made a scrollable child shake/spring on drag. A plain screen has no drag-to-dismiss, so
+    // the whole class of bugs is gone. Dismiss via the close icon or system back.
+    BackHandler { onDismiss() }
 
-        if (state.isLoading || task == null) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                CircularProgressIndicator()
+    Surface(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Edit task") },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Close")
+                        }
+                    },
+                )
+            },
+        ) { innerPadding ->
+            val task = state.task
+
+            if (state.isLoading || task == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+                return@Scaffold
             }
-            return@ModalBottomSheet
-        }
 
-        val imageTokenIds = remember(task.description) {
-            ImageTokens.findImageRefs(task.description)
-                .filterIsInstance<ImageTokens.ImageRef.Image>()
-                .map { it.attachmentId }
-                .toSet()
-        }
-        val visibleAttachments = state.attachments.filter { it.id !in imageTokenIds }
+            val imageTokenIds = remember(task.description) {
+                ImageTokens.findImageRefs(task.description)
+                    .filterIsInstance<ImageTokens.ImageRef.Image>()
+                    .map { it.attachmentId }
+                    .toSet()
+            }
+            val visibleAttachments = state.attachments.filter { it.id !in imageTokenIds }
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                // No explicit height: let the LazyColumn wrap its content and clamp to the
-                // sheet's available area (like TaskEntrySheet). A fixed/variable height fights
-                // the sheet's content-derived expanded anchor and shakes during drag-dismiss.
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 16.dp)
-                .imePadding(),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 16.dp)
+                    .imePadding(),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
             // Title
             item(key = "title") {
                 OutlinedTextField(
@@ -593,6 +605,7 @@ fun TaskDetailSheet(
                     )
                 }
             }
+        }
         }
     }
 

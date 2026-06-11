@@ -56,6 +56,16 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
+        debug {
+            // Separate applicationId so debug installs side-by-side with the
+            // release/beta build instead of hitting INSTALL_FAILED_UPDATE_INCOMPATIBLE.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            // Distinct redirect scheme so two apps don't register the same custom URI.
+            // Note: OIDC won't work on debug (this scheme isn't registered with the IdP);
+            // use password or API-token login on the debug variant.
+            manifestPlaceholders["appAuthRedirectScheme"] = "com.rendyhd.vicu.debug"
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

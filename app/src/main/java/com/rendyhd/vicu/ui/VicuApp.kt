@@ -66,7 +66,7 @@ import com.rendyhd.vicu.ui.navigation.SetupRoute
 import com.rendyhd.vicu.ui.navigation.TagRoute
 import com.rendyhd.vicu.ui.navigation.TodayRoute
 import com.rendyhd.vicu.ui.navigation.UpcomingRoute
-import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailSheet
+import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailScreen
 import kotlinx.coroutines.launch
 
 private data class BottomNavItem(
@@ -442,9 +442,9 @@ fun VicuApp(
         )
     }
 
-    // Task Detail Sheet
+    // Task Detail (full-screen edit)
     if (showTaskDetailSheet) {
-        TaskDetailSheet(
+        TaskDetailScreen(
             taskId = taskDetailTaskId,
             onDismiss = { showTaskDetailSheet = false },
         )
