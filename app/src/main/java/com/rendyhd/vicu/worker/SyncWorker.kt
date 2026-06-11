@@ -70,6 +70,10 @@ class SyncWorker @AssistedInject constructor(
         baseUrlHolder.ensureInitialized()
         authManager.ensureInitializedAndGetToken()
 
+        // Recover actions stranded in 'processing' by a process death mid-run.
+        // Replay is at-least-once by design (see findRecentDuplicate for creates).
+        pendingActionDao.resetProcessingToPending()
+
         var hasRetriableFailures = false
 
         try {
