@@ -70,7 +70,6 @@ fun TaskItem(
     onToggleDone: () -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onSchedule: (() -> Unit)? = null,
     selectionActive: Boolean = false,
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,

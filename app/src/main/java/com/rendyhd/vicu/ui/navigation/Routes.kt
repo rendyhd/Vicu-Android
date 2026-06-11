@@ -13,5 +13,4 @@ import kotlinx.serialization.Serializable
 @Serializable data class TagRoute(val labelId: Long)
 @Serializable data class CustomListRoute(val listId: String)
 @Serializable object SearchRoute
-@Serializable data class TaskDetailRoute(val taskId: Long)
 @Serializable object SettingsRoute
