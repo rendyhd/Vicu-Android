@@ -404,6 +404,15 @@ class TaskParserTest {
     }
 
     @Test
+    fun `no-space trailing bang emits a DATE token`() {
+        val r = TaskParser.parse("call dentist!", todoist)
+        assertEquals("call dentist", r.title)
+        val token = r.tokens.single { it.type == TokenType.DATE }
+        assertEquals(12, token.start)
+        assertEquals(13, token.end)
+    }
+
+    @Test
     fun `bang token maps to raw input even after a consumed label`() {
         // raw: "buy milk ! @work" — the label is consumed, bang is at raw index 9
         val r = TaskParser.parse("buy milk ! @work", todoist)

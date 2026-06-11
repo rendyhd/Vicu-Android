@@ -16,7 +16,7 @@ enum class BangForm { NONE, STANDALONE, LEADING, TRAILING }
 data class BangTodayResult(
     val title: String,
     val dueDate: LocalDateTime?,
-    val form: BangForm = BangForm.NONE,
+    val form: BangForm,
 )
 
 /**
@@ -95,7 +95,7 @@ fun extractBangToday(input: String): BangTodayResult {
         }
     }
 
-    return BangTodayResult(input, null)
+    return BangTodayResult(input, null, BangForm.NONE)
 }
 
 private fun buildWorkingText(input: String, consumed: List<IntRange>): String {

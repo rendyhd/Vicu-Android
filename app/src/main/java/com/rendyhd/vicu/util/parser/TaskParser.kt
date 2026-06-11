@@ -76,9 +76,10 @@ object TaskParser {
                     BangForm.LEADING -> rawInput.indices.firstOrNull { i ->
                         !rawInput[i].isWhitespace() && consumed.none { r -> i in r }
                     }
-                    else -> rawInput.indices.lastOrNull { i ->
+                    BangForm.TRAILING, BangForm.STANDALONE -> rawInput.indices.lastOrNull { i ->
                         !rawInput[i].isWhitespace() && consumed.none { r -> i in r }
                     }
+                    BangForm.NONE -> null // unreachable: guarded by bang.dueDate != null above
                 }
                 if (bangIndex != null && rawInput[bangIndex] == '!') {
                     result.tokens.add(
