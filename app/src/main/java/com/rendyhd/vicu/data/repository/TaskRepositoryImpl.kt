@@ -102,7 +102,7 @@ class TaskRepositoryImpl @Inject constructor(
             .map { it.inboxExcludeDated }
             .distinctUntilChanged()
             .flatMapLatest { excludeDated ->
-                taskDao.getInboxTasks(inboxProjectId, includeDated = !excludeDated).map { entities ->
+                taskDao.getInboxTasks(inboxProjectId, includeDated = !excludeDated).distinctUntilChanged().map { entities ->
                     entities.map { with(taskMapper) { it.toDomain() } }
                 }
             }
@@ -111,7 +111,7 @@ class TaskRepositoryImpl @Inject constructor(
         DateUtils.endOfTodayFlow()
             .distinctUntilChanged()
             .flatMapLatest { endOfToday ->
-                taskDao.getTodayTasks(endOfToday).map { entities ->
+                taskDao.getTodayTasks(endOfToday).distinctUntilChanged().map { entities ->
                     entities.map { with(taskMapper) { it.toDomain() } }
                 }
             }
@@ -120,13 +120,13 @@ class TaskRepositoryImpl @Inject constructor(
         DateUtils.endOfTodayFlow()
             .distinctUntilChanged()
             .flatMapLatest { endOfToday ->
-                taskDao.getUpcomingTasks(endOfToday).map { entities ->
+                taskDao.getUpcomingTasks(endOfToday).distinctUntilChanged().map { entities ->
                     entities.map { with(taskMapper) { it.toDomain() } }
                 }
             }
 
     override fun getAnytimeTasks(inboxProjectId: Long): Flow<List<Task>> =
-        taskDao.getAnytimeTasks(inboxProjectId).map { entities ->
+        taskDao.getAnytimeTasks(inboxProjectId).distinctUntilChanged().map { entities ->
             entities.map { with(taskMapper) { it.toDomain() } }
         }
 
@@ -135,13 +135,13 @@ class TaskRepositoryImpl @Inject constructor(
             .map { if (it.enabled) DateUtils.isoDaysAgo(it.retentionDays) else "" }
             .distinctUntilChanged()
             .flatMapLatest { cutoff ->
-                taskDao.getLogbookTasks(cutoff).map { entities ->
+                taskDao.getLogbookTasks(cutoff).distinctUntilChanged().map { entities ->
                     entities.map { with(taskMapper) { it.toDomain() } }
                 }
             }
 
     override fun getByProjectId(projectId: Long): Flow<List<Task>> =
-        taskDao.getByProjectId(projectId).map { entities ->
+        taskDao.getByProjectId(projectId).distinctUntilChanged().map { entities ->
             entities.map { with(taskMapper) { it.toDomain() } }
         }
 
@@ -161,12 +161,12 @@ class TaskRepositoryImpl @Inject constructor(
         }
 
     override fun getAllOpenTasks(): Flow<List<Task>> =
-        taskDao.getAllOpenTasks().map { entities ->
+        taskDao.getAllOpenTasks().distinctUntilChanged().map { entities ->
             entities.map { with(taskMapper) { it.toDomain() } }
         }
 
     override fun getAllTasks(): Flow<List<Task>> =
-        taskDao.getAllTasksFlow().map { entities ->
+        taskDao.getAllTasksFlow().distinctUntilChanged().map { entities ->
             entities.map { with(taskMapper) { it.toDomain() } }
         }
 
@@ -510,7 +510,7 @@ class TaskRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteLocalByIds(ids: Set<Long>) {
-        ids.forEach { taskDao.deleteById(it) }
+        if (ids.isNotEmpty()) taskDao.deleteByIds(ids.toList())
     }
 
     override suspend fun refreshAll(filters: Map<String, String>): NetworkResult<Unit> {
@@ -535,18 +535,33 @@ class TaskRepositoryImpl @Inject constructor(
             val entities = allTasks.map { with(taskMapper) { it.toEntity() } }
             // Skip tasks with pending local modifications to avoid overwriting unsynced changes
             val pendingTaskIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
+            val existingById = taskDao.getAllSync().associateBy { it.id }
             val safeEntities = entities.filter { it.id !in pendingTaskIds }
-            taskDao.upsertAll(safeEntities)
+            // Only write rows that actually changed — unconditional upserts invalidate every
+            // observing Flow and re-trigger full-list JSON decoding on all alive screens.
+            val changed = safeEntities.filter { existingById[it.id] != it }
+            taskDao.upsertAll(changed)
+            var alarmsTouched = changed.any { e ->
+                val old = existingById[e.id]
+                old == null || old.remindersJson != e.remindersJson ||
+                    old.dueDate != e.dueDate || old.done != e.done
+            }
             // Only prune on a FULL fetch — a filtered fetch returns a subset, so deleting
             // "missing" tasks would wrongly drop everything outside the filter. Keep pending
             // (e.g. locally-created temp-id) tasks regardless.
             if (filters.isEmpty()) {
                 val serverTaskIds = allTasks.map { it.id }.toSet() + pendingTaskIds
-                taskDao.deleteNotIn(serverTaskIds)
+                val deletedIds = existingById.keys - serverTaskIds
+                if (deletedIds.isNotEmpty()) {
+                    taskDao.deleteNotIn(serverTaskIds)
+                    alarmsTouched = true
+                }
             }
-            alarmScheduler.rescheduleAll()
+            // Alarm registration costs ~100 PendingIntent ops per reminder-task — only pay it
+            // when reminder-relevant fields actually changed.
+            if (alarmsTouched) alarmScheduler.rescheduleAll()
             WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
-            Log.d(TAG, "refreshAll() SUCCESS: upserted ${safeEntities.size} total tasks (skipped ${entities.size - safeEntities.size} with pending actions)")
+            Log.d(TAG, "refreshAll() SUCCESS: upserted ${changed.size} changed tasks (skipped ${entities.size - safeEntities.size} with pending actions)")
             NetworkResult.Success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "refreshAll() FAILED: ${e.message}", e)

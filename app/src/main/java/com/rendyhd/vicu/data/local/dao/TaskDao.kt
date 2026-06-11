@@ -183,8 +183,14 @@ interface TaskDao {
     @Upsert
     suspend fun upsertAll(tasks: List<TaskEntity>)
 
+    @Query("SELECT * FROM tasks")
+    suspend fun getAllSync(): List<TaskEntity>
+
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM tasks WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
 
     @Query("DELETE FROM tasks WHERE id NOT IN (:ids)")
     suspend fun deleteNotIn(ids: Set<Long>)

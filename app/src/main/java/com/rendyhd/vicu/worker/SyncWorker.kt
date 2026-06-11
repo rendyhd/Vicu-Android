@@ -284,13 +284,24 @@ class SyncWorker @AssistedInject constructor(
             val taskEntities = allTasks.map { with(taskMapper) { it.toEntity() } }
             // Skip tasks with pending local modifications to avoid overwriting unsynced changes
             val pendingTaskIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
+            val existingById = taskDao.getAllSync().associateBy { it.id }
             val safeEntities = taskEntities.filter { it.id !in pendingTaskIds }
-            taskDao.upsertAll(safeEntities)
+            val changed = safeEntities.filter { existingById[it.id] != it }
+            taskDao.upsertAll(changed)
+            var alarmsTouched = changed.any { e ->
+                val old = existingById[e.id]
+                old == null || old.remindersJson != e.remindersJson ||
+                    old.dueDate != e.dueDate || old.done != e.done
+            }
             // Remove local tasks that were deleted on the server
             val serverTaskIds = allTasks.map { it.id }.toSet() + pendingTaskIds
-            taskDao.deleteNotIn(serverTaskIds)
-            alarmScheduler.rescheduleAll()
-            Log.d(TAG, "Refreshed ${safeEntities.size} tasks from server (skipped ${taskEntities.size - safeEntities.size} with pending actions)")
+            val deletedIds = existingById.keys - serverTaskIds
+            if (deletedIds.isNotEmpty()) {
+                taskDao.deleteNotIn(serverTaskIds)
+                alarmsTouched = true
+            }
+            if (alarmsTouched) alarmScheduler.rescheduleAll()
+            Log.d(TAG, "Refreshed ${changed.size} changed tasks from server (skipped ${taskEntities.size - safeEntities.size} with pending actions)")
 
             // Refresh labels
             val labelDtos = api.getAllLabels()
