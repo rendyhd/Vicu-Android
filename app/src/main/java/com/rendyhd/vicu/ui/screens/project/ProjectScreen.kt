@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -31,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.rendyhd.vicu.domain.model.Task
@@ -46,6 +48,7 @@ import com.rendyhd.vicu.ui.components.task.AddTaskButton
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.util.isManuallyOrdered
 import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.ReorderableLazyListState
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,6 +69,9 @@ fun ProjectScreen(
     // True once the current long-press drag has actually displaced the row. A lift that
     // never moves falls through to selection mode (multi-select keeps its entry point).
     var dragMoved by remember { mutableStateOf(false) }
+    // dragMoved is the shared one-drag-at-a-time sentinel: set true here when a
+    // displacement lands, read by whichever row's onDragStopped owns the active drag
+    // (the library serializes drags, so there is exactly one).
     val reorderableState = rememberReorderableLazyListState(listState) { from, to ->
         val fromId = from.key as? Long
         val toId = to.key as? Long
@@ -135,57 +141,36 @@ fun ProjectScreen(
                         val canDrag = !selectionActive &&
                             task.id !in state.completedTaskIds &&
                             isManuallyOrdered(task)
-                        ReorderableItem(reorderableState, key = task.id) { isDragging ->
-                            val elevation by animateDpAsState(
-                                if (isDragging) 4.dp else 0.dp,
-                                label = "dragElevation",
-                            )
-                            Surface(
-                                shadowElevation = elevation,
-                                color = if (isDragging) {
-                                    MaterialTheme.colorScheme.surfaceContainerHigh
+                        ReorderableTaskRow(
+                            reorderableState = reorderableState,
+                            task = task,
+                            displayTask = displayTask,
+                            canDrag = canDrag,
+                            selectionActive = selectionActive,
+                            selected = task.id in selectedIds,
+                            onDragStarted = { dragMoved = false },
+                            onDragStopped = {
+                                if (dragMoved) {
+                                    viewModel.onTaskDropped(task.id)
                                 } else {
-                                    Color.Transparent
-                                },
-                            ) {
-                                SwipeableTaskItem(
-                                    task = displayTask,
-                                    onToggleDone = {
-                                        if (task.id in state.completedTaskIds) {
-                                            viewModel.undoComplete(task)
-                                        } else {
-                                            viewModel.toggleDone(task)
-                                        }
-                                    },
-                                    onClick = {
-                                        if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id)
-                                    },
-                                    onSchedule = { viewModel.scheduleTask(task) },
-                                    selectionActive = selectionActive,
-                                    selected = task.id in selectedIds,
-                                    // Draggable rows enter selection via lift-without-move
-                                    // (onDragStopped below); the rest keep plain long-press.
-                                    onLongClick = if (canDrag) null else ({ selectionVm.toggle(task.id) }),
-                                    modifier = if (canDrag) {
-                                        Modifier.longPressDraggableHandle(
-                                            onDragStarted = {
-                                                dragMoved = false
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            },
-                                            onDragStopped = {
-                                                if (dragMoved) {
-                                                    viewModel.onTaskDropped(task.id)
-                                                } else {
-                                                    selectionVm.toggle(task.id)
-                                                }
-                                            },
-                                        )
-                                    } else {
-                                        Modifier
-                                    },
-                                )
-                            }
-                        }
+                                    selectionVm.toggle(task.id)
+                                }
+                            },
+                            onToggleDone = {
+                                if (task.id in state.completedTaskIds) {
+                                    viewModel.undoComplete(task)
+                                } else {
+                                    viewModel.toggleDone(task)
+                                }
+                            },
+                            onClick = {
+                                if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id)
+                            },
+                            onSchedule = { viewModel.scheduleTask(task) },
+                            // Draggable rows enter selection via lift-without-move
+                            // (onDragStopped above); the rest keep plain long-press.
+                            onLongClick = if (canDrag) null else ({ selectionVm.toggle(task.id) }),
+                        )
                     }
 
                     // Add-task affordance for the parent project. Shown only when the project
@@ -234,58 +219,37 @@ fun ProjectScreen(
                                 val canDrag = !selectionActive &&
                                     task.id !in state.completedTaskIds &&
                                     isManuallyOrdered(task)
-                                ReorderableItem(reorderableState, key = task.id) { isDragging ->
-                                    val elevation by animateDpAsState(
-                                        if (isDragging) 4.dp else 0.dp,
-                                        label = "dragElevation",
-                                    )
-                                    Surface(
-                                        shadowElevation = elevation,
-                                        color = if (isDragging) {
-                                            MaterialTheme.colorScheme.surfaceContainerHigh
+                                ReorderableTaskRow(
+                                    reorderableState = reorderableState,
+                                    task = task,
+                                    displayTask = displayTask,
+                                    canDrag = canDrag,
+                                    selectionActive = selectionActive,
+                                    selected = task.id in selectedIds,
+                                    onDragStarted = { dragMoved = false },
+                                    onDragStopped = {
+                                        if (dragMoved) {
+                                            viewModel.onTaskDropped(task.id)
                                         } else {
-                                            Color.Transparent
-                                        },
-                                    ) {
-                                        SwipeableTaskItem(
-                                            task = displayTask,
-                                            onToggleDone = {
-                                                if (task.id in state.completedTaskIds) {
-                                                    viewModel.undoComplete(task)
-                                                } else {
-                                                    viewModel.toggleDone(task)
-                                                }
-                                            },
-                                            onClick = {
-                                                if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id)
-                                            },
-                                            onSchedule = { viewModel.scheduleTask(task) },
-                                            selectionActive = selectionActive,
-                                            selected = task.id in selectedIds,
-                                            // Draggable rows enter selection via lift-without-move
-                                            // (onDragStopped below); the rest keep plain long-press.
-                                            onLongClick = if (canDrag) null else ({ selectionVm.toggle(task.id) }),
-                                            modifier = if (canDrag) {
-                                                Modifier.longPressDraggableHandle(
-                                                    onDragStarted = {
-                                                        dragMoved = false
-                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    },
-                                                    onDragStopped = {
-                                                        if (dragMoved) {
-                                                            viewModel.onTaskDropped(task.id)
-                                                        } else {
-                                                            selectionVm.toggle(task.id)
-                                                        }
-                                                    },
-                                                )
-                                            } else {
-                                                Modifier
-                                            },
-                                            contentStartPadding = 16.dp,
-                                        )
-                                    }
-                                }
+                                            selectionVm.toggle(task.id)
+                                        }
+                                    },
+                                    onToggleDone = {
+                                        if (task.id in state.completedTaskIds) {
+                                            viewModel.undoComplete(task)
+                                        } else {
+                                            viewModel.toggleDone(task)
+                                        }
+                                    },
+                                    onClick = {
+                                        if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id)
+                                    },
+                                    onSchedule = { viewModel.scheduleTask(task) },
+                                    // Draggable rows enter selection via lift-without-move
+                                    // (onDragStopped above); the rest keep plain long-press.
+                                    onLongClick = if (canDrag) null else ({ selectionVm.toggle(task.id) }),
+                                    contentStartPadding = 16.dp,
+                                )
                             }
 
                             item(key = "add_task_section_${section.project.id}") {
@@ -322,4 +286,61 @@ fun ProjectScreen(
         onDismissMove = { showMovePicker = false },
         onDismissLabel = { showLabelPicker = false },
     )
+}
+
+@Composable
+private fun LazyItemScope.ReorderableTaskRow(
+    reorderableState: ReorderableLazyListState,
+    task: Task,
+    displayTask: Task,
+    canDrag: Boolean,
+    selectionActive: Boolean,
+    selected: Boolean,
+    onDragStarted: () -> Unit,
+    onDragStopped: () -> Unit,
+    onToggleDone: () -> Unit,
+    onClick: () -> Unit,
+    onSchedule: () -> Unit,
+    onLongClick: (() -> Unit)?,
+    contentStartPadding: Dp = 0.dp,
+) {
+    val haptic = LocalHapticFeedback.current
+    ReorderableItem(reorderableState, key = task.id) { isDragging ->
+        val elevation by animateDpAsState(
+            if (isDragging) 4.dp else 0.dp,
+            label = "dragElevation",
+        )
+        // The Surface stays in the tree even when idle: swapping it in/out on isDragging
+        // would change the slot structure and reset the row's internal state mid-drag.
+        Surface(
+            shadowElevation = elevation,
+            color = if (isDragging) {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            } else {
+                Color.Transparent
+            },
+        ) {
+            SwipeableTaskItem(
+                task = displayTask,
+                onToggleDone = onToggleDone,
+                onClick = onClick,
+                onSchedule = onSchedule,
+                selectionActive = selectionActive,
+                selected = selected,
+                onLongClick = onLongClick,
+                contentStartPadding = contentStartPadding,
+                modifier = if (canDrag) {
+                    Modifier.longPressDraggableHandle(
+                        onDragStarted = {
+                            onDragStarted()
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        onDragStopped = onDragStopped,
+                    )
+                } else {
+                    Modifier
+                },
+            )
+        }
+    }
 }
