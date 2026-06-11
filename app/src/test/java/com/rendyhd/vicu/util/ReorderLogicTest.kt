@@ -16,14 +16,16 @@ class ReorderLogicTest {
     fun `moves undated task down the list`() {
         val list = listOf(t(1), t(2), t(3))
         val moved = moveTaskInList(list, fromId = 1, toId = 3)
-        assertEquals(listOf(2L, 3L, 1L), moved!!.map { it.id })
+        assertEquals(3, moved!!.size)
+        assertEquals(listOf(2L, 3L, 1L), moved.map { it.id })
     }
 
     @Test
     fun `moves undated task up the list`() {
         val list = listOf(t(1), t(2), t(3))
         val moved = moveTaskInList(list, fromId = 3, toId = 1)
-        assertEquals(listOf(3L, 1L, 2L), moved!!.map { it.id })
+        assertEquals(3, moved!!.size)
+        assertEquals(listOf(3L, 1L, 2L), moved.map { it.id })
     }
 
     @Test
@@ -56,7 +58,8 @@ class ReorderLogicTest {
 
     @Test
     fun `drop between neighbors takes the midpoint`() {
-        val list = listOf(t(1, position = 10.0), t(2), t(3, position = 30.0))
+        // t(2)'s own stored position (99.0) is a decoy: only the neighbors matter.
+        val list = listOf(t(1, position = 10.0), t(2, position = 99.0), t(3, position = 30.0))
         assertEquals(20.0, dropPositionFor(list, 2)!!, 0.0)
     }
 
@@ -81,6 +84,16 @@ class ReorderLogicTest {
             t(3, position = 40.0),
         )
         assertEquals(20.0, dropPositionFor(list, 2)!!, 0.0)
+    }
+
+    @Test
+    fun `dated next neighbor is ignored`() {
+        // Defensive symmetry: a dated row after the drop slot is treated as no-next.
+        val list = listOf(
+            t(2, position = 0.0),
+            t(1, dueDate = "2026-06-12T00:00:00Z", position = 5.0),
+        )
+        assertEquals(POSITION_STEP, dropPositionFor(list, 2)!!, 0.0)
     }
 
     @Test

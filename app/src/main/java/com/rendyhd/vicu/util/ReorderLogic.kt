@@ -24,7 +24,13 @@ fun moveTaskInList(tasks: List<Task>, fromId: Long, toId: Long): List<Task>? {
     return tasks.toMutableList().apply { add(toIdx, removeAt(fromIdx)) }
 }
 
-/** Position halfway between neighbors; half of next at the top; one step past prev at the end. */
+/**
+ * Position halfway between neighbors; half of next at the top; one step past prev at the end.
+ *
+ * Known limitation: when neighbors carry Vikunja's default position 0.0 (legacy lists that were
+ * never anchored), the result can equal a neighbor's position and the relative order is then
+ * server-undefined; accepted per the plan — dragging to the end heals such lists.
+ */
 fun computeDropPosition(prev: Double?, next: Double?): Double = when {
     prev != null && next != null -> (prev + next) / 2.0
     next != null -> next / 2.0
@@ -34,13 +40,13 @@ fun computeDropPosition(prev: Double?, next: Double?): Double = when {
 
 /**
  * New position for [taskId] given its neighbors in [tasks] (the already-reordered,
- * as-displayed list). A dated previous row is ignored — its position is meaningless
+ * as-displayed list). Dated neighbors are ignored — their positions are meaningless
  * for the undated ordering.
  */
 fun dropPositionFor(tasks: List<Task>, taskId: Long): Double? {
     val idx = tasks.indexOfFirst { it.id == taskId }
     if (idx < 0) return null
     val prev = tasks.getOrNull(idx - 1)?.takeUnless { isDated(it) }?.position
-    val next = tasks.getOrNull(idx + 1)?.position
+    val next = tasks.getOrNull(idx + 1)?.takeUnless { isDated(it) }?.position
     return computeDropPosition(prev, next)
 }
