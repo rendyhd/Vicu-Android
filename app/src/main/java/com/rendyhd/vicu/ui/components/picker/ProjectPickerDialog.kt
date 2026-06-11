@@ -21,19 +21,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.util.buildProjectTree
-
-private fun parseHexColor(hex: String): Color? {
-    if (hex.isBlank()) return null
-    return try {
-        Color(android.graphics.Color.parseColor(if (hex.startsWith("#")) hex else "#$hex"))
-    } catch (_: Exception) {
-        null
-    }
-}
+import com.rendyhd.vicu.util.parseHexColor
 
 @Composable
 fun ProjectPickerDialog(
@@ -44,6 +35,8 @@ fun ProjectPickerDialog(
     inboxProjectId: Long = 0L,
 ) {
     val sorted = remember(projects, inboxProjectId) {
+        // Archived projects are filtered out, but their non-archived children intentionally
+        // surface at root level (via the tree builder's orphan pass) so they stay selectable.
         val visible = projects
             .filter { !it.isArchived }
             .sortedWith(compareBy({ it.id != inboxProjectId }, { it.position }, { it.title }))

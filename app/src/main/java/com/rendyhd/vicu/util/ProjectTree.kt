@@ -7,6 +7,9 @@ import com.rendyhd.vicu.domain.model.Project
  * children, paired with the nesting depth. Sibling order follows the input list order.
  * Orphans (parent not in the list) land at root level; the visited guard terminates on
  * pre-existing cyclic parent data (A->B->A).
+ *
+ * Callers are responsible for pre-filtering the input (e.g., archived projects); a project
+ * whose parent was filtered out lands at root level via the orphan pass.
  */
 fun buildProjectTree(projects: List<Project>): List<Pair<Project, Int>> {
     val childrenMap = projects.groupBy { it.parentProjectId }

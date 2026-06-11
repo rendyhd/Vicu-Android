@@ -33,6 +33,8 @@ class ProjectTreeTest {
     @Test
     fun `cyclic parents terminate`() {
         // A->B->A: neither reachable from root; both land via the orphan pass.
+        // Set equality (not list) because the orphan emission order between the two
+        // cycle members is arbitrary/unspecified.
         val tree = buildProjectTree(listOf(p(1, parent = 2), p(2, parent = 1)))
         assertEquals(setOf(1L, 2L), tree.map { it.first.id }.toSet())
     }
