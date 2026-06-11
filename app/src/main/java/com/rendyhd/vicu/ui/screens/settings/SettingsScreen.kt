@@ -102,6 +102,7 @@ import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.LabelEditDialog
 import com.rendyhd.vicu.ui.components.settings.ExactAlarmBanner
+import com.rendyhd.vicu.ui.components.settings.NotificationsDisabledBanner
 import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.ui.components.shared.ProjectEditDialog
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
@@ -1585,6 +1586,10 @@ private fun NotificationsTab(
     ) {
         item(key = "notif_header") {
             SectionHeader(icon = Icons.Outlined.Notifications, title = "Reminders")
+        }
+
+        item(key = "notif_disabled_banner") {
+            NotificationsDisabledBanner()
         }
 
         item(key = "notif_exact_alarm_banner") {
