@@ -67,8 +67,14 @@ class TaskRepositoryImpl @Inject constructor(
         try {
             val views = api.getProjectViews(projectId)
             val listView = views.firstOrNull { it.viewKind == "list" } ?: return
-            val existing = api.getViewTasks(projectId, listView.id)
-            val maxPos = existing.maxOfOrNull { it.position } ?: 0.0
+            // One row, highest position — avoids paging the whole view (and the old code
+            // only read page 1 anyway, which anchored mid-list in projects with >50 tasks).
+            val existing = api.getViewTasks(
+                projectId,
+                listView.id,
+                mapOf("sort_by" to "position", "order_by" to "desc", "per_page" to "1"),
+            )
+            val maxPos = existing.firstOrNull()?.position ?: 0.0
             api.updateTaskPosition(
                 newTaskId,
                 TaskPositionDto(position = maxPos + 65_536.0, projectViewId = listView.id),
