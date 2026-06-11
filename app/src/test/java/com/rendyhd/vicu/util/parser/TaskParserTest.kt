@@ -425,6 +425,8 @@ class TaskParserTest {
 
     @Test
     fun `priority bang does not emit a DATE token`() {
+        // Todoist mode ignores !N priority syntax (it uses pN style), so !1 stays in
+        // the title; the point here is that it is also not mistaken for a bang-today.
         val r = TaskParser.parse("task !1", todoist)
         assertNull(r.priority)
         assertNull(r.dueDate)

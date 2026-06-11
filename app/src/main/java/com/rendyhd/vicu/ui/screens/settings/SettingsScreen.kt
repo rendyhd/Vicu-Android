@@ -2315,7 +2315,6 @@ private fun buildFilterSummary(list: CustomList): String {
     return parts.joinToString(" · ")
 }
 
-
 @Composable
 private fun AuthDebugLogDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
