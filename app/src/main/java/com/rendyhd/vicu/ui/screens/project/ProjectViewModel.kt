@@ -118,25 +118,29 @@ class ProjectViewModel @Inject constructor(
     /**
      * Live reorder while dragging: move [fromId] into the slot of [toId] within its group
      * (unsectioned list or one section). Cross-group and dated-task moves are vetoed by
-     * moveTaskInList. Returns true when a move was applied.
+     * moveTaskInList. Returns true when a move was applied. Uses an explicit CAS loop so
+     * the return value is tied to the attempt that actually landed (update {} may retry
+     * its lambda, which would leave a side-channel flag stale).
      */
     fun onTaskMoved(fromId: Long, toId: Long): Boolean {
-        var moved = false
-        _uiState.update { state ->
-            moveTaskInList(state.unsectionedTasks, fromId, toId)?.let { reordered ->
-                moved = true
-                return@update state.copy(unsectionedTasks = reordered)
-            }
-            val idx = state.sections.indexOfFirst { s -> s.tasks.any { it.id == fromId } }
-            if (idx < 0) return@update state
-            val reordered = moveTaskInList(state.sections[idx].tasks, fromId, toId)
-                ?: return@update state
-            moved = true
-            val sections = state.sections.toMutableList()
-            sections[idx] = sections[idx].copy(tasks = reordered)
-            state.copy(sections = sections)
+        while (true) {
+            val current = _uiState.value
+            val next = stateWithMove(current, fromId, toId) ?: return false
+            if (_uiState.compareAndSet(current, next)) return true
         }
-        return moved
+    }
+
+    /** Returns [state] with the move applied, or null when the move is vetoed. */
+    private fun stateWithMove(state: ProjectUiState, fromId: Long, toId: Long): ProjectUiState? {
+        moveTaskInList(state.unsectionedTasks, fromId, toId)?.let { reordered ->
+            return state.copy(unsectionedTasks = reordered)
+        }
+        val idx = state.sections.indexOfFirst { s -> s.tasks.any { it.id == fromId } }
+        if (idx < 0) return null
+        val reordered = moveTaskInList(state.sections[idx].tasks, fromId, toId) ?: return null
+        val sections = state.sections.toMutableList()
+        sections[idx] = sections[idx].copy(tasks = reordered)
+        return state.copy(sections = sections)
     }
 
     /** Drag released: persist the dropped task's new position from its current neighbors. */
