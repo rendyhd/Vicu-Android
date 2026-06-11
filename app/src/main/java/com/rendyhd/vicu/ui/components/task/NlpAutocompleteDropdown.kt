@@ -60,6 +60,9 @@ fun NlpAutocompleteDropdown(
     Popup(
         // Place the suggestion list just below the anchor (title field) instead of on
         // top of it — the default Popup position covers the field being typed in.
+        // Known limitation: the offset tracks the field height via state, so when the
+        // title wraps to a new line the popup repositions one frame later (deliberate
+        // tradeoff; fine in practice).
         offset = IntOffset(0, anchorSize.height),
         properties = PopupProperties(focusable = false),
     ) {

@@ -56,11 +56,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil3.compose.AsyncImage
@@ -151,8 +151,8 @@ fun TaskEntrySheet(
                 .imePadding(),
         ) {
             // Title field with NLP highlighting and autocomplete
+            var fieldSize by remember { mutableStateOf(IntSize.Zero) }
             Box {
-                var fieldSize by remember { mutableStateOf(IntSize.Zero) }
                 OutlinedTextField(
                     value = textFieldValue,
                     onValueChange = { newValue ->
