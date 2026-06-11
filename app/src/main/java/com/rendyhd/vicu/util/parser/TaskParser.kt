@@ -62,12 +62,35 @@ object TaskParser {
         // 6. Build title from non-consumed regions
         result.title = buildTitle(rawInput, consumed)
 
-        // 7. Leading/trailing ! → today (only when enabled and no date was found)
-        if (config.bangToday && result.dueDate == null) {
+        // 7. Leading/trailing ! → today (when enabled, no date found, and DATE not suppressed —
+        // the suppression gate makes dismissing the Today chip stick for bang-created dates)
+        if (config.bangToday && result.dueDate == null && TokenType.DATE !in suppress) {
             val bang = extractBangToday(result.title)
             if (bang.dueDate != null) {
                 result.title = bang.title
                 result.dueDate = bang.dueDate
+                // The bang was found in the rebuilt title; map it back to the raw input as
+                // the first (leading) or last (trailing/standalone) non-consumed,
+                // non-whitespace character so the field highlights it like other tokens.
+                val bangIndex = when (bang.form) {
+                    BangForm.LEADING -> rawInput.indices.firstOrNull { i ->
+                        !rawInput[i].isWhitespace() && consumed.none { r -> i in r }
+                    }
+                    else -> rawInput.indices.lastOrNull { i ->
+                        !rawInput[i].isWhitespace() && consumed.none { r -> i in r }
+                    }
+                }
+                if (bangIndex != null && rawInput[bangIndex] == '!') {
+                    result.tokens.add(
+                        ParsedToken(
+                            type = TokenType.DATE,
+                            start = bangIndex,
+                            end = bangIndex + 1,
+                            value = bang.dueDate,
+                            raw = "!",
+                        ),
+                    )
+                }
             }
         }
 

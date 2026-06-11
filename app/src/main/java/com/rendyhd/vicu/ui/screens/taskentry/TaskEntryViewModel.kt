@@ -357,8 +357,11 @@ class TaskEntryViewModel @Inject constructor(
             repeatMode = vik.repeatMode
         }
 
-        // Bang-today fallback (works even when parser disabled)
-        if (config.bangToday && (dueDate.isBlank() || DateUtils.isNullDate(dueDate))) {
+        // Bang-today fallback (works even when parser disabled; skipped when the user
+        // dismissed the Today chip — DATE is then in suppressTypes)
+        if (config.bangToday && TokenType.DATE !in config.suppressTypes &&
+            (dueDate.isBlank() || DateUtils.isNullDate(dueDate))
+        ) {
             val bang = extractBangToday(title)
             if (bang.dueDate != null) {
                 title = bang.title

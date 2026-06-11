@@ -370,4 +370,64 @@ class TaskParserTest {
         assertEquals(emptyList<String>(), r.labels)
         assertEquals("dangling @", r.title)
     }
+
+    // ─── Bang-today token ─────────────────────────────────────
+
+    @Test
+    fun `trailing bang emits a DATE token at the bang position`() {
+        val r = TaskParser.parse("buy milk !", todoist)
+        assertEquals("buy milk", r.title)
+        assertNotNull(r.dueDate)
+        val token = r.tokens.single { it.type == TokenType.DATE }
+        assertEquals(9, token.start)
+        assertEquals(10, token.end)
+        assertEquals("!", token.raw)
+    }
+
+    @Test
+    fun `leading bang emits a DATE token at index zero`() {
+        val r = TaskParser.parse("! buy milk", todoist)
+        assertEquals("buy milk", r.title)
+        val token = r.tokens.single { it.type == TokenType.DATE }
+        assertEquals(0, token.start)
+        assertEquals(1, token.end)
+    }
+
+    @Test
+    fun `standalone bang emits a DATE token`() {
+        val r = TaskParser.parse("!", todoist)
+        assertEquals("", r.title)
+        assertNotNull(r.dueDate)
+        val token = r.tokens.single { it.type == TokenType.DATE }
+        assertEquals(0, token.start)
+        assertEquals(1, token.end)
+    }
+
+    @Test
+    fun `bang token maps to raw input even after a consumed label`() {
+        // raw: "buy milk ! @work" — the label is consumed, bang is at raw index 9
+        val r = TaskParser.parse("buy milk ! @work", todoist)
+        assertEquals("buy milk", r.title)
+        assertEquals(listOf("work"), r.labels)
+        val token = r.tokens.single { it.type == TokenType.DATE }
+        assertEquals(9, token.start)
+        assertEquals(10, token.end)
+    }
+
+    @Test
+    fun `priority bang does not emit a DATE token`() {
+        val r = TaskParser.parse("task !1", todoist)
+        assertNull(r.priority)
+        assertNull(r.dueDate)
+        assertTrue(r.tokens.none { it.type == TokenType.DATE })
+    }
+
+    @Test
+    fun `suppressing DATE disables the bang-today shortcut`() {
+        val cfg = todoist.copy(suppressTypes = setOf(TokenType.DATE))
+        val r = TaskParser.parse("buy milk !", cfg)
+        assertNull(r.dueDate)
+        assertEquals("buy milk !", r.title)
+        assertTrue(r.tokens.none { it.type == TokenType.DATE })
+    }
 }

@@ -11,9 +11,12 @@ data class DateResult(
     val tokens: List<ParsedToken>,
 )
 
+enum class BangForm { NONE, STANDALONE, LEADING, TRAILING }
+
 data class BangTodayResult(
     val title: String,
     val dueDate: LocalDateTime?,
+    val form: BangForm = BangForm.NONE,
 )
 
 /**
@@ -62,7 +65,7 @@ fun extractBangToday(input: String): BangTodayResult {
 
     // Standalone `!`
     if (trimmed == "!") {
-        return BangTodayResult("", LocalDate.now().atStartOfDay())
+        return BangTodayResult("", LocalDate.now().atStartOfDay(), BangForm.STANDALONE)
     }
 
     // Trailing `!` at end of string
@@ -72,6 +75,7 @@ fun extractBangToday(input: String): BangTodayResult {
         return BangTodayResult(
             trailingMatch.groupValues[1].trim(),
             LocalDate.now().atStartOfDay(),
+            BangForm.TRAILING,
         )
     }
 
@@ -86,6 +90,7 @@ fun extractBangToday(input: String): BangTodayResult {
             return BangTodayResult(
                 rest.trim(),
                 LocalDate.now().atStartOfDay(),
+                BangForm.LEADING,
             )
         }
     }
