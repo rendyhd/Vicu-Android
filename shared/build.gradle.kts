@@ -32,6 +32,7 @@ kotlin {
             implementation(compose.material3)
             implementation(compose.components.resources)
             implementation(compose.components.uiToolingPreview)
+            implementation(libs.cascade.editor)
 
             implementation(libs.kotlinx.datetime)
             implementation(libs.kotlinx.serialization.json)

@@ -18,6 +18,7 @@ tink = "1.19.0"
 kotlinx-datetime = "0.6.2"
 kotlinx-coroutines = "1.10.2"
 ktor = "3.0.1"
+cascade = "1.9.0"
 koin = "4.0.2"
 reorderable = "2.4.3"
 coreKtx = "1.16.0"
@@ -43,6 +44,7 @@ androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+cascade-editor = { group = "io.github.linreal", name = "cascade-editor", version.ref = "cascade" }
 
 # Navigation
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }

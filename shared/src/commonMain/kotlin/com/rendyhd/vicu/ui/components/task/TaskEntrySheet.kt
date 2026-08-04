@@ -4,6 +4,7 @@ import com.rendyhd.vicu.ui.rememberImagePicker
 import org.koin.compose.koinInject
 import com.rendyhd.vicu.util.PlatformFiles
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -87,6 +89,7 @@ fun TaskEntrySheet(
     val state by viewModel.uiState.collectAsState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val focusRequester = remember { FocusRequester() }
+    val descriptionEditorController = rememberDescriptionEditorController()
     val isDarkTheme = isSystemInDarkTheme()
 
     var showDatePicker by remember { mutableStateOf(false) }
@@ -139,11 +142,17 @@ fun TaskEntrySheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        // Cascade owns vertical scrolling while its editor is active. Temporarily
+        // disable anchored-sheet gestures so the two nested scroll systems do not
+        // fight over the same drag
+        sheetGesturesEnabled = !descriptionEditorController.isEditorFocused,
         dragHandle = { VicuDragHandle() },
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clearDescriptionEditorFocusOnHostTap(descriptionEditorController)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp)
                 .imePadding(),
@@ -218,6 +227,7 @@ fun TaskEntrySheet(
                 onImagePasted = viewModel::stagePendingImage,
                 pendingImages = state.pendingImages,
                 onRemovePending = viewModel::removePendingImage,
+                editorController = descriptionEditorController,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -327,7 +337,10 @@ fun TaskEntrySheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
-                onClick = viewModel::save,
+                onClick = {
+                    descriptionEditorController.flush()
+                    viewModel.save()
+                },
                 // Gate on the effective (parsed) title so NLP-only input like "@work !1"
                 // doesn't look enabled and then silently no-op in save().
                 enabled = viewModel.effectiveTitle().isNotBlank() && !state.isSaving,
