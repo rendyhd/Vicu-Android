@@ -1,9 +1,11 @@
 package com.rendyhd.vicu.widget
 
 import android.content.Context
+import android.os.Build
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -29,6 +31,11 @@ object WidgetUpdateScheduler {
     fun enqueueImmediateUpdate(context: Context, appWidgetId: Int) {
         val request = OneTimeWorkRequestBuilder<TaskWidgetWorker>()
             .setInputData(workDataOf("app_widget_id" to appWidgetId))
+            .apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                }
+            }
             .build()
         WorkManager.getInstance(context).enqueue(request)
     }
@@ -36,6 +43,11 @@ object WidgetUpdateScheduler {
     fun enqueueImmediateUpdateAll(context: Context) {
         val request = OneTimeWorkRequestBuilder<TaskWidgetWorker>()
             .setInputData(workDataOf("update_all" to true))
+            .apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                }
+            }
             .build()
         // Unique + REPLACE: rapid mutations collapse into one refresh instead of queueing
         // a redundant worker per repository write.

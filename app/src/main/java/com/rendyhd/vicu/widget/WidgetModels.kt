@@ -29,7 +29,16 @@ data class TaskWidgetState(
     val smartAdd: Boolean = true,
     val contextNav: Boolean = true,
     val addToProjectId: Long = 0L, // for custom lists: which project the + button targets
+    val pendingCompletionIds: Set<Long> = emptySet(),
 )
+
+internal fun TaskWidgetState.hidePendingCompletions(): TaskWidgetState {
+    val hiddenCount = tasks.count { it.id in pendingCompletionIds }
+    return copy(
+        tasks = tasks.filterNot { it.id in pendingCompletionIds },
+        totalCount = (totalCount - hiddenCount).coerceAtLeast(0),
+    )
+}
 
 @Serializable
 data class WidgetConfig(

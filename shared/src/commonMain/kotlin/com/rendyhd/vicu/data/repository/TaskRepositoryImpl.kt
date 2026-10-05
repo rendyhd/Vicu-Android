@@ -231,9 +231,9 @@ class TaskRepositoryImpl(
             val responseEntity = with(taskMapper) { responseDto.toEntity() }
             taskDao.upsert(responseEntity)
             val created = with(taskMapper) { responseEntity.toDomain() }
+            platformHooks.updateWidgets()
             platformHooks.scheduleAlarm(created)
             anchorNewTaskAtEnd(task.projectId, created.id)
-            platformHooks.updateWidgets()
             NetworkResult.Success(created)
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
@@ -669,6 +669,7 @@ class TaskRepositoryImpl(
         return try {
             val responseDto = api.updateTask(task.id, patch)
             val responseEntity = with(taskMapper) { responseDto.toEntity() }
+            taskDao.upsert(responseEntity)
             val result = with(taskMapper) { responseEntity.toDomain() }
             updateParentDoneReferences(toggled, responseDto.done)
             if (toggled.done) {

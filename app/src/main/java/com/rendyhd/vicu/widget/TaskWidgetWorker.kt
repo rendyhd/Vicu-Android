@@ -142,9 +142,14 @@ class TaskWidgetWorker(
                     TaskWidgetStateDefinition,
                     glanceId,
                 ) { prefs ->
+                    // Read the marker inside the state update so an in-flight refresh
+                    // cannot overwrite an optimistic completion with an older Room snapshot.
+                    val pendingIds = TaskWidgetStateDefinition.parseState(prefs).pendingCompletionIds
                     prefs.toMutablePreferences().apply {
                         this[TaskWidgetStateDefinition.KEY_STATE] =
-                            TaskWidgetStateDefinition.encodeState(state)
+                            TaskWidgetStateDefinition.encodeState(
+                                state.copy(pendingCompletionIds = pendingIds).hidePendingCompletions(),
+                            )
                     }
                 }
 
