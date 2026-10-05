@@ -244,15 +244,15 @@ class TaskMapper(private val json: Json) {
     )
 
     private fun TaskReminderDto.toDomain(): TaskReminder = TaskReminder(
-        reminder = reminder,
+        reminder = reminder.orEmpty(),
         relativePeriod = relativePeriod,
-        relativeTo = relativeTo,
+        relativeTo = relativeTo.orEmpty(),
     )
 
     private fun TaskReminder.toDto(): TaskReminderDto = TaskReminderDto(
-        reminder = reminder,
+        reminder = dateOrNullable(reminder),
         relativePeriod = relativePeriod,
-        relativeTo = relativeTo,
+        relativeTo = relativeTo.ifBlank { null },
     )
 
     private fun AttachmentDto.toDomainAttachment(): Attachment = Attachment(

@@ -53,7 +53,15 @@ fun mergePatchPayloads(first: String, second: String, entityType: String = ""): 
 fun normalizeQueuedPatchPayload(entityType: String, payload: String): String {
     return runCatching {
         val payloadObject = Json.parseToJsonElement(payload) as JsonObject
-        if ("id" !in payloadObject) return payload
+        if ("id" !in payloadObject) {
+            // Already a patch. Task patches queued before the issue #30 fix may still carry
+            // blank reminder fields that API v2 rejects.
+            return if (entityType == "task" && "reminders" in payloadObject) {
+                MergePatches.sanitizeTaskPatch(payloadObject).toString()
+            } else {
+                payload
+            }
+        }
         val patch = when (entityType) {
             "task" -> MergePatches.task(
                 previous = null,

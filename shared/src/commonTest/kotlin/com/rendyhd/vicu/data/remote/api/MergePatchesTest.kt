@@ -1,9 +1,14 @@
 package com.rendyhd.vicu.data.remote.api
 
+import com.rendyhd.vicu.data.local.dao.normalizeQueuedPatchPayload
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.model.TaskReminder
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -138,5 +143,66 @@ class MergePatchesTest {
 
         assertEquals(setOf("is_archived"), patch.keys)
         assertEquals(JsonPrimitive(true), patch["is_archived"])
+    }
+
+    @Test
+    fun `issue 30 relative reminder patch omits blank reminder date`() {
+        val original = Task(id = 30, title = "Reminder", dueDate = "2026-10-05T09:00:00Z")
+
+        val patch = MergePatches.task(
+            original,
+            original.copy(
+                reminders = listOf(TaskReminder(relativePeriod = -900, relativeTo = "due_date")),
+            ),
+        )
+
+        val reminder = (patch["reminders"] as JsonArray).single() as JsonObject
+        assertEquals(setOf("relative_period", "relative_to"), reminder.keys)
+        assertEquals(JsonPrimitive(-900L), reminder["relative_period"])
+        assertEquals(JsonPrimitive("due_date"), reminder["relative_to"])
+    }
+
+    @Test
+    fun `issue 30 absolute reminder patch omits blank relative_to`() {
+        val original = Task(id = 30, title = "Reminder")
+
+        val patch = MergePatches.task(
+            original,
+            original.copy(reminders = listOf(TaskReminder(reminder = "2026-10-05T08:00:00Z"))),
+        )
+
+        val reminder = (patch["reminders"] as JsonArray).single() as JsonObject
+        assertEquals(setOf("reminder", "relative_period"), reminder.keys)
+        assertEquals(JsonPrimitive("2026-10-05T08:00:00Z"), reminder["reminder"])
+    }
+
+    @Test
+    fun `issue 30 queued patches with blank reminder fields are sanitized on replay`() {
+        val legacy = """{"reminders":[""" +
+            """{"reminder":"","relative_period":-900,"relative_to":"due_date"},""" +
+            """{"reminder":"2026-10-05T08:00:00Z","relative_period":0,"relative_to":""}]}"""
+
+        val normalized = Json.parseToJsonElement(normalizeQueuedPatchPayload("task", legacy)) as JsonObject
+
+        val reminders = (normalized["reminders"] as JsonArray).map { it as JsonObject }
+        assertEquals(setOf("relative_period", "relative_to"), reminders[0].keys)
+        assertEquals(setOf("reminder", "relative_period"), reminders[1].keys)
+    }
+
+    @Test
+    fun `issue 30 reminder dto never encodes blank fields`() {
+        val json = Json { encodeDefaults = true }
+
+        val relative = json.encodeToString(
+            TaskReminderDto.serializer(),
+            TaskReminderDto(relativePeriod = -900, relativeTo = "due_date"),
+        )
+        val absolute = json.encodeToString(
+            TaskReminderDto.serializer(),
+            TaskReminderDto(reminder = "2026-10-05T08:00:00Z"),
+        )
+
+        assertEquals("""{"relative_period":-900,"relative_to":"due_date"}""", relative)
+        assertEquals("""{"reminder":"2026-10-05T08:00:00Z","relative_period":0}""", absolute)
     }
 }

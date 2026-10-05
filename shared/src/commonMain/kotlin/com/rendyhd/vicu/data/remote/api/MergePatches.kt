@@ -3,6 +3,7 @@ package com.rendyhd.vicu.data.remote.api
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.model.TaskReminder
 import com.rendyhd.vicu.util.DateUtils
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -56,17 +57,43 @@ object MergePatches {
             put(
                 "reminders",
                 JsonArray(
-                    current.reminders.map { reminder ->
-                        buildJsonObject {
-                            put("reminder", reminder.reminder)
-                            put("relative_period", reminder.relativePeriod)
-                            put("relative_to", reminder.relativeTo)
-                        }
-                    },
+                    current.reminders.map { reminder(it) },
                 ),
             )
         }
     }
+
+    /**
+     * API v2 validates `reminder` as an RFC 3339 date-time and rejects the whole request on
+     * `""` (issue #30). Relative reminders therefore omit it, and absolute ones omit the
+     * blank `relative_to`.
+     */
+    fun reminder(reminder: TaskReminder): JsonObject = buildJsonObject {
+        if (reminder.reminder.isNotBlank() && !DateUtils.isNullDate(reminder.reminder)) {
+            put("reminder", reminder.reminder)
+        }
+        put("relative_period", reminder.relativePeriod)
+        if (reminder.relativeTo.isNotBlank()) put("relative_to", reminder.relativeTo)
+    }
+
+    /** Drops blank reminder fields from task patches queued by older versions (issue #30). */
+    fun sanitizeTaskPatch(patch: JsonObject): JsonObject {
+        val reminders = patch["reminders"] as? JsonArray ?: return patch
+        val cleaned = reminders.map { item ->
+            val obj = item as? JsonObject ?: return@map item
+            JsonObject(
+                obj.filterNot { (key, value) ->
+                    (key == "reminder" || key == "relative_to") && isBlankReminderValue(value)
+                },
+            )
+        }
+        return JsonObject(patch + ("reminders" to JsonArray(cleaned)))
+    }
+
+    private fun isBlankReminderValue(value: JsonElement): Boolean =
+        value is JsonNull ||
+            (value is JsonPrimitive && value.isString &&
+                (value.content.isBlank() || DateUtils.isNullDate(value.content)))
 
     fun taskDone(done: Boolean): JsonObject = buildJsonObject {
         put("done", done)
