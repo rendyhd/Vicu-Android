@@ -196,9 +196,9 @@ class AnytimeViewModel(
     }
 
     /** Swipe-schedule: applies the configured Today/Urgent action via the repository. */
-    fun scheduleTask(task: Task) {
+    fun scheduleTask(taskId: Long) {
         viewModelScope.launch {
-            taskRepository.applyScheduleAction(task)
+            taskRepository.applyScheduleAction(taskId)
         }
     }
 

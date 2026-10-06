@@ -324,11 +324,16 @@ class TaskRepositoryImpl(
             .filterNot { CustomListEnvelope.isAnyMetadataTask(it.description) }
             .map { with(taskMapper) { it.toDomain() } }
 
-    override suspend fun applyScheduleAction(task: Task): NetworkResult<Task> {
+    override suspend fun applyScheduleAction(taskId: Long): NetworkResult<Task> {
+        // Always start from the stored row: the swipe that triggered this may belong to a row
+        // that was composed before the task changed elsewhere. update() diffs against the same
+        // row, so the patch holds only the field the action sets.
+        val current = taskDao.getByIdSync(taskId)?.let { with(taskMapper) { it.toDomain() } }
+            ?: return NetworkResult.Error("Task $taskId is not in the local cache")
         val action = behaviorPrefsStore.getPrefs().first().scheduleAction
         val updated = when (action) {
-            ScheduleAction.DUE_TODAY -> task.copy(dueDate = DateUtils.todayEndIso())
-            ScheduleAction.PRIORITY_URGENT -> task.copy(priority = 4)
+            ScheduleAction.DUE_TODAY -> current.copy(dueDate = DateUtils.todayEndIso())
+            ScheduleAction.PRIORITY_URGENT -> current.copy(priority = 4)
         }
         return update(updated)
     }

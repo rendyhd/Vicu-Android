@@ -31,6 +31,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -68,13 +69,22 @@ fun SwipeableTaskItem(
     val haptic = LocalHapticFeedback.current
     var showCompletionConfirmation by remember { mutableStateOf(false) }
     val unfinishedSubtaskCount = task.unfinishedDescendants().size
-    val requestToggleDone = {
-        if (!task.done && unfinishedSubtaskCount > 0) {
+
+    // rememberSwipeToDismissBoxState keeps the state object (and the confirmValueChange it was
+    // created with) for the row's whole lifetime, but the row stays composed while its task is
+    // edited elsewhere. Everything the swipe handler touches is therefore read through State, so
+    // a swipe always acts on the current task, subtask count and callbacks.
+    val currentTask by rememberUpdatedState(task)
+    val currentOnToggleDone by rememberUpdatedState(onToggleDone)
+    val currentOnSchedule by rememberUpdatedState(onSchedule)
+    val requestToggleDone: () -> Unit = {
+        if (completionNeedsSubtaskConfirmation(currentTask)) {
             showCompletionConfirmation = true
         } else {
-            onToggleDone()
+            currentOnToggleDone()
         }
     }
+    val currentRequestToggleDone by rememberUpdatedState(requestToggleDone)
 
     // SwipeToDismissBox commits on fling velocity regardless of positionalThreshold, so a
     // quick flick could still trigger below the 50% mark. Track the live offset (Ref dance:
@@ -94,8 +104,8 @@ fun SwipeableTaskItem(
                 ?: 0f
             if (draggedFraction >= 0.5f) {
                 when (value) {
-                    SwipeToDismissBoxValue.StartToEnd -> requestToggleDone()
-                    SwipeToDismissBoxValue.EndToStart -> onSchedule()
+                    SwipeToDismissBoxValue.StartToEnd -> currentRequestToggleDone()
+                    SwipeToDismissBoxValue.EndToStart -> currentOnSchedule()
                     SwipeToDismissBoxValue.Settled -> {}
                 }
             }
@@ -135,7 +145,7 @@ fun SwipeableTaskItem(
                 unfinishedSubtaskCount = unfinishedSubtaskCount,
                 onConfirm = {
                     showCompletionConfirmation = false
-                    onToggleDone()
+                    currentOnToggleDone()
                 },
                 onDismiss = { showCompletionConfirmation = false },
             )
@@ -194,12 +204,19 @@ fun SwipeableTaskItem(
             unfinishedSubtaskCount = unfinishedSubtaskCount,
             onConfirm = {
                 showCompletionConfirmation = false
-                onToggleDone()
+                currentOnToggleDone()
             },
             onDismiss = { showCompletionConfirmation = false },
         )
     }
 }
+
+/**
+ * Completing an open task that still has unfinished subtasks asks first, because completing the
+ * parent completes them too. Decided on the task as it is now, never on a remembered copy.
+ */
+internal fun completionNeedsSubtaskConfirmation(task: Task): Boolean =
+    !task.done && task.unfinishedDescendants().isNotEmpty()
 
 @Composable
 private fun CompletionConfirmationDialog(

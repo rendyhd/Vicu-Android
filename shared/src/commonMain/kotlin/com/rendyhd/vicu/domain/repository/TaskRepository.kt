@@ -20,8 +20,12 @@ interface TaskRepository {
 
     suspend fun create(task: Task): NetworkResult<Task>
     suspend fun update(task: Task): NetworkResult<Task>
-    /** Applies the user's configured "schedule" action (set due today / set urgent) to a task. */
-    suspend fun applyScheduleAction(task: Task): NetworkResult<Task>
+    /**
+     * Applies the user's configured "schedule" action (set due today / set urgent) to a task.
+     * The task is re-read from Room by id so a caller holding an old copy cannot write stale
+     * fields back, and only the field the action sets is patched.
+     */
+    suspend fun applyScheduleAction(taskId: Long): NetworkResult<Task>
     suspend fun moveToProject(taskId: Long, newProjectId: Long): NetworkResult<Unit>
     /** Manual reorder: optimistic local position write + best-effort remote view-position POST. */
     suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double)

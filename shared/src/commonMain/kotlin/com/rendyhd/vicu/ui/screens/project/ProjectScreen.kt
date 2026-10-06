@@ -184,7 +184,7 @@ fun ProjectScreen(
                             },
                             onSubtaskToggleDone = viewModel::toggleDone,
                             onSubtaskClick = { child -> onTaskClick(child.id) },
-                            onSchedule = { viewModel.scheduleTask(task) },
+                            onSchedule = { viewModel.scheduleTask(task.id) },
                             // Draggable rows enter selection via lift-without-move
                             // (onDragStopped above); the rest keep plain long-press.
                             onLongClick = if (canDrag) null else ({ selectionVm.toggle(task.id) }),
@@ -229,7 +229,7 @@ fun ProjectScreen(
                         onRowClick = { task ->
                             if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id)
                         },
-                        onSchedule = { task -> viewModel.scheduleTask(task) },
+                        onSchedule = { task -> viewModel.scheduleTask(task.id) },
                         onLongClickToggle = { task -> selectionVm.toggle(task.id) },
                         onAddTask = { pid -> onShowTaskEntry(pid, null) },
                     )
