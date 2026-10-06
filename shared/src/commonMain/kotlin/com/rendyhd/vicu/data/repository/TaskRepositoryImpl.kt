@@ -177,24 +177,28 @@ class TaskRepositoryImpl(
                 }
             }
 
-    /** The exclusive end of the current day; moves at midnight and when the time zone changes. */
-    private fun endOfTodayFlow(): Flow<String> =
-        dayClock.day.map { DateUtils.endOfDayIso(it.date, it.zone) }
+    /**
+     * The start of the local day after today: the exclusive end of today. Today is
+     * `dueDate < startOfTomorrow` and Upcoming is `dueDate >= startOfTomorrow`. It moves at
+     * midnight and when the time zone changes.
+     */
+    private fun startOfTomorrowFlow(): Flow<String> =
+        dayClock.day.map { DueDates.startOfTomorrow(it.date, it.zone).toString() }
 
     override fun getTodayTasks(): Flow<List<Task>> =
-        endOfTodayFlow()
+        startOfTomorrowFlow()
             .distinctUntilChanged()
-            .flatMapLatest { endOfToday ->
-                taskDao.getTodayTasks(endOfToday).distinctUntilChanged().map { entities ->
+            .flatMapLatest { startOfTomorrow ->
+                taskDao.getTodayTasks(startOfTomorrow).distinctUntilChanged().map { entities ->
                     entities.toTopLevelTasks()
                 }
             }
 
     override fun getUpcomingTasks(): Flow<List<Task>> =
-        endOfTodayFlow()
+        startOfTomorrowFlow()
             .distinctUntilChanged()
-            .flatMapLatest { endOfToday ->
-                taskDao.getUpcomingTasks(endOfToday).distinctUntilChanged().map { entities ->
+            .flatMapLatest { startOfTomorrow ->
+                taskDao.getUpcomingTasks(startOfTomorrow).distinctUntilChanged().map { entities ->
                     entities.toTopLevelTasks()
                 }
             }

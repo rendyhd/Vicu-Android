@@ -14,7 +14,8 @@ import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.notification.NotificationChannelManager
-import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.DueDates
 import kotlinx.coroutines.flow.first
 
 class DailySummaryWorker(
@@ -23,6 +24,7 @@ class DailySummaryWorker(
     private val taskDao: TaskDao,
     private val taskMapper: TaskMapper,
     private val notificationPrefsStore: NotificationPrefsStore,
+    private val dayClock: DayClock,
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -39,13 +41,17 @@ class DailySummaryWorker(
         val heading = if (isAfternoon) "Afternoon Summary" else "Daily Summary"
         Log.d(TAG, "Running daily summary (afternoon=$isAfternoon)")
         return try {
-            val startOfToday = DateUtils.todayStartIso()
-            val endOfToday = DateUtils.getEndOfToday()
+            // Overdue is before the start of today, due today is the local day, upcoming is from
+            // the start of tomorrow: the same boundaries as the Today and Upcoming screens.
+            dayClock.refresh()
+            val day = dayClock.day.value
+            val startOfToday = DueDates.startOfDay(day.date, day.zone).toString()
+            val startOfTomorrow = DueDates.startOfTomorrow(day.date, day.zone).toString()
 
             val prefs = notificationPrefsStore.getPrefs().first()
             val overdueCount = if (prefs.notifyOverdueEnabled) taskDao.countOverdue(startOfToday) else 0
-            val todayCount = if (prefs.notifyDueTodayEnabled) taskDao.countDueToday(startOfToday, endOfToday) else 0
-            val upcomingCount = if (prefs.notifyUpcomingEnabled) taskDao.countUpcoming(endOfToday) else 0
+            val todayCount = if (prefs.notifyDueTodayEnabled) taskDao.countDueToday(startOfToday, startOfTomorrow) else 0
+            val upcomingCount = if (prefs.notifyUpcomingEnabled) taskDao.countUpcoming(startOfTomorrow) else 0
 
             val total = overdueCount + todayCount + upcomingCount
             if (total == 0) {
@@ -54,7 +60,7 @@ class DailySummaryWorker(
             }
 
             // Today-only (excludes overdue, which is summarized separately below).
-            val todayTasks = taskDao.getDueTodaySync(startOfToday, endOfToday, 3)
+            val todayTasks = taskDao.getDueTodaySync(startOfToday, startOfTomorrow, 3)
                 .map { with(taskMapper) { it.toDomain() } }
 
             val tapIntent = Intent(applicationContext, MainActivity::class.java).apply {

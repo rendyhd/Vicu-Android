@@ -16,6 +16,7 @@ import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
 import com.rendyhd.vicu.ui.screens.shared.buildTaskProjectGroups
 import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -28,6 +29,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class TodayUiState(
+    /** Open tasks whose local due date is before today, grouped by project; shown above Today. */
+    val overdueGroups: List<TaskProjectGroup> = emptyList(),
+    /** Open tasks whose local due date is today, whatever the time of day. */
     val projectGroups: List<TaskProjectGroup> = emptyList(),
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
@@ -51,6 +55,12 @@ class TodayViewModel(
 
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
     val completions = CompletionHold(viewModelScope)
+
+    private companion object {
+        /** [CompletionHold] list scopes: a row keeps its place within its own section. */
+        const val TODAY_SCOPE = 0L
+        const val OVERDUE_SCOPE = 1L
+    }
 
     /** The routines of the current day; switches to the new day at midnight. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -78,18 +88,21 @@ class TodayViewModel(
                 taskRepository.getTodayTasks(),
                 projectRepository.getAll(),
                 completions.state,
-            ) { tasks, projects, _ ->
-                buildTaskProjectGroups(completions.merge(tasks), projects, inboxId)
-            }.collect { groups ->
+                // The sections follow the day: a task due today is overdue once it is tomorrow.
+                dayClock.day,
+            ) { tasks, projects, _, day ->
+                val overdue = tasks.filter { DueDates.bucket(it.dueDate, day.date, day.zone) == DueDates.Bucket.OVERDUE }
+                val today = tasks.filter { DueDates.bucket(it.dueDate, day.date, day.zone) == DueDates.Bucket.TODAY }
+                buildTaskProjectGroups(completions.merge(overdue, OVERDUE_SCOPE), projects, inboxId) to
+                    buildTaskProjectGroups(completions.merge(today, TODAY_SCOPE), projects, inboxId)
+            }.collect { (overdueGroups, todayGroups) ->
                 _uiState.update { current ->
-                    // Preserve per-project expansion across refreshes.
-                    val merged = groups.map { g ->
-                        g.copy(
-                            isExpanded = current.projectGroups
-                                .find { it.projectId == g.projectId }?.isExpanded ?: true,
-                        )
-                    }
-                    current.copy(projectGroups = merged, isLoading = false)
+                    // Preserve per-project expansion across refreshes, separately per section.
+                    current.copy(
+                        overdueGroups = overdueGroups.keepExpansion(current.overdueGroups),
+                        projectGroups = todayGroups.keepExpansion(current.projectGroups),
+                        isLoading = false,
+                    )
                 }
             }
         }
@@ -105,6 +118,19 @@ class TodayViewModel(
             )
         }
     }
+
+    fun toggleOverdueProject(projectId: Long) {
+        _uiState.update { state ->
+            state.copy(
+                overdueGroups = state.overdueGroups.map {
+                    if (it.projectId == projectId) it.copy(isExpanded = !it.isExpanded) else it
+                },
+            )
+        }
+    }
+
+    private fun List<TaskProjectGroup>.keepExpansion(previous: List<TaskProjectGroup>): List<TaskProjectGroup> =
+        map { g -> g.copy(isExpanded = previous.find { it.projectId == g.projectId }?.isExpanded ?: true) }
 
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {

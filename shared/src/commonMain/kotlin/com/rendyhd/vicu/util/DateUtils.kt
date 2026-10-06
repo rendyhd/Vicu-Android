@@ -25,12 +25,6 @@ object DateUtils {
         return dateStr.isNullOrBlank() || dateStr == Constants.NULL_DATE_STRING
     }
 
-    fun getEndOfToday(): String = endOfDayIso(Clock.System.todayIn(localZone), localZone)
-
-    /** The first instant of the day after [date] in [zone]: the exclusive end of [date]. */
-    fun endOfDayIso(date: LocalDate, zone: TimeZone): String =
-        date.plus(1, DateTimeUnit.DAY).atStartOfDayIn(zone).toString()
-
     /** Milliseconds from [now] to the next local midnight; never less than one second. */
     fun millisUntilNextMidnight(
         now: Instant = Clock.System.now(),
@@ -158,12 +152,6 @@ object DateUtils {
 
     fun formatTodaySubtitle(today: LocalDate = Clock.System.todayIn(localZone)): String {
         return today.toJavaLocalDate().format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault()))
-    }
-
-    fun todayStartIso(): String {
-        val today = Clock.System.todayIn(localZone)
-        val startOfToday = today.atStartOfDayIn(localZone)
-        return startOfToday.toString()
     }
 
     fun formatRecurrence(repeatAfter: Long, repeatMode: Int): String {

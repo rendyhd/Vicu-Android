@@ -16,6 +16,8 @@ import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.util.CustomListFilterBuilder
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.DueDates
 import kotlinx.coroutines.flow.first
 
 class TaskWidgetWorker(
@@ -28,6 +30,7 @@ class TaskWidgetWorker(
     private val customListStore: CustomListStore,
     private val widgetPrefsStore: WidgetPrefsStore,
     private val behaviorPrefsStore: BehaviorPrefsStore,
+    private val dayClock: DayClock,
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -160,13 +163,18 @@ class TaskWidgetWorker(
     }
 
     private suspend fun queryTasks(config: WidgetConfig): List<TaskEntity> {
-        val endOfToday = DateUtils.getEndOfToday()
+        // The same boundary as the Today and Upcoming screens: the start of the local tomorrow. The
+        // day is re-read first, because this runs from a worker that may wake long after the
+        // clock last ticked.
+        dayClock.refresh()
+        val day = dayClock.day.value
+        val startOfTomorrow = DueDates.startOfTomorrow(day.date, day.zone).toString()
         val inboxId = secureTokenStorage.getInboxProjectId() ?: 0L
-        Log.d(TAG, "queryTasks: viewType=${config.viewType}, endOfToday=$endOfToday, inboxId=$inboxId")
+        Log.d(TAG, "queryTasks: viewType=${config.viewType}, startOfTomorrow=$startOfTomorrow, inboxId=$inboxId")
 
         return when (config.viewType) {
             WidgetViewType.TODAY ->
-                taskDao.getTodayTasksSync(endOfToday, MAX_WIDGET_TASKS)
+                taskDao.getTodayTasksSync(startOfTomorrow, MAX_WIDGET_TASKS)
 
             WidgetViewType.INBOX ->
                 taskDao.getInboxTasksSync(
@@ -176,7 +184,7 @@ class TaskWidgetWorker(
                 )
 
             WidgetViewType.UPCOMING ->
-                taskDao.getUpcomingTasksSync(endOfToday, MAX_WIDGET_TASKS)
+                taskDao.getUpcomingTasksSync(startOfTomorrow, MAX_WIDGET_TASKS)
 
             WidgetViewType.ANYTIME ->
                 taskDao.getAnytimeTasksSync(inboxId, MAX_WIDGET_TASKS)

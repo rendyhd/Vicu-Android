@@ -53,13 +53,13 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     val todayBoundaries = mutableListOf<String>()
     val upcomingBoundaries = mutableListOf<String>()
 
-    override fun getTodayTasks(endOfToday: String): Flow<List<TaskEntity>> {
-        todayBoundaries += endOfToday
+    override fun getTodayTasks(startOfTomorrow: String): Flow<List<TaskEntity>> {
+        todayBoundaries += startOfTomorrow
         return flowOf(emptyList())
     }
 
-    override fun getUpcomingTasks(endOfToday: String): Flow<List<TaskEntity>> {
-        upcomingBoundaries += endOfToday
+    override fun getUpcomingTasks(startOfTomorrow: String): Flow<List<TaskEntity>> {
+        upcomingBoundaries += startOfTomorrow
         return flowOf(emptyList())
     }
     override fun getAnytimeTasks(inboxProjectId: Long): Flow<List<TaskEntity>> = flowOf(emptyList())
@@ -79,12 +79,12 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
 
     override suspend fun getByIdSync(id: Long): TaskEntity? = lock.withLock { rows[id] }
     override suspend fun countOverdue(startOfToday: String): Int = 0
-    override suspend fun countDueToday(startOfToday: String, endOfToday: String): Int = 0
-    override suspend fun countUpcoming(endOfToday: String): Int = 0
-    override suspend fun getTodayTasksSync(endOfToday: String, limit: Int): List<TaskEntity> = emptyList()
-    override suspend fun getDueTodaySync(startOfToday: String, endOfToday: String, limit: Int): List<TaskEntity> = emptyList()
+    override suspend fun countDueToday(startOfToday: String, startOfTomorrow: String): Int = 0
+    override suspend fun countUpcoming(startOfTomorrow: String): Int = 0
+    override suspend fun getTodayTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity> = emptyList()
+    override suspend fun getDueTodaySync(startOfToday: String, startOfTomorrow: String, limit: Int): List<TaskEntity> = emptyList()
     override suspend fun getInboxTasksSync(inboxProjectId: Long, limit: Int, includeDated: Boolean): List<TaskEntity> = emptyList()
-    override suspend fun getUpcomingTasksSync(endOfToday: String, limit: Int): List<TaskEntity> = emptyList()
+    override suspend fun getUpcomingTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity> = emptyList()
     override suspend fun getAnytimeTasksSync(inboxProjectId: Long, limit: Int): List<TaskEntity> = emptyList()
     override suspend fun getByProjectIdSync(projectId: Long, limit: Int): List<TaskEntity> = emptyList()
     override suspend fun getAllOpenTasksSync(limit: Int): List<TaskEntity> = emptyList()

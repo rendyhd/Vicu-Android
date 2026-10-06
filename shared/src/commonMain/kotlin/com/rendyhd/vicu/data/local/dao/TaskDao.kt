@@ -24,25 +24,25 @@ interface TaskDao {
         """
         SELECT * FROM tasks
         WHERE done = 0
-        AND dueDate <= :endOfToday
+        AND dueDate < :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
         ORDER BY dueDate ASC
         """
     )
-    fun getTodayTasks(endOfToday: String): Flow<List<TaskEntity>>
+    fun getTodayTasks(startOfTomorrow: String): Flow<List<TaskEntity>>
 
     @Query(
         """
         SELECT * FROM tasks
         WHERE done = 0
-        AND dueDate > :endOfToday
+        AND dueDate >= :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
         ORDER BY dueDate ASC
         """
     )
-    fun getUpcomingTasks(endOfToday: String): Flow<List<TaskEntity>>
+    fun getUpcomingTasks(startOfTomorrow: String): Flow<List<TaskEntity>>
 
     @Query("SELECT * FROM tasks WHERE done = 0 AND projectId != :inboxProjectId ORDER BY updated DESC")
     fun getAnytimeTasks(inboxProjectId: Long): Flow<List<TaskEntity>>
@@ -105,36 +105,36 @@ interface TaskDao {
         SELECT COUNT(*) FROM tasks
         WHERE done = 0
         AND dueDate >= :startOfToday
-        AND dueDate <= :endOfToday
+        AND dueDate < :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
         """
     )
-    suspend fun countDueToday(startOfToday: String, endOfToday: String): Int
+    suspend fun countDueToday(startOfToday: String, startOfTomorrow: String): Int
 
     @Query(
         """
         SELECT COUNT(*) FROM tasks
         WHERE done = 0
-        AND dueDate > :endOfToday
+        AND dueDate >= :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
         """
     )
-    suspend fun countUpcoming(endOfToday: String): Int
+    suspend fun countUpcoming(startOfTomorrow: String): Int
 
     @Query(
         """
         SELECT * FROM tasks
         WHERE done = 0
-        AND dueDate <= :endOfToday
+        AND dueDate < :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
         ORDER BY dueDate ASC
         LIMIT :limit
         """
     )
-    suspend fun getTodayTasksSync(endOfToday: String, limit: Int): List<TaskEntity>
+    suspend fun getTodayTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity>
 
     /** Tasks due strictly within today's window (excludes overdue) — for the daily summary list. */
     @Query(
@@ -142,14 +142,14 @@ interface TaskDao {
         SELECT * FROM tasks
         WHERE done = 0
         AND dueDate >= :startOfToday
-        AND dueDate <= :endOfToday
+        AND dueDate < :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
         ORDER BY dueDate ASC
         LIMIT :limit
         """
     )
-    suspend fun getDueTodaySync(startOfToday: String, endOfToday: String, limit: Int): List<TaskEntity>
+    suspend fun getDueTodaySync(startOfToday: String, startOfTomorrow: String, limit: Int): List<TaskEntity>
 
     @Query(
         """
@@ -165,14 +165,14 @@ interface TaskDao {
         """
         SELECT * FROM tasks
         WHERE done = 0
-        AND dueDate > :endOfToday
+        AND dueDate >= :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
         ORDER BY dueDate ASC
         LIMIT :limit
         """
     )
-    suspend fun getUpcomingTasksSync(endOfToday: String, limit: Int): List<TaskEntity>
+    suspend fun getUpcomingTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity>
 
     @Query("SELECT * FROM tasks WHERE done = 0 AND projectId != :inboxProjectId ORDER BY updated DESC LIMIT :limit")
     suspend fun getAnytimeTasksSync(inboxProjectId: Long, limit: Int): List<TaskEntity>
