@@ -1,9 +1,9 @@
 package com.rendyhd.vicu.util
 
 import com.rendyhd.vicu.domain.model.RoutineArchivePart
-import com.rendyhd.vicu.util.CrossAppFixture.zones
 import com.rendyhd.vicu.util.RoutineArchiveFixture.definitionFor
 import com.rendyhd.vicu.util.RoutineArchiveFixture.fixture
+import com.rendyhd.vicu.util.RoutineArchiveFixture.inEachZone
 import com.rendyhd.vicu.util.RoutineArchiveFixture.payload
 import com.rendyhd.vicu.util.RoutineArchiveFixture.statusByDate
 import com.rendyhd.vicu.util.RoutineArchiveFixture.toMap
@@ -23,8 +23,8 @@ class RoutineArchiveFixtureTest {
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
     @Test
-    fun `prune vectors`() {
-        for (zone in zones) for (vector in fixture.prune) {
+    fun `prune vectors`() = inEachZone { zone ->
+        for (vector in fixture.prune) {
             val source = payload(
                 RoutineArchiveFixture.Side(vector.prunedBefore, vector.occurrences),
                 definitionFor(vector.schedule),
@@ -48,7 +48,7 @@ class RoutineArchiveFixtureTest {
     }
 
     @Test
-    fun `archive read vectors merge the main carrier with every part in either order`() {
+    fun `archive read vectors merge the main carrier with every part in either order`() = inEachZone { zone ->
         for (vector in fixture.archiveRead) {
             val parts = vector.parts.map {
                 RoutineArchivePart(routineId = RoutineArchiveFixture.ROUTINE_ID, part = it.part, occurrences = toMap(it.occurrences))
@@ -58,8 +58,8 @@ class RoutineArchiveFixtureTest {
             val forward = RoutineArchive.readHistory(RoutineArchiveFixture.ROUTINE_ID, main, parts)
             val backward = RoutineArchive.readHistory(RoutineArchiveFixture.ROUTINE_ID, main, parts.reversed())
 
-            assertEquals(vector.expect, statusByDate(forward), vector.name)
-            assertEquals(vector.expect, statusByDate(backward), "${vector.name} (reversed)")
+            assertEquals(vector.expect, statusByDate(forward), "${vector.name} in $zone")
+            assertEquals(vector.expect, statusByDate(backward), "${vector.name} (reversed) in $zone")
         }
     }
 }

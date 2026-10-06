@@ -4,6 +4,7 @@ import com.rendyhd.vicu.domain.model.RoutineKind
 import com.rendyhd.vicu.domain.model.RoutineSchedule
 import com.rendyhd.vicu.util.CrossAppFixture.zones
 import com.rendyhd.vicu.util.RoutineArchiveFixture.fixture
+import com.rendyhd.vicu.util.RoutineArchiveFixture.inEachZone
 import com.rendyhd.vicu.util.RoutineArchiveFixture.payload
 import com.rendyhd.vicu.util.RoutineArchiveFixture.statusByDate
 import kotlinx.datetime.LocalDate
@@ -24,20 +25,20 @@ class RoutineMergeFixtureTest {
     }
 
     @Test
-    fun `merge vectors, in both argument orders`() {
+    fun `merge vectors, in both argument orders, in every zone`() = inEachZone { zone ->
         for (vector in fixture.merge) {
             val forward = RoutineEnvelope.mergePayload(payload(vector.local), payload(vector.remote))
-            assertEquals(vector.expect.prunedBefore, forward.prunedBefore, vector.name)
-            assertEquals(vector.expect.occurrences, statusByDate(forward.occurrences), vector.name)
+            assertEquals(vector.expect.prunedBefore, forward.prunedBefore, "${vector.name} in $zone")
+            assertEquals(vector.expect.occurrences, statusByDate(forward.occurrences), "${vector.name} in $zone")
 
             val backward = RoutineEnvelope.mergePayload(payload(vector.remote), payload(vector.local))
-            assertEquals(vector.expect.prunedBefore, backward.prunedBefore, "${vector.name} (swapped)")
-            assertEquals(vector.expect.occurrences, statusByDate(backward.occurrences), "${vector.name} (swapped)")
+            assertEquals(vector.expect.prunedBefore, backward.prunedBefore, "${vector.name} (swapped) in $zone")
+            assertEquals(vector.expect.occurrences, statusByDate(backward.occurrences), "${vector.name} (swapped) in $zone")
         }
     }
 
     @Test
-    fun `definition merge vectors compare parsed instants`() {
+    fun `definition merge vectors compare parsed instants, in every zone`() = inEachZone { zone ->
         for (vector in fixture.definitionMerge) {
             fun withDefinition(side: RoutineArchiveFixture.DefinitionSide) = payload(
                 RoutineArchiveFixture.Side(),
@@ -45,14 +46,18 @@ class RoutineMergeFixtureTest {
             )
             val local = withDefinition(vector.local)
             val remote = withDefinition(vector.remote)
-            assertEquals(vector.expectName, RoutineEnvelope.mergePayload(local, remote).definition.name, vector.name)
-            assertEquals(vector.expectName, RoutineEnvelope.mergePayload(remote, local).definition.name, "${vector.name} (swapped)")
+            assertEquals(vector.expectName, RoutineEnvelope.mergePayload(local, remote).definition.name, "${vector.name} in $zone")
+            assertEquals(
+                vector.expectName,
+                RoutineEnvelope.mergePayload(remote, local).definition.name,
+                "${vector.name} (swapped) in $zone",
+            )
         }
     }
 
     @Test
-    fun `after completion vectors count from the completion date in every zone`() {
-        for (zone in zones) for (vector in fixture.afterCompletion) {
+    fun `after completion vectors count from the completion date in every zone`() = inEachZone { zone ->
+        for (vector in fixture.afterCompletion) {
             val definition = RoutineArchiveFixture.definitionFor(
                 RoutineSchedule.AfterCompletion(vector.intervalDays, vector.firstDueDate),
             )

@@ -6,6 +6,7 @@ import com.rendyhd.vicu.domain.model.RoutineKind
 import com.rendyhd.vicu.domain.model.RoutineOccurrenceRecord
 import com.rendyhd.vicu.domain.model.RoutinePayload
 import com.rendyhd.vicu.domain.model.RoutineSchedule
+import kotlinx.datetime.TimeZone
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -99,6 +100,24 @@ object RoutineArchiveFixture {
 
     const val ROUTINE_ID = "r1"
     const val SLOT_ID = "s1"
+
+    /**
+     * Runs [block] once per contract zone (Europe/Amsterdam, America/New_York, Pacific/Auckland)
+     * with that zone as the system default and passes it in, so a rule that leaks the device
+     * zone shows up as a different answer in one of them.
+     */
+    fun inEachZone(block: (TimeZone) -> Unit) {
+        val original = java.util.TimeZone.getDefault()
+        try {
+            for (zone in CrossAppFixture.zones) {
+                java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(zone.id))
+                check(TimeZone.currentSystemDefault().id == zone.id) { "the system zone did not change to ${zone.id}" }
+                block(zone)
+            }
+        } finally {
+            java.util.TimeZone.setDefault(original)
+        }
+    }
 
     /** A compact occurrence as the full record: routine r1, slot s1, 08:00, UTC unless given. */
     fun expand(compact: Compact): RoutineOccurrenceRecord = RoutineOccurrenceRecord(
