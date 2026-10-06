@@ -108,6 +108,7 @@ import com.rendyhd.vicu.ui.components.shared.LabelEditDialog
 import com.rendyhd.vicu.ui.components.settings.ExactAlarmBanner
 import com.rendyhd.vicu.ui.components.settings.NotificationsDisabledBanner
 import com.rendyhd.vicu.util.BuildInfo
+import com.rendyhd.vicu.util.CustomListFilterBuilder
 import com.rendyhd.vicu.util.buildProjectTree
 import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.ui.components.shared.ProjectEditDialog
@@ -2606,11 +2607,16 @@ private fun BottomBarSlotRow(
     }
 }
 
-private fun buildFilterSummary(list: CustomList): String {
+internal fun buildFilterSummary(list: CustomList): String {
     val parts = mutableListOf<String>()
     val f = list.filter
     if (f.dueDateFilter != "all") {
         parts.add(f.dueDateFilter.replace("_", " "))
+        // Overdue tasks are part of the today / this week / this month windows unless the list
+        // turned them off; say so, because it changes what the list shows.
+        if (!f.includesOverdue && CustomListFilterBuilder.windowHonorsIncludeOverdue(f.dueDateFilter)) {
+            parts.add("excl. overdue")
+        }
     }
     if (f.projectIds.isNotEmpty()) {
         parts.add("${f.projectIds.size} project(s)")
