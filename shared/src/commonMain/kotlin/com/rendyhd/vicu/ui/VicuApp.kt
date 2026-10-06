@@ -39,6 +39,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,6 +58,7 @@ import com.rendyhd.vicu.domain.model.SharedContent
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
+import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.OfflineBanner
 import com.rendyhd.vicu.ui.components.task.TaskEntrySheet
 import com.rendyhd.vicu.ui.components.task.LocalSubtaskDisplayMode
@@ -78,6 +81,7 @@ import com.rendyhd.vicu.ui.navigation.UpcomingRoute
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailScreen
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailViewModel
 import com.rendyhd.vicu.util.AppMessages
+import com.rendyhd.vicu.util.DayClock
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -174,6 +178,12 @@ fun VicuApp(
         ),
     ) { TaskDetailDraftHolder(null) }
     remember(taskDetailDraft) { taskDetailViewModel.restoreDraft(taskDetailDraft.restored) }
+
+    // The current day follows midnight, resume and date/time-zone changes (the receiver for those
+    // lives in the Application). Read through LocalToday so day-dependent labels recompose.
+    val dayClock: DayClock = koinInject()
+    val clockDay by dayClock.day.collectAsStateWithLifecycle()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { dayClock.refresh() }
 
     // Messages for outcomes nobody is looking at (an autosave that failed after the editor
     // closed). Shown in a snackbar above everything, including the full-screen editor.
@@ -467,6 +477,7 @@ fun VicuApp(
                 CompositionLocalProvider(
                     LocalFabAlignStart provides fabAlignStart,
                     LocalSubtaskDisplayMode provides subtaskDisplayMode,
+                    LocalToday provides clockDay.date,
                 ) {
                     AppNavHost(
                         navController = navController,

@@ -16,6 +16,7 @@ import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.auth.*
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.BuildInfo
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.worker.SyncEngine
@@ -85,7 +86,8 @@ val repositoryModule = module {
             platformHooks = get(),
             json = get(),
             behaviorPrefsStore = get(),
-            logbookPrefsStore = get()
+            logbookPrefsStore = get(),
+            dayClock = get(),
         )
     }
     single<ProjectRepository> {
@@ -140,6 +142,7 @@ val repositoryModule = module {
 val commonModule = module {
     single { SyncStaleness() }
     single { AppMessages() }
+    single { DayClock(scope = get()) }
     single {
         LocalDataWiper(
             dao = get(),

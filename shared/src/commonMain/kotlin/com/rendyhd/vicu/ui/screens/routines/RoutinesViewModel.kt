@@ -12,45 +12,48 @@ import com.rendyhd.vicu.domain.model.RoutineOccurrenceRecord
 import com.rendyhd.vicu.domain.repository.RoutineParseIssue
 import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkResult
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.datetime.Clock
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.todayIn
 
 data class RoutinesUiState(
-    val day: RoutineDay = RoutineDay(today(), emptyList()),
+    val day: RoutineDay = RoutineDay("", emptyList()),
     val active: List<Routine> = emptyList(),
     val archived: List<Routine> = emptyList(),
     val issues: List<RoutineParseIssue> = emptyList(),
     val isSaving: Boolean = false,
     val error: String? = null,
-) {
-    companion object {
-        fun today(): String = Clock.System.todayIn(TimeZone.currentSystemDefault()).toString()
-    }
-}
+)
 
 class RoutinesViewModel(
     private val repository: RoutineRepository,
     private val prefsStore: RoutinePrefsStore,
     private val platformHooks: PlatformRepositoryHooks,
+    private val dayClock: DayClock,
 ) : ViewModel() {
     private val operationState = MutableStateFlow(false to null as String?)
 
     init {
-        viewModelScope.launch { repository.finalizeAndPrune() }
+        viewModelScope.launch {
+            // Once at start and again whenever the day changes.
+            dayClock.today.collect { repository.finalizeAndPrune() }
+        }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val dayFlow = dayClock.today.flatMapLatest { date -> repository.observeDay(date.toString()) }
+
     val uiState: StateFlow<RoutinesUiState> = combine(
-        repository.observeDay(RoutinesUiState.today()),
+        dayFlow,
         repository.observeActive(),
         repository.observeArchived(),
         repository.observeIssues(),
@@ -64,7 +67,11 @@ class RoutinesViewModel(
             isSaving = operation.first,
             error = operation.second,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RoutinesUiState())
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        RoutinesUiState(day = RoutineDay(dayClock.day.value.date.toString(), emptyList())),
+    )
 
     val remindersEnabled: StateFlow<Boolean> = prefsStore.remindersEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)

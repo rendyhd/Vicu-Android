@@ -15,6 +15,7 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.CustomListEnvelope
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.Logger
@@ -47,6 +48,7 @@ class TaskRepositoryImpl(
     private val json: Json,
     private val behaviorPrefsStore: BehaviorPrefsStore,
     private val logbookPrefsStore: LogbookPrefsStore,
+    private val dayClock: DayClock,
 ) : TaskRepository {
 
     companion object {
@@ -174,8 +176,12 @@ class TaskRepositoryImpl(
                 }
             }
 
+    /** The exclusive end of the current day; moves at midnight and when the time zone changes. */
+    private fun endOfTodayFlow(): Flow<String> =
+        dayClock.day.map { DateUtils.endOfDayIso(it.date, it.zone) }
+
     override fun getTodayTasks(): Flow<List<Task>> =
-        DateUtils.endOfTodayFlow()
+        endOfTodayFlow()
             .distinctUntilChanged()
             .flatMapLatest { endOfToday ->
                 taskDao.getTodayTasks(endOfToday).distinctUntilChanged().map { entities ->
@@ -184,7 +190,7 @@ class TaskRepositoryImpl(
             }
 
     override fun getUpcomingTasks(): Flow<List<Task>> =
-        DateUtils.endOfTodayFlow()
+        endOfTodayFlow()
             .distinctUntilChanged()
             .flatMapLatest { endOfToday ->
                 taskDao.getUpcomingTasks(endOfToday).distinctUntilChanged().map { entities ->

@@ -9,6 +9,7 @@ import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.TaskDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.util.DayClock
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -19,6 +20,8 @@ import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -40,6 +43,8 @@ class TaskRepositoryHarness(
     val pendingActionDao: FakePendingActionDao = FakePendingActionDao(),
     val hooks: RecordingRepositoryHooks = RecordingRepositoryHooks(),
     scheduleAction: ScheduleAction = ScheduleAction.DUE_TODAY,
+    /** A clock frozen at the real day unless a test needs the day to change. */
+    dayClock: DayClock = DayClock(CoroutineScope(Job()), ticking = false),
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ) {
     val json: Json = authTestJson
@@ -68,6 +73,7 @@ class TaskRepositoryHarness(
         json = json,
         behaviorPrefsStore = behaviorPrefsStore,
         logbookPrefsStore = LogbookPrefsStore(InMemoryPreferencesDataStore()),
+        dayClock = dayClock,
     )
 
     suspend fun initScheduleAction() {

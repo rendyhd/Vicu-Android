@@ -62,6 +62,7 @@ class DrawerViewModel(
     private val reviewPrefsStore: ReviewPrefsStore,
     private val labelOrderPrefsStore: LabelOrderPrefsStore,
     behaviorPrefsStore: com.rendyhd.vicu.data.local.BehaviorPrefsStore,
+    dayClock: com.rendyhd.vicu.util.DayClock,
 ) : ViewModel() {
 
     /** Exposed for the app-root CompositionLocal that positions the FAB. */
@@ -104,7 +105,9 @@ class DrawerViewModel(
         bottomBarPrefsStore.slots,
         reviewPrefsStore.getPrefs(),
         labelOrderPrefsStore.getOrder(),
-    ) { base, slots, reviewPrefs, labelOrder ->
+        // A review that falls due at midnight must show up in the badge without a restart.
+        dayClock.today,
+    ) { base, slots, reviewPrefs, labelOrder, today ->
         @Suppress("UNCHECKED_CAST")
         val projects = base[0] as List<Project>
         val labels = base[1] as List<Label>
@@ -116,7 +119,9 @@ class DrawerViewModel(
             .asSequence()
             .filterNot { it.isArchived }
             .filterNot { reviewPrefs.excludeInbox && inboxId != null && it.id == inboxId }
-            .map { ReviewMetadata.computeStatus(ReviewMetadata.parse(it.description), reviewPrefs.defaultCadenceDays) }
+            .map {
+                ReviewMetadata.computeStatus(ReviewMetadata.parse(it.description), reviewPrefs.defaultCadenceDays, today)
+            }
             .filter { it.metadata.state != ReviewState.EXCLUDED }
             .count { it.isOverdue }
 

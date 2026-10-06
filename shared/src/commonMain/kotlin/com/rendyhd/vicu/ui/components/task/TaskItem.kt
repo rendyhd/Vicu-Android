@@ -68,6 +68,7 @@ import com.rendyhd.vicu.ui.theme.PriorityHigh
 import com.rendyhd.vicu.ui.theme.PriorityLow
 import com.rendyhd.vicu.ui.theme.PriorityMedium
 import com.rendyhd.vicu.ui.theme.PriorityUrgent
+import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.isRecurring
@@ -511,9 +512,11 @@ fun TaskDueBadge(
     dueDate: String,
     modifier: Modifier = Modifier,
 ) {
-    val isOverdue = DateUtils.isOverdue(dueDate)
-    val isToday = DateUtils.isToday(dueDate)
-    val label = DateUtils.formatRelativeDate(dueDate)
+    // Reading LocalToday makes the badge recompose when the day changes.
+    val today = LocalToday.current
+    val isOverdue = DateUtils.isOverdue(dueDate, today)
+    val isToday = DateUtils.isToday(dueDate, today)
+    val label = DateUtils.formatRelativeDate(dueDate, today)
 
     val bgColor = when {
         isOverdue -> Color(0xFFEF4444).copy(alpha = 0.12f)

@@ -7,6 +7,8 @@ import coil3.SingletonImageLoader
 import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.notification.NotificationChannelManager
 import com.rendyhd.vicu.util.BuildInfo
+import com.rendyhd.vicu.util.DayChangeReceiver
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
 import com.rendyhd.vicu.worker.RoutineMaintenanceScheduler
 import org.koin.android.ext.koin.androidContext
@@ -21,6 +23,7 @@ class VicuApplication : Application(), SingletonImageLoader.Factory, KoinCompone
 
     private val notificationChannelManager: NotificationChannelManager by inject()
     private val imageLoader: ImageLoader by inject()
+    private val dayClock: DayClock by inject()
 
     override fun onCreate() {
         super.onCreate()
@@ -34,6 +37,7 @@ class VicuApplication : Application(), SingletonImageLoader.Factory, KoinCompone
             modules(sharedModules + androidAppModules)
         }
         notificationChannelManager.createChannels()
+        DayChangeReceiver.register(this, dayClock)
         WidgetUpdateScheduler.schedulePeriodicRefresh(this)
         RoutineMaintenanceScheduler.schedule(this)
     }

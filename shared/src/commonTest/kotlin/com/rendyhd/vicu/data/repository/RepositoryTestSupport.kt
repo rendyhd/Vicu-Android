@@ -45,8 +45,19 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     suspend fun entity(id: Long): TaskEntity? = lock.withLock { rows[id] }
 
     override fun getInboxTasks(inboxProjectId: Long, includeDated: Boolean): Flow<List<TaskEntity>> = flowOf(emptyList())
-    override fun getTodayTasks(endOfToday: String): Flow<List<TaskEntity>> = flowOf(emptyList())
-    override fun getUpcomingTasks(endOfToday: String): Flow<List<TaskEntity>> = flowOf(emptyList())
+    /** The day boundaries the Today and Upcoming queries were started with, in order. */
+    val todayBoundaries = mutableListOf<String>()
+    val upcomingBoundaries = mutableListOf<String>()
+
+    override fun getTodayTasks(endOfToday: String): Flow<List<TaskEntity>> {
+        todayBoundaries += endOfToday
+        return flowOf(emptyList())
+    }
+
+    override fun getUpcomingTasks(endOfToday: String): Flow<List<TaskEntity>> {
+        upcomingBoundaries += endOfToday
+        return flowOf(emptyList())
+    }
     override fun getAnytimeTasks(inboxProjectId: Long): Flow<List<TaskEntity>> = flowOf(emptyList())
     override fun getLogbookTasks(cutoff: String): Flow<List<TaskEntity>> = flowOf(emptyList())
     override fun getByProjectId(projectId: Long): Flow<List<TaskEntity>> = flowOf(emptyList())

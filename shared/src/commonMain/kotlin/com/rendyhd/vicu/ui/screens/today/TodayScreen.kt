@@ -40,6 +40,7 @@ import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
 import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
+import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
@@ -87,7 +88,7 @@ fun TodayScreen(
                         Column {
                             Text("Today")
                             Text(
-                                text = DateUtils.formatTodaySubtitle(),
+                                text = DateUtils.formatTodaySubtitle(LocalToday.current),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

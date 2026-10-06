@@ -83,10 +83,8 @@ import com.rendyhd.vicu.domain.model.RoutineOccurrenceRecord
 import com.rendyhd.vicu.domain.model.RoutinePeriod
 import com.rendyhd.vicu.domain.model.RoutineSchedule
 import com.rendyhd.vicu.domain.model.RoutineSlot
+import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
-import kotlinx.datetime.Clock
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.todayIn
 import org.koin.compose.viewmodel.koinViewModel
 import kotlinx.coroutines.launch
 
@@ -496,7 +494,7 @@ private fun RoutineEditorDialog(
     var interval by remember(routine) {
         mutableStateOf((definition?.schedule as? RoutineSchedule.AfterCompletion)?.intervalDays?.toString() ?: "14")
     }
-    val todayDate = Clock.System.todayIn(TimeZone.currentSystemDefault())
+    val todayDate = LocalToday.current
     val today = todayDate.toString()
     val existingCalendar = definition?.schedule as? RoutineSchedule.Calendar
     var weekInterval by remember(routine) { mutableStateOf(existingCalendar?.weekInterval?.coerceAtLeast(1) ?: 1) }

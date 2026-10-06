@@ -14,17 +14,17 @@ import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
 import com.rendyhd.vicu.ui.screens.shared.buildTaskProjectGroups
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.data.sync.SyncStaleness
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.datetime.Clock
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.todayIn
 
 data class TodayUiState(
     val projectGroups: List<TaskProjectGroup> = emptyList(),
@@ -42,16 +42,26 @@ class TodayViewModel(
     private val routineRepository: RoutineRepository,
     private val authManager: AuthManager,
     private val syncStaleness: SyncStaleness,
+    private val dayClock: DayClock,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TodayUiState())
     val uiState: StateFlow<TodayUiState> = _uiState.asStateFlow()
 
+    /** The routines of the current day; switches to the new day at midnight. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val routinesForToday = dayClock.today.flatMapLatest { date ->
+        routineRepository.observeDay(date.toString())
+    }
+
     init {
-        viewModelScope.launch { routineRepository.finalizeAndPrune() }
         viewModelScope.launch {
-            val today = Clock.System.todayIn(TimeZone.currentSystemDefault()).toString()
-            routineRepository.observeDay(today).collect { day ->
+            // Once at start and again whenever the day changes (yesterday's open health
+            // occurrences are closed out).
+            dayClock.today.collect { routineRepository.finalizeAndPrune() }
+        }
+        viewModelScope.launch {
+            routinesForToday.collect { day ->
                 _uiState.update { it.copy(routineDay = day) }
             }
         }
