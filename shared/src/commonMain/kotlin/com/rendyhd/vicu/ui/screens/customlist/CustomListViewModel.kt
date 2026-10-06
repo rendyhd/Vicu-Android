@@ -12,6 +12,7 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.util.CustomListFilterBuilder
 import com.rendyhd.vicu.util.NetworkResult
@@ -55,6 +56,9 @@ class CustomListViewModel(
     private val _uiState = MutableStateFlow(CustomListUiState())
     val uiState: StateFlow<CustomListUiState> = _uiState.asStateFlow()
 
+    /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
+    val completions = CompletionHold(viewModelScope)
+
     val projects: StateFlow<List<Project>> = projectRepository.getAll()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
@@ -62,6 +66,9 @@ class CustomListViewModel(
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
+        viewModelScope.launch {
+            completions.heldIds.collect { ids -> _uiState.update { it.copy(completedTaskIds = ids) } }
+        }
         // Render from Room with client-side filter + sort. flatMapLatest cancels the previous
         // collector when the list config changes (the old code leaked one collector per edit).
         viewModelScope.launch {
@@ -75,14 +82,16 @@ class CustomListViewModel(
                         } else {
                             taskRepository.getAllOpenTasks()
                         }
-                        combine(source, projectRepository.getAll()) { tasks, projects ->
+                        combine(source, projectRepository.getAll(), completions.state) { tasks, projects, _ ->
                             val activeIds = projects.mapTo(mutableSetOf()) { it.id }
                             val filtered = CustomListFilterBuilder.applyClientSideFilters(tasks, customList.filter)
                                 .filter { it.projectId in activeIds }
-                            customList to CustomListFilterBuilder.sortTasks(
-                                filtered,
-                                customList.filter.sortBy,
-                                customList.filter.orderBy,
+                            customList to completions.merge(
+                                CustomListFilterBuilder.sortTasks(
+                                    filtered,
+                                    customList.filter.sortBy,
+                                    customList.filter.orderBy,
+                                ),
                             )
                         }
                     }
@@ -110,12 +119,10 @@ class CustomListViewModel(
 
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
-            val completedIds = _uiState.value.completedTaskIds
-            _uiState.update { it.copy(isRefreshing = showSpinner, error = null, completedTaskIds = emptySet()) }
+            _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
             try {
                 // A foreground refresh also pulls custom-list edits made by another client.
                 customListRepository.sync()
-                if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
                 val customList = _uiState.value.customList
                 if (customList != null) {
                     val params = CustomListFilterBuilder.buildQueryParams(customList.filter)
@@ -133,19 +140,14 @@ class CustomListViewModel(
 
     fun toggleDone(task: Task) {
         viewModelScope.launch {
-            if (!task.done) {
-                _uiState.update { it.copy(completedTaskIds = it.completedTaskIds + task.id) }
-            }
+            // The stored task changes at once; the hold keeps the row on screen, struck through.
+            if (!task.done) completions.hold(task)
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {
-                    // Hard failure: revert the optimistic strikethrough along with surfacing
-                    // the error, otherwise the row stays visually completed.
-                    _uiState.update {
-                        it.copy(
-                            error = result.message,
-                            completedTaskIds = it.completedTaskIds - task.id,
-                        )
-                    }
+                    // Hard failure: put the row back to normal along with surfacing the error,
+                    // otherwise it stays struck through.
+                    completions.release(task.id)
+                    _uiState.update { it.copy(error = result.message) }
                 }
                 else -> {}
             }
@@ -154,12 +156,12 @@ class CustomListViewModel(
 
     fun undoComplete(task: Task) {
         viewModelScope.launch {
-            _uiState.update { it.copy(completedTaskIds = it.completedTaskIds - task.id) }
-            // The row still renders done=false (Room is never flipped on complete — the
-            // strikethrough is driven by completedTaskIds), and toggleDone flips whatever
-            // it's handed. Pass done=true so it reverts to done=false remotely; passing the
-            // raw task would re-send done=true and the completion would survive a refresh.
-            taskRepository.toggleDone(task.copy(done = true))
+            // Draw the row as open at once but keep it in place until the task is stored as
+            // open again. setDone is idempotent: it reopens the task whatever state it is in now.
+            completions.undoing(task.id)
+            val result = taskRepository.setDone(task.id, false)
+            completions.release(task.id)
+            if (result is NetworkResult.Error) _uiState.update { it.copy(error = result.message) }
         }
     }
 

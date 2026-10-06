@@ -12,6 +12,7 @@ import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
 import com.rendyhd.vicu.ui.screens.shared.buildTaskProjectGroups
 import com.rendyhd.vicu.util.DayClock
@@ -48,6 +49,9 @@ class TodayViewModel(
     private val _uiState = MutableStateFlow(TodayUiState())
     val uiState: StateFlow<TodayUiState> = _uiState.asStateFlow()
 
+    /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
+    val completions = CompletionHold(viewModelScope)
+
     /** The routines of the current day; switches to the new day at midnight. */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val routinesForToday = dayClock.today.flatMapLatest { date ->
@@ -55,6 +59,9 @@ class TodayViewModel(
     }
 
     init {
+        viewModelScope.launch {
+            completions.heldIds.collect { ids -> _uiState.update { it.copy(completedTaskIds = ids) } }
+        }
         viewModelScope.launch {
             // Once at start and again whenever the day changes (yesterday's open health
             // occurrences are closed out).
@@ -70,8 +77,9 @@ class TodayViewModel(
             combine(
                 taskRepository.getTodayTasks(),
                 projectRepository.getAll(),
-            ) { tasks, projects ->
-                buildTaskProjectGroups(tasks, projects, inboxId)
+                completions.state,
+            ) { tasks, projects, _ ->
+                buildTaskProjectGroups(completions.merge(tasks), projects, inboxId)
             }.collect { groups ->
                 _uiState.update { current ->
                     // Preserve per-project expansion across refreshes.
@@ -100,10 +108,8 @@ class TodayViewModel(
 
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
-            val completedIds = _uiState.value.completedTaskIds
-            _uiState.update { it.copy(isRefreshing = showSpinner, error = null, completedTaskIds = emptySet()) }
+            _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
             try {
-                if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
                 taskRepository.refreshAll()
                 projectRepository.refreshAll()
                 labelRepository.refreshAll()
@@ -118,19 +124,14 @@ class TodayViewModel(
 
     fun toggleDone(task: Task) {
         viewModelScope.launch {
-            if (!task.done) {
-                _uiState.update { it.copy(completedTaskIds = it.completedTaskIds + task.id) }
-            }
+            // The stored task changes at once; the hold keeps the row on screen, struck through.
+            if (!task.done) completions.hold(task)
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {
-                    // Hard failure: revert the optimistic strikethrough along with surfacing
-                    // the error, otherwise the row stays visually completed.
-                    _uiState.update {
-                        it.copy(
-                            error = result.message,
-                            completedTaskIds = it.completedTaskIds - task.id,
-                        )
-                    }
+                    // Hard failure: put the row back to normal along with surfacing the error,
+                    // otherwise it stays struck through.
+                    completions.release(task.id)
+                    _uiState.update { it.copy(error = result.message) }
                 }
                 else -> {}
             }
@@ -139,12 +140,12 @@ class TodayViewModel(
 
     fun undoComplete(task: Task) {
         viewModelScope.launch {
-            _uiState.update { it.copy(completedTaskIds = it.completedTaskIds - task.id) }
-            // The row still renders done=false (Room is never flipped on complete — the
-            // strikethrough is driven by completedTaskIds), and toggleDone flips whatever
-            // it's handed. Pass done=true so it reverts to done=false remotely; passing the
-            // raw task would re-send done=true and the completion would survive a refresh.
-            taskRepository.toggleDone(task.copy(done = true))
+            // Draw the row as open at once but keep it in place until the task is stored as
+            // open again. setDone is idempotent: it reopens the task whatever state it is in now.
+            completions.undoing(task.id)
+            val result = taskRepository.setDone(task.id, false)
+            completions.release(task.id)
+            if (result is NetworkResult.Error) _uiState.update { it.copy(error = result.message) }
         }
     }
 

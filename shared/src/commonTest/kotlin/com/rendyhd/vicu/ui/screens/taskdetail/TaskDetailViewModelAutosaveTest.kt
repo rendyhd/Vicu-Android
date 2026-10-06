@@ -72,7 +72,7 @@ class TaskDetailViewModelAutosaveTest {
         private val authScope = CoroutineScope(SupervisorJob())
 
         init {
-            scope.backgroundScope.launch { messages.messages.collect { received += it } }
+            scope.backgroundScope.launch { messages.messages.collect { received += it.text } }
         }
 
         fun close() = authScope.cancel()

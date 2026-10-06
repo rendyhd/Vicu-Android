@@ -7,6 +7,8 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.util.NetworkResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,63 +29,78 @@ class LogbookViewModel(
     private val taskRepository: TaskRepository,
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
+    private val syncStaleness: SyncStaleness,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LogbookUiState())
     val uiState: StateFlow<LogbookUiState> = _uiState.asStateFlow()
 
+    /**
+     * Rows reopened on this screen. Reopening changes the stored task at once, which takes it
+     * out of the Logbook; the hold keeps it in place, drawn as open, so it can be completed again.
+     */
+    val completions = CompletionHold(viewModelScope)
+
     init {
+        viewModelScope.launch {
+            completions.heldIds.collect { ids -> _uiState.update { it.copy(uncompletedTaskIds = ids) } }
+        }
         viewModelScope.launch {
             combine(
                 taskRepository.getLogbookTasks(),
                 projectRepository.getAll(),
-            ) { tasks, projects ->
+                completions.state,
+            ) { tasks, projects, _ ->
                 val activeIds = projects.mapTo(mutableSetOf()) { it.id }
-                tasks.filter { it.projectId in activeIds }
+                completions.merge(tasks.filter { it.projectId in activeIds })
             }.collect { visibleTasks ->
                 _uiState.update { it.copy(tasks = visibleTasks, isLoading = false) }
             }
         }
-        refresh()
+        // Completed tasks are part of every full sync (the app syncs when it opens), so there
+        // is nothing to download here unless that is stale; pull-to-refresh forces a refresh.
+        if (syncStaleness.isStale()) refresh()
     }
 
     fun toggleDone(task: Task) {
         viewModelScope.launch {
-            if (task.done) {
-                _uiState.update { it.copy(uncompletedTaskIds = it.uncompletedTaskIds + task.id) }
-            }
+            // Reopening takes the row out of the Logbook at once; the hold keeps it in place.
+            if (task.done) completions.hold(task)
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {
-                    // Hard failure: revert the optimistic un-complete along with surfacing
-                    // the error, otherwise the row stays visually un-struck.
-                    _uiState.update {
-                        it.copy(
-                            error = result.message,
-                            uncompletedTaskIds = it.uncompletedTaskIds - task.id,
-                        )
-                    }
+                    // Hard failure: put the row back to normal along with surfacing the error.
+                    completions.release(task.id)
+                    _uiState.update { it.copy(error = result.message) }
                 }
                 else -> {}
             }
         }
     }
 
+    /** Undo of a reopen: complete the task again (not another toggle, which would reopen it twice). */
     fun undoUncomplete(task: Task) {
         viewModelScope.launch {
-            _uiState.update { it.copy(uncompletedTaskIds = it.uncompletedTaskIds - task.id) }
-            taskRepository.toggleDone(task)
+            completions.undoing(task.id)
+            val result = taskRepository.setDone(task.id, true)
+            completions.release(task.id)
+            if (result is NetworkResult.Error) _uiState.update { it.copy(error = result.message) }
         }
     }
 
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
-            val uncompletedIds = _uiState.value.uncompletedTaskIds
-            _uiState.update { it.copy(isRefreshing = showSpinner, error = null, uncompletedTaskIds = emptySet()) }
+            _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
             try {
-                if (uncompletedIds.isNotEmpty()) taskRepository.deleteLocalByIds(uncompletedIds)
-                taskRepository.refreshAll(mapOf("filter" to "done = true"))
-                projectRepository.refreshAll()
+                // The normal refresh: it includes completed tasks.
+                val tasks = taskRepository.refreshAll()
+                val projects = projectRepository.refreshAll()
                 labelRepository.refreshAll()
+                val failure = listOf(tasks, projects).filterIsInstance<NetworkResult.Error>().firstOrNull()
+                if (failure != null) {
+                    _uiState.update { it.copy(error = failure.message) }
+                } else {
+                    syncStaleness.markSynced()
+                }
             } catch (e: Exception) {
                 Log.e("LogbookViewModel", "refresh() failed: ${e.message}", e)
             } finally {

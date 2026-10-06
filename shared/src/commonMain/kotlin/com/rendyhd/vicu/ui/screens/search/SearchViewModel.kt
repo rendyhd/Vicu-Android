@@ -6,6 +6,7 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.util.NetworkResult
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -33,11 +34,22 @@ class SearchViewModel(
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
+    /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
+    val completions = CompletionHold(viewModelScope)
+
+    init {
+        viewModelScope.launch {
+            completions.heldIds.collect { ids -> _uiState.update { it.copy(completedTaskIds = ids) } }
+        }
+    }
+
     private var searchJob: Job? = null
     private var collectJob: Job? = null
 
     fun onQueryChanged(query: String) {
         _uiState.update { it.copy(query = query) }
+        // Rows held from the previous query do not belong to the new one.
+        completions.releaseAll()
 
         searchJob?.cancel()
 
@@ -60,9 +72,10 @@ class SearchViewModel(
                 combine(
                     taskRepository.searchByTitle(query),
                     projectRepository.getAll(),
-                ) { tasks, projects ->
+                    completions.state,
+                ) { tasks, projects, _ ->
                     val activeIds = projects.mapTo(mutableSetOf()) { it.id }
-                    tasks.filter { it.projectId in activeIds }
+                    completions.merge(tasks.filter { it.projectId in activeIds })
                 }.collect { visibleTasks ->
                     _uiState.update { it.copy(results = visibleTasks, isSearching = false) }
                 }
@@ -72,19 +85,14 @@ class SearchViewModel(
 
     fun toggleDone(task: Task) {
         viewModelScope.launch {
-            if (!task.done) {
-                _uiState.update { it.copy(completedTaskIds = it.completedTaskIds + task.id) }
-            }
+            // The stored task changes at once; the hold keeps the row on screen, struck through.
+            if (!task.done) completions.hold(task)
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {
-                    // Hard failure: revert the optimistic strikethrough along with surfacing
-                    // the error, otherwise the row stays visually completed.
-                    _uiState.update {
-                        it.copy(
-                            error = result.message,
-                            completedTaskIds = it.completedTaskIds - task.id,
-                        )
-                    }
+                    // Hard failure: put the row back to normal along with surfacing the error,
+                    // otherwise it stays struck through.
+                    completions.release(task.id)
+                    _uiState.update { it.copy(error = result.message) }
                 }
                 else -> {}
             }
@@ -93,12 +101,12 @@ class SearchViewModel(
 
     fun undoComplete(task: Task) {
         viewModelScope.launch {
-            _uiState.update { it.copy(completedTaskIds = it.completedTaskIds - task.id) }
-            // The row still renders done=false (Room is never flipped on complete — the
-            // strikethrough is driven by completedTaskIds), and toggleDone flips whatever
-            // it's handed. Pass done=true so it reverts to done=false remotely; passing the
-            // raw task would re-send done=true and the completion would survive a refresh.
-            taskRepository.toggleDone(task.copy(done = true))
+            // Draw the row as open at once but keep it in place until the task is stored as
+            // open again. setDone is idempotent: it reopens the task whatever state it is in now.
+            completions.undoing(task.id)
+            val result = taskRepository.setDone(task.id, false)
+            completions.release(task.id)
+            if (result is NetworkResult.Error) _uiState.update { it.copy(error = result.message) }
         }
     }
 

@@ -20,6 +20,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -191,7 +192,12 @@ fun VicuApp(
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(appMessages) {
         appMessages.messages.collectLatest { message ->
-            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Long)
+            val result = snackbarHostState.showSnackbar(
+                message = message.text,
+                actionLabel = message.actionLabel,
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) message.onAction?.invoke()
         }
     }
 

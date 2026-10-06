@@ -15,7 +15,7 @@ class AppMessagesTest {
         messages.post("first")
         messages.post("second")
 
-        assertEquals(listOf("first", "second"), messages.messages.take(2).toList())
+        assertEquals(listOf("first", "second"), messages.messages.take(2).toList().map { it.text })
     }
 
     @Test
@@ -26,7 +26,7 @@ class AppMessagesTest {
         messages.post("   ")
         messages.post("real")
 
-        assertEquals("real", messages.messages.first())
+        assertEquals("real", messages.messages.first().text)
     }
 
     @Test
@@ -34,9 +34,34 @@ class AppMessagesTest {
         val messages = AppMessages()
         repeat(20) { messages.post("m$it") }
 
-        val received = messages.messages.take(16).toList()
+        val received = messages.messages.take(16).toList().map { it.text }
 
         assertEquals("m4", received.first())
         assertEquals("m19", received.last())
+    }
+
+    @Test
+    fun `an action message carries its label and callback`() = runTest {
+        val messages = AppMessages()
+        var undone = 0
+
+        messages.post("Completed 3 tasks", "Undo") { undone++ }
+        val message = messages.messages.first()
+        message.onAction?.invoke()
+
+        assertEquals("Completed 3 tasks", message.text)
+        assertEquals("Undo", message.actionLabel)
+        assertEquals(1, undone)
+    }
+
+    @Test
+    fun `a plain message has no action`() = runTest {
+        val messages = AppMessages()
+
+        messages.post("plain")
+        val message = messages.messages.first()
+
+        assertEquals(null, message.actionLabel)
+        assertEquals(null, message.onAction)
     }
 }

@@ -57,6 +57,7 @@ class TaskRepositoryImpl(
 
     private val tempIdCounter = AtomicLong(-(Clock.System.now().epochSeconds))
     private val completionBatchesMutex = Mutex()
+    private val parentReferenceMutex = Mutex()
     private val completionBatches = mutableMapOf<Long, List<DescendantLink>>()
 
     private data class DescendantLink(
@@ -588,7 +589,7 @@ class TaskRepositoryImpl(
             taskDao.upsert(responseEntity)
             val result = with(taskMapper) { responseEntity.toDomain() }
             updateParentDoneReferences(result, responseDto.done, parentTaskId)
-            if (toggled.done) platformHooks.cancelAlarm(subtask.id) else platformHooks.scheduleAlarm(result)
+            if (result.done) platformHooks.cancelAlarm(subtask.id) else platformHooks.scheduleAlarm(result)
             platformHooks.updateWidgets()
             NetworkResult.Success(result)
         } catch (e: Exception) {
@@ -624,9 +625,13 @@ class TaskRepositoryImpl(
                     .forEach { add(it.id) }
             }
         }
-        parentIds.forEach { parentId ->
-            taskDao.getByIdSync(parentId)?.let { parent ->
-                taskDao.upsert(with(taskMapper) { parent.withRelatedTaskDone(task.id, done) })
+        // Read, change and write one parent row at a time: siblings completed together (a bulk
+        // complete runs several at once) would otherwise overwrite each other's change.
+        parentReferenceMutex.withLock {
+            parentIds.forEach { parentId ->
+                taskDao.getByIdSync(parentId)?.let { parent ->
+                    taskDao.upsert(with(taskMapper) { parent.withRelatedTaskDone(task.id, done) })
+                }
             }
         }
     }
@@ -728,9 +733,13 @@ class TaskRepositoryImpl(
         return try {
             val responseDto = api.updateTask(task.id, patch)
             val responseEntity = with(taskMapper) { responseDto.toEntity() }
+            // Store what the server answered: the task as it is now, with its relations and
+            // attachments. A repeating task comes back still open with its next due date.
+            // Lists keep the row on screen themselves for a moment (CompletionHold).
+            taskDao.upsert(responseEntity)
             val result = with(taskMapper) { responseEntity.toDomain() }
             updateParentDoneReferences(toggled, responseDto.done)
-            if (toggled.done) {
+            if (result.done) {
                 platformHooks.cancelAlarm(task.id)
             } else {
                 platformHooks.scheduleAlarm(result)

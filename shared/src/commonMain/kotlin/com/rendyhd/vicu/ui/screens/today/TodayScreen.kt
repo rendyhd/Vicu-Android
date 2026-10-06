@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -59,6 +60,9 @@ fun TodayScreen(
     viewModel: TodayViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    // Rows kept on screen after completing them are let go when the screen is left.
+    DisposableEffect(viewModel) { onDispose { viewModel.completions.releaseAll() } }
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
 
@@ -75,7 +79,7 @@ fun TodayScreen(
                     count = selectedIds.size,
                     onClose = { selectionVm.clear() },
                     onToday = { selectionVm.bulkToday() },
-                    onComplete = { selectionVm.bulkComplete() },
+                    onComplete = { selectionVm.bulkComplete(viewModel.completions) },
                     onSchedule = { selectionAction = SelectionAction.SCHEDULE },
                     onSetPriority = { selectionAction = SelectionAction.SET_PRIORITY },
                     onMove = { selectionAction = SelectionAction.MOVE_PROJECT },

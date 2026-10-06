@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 /**
  * In-memory [TaskRepository] for view model tests. It behaves like the real one where tests
@@ -22,10 +23,24 @@ import kotlinx.coroutines.flow.flowOf
 class FakeTaskRepository : TaskRepository {
     private val rows = HashMap<Long, MutableStateFlow<Task?>>()
 
+    private val all = MutableStateFlow<List<Task>>(emptyList())
+
     private fun rowFor(id: Long) = rows.getOrPut(id) { MutableStateFlow(null) }
 
+    /** Every write goes through here so the row flows and the list flows stay in step. */
+    private fun write(id: Long, task: Task?) {
+        rowFor(id).value = task
+        all.value = if (task == null) {
+            all.value.filter { it.id != id }
+        } else if (all.value.any { it.id == id }) {
+            all.value.map { if (it.id == id) task else it }
+        } else {
+            all.value + task
+        }
+    }
+
     fun put(task: Task) {
-        rowFor(task.id).value = task
+        write(task.id, task)
     }
 
     fun current(id: Long): Task? = rowFor(id).value
@@ -38,30 +53,39 @@ class FakeTaskRepository : TaskRepository {
 
     val deleted = mutableListOf<Long>()
 
+    /** Tasks passed to [toggleDone] and (id, done) pairs passed to [setDone], in call order. */
+    val toggled = mutableListOf<Long>()
+    val setDoneCalls = mutableListOf<Pair<Long, Boolean>>()
+
+    /**
+     * Decides the outcome of a [toggleDone] or [setDone]: null stores the change like Room does
+     * (a stored task changes at once), an error leaves the task as it was.
+     */
+    var completionOutcome: suspend (Long) -> NetworkResult<Task>? = { null }
+
     override fun getInboxTasks(inboxProjectId: Long): Flow<List<Task>> = emptyFlow()
     override fun getTodayTasks(): Flow<List<Task>> = emptyFlow()
     override fun getUpcomingTasks(): Flow<List<Task>> = emptyFlow()
     override fun getAnytimeTasks(inboxProjectId: Long): Flow<List<Task>> = emptyFlow()
-    override fun getLogbookTasks(): Flow<List<Task>> = emptyFlow()
+    override fun getLogbookTasks(): Flow<List<Task>> = all.map { tasks -> tasks.filter { it.done } }
     override fun getByProjectId(projectId: Long): Flow<List<Task>> = emptyFlow()
     override fun getById(id: Long): Flow<Task?> = rowFor(id)
     override suspend fun getByIds(ids: Set<Long>): List<Task> = ids.mapNotNull { rowFor(it).value }
     override fun searchByTitle(query: String): Flow<List<Task>> = flowOf(emptyList())
     override fun searchByTitleIncludingDone(query: String): Flow<List<Task>> = flowOf(emptyList())
-    override fun getAllOpenTasks(): Flow<List<Task>> = emptyFlow()
-    override fun getAllTasks(): Flow<List<Task>> = emptyFlow()
+    override fun getAllOpenTasks(): Flow<List<Task>> = all.map { tasks -> tasks.filter { !it.done } }
+    override fun getAllTasks(): Flow<List<Task>> = all
 
     override suspend fun create(task: Task): NetworkResult<Task> = NetworkResult.Error("not faked")
 
     override suspend fun update(task: Task): NetworkResult<Task> {
         updates += task
-        val row = rowFor(task.id)
-        val previous = row.value
-        row.value = task
+        val previous = rowFor(task.id).value
+        write(task.id, task)
         val result = updateHandler(task)
         when (result) {
-            is NetworkResult.Success -> row.value = result.data
-            else -> row.value = previous
+            is NetworkResult.Success -> write(task.id, result.data)
+            else -> write(task.id, previous)
         }
         return result
     }
@@ -79,12 +103,29 @@ class FakeTaskRepository : TaskRepository {
 
     override suspend fun delete(taskId: Long, deleteSubtasks: Boolean): NetworkResult<Unit> {
         deleted += taskId
-        rowFor(taskId).value = null
+        write(taskId, null)
         return NetworkResult.Success(Unit)
     }
 
-    override suspend fun toggleDone(task: Task): NetworkResult<Task> = NetworkResult.Error("not faked")
-    override suspend fun setDone(taskId: Long, done: Boolean): NetworkResult<Task> = NetworkResult.Error("not faked")
+    override suspend fun toggleDone(task: Task): NetworkResult<Task> {
+        toggled += task.id
+        return storeDone(task.id, !task.done, task)
+    }
+
+    override suspend fun setDone(taskId: Long, done: Boolean): NetworkResult<Task> {
+        setDoneCalls += taskId to done
+        val current = rowFor(taskId).value ?: return NetworkResult.Error("Task $taskId is not in the local cache")
+        if (current.done == done) return NetworkResult.Success(current)
+        return storeDone(taskId, done, current)
+    }
+
+    private suspend fun storeDone(taskId: Long, done: Boolean, shown: Task): NetworkResult<Task> {
+        completionOutcome(taskId)?.let { return it }
+        val stored = (rowFor(taskId).value ?: shown).copy(done = done)
+        write(taskId, stored)
+        return NetworkResult.Success(stored)
+    }
+
     override suspend fun createSubtask(parentTaskId: Long, subtask: Task): NetworkResult<Task> =
         NetworkResult.Error("not faked")
 
@@ -98,7 +139,14 @@ class FakeTaskRepository : TaskRepository {
         NetworkResult.Error("not faked")
 
     override suspend fun deleteLocalByIds(ids: Set<Long>) = Unit
-    override suspend fun refreshAll(filters: Map<String, String>): NetworkResult<Unit> = NetworkResult.Success(Unit)
+
+    /** The filters of every [refreshAll] call. */
+    val refreshes = mutableListOf<Map<String, String>>()
+
+    override suspend fun refreshAll(filters: Map<String, String>): NetworkResult<Unit> {
+        refreshes += filters
+        return NetworkResult.Success(Unit)
+    }
 }
 
 class FakeLabelRepository(initial: List<Label> = emptyList()) : LabelRepository {

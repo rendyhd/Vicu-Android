@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,6 +49,9 @@ fun SearchScreen(
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    // Rows kept on screen after completing them are let go when the screen is left.
+    DisposableEffect(viewModel) { onDispose { viewModel.completions.releaseAll() } }
     val snackbarHostState = remember { SnackbarHostState() }
     val focusRequester = remember { FocusRequester() }
 
