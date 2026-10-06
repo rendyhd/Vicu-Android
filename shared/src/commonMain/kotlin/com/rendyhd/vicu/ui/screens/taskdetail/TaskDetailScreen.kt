@@ -70,6 +70,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.rendyhd.vicu.ui.components.picker.LabelPickerDialog
 import com.rendyhd.vicu.ui.components.picker.PriorityPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
@@ -137,8 +139,16 @@ fun TaskDetailScreen(
         if (state.isDeleted) onDismiss()
     }
 
-    // Auto-save once, on dispose. Closing the screen (back, the close icon, or state.isDeleted)
-    // leaves composition and fires this exactly once.
+    // The view model also saves on its own shortly after the last edit. These two are the final
+    // saves: going to the background (the process can be killed there without the screen ever
+    // leaving composition) and closing the screen.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        descriptionEditorController.flush()
+        viewModel.saveIfChanged()
+    }
+
+    // Closing the screen (back, the close icon, or state.isDeleted) leaves composition and fires
+    // this exactly once.
     DisposableEffect(Unit) {
         onDispose {
             descriptionEditorController.flush()

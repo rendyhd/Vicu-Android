@@ -363,6 +363,32 @@ class TaskRepositoryImpl(
         }
     }
 
+    override suspend fun moveDescendantsToProject(taskId: Long, newProjectId: Long): NetworkResult<Int> {
+        val root = taskDao.getByIdSync(taskId)?.let { with(taskMapper) { it.toDomain() } }
+            ?: return NetworkResult.Success(0)
+        val descendants = descendantLinks(root).map { it.task }.filter { it.projectId != newProjectId }
+        var moved = 0
+        var failed = 0
+        var firstError: String? = null
+        for (descendant in descendants) {
+            when (val result = moveToProject(descendant.id, newProjectId)) {
+                is NetworkResult.Success -> moved++
+                is NetworkResult.Error -> {
+                    failed++
+                    if (firstError == null) firstError = result.message
+                }
+                NetworkResult.Loading -> Unit
+            }
+        }
+        return if (failed == 0) {
+            NetworkResult.Success(moved)
+        } else {
+            NetworkResult.Error(
+                "The task was moved, but $failed of ${descendants.size} subtasks could not be: $firstError",
+            )
+        }
+    }
+
     override suspend fun delete(taskId: Long, deleteSubtasks: Boolean): NetworkResult<Unit> {
         if (deleteSubtasks) {
             val root = taskDao.getByIdSync(taskId)?.let { with(taskMapper) { it.toDomain() } }

@@ -14,6 +14,7 @@ import com.rendyhd.vicu.domain.repository.*
 import com.rendyhd.vicu.data.remote.*
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.auth.*
+import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.BuildInfo
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.data.sync.SyncStaleness
@@ -138,6 +139,7 @@ val repositoryModule = module {
 
 val commonModule = module {
     single { SyncStaleness() }
+    single { AppMessages() }
     single {
         LocalDataWiper(
             dao = get(),

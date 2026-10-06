@@ -27,6 +27,12 @@ interface TaskRepository {
      */
     suspend fun applyScheduleAction(taskId: Long): NetworkResult<Task>
     suspend fun moveToProject(taskId: Long, newProjectId: Long): NetworkResult<Unit>
+    /**
+     * Moves every descendant of [taskId] (subtasks, their subtasks, and so on) into
+     * [newProjectId]; Vikunja does not cascade a project move. Descendants already there are
+     * skipped. Returns how many were moved, or an error naming how many could not be.
+     */
+    suspend fun moveDescendantsToProject(taskId: Long, newProjectId: Long): NetworkResult<Int>
     /** Manual reorder: optimistic local position write + best-effort remote view-position POST. */
     suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double)
     /** Deletes a task. Descendants are deleted by default so they cannot be silently promoted. */

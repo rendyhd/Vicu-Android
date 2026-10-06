@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoveToInbox
@@ -16,6 +17,9 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -26,6 +30,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -33,6 +38,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -70,6 +77,8 @@ import com.rendyhd.vicu.ui.navigation.TodayRoute
 import com.rendyhd.vicu.ui.navigation.UpcomingRoute
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailScreen
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailViewModel
+import com.rendyhd.vicu.util.AppMessages
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 private data class BottomNavItem(
@@ -79,6 +88,9 @@ private data class BottomNavItem(
     val routeName: String,
     val isParameterized: Boolean = false,
 )
+
+/** Carries the task editor's unsaved draft through process death (see [TaskDetailViewModel.currentDraftJson]). */
+private class TaskDetailDraftHolder(val restored: String?)
 
 private fun resolveBottomBarItems(
     slots: List<BottomBarSlot>,
@@ -151,6 +163,27 @@ fun VicuApp(
     var pendingSharedContent by remember { mutableStateOf<SharedContent?>(null) }
     val taskDetailViewModel: TaskDetailViewModel = koinViewModel()
     val taskDetailUiState by taskDetailViewModel.uiState.collectAsStateWithLifecycle()
+
+    // Unsaved edits in the task editor are written into the saved instance state when the
+    // activity saves it (the saver runs then, so it is always current) and handed back to the
+    // view model if the process was recreated. A view model that survived (rotation) ignores it.
+    val taskDetailDraft = rememberSaveable(
+        saver = Saver<TaskDetailDraftHolder, String>(
+            save = { taskDetailViewModel.currentDraftJson() },
+            restore = { TaskDetailDraftHolder(it) },
+        ),
+    ) { TaskDetailDraftHolder(null) }
+    remember(taskDetailDraft) { taskDetailViewModel.restoreDraft(taskDetailDraft.restored) }
+
+    // Messages for outcomes nobody is looking at (an autosave that failed after the editor
+    // closed). Shown in a snackbar above everything, including the full-screen editor.
+    val appMessages: AppMessages = koinInject()
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(appMessages) {
+        appMessages.messages.collectLatest { message ->
+            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Long)
+        }
+    }
 
     // The ViewModel survives ordinary recompositions, while the saveable sheet request also
     // survives process recreation. Restart the Room lookup only when the restored request has
@@ -470,15 +503,25 @@ fun VicuApp(
     }
 
     // Task Detail (full-screen edit)
-    if (
-        showTaskDetailSheet &&
+    val taskDetailVisible = showTaskDetailSheet &&
         !taskDetailUiState.isLoading &&
         taskDetailUiState.task?.id == taskDetailTaskId
-    ) {
+    if (taskDetailVisible) {
         TaskDetailScreen(
             taskId = taskDetailTaskId,
             onDismiss = { showTaskDetailSheet = false },
             viewModel = taskDetailViewModel,
+        )
+    }
+
+    // App-level messages. Emitted after the editor so it draws above it.
+    Box(modifier = Modifier.fillMaxSize()) {
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = if (showBottomBar && !taskDetailVisible) 80.dp else 0.dp),
         )
     }
 
