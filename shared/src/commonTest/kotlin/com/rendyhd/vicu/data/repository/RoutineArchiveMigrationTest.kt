@@ -225,6 +225,21 @@ class RoutineArchiveMigrationTest {
     }
 
     @Test
+    fun `finalizing carries on when the history upload itself breaks`() = runTest {
+        val rig = RoutineRig(backgroundScope).also { it.signIn() }
+        rig.seedCarrier(100, payload(record("2026-10-05"), definition = definition()))
+        rig.archiveDao.failReads = true
+
+        val result = rig.repository.finalizeAndPrune()
+
+        assertIs<NetworkResult.Success<*>>(result)
+        assertTrue(
+            rig.serverPayload(100).occurrences.values.any { it.status == OccurrenceStatus.NOT_LOGGED },
+            "the past days were still finalized",
+        )
+    }
+
+    @Test
     fun `the history screen shows phone only history until it is uploaded`() = runTest {
         val rig = RoutineRig(backgroundScope).also { it.signIn() }
         rig.seedLegacyRoutine()

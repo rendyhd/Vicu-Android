@@ -45,6 +45,9 @@ class FakeRoutineArchiveDao : RoutineArchiveDao {
 
     val all: List<RoutineOccurrenceArchiveEntity> get() = rows.value
 
+    /** Makes the table unreadable, like a database that fails. */
+    var failReads = false
+
     fun add(vararg entities: RoutineOccurrenceArchiveEntity) {
         rows.value = rows.value + entities
     }
@@ -55,7 +58,10 @@ class FakeRoutineArchiveDao : RoutineArchiveDao {
     override suspend fun getByRoutine(routineId: String) =
         rows.value.filter { it.routineId == routineId }.sortedByDescending { it.scheduledDate }
 
-    override suspend fun getAll() = rows.value.sortedByDescending { it.scheduledDate }
+    override suspend fun getAll(): List<RoutineOccurrenceArchiveEntity> {
+        check(!failReads) { "The history table cannot be read" }
+        return rows.value.sortedByDescending { it.scheduledDate }
+    }
 
     override suspend fun upsertAll(items: List<RoutineOccurrenceArchiveEntity>) {
         val keys = items.map { it.routineId to it.occurrenceKey }.toSet()

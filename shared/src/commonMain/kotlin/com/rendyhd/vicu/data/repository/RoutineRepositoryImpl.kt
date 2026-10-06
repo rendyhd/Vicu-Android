@@ -366,8 +366,14 @@ class RoutineRepositoryImpl(
     override suspend fun finalizeAndPrune(): NetworkResult<Unit> {
         return try {
             // Phone-only history from older versions goes to the server first; if the server
-            // cannot be reached now, a later run (or a sync) does it.
-            migrateLocalArchive()
+            // cannot be reached now, a later run (or a sync) does it. It never stops the rest.
+            try {
+                migrateLocalArchive()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Logger.w(TAG, "Routine history upload failed: ${error.message}")
+            }
             taskDao.getRoutineCarriersSync().forEach { entity ->
                 val parsed = RoutineEnvelope.parse(entity.description, json)
                 val payload = parsed.payload ?: return@forEach
