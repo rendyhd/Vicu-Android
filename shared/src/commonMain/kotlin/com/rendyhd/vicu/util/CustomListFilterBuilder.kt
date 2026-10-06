@@ -3,6 +3,7 @@ package com.rendyhd.vicu.util
 import com.rendyhd.vicu.domain.model.CustomListFilter
 import com.rendyhd.vicu.domain.model.Task
 import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
@@ -150,27 +151,46 @@ object CustomListFilterBuilder {
         put("order_by", filter.orderBy)
     }
 
-    /** A date key that sorts the null sentinel and blanks after every real date. */
-    private fun sortableDate(value: String): String =
-        if (DateUtils.isNullDate(value)) "9999-12-31T23:59:59Z" else value
+    /** The sort keys [sortTasks] understands, in the order the editor offers them. */
+    val SORT_KEYS: List<String> = listOf("due_date", "created", "updated", "priority", "title", "done_at", "position")
+
+    /**
+     * Orders tasks by a date field as instants (not as strings: "...:00.500Z" sorts before
+     * "...:00Z" as text). A task without that date (blank, the null sentinel, or unreadable)
+     * sorts last whichever way the list is ordered, so tasks without a due date never lead a
+     * descending list.
+     */
+    private fun byDate(descending: Boolean, date: (Task) -> String): Comparator<Task> {
+        val order: Comparator<Instant> = if (descending) reverseOrder() else naturalOrder()
+        val datedFirst = nullsLast(order)
+        return Comparator { a, b ->
+            datedFirst.compare(DateUtils.parseIsoDate(date(a)), DateUtils.parseIsoDate(date(b)))
+        }
+    }
+
+    private fun <T : Comparable<T>> byKey(descending: Boolean, key: (Task) -> T): Comparator<Task> =
+        if (descending) compareByDescending(key) else compareBy(key)
 
     /**
      * Applies the custom list's configured sort client-side. The displayed list comes from
      * Room (not the API response), so the API-side sort_by/order_by alone has no effect on
      * what the user sees — this is the authoritative ordering.
+     *
+     * Tasks that tie keep their order, in both directions. For the date fields (due date,
+     * created, updated, done at) tasks without the date come last in both directions.
      */
     fun sortTasks(tasks: List<Task>, sortBy: String, orderBy: String): List<Task> {
+        val descending = orderBy.equals("desc", ignoreCase = true)
         val comparator: Comparator<Task> = when (sortBy) {
-            "due_date" -> compareBy { sortableDate(it.dueDate) }
-            "created" -> compareBy { it.created }
-            "updated" -> compareBy { it.updated }
-            "priority" -> compareBy { it.priority }
-            "title" -> compareBy { it.title.lowercase() }
-            "done_at" -> compareBy { sortableDate(it.doneAt) }
-            "position" -> compareBy { it.position }
-            else -> return tasks.sortedByDescending { it.updated }
+            "due_date" -> byDate(descending) { it.dueDate }
+            "created" -> byDate(descending) { it.created }
+            "updated" -> byDate(descending) { it.updated }
+            "priority" -> byKey(descending) { it.priority }
+            "title" -> byKey(descending) { it.title.lowercase() }
+            "done_at" -> byDate(descending) { it.doneAt }
+            "position" -> byKey(descending) { it.position }
+            else -> byDate(descending = true) { it.updated }
         }
-        val sorted = tasks.sortedWith(comparator)
-        return if (orderBy.equals("desc", ignoreCase = true)) sorted.reversed() else sorted
+        return tasks.sortedWith(comparator)
     }
 }

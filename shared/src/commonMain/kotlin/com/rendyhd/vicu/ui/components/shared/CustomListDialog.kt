@@ -62,11 +62,15 @@ private val DUE_DATE_OPTIONS = listOf(
     "no_due_date" to "No due date",
 )
 
-private val SORT_BY_OPTIONS = listOf(
+/** The sorts the editor offers: every key [CustomListFilterBuilder.sortTasks] understands. */
+internal val SORT_BY_OPTIONS = listOf(
     "due_date" to "Due date",
     "created" to "Created",
     "updated" to "Updated",
     "priority" to "Priority",
+    "title" to "Title",
+    "done_at" to "Completed",
+    "position" to "Position",
 )
 
 private val ORDER_OPTIONS = listOf(
