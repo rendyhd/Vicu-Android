@@ -1,8 +1,15 @@
 package com.rendyhd.vicu.util.parser
 
+/**
+ * [weekday] is the region of the weekday word of "every monday". The recurrence token covers only
+ * "every" while the weekday is still available as the due date: the caller either leaves it to the
+ * date extractor (no other date in the input) or claims it for the recurrence (another date is
+ * present).
+ */
 data class RecurrenceResult(
     val recurrence: ParsedRecurrence?,
     val tokens: List<ParsedToken>,
+    val weekday: IntRange? = null,
 )
 
 private val SHORTHAND = mapOf(
@@ -11,6 +18,8 @@ private val SHORTHAND = mapOf(
     "monthly" to ParsedRecurrence(1, RecurrenceUnit.MONTH),
     "yearly" to ParsedRecurrence(1, RecurrenceUnit.YEAR),
     "annually" to ParsedRecurrence(1, RecurrenceUnit.YEAR),
+    "biweekly" to ParsedRecurrence(2, RecurrenceUnit.WEEK),
+    "fortnightly" to ParsedRecurrence(2, RecurrenceUnit.WEEK),
 )
 
 private val UNIT_MAP = mapOf(
@@ -24,6 +33,15 @@ private val UNIT_MAP = mapOf(
     "years" to RecurrenceUnit.YEAR,
 )
 
+/**
+ * Extract recurrence from [input] (docs/cross-app-semantics-v1.md section 5.2). Patterns:
+ * - "every N unit", "every unit";
+ * - "every <weekday>" (full name): weekly; the weekday is returned as [RecurrenceResult.weekday]
+ *   so the caller can use it as the due date;
+ * - shorthand "daily", "weekly", "monthly", "yearly", "annually", "biweekly", "fortnightly",
+ *   only when it is the last word of what is left ("Water plants daily"), so a word that
+ *   describes the rest ("weekly standup", "Daily review tomorrow") is left alone.
+ */
 fun extractRecurrence(
     input: String,
     consumed: MutableList<IntRange>,
@@ -39,7 +57,9 @@ fun extractRecurrence(
         val start = match.range.first
         val end = match.range.last + 1
         if (consumed.any { start < it.last + 1 && end > it.first }) continue
-        val interval = match.groupValues[1].trim().let { if (it.isEmpty()) 1 else it.toInt() }
+        val count = match.groupValues[1].trim()
+        val interval = if (count.isEmpty()) 1 else count.toIntOrNull() ?: continue
+        if (interval < 1) continue
         val unit = UNIT_MAP[match.groupValues[2].lowercase()] ?: continue
         val recurrence = ParsedRecurrence(interval, unit)
         consumed.add(start until end)
@@ -55,18 +75,42 @@ fun extractRecurrence(
         return RecurrenceResult(recurrence, tokens)
     }
 
-    // Shorthand: "daily", "weekly", etc. — only if standalone
+    // "every monday": weekly. Only the word "every" is consumed here.
+    val weekdayRe = Regex(
+        """(?:^|(?<=\s))every(\s+)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?=\s|$)""",
+        RegexOption.IGNORE_CASE,
+    )
+    for (match in weekdayRe.findAll(input)) {
+        val start = match.range.first
+        val everyEnd = start + "every".length
+        val weekdayStart = everyEnd + match.groupValues[1].length
+        val weekdayEnd = weekdayStart + match.groupValues[2].length
+        if (consumed.any { start < it.last + 1 && weekdayEnd > it.first }) continue
+        val recurrence = ParsedRecurrence(1, RecurrenceUnit.WEEK)
+        consumed.add(start until everyEnd)
+        tokens.add(
+            ParsedToken(
+                type = TokenType.RECURRENCE,
+                start = start,
+                end = everyEnd,
+                value = recurrence,
+                raw = input.substring(start, everyEnd),
+            ),
+        )
+        return RecurrenceResult(recurrence, tokens, weekday = weekdayStart until weekdayEnd)
+    }
+
+    // Shorthand: "daily", "weekly", etc. Only the last word of what is left counts.
     val shorthandRe = Regex(
-        """(?:^|(?<=\s))(daily|weekly|monthly|yearly|annually)(?=\s|$)""",
+        """(?:^|(?<=\s))(daily|weekly|monthly|yearly|annually|biweekly|fortnightly)(?=\s|!|$)""",
         RegexOption.IGNORE_CASE,
     )
     for (match in shorthandRe.findAll(input)) {
         val start = match.range.first
         val end = match.range.last + 1
         if (consumed.any { start < it.last + 1 && end > it.first }) continue
-        if (!isStandalone(input, start, end, consumed)) continue
-        val word = match.groupValues[1].lowercase()
-        val recurrence = SHORTHAND[word]?.copy() ?: continue
+        if (!isLastWord(input, end, consumed)) continue
+        val recurrence = SHORTHAND[match.groupValues[1].lowercase()]?.copy() ?: continue
         consumed.add(start until end)
         tokens.add(
             ParsedToken(
@@ -84,31 +128,14 @@ fun extractRecurrence(
 }
 
 /**
- * Check if the word at [start, end] is standalone — meaning the remaining
- * non-consumed text around it doesn't form a phrase.
- * Returns true only if all surrounding non-consumed text is whitespace.
+ * True when nothing but consumed text, whitespace and a lone `!` (the today shortcut) follows
+ * [end]: the word before it is the last word of the input as it is left after labels, projects and
+ * priority were taken out.
  */
-private fun isStandalone(
-    input: String,
-    start: Int,
-    end: Int,
-    consumed: List<IntRange>,
-): Boolean {
-    val isConsumed = BooleanArray(input.length)
-    for (c in consumed) {
-        for (i in c) {
-            if (i < isConsumed.size) isConsumed[i] = true
-        }
+private fun isLastWord(input: String, end: Int, consumed: List<IntRange>): Boolean {
+    val rest = StringBuilder()
+    for (i in end until input.length) {
+        if (consumed.none { i in it }) rest.append(input[i])
     }
-    // Also mark our candidate as consumed
-    for (i in start until end) {
-        if (i < isConsumed.size) isConsumed[i] = true
-    }
-    // Check if there's any non-whitespace, non-consumed character
-    for (i in input.indices) {
-        if (!isConsumed[i] && !input[i].isWhitespace()) {
-            return false
-        }
-    }
-    return true
+    return Regex("""^\s*!?\s*$""").matches(rest)
 }

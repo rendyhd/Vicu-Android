@@ -7,8 +7,10 @@ data class PriorityResult(
 
 private val WORD_PRIORITIES = mapOf(
     "urgent" to 4,
+    "critical" to 4,
     "high" to 3,
     "medium" to 2,
+    "med" to 2,
     "low" to 1,
 )
 
@@ -22,8 +24,8 @@ fun extractPriority(
 ): PriorityResult {
     val tokens = mutableListOf<ParsedToken>()
 
-    // Word-based priority: !urgent, !high, !medium, !low (both modes)
-    val wordRe = Regex("""(?:^|(?<=\s))!(urgent|high|medium|low)(?=\s|$)""", RegexOption.IGNORE_CASE)
+    // Word-based priority: !urgent, !critical, !high, !medium, !med, !low (both modes)
+    val wordRe = Regex("""(?:^|(?<=\s))!(urgent|critical|high|medium|med|low)(?=\s|$)""", RegexOption.IGNORE_CASE)
     for (match in wordRe.findAll(input)) {
         val start = match.range.first
         val end = match.range.last + 1

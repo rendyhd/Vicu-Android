@@ -46,6 +46,11 @@ data class ParserConfig(
     val syntaxMode: SyntaxMode = SyntaxMode.TODOIST,
     val suppressTypes: Set<TokenType> = emptySet(),
     val bangToday: Boolean = true,
+    /**
+     * BCP 47 tag deciding the order of slash dates ("5/11": month/day in en-US, day/month in
+     * en-GB). Null means the device locale.
+     */
+    val locale: String? = null,
 )
 
 private val SYNTAX_PREFIXES = mapOf(
