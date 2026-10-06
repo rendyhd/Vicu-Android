@@ -330,7 +330,7 @@ class SyncEngine(
                 routinesTouched = routinesTouched || deletedIds.any { id ->
                     RoutineEnvelope.hasMarker(existingById[id]?.description)
                 }
-                taskDao.deleteNotIn(serverTaskIds)
+                taskDao.deleteByIds(deletedIds.toList())
                 alarmsTouched = true
             }
             if (alarmsTouched) platformHooks.rescheduleAlarms()

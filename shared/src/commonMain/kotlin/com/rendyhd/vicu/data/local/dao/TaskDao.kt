@@ -2,6 +2,7 @@ package com.rendyhd.vicu.data.local.dao
 
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import com.rendyhd.vicu.data.local.entity.TaskEntity
 import kotlinx.coroutines.flow.Flow
@@ -77,8 +78,13 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE description LIKE '%<!-- vicu-routine:%'")
     fun getRoutineCarriersFlow(): Flow<List<TaskEntity>>
 
+    /** At most [MAX_SQL_ID_PARAMS] ids; callers use [getByIds]. */
     @Query("SELECT * FROM tasks WHERE id IN (:ids)")
-    suspend fun getByIds(ids: List<Long>): List<TaskEntity>
+    suspend fun getByIdsChunk(ids: List<Long>): List<TaskEntity>
+
+    /** Any number of ids; runs one query per [MAX_SQL_ID_PARAMS]. */
+    suspend fun getByIds(ids: List<Long>): List<TaskEntity> =
+        ids.sqlIdChunks().flatMap { getByIdsChunk(it) }
 
     @Query("SELECT * FROM tasks WHERE id = :id")
     suspend fun getByIdSync(id: Long): TaskEntity?
@@ -195,14 +201,18 @@ interface TaskDao {
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    /** At most [MAX_SQL_ID_PARAMS] ids; callers use [deleteByIds]. */
     @Query("DELETE FROM tasks WHERE id IN (:ids)")
-    suspend fun deleteByIds(ids: List<Long>)
+    suspend fun deleteByIdsChunk(ids: List<Long>)
+
+    /** Any number of ids; runs one statement per [MAX_SQL_ID_PARAMS], atomically. */
+    @Transaction
+    suspend fun deleteByIds(ids: List<Long>) {
+        ids.sqlIdChunks().forEach { deleteByIdsChunk(it) }
+    }
 
     @Query("UPDATE tasks SET position = :position WHERE id = :taskId")
     suspend fun updatePosition(taskId: Long, position: Double)
-
-    @Query("DELETE FROM tasks WHERE id NOT IN (:ids)")
-    suspend fun deleteNotIn(ids: Set<Long>)
 
     @Query("DELETE FROM tasks")
     suspend fun deleteAll()

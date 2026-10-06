@@ -57,7 +57,7 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     override fun getAllTasksFlow(): Flow<List<TaskEntity>> = flowOf(emptyList())
     override fun getRoutineCarriersFlow(): Flow<List<TaskEntity>> = flowOf(emptyList())
 
-    override suspend fun getByIds(ids: List<Long>): List<TaskEntity> = lock.withLock {
+    override suspend fun getByIdsChunk(ids: List<Long>): List<TaskEntity> = lock.withLock {
         boundIdListSizes += ids.size
         ids.mapNotNull { rows[it] }
     }
@@ -92,17 +92,10 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
         lock.withLock { rows.remove(id) }
     }
 
-    override suspend fun deleteByIds(ids: List<Long>) {
+    override suspend fun deleteByIdsChunk(ids: List<Long>) {
         lock.withLock {
             boundIdListSizes += ids.size
             ids.forEach { rows.remove(it) }
-        }
-    }
-
-    override suspend fun deleteNotIn(ids: Set<Long>) {
-        lock.withLock {
-            boundIdListSizes += ids.size
-            rows.keys.retainAll(ids)
         }
     }
 
@@ -232,9 +225,11 @@ class FakeProjectDao(initial: List<ProjectEntity> = emptyList()) : ProjectDao {
         rows.remove(id)
     }
 
-    override suspend fun deleteNotIn(serverIds: List<Long>) {
-        boundIdListSizes += serverIds.size
-        rows.keys.retainAll(serverIds.toSet())
+    override suspend fun getAllIds(): List<Long> = rows.keys.toList()
+
+    override suspend fun deleteByIdsChunk(ids: List<Long>) {
+        boundIdListSizes += ids.size
+        ids.forEach { rows.remove(it) }
     }
 
     override suspend fun deleteAll() {
