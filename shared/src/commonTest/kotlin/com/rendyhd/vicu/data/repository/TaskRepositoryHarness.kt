@@ -5,6 +5,8 @@ import com.rendyhd.vicu.auth.authTestJsonHeaders
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.LogbookPrefsStore
 import com.rendyhd.vicu.data.local.ScheduleAction
+import com.rendyhd.vicu.data.local.SyncCursorStore
+import com.rendyhd.vicu.data.sync.TaskRefresher
 import com.rendyhd.vicu.data.local.TempIdGenerator
 import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
@@ -47,6 +49,8 @@ class TaskRepositoryHarness(
     /** A clock frozen at the real day unless a test needs the day to change. */
     dayClock: DayClock = DayClock(CoroutineScope(Job()), ticking = false),
     val tempIds: TempIdGenerator = TempIdGenerator(InMemoryPreferencesDataStore()),
+    val logbookPrefsStore: LogbookPrefsStore = LogbookPrefsStore(InMemoryPreferencesDataStore()),
+    val cursorStore: SyncCursorStore = SyncCursorStore(InMemoryPreferencesDataStore()),
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ) {
     val json: Json = authTestJson
@@ -66,17 +70,27 @@ class TaskRepositoryHarness(
         install(ContentNegotiation) { json(authTestJson) }
     }
 
+    val api = VikunjaApiService(client, authTestJson)
+
     val repository = TaskRepositoryImpl(
         taskDao = taskDao,
-        api = VikunjaApiService(client, authTestJson),
+        api = api,
         pendingActionDao = pendingActionDao,
         taskMapper = mapper,
         platformHooks = hooks,
         json = json,
         behaviorPrefsStore = behaviorPrefsStore,
-        logbookPrefsStore = LogbookPrefsStore(InMemoryPreferencesDataStore()),
+        logbookPrefsStore = logbookPrefsStore,
         dayClock = dayClock,
         tempIds = tempIds,
+        refresher = TaskRefresher(
+            taskDao = taskDao,
+            pendingActionDao = pendingActionDao,
+            api = api,
+            taskMapper = mapper,
+            platformHooks = hooks,
+            cursorStore = cursorStore,
+        ),
     )
 
     suspend fun initScheduleAction() {

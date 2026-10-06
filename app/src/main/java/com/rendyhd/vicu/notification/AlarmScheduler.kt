@@ -65,6 +65,17 @@ class AlarmScheduler(
         }
     }
 
+    /**
+     * After a sync: brings the alarms of [changed] tasks in line and cancels those of
+     * [removedTaskIds], one registry pass for the whole batch. A task that is done or gone also
+     * loses a pending snooze.
+     */
+    suspend fun updateAlarms(changed: List<Task>, removedTaskIds: Set<Long>) {
+        coordinator.reconcileTasks(changed, removedTaskIds)
+        changed.filter { it.done }.forEach { cancelSnooze(it.id) }
+        removedTaskIds.forEach { cancelSnooze(it) }
+    }
+
     /** Cancels everything for a task, including a pending snooze (task done/deleted). */
     suspend fun cancelForTask(taskId: Long) {
         coordinator.cancelForTask(taskId)

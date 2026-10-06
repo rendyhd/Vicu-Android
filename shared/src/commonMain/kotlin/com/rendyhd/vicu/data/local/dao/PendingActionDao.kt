@@ -40,9 +40,9 @@ interface PendingActionDao {
     @Query("UPDATE pending_actions SET status = 'failed', updatedAt = :failedAt WHERE id = :id")
     suspend fun markFailed(id: Long, failedAt: String)
 
-    /** Drops failed actions that failed before [cutoff] (an ISO-8601 UTC timestamp). */
+    /** Drops failed actions that failed before [cutoff] (an ISO-8601 UTC timestamp); returns how many. */
     @Query("DELETE FROM pending_actions WHERE status = 'failed' AND updatedAt < :cutoff")
-    suspend fun deleteFailedBefore(cutoff: String)
+    suspend fun deleteFailedBefore(cutoff: String): Int
 
     @Query("DELETE FROM pending_actions WHERE status = 'completed'")
     suspend fun deleteCompleted()
@@ -77,6 +77,14 @@ interface PendingActionDao {
      */
     @Query("SELECT entityId FROM pending_actions WHERE entityType IN ('task', 'routine') AND status IN ('pending', 'failed', 'processing')")
     suspend fun getTaskIdsWithPendingActions(): List<Long>
+
+    /** Ids of the labels with a change the server has not accepted yet; a refresh must not overwrite or delete them. */
+    @Query("SELECT entityId FROM pending_actions WHERE entityType = 'label' AND status IN ('pending', 'failed', 'processing')")
+    suspend fun getLabelIdsWithPendingActions(): List<Long>
+
+    /** Ids of the projects with a change the server has not accepted yet; a refresh must not overwrite or delete them. */
+    @Query("SELECT entityId FROM pending_actions WHERE entityType = 'project' AND status IN ('pending', 'failed', 'processing')")
+    suspend fun getProjectIdsWithPendingActions(): List<Long>
 
     @Query("SELECT * FROM pending_actions WHERE status IN ('pending', 'failed')")
     suspend fun getRemappable(): List<PendingActionEntity>

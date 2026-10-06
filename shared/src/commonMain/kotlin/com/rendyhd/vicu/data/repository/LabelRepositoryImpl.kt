@@ -9,13 +9,17 @@ import com.rendyhd.vicu.data.mapper.LabelMapper
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.LabelTaskDto
 import com.rendyhd.vicu.data.remote.api.MergePatches
+import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.isNetworkFailure
 import com.rendyhd.vicu.util.isRetriableNetworkError
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
@@ -30,6 +34,7 @@ class LabelRepositoryImpl(
     private val platformHooks: PlatformRepositoryHooks,
     private val json: Json,
     private val tempIds: TempIdGenerator,
+    private val labelRefresher: LabelRefresher,
 ) : LabelRepository {
 
     private suspend fun queueLabelAction(entityId: Long, actionType: String, payload: String) {
@@ -193,12 +198,16 @@ class LabelRepositoryImpl(
 
     override suspend fun refreshAll(): NetworkResult<Unit> {
         return try {
-            val dtos = api.getAllLabels()
-            val entities = dtos.map { with(labelMapper) { it.toEntity() } }
-            labelDao.upsertAll(entities)
+            labelRefresher.refresh()
             NetworkResult.Success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            NetworkResult.Error(e.message ?: "Failed to refresh labels")
+            NetworkResult.Error(
+                message = if (isNetworkFailure(e)) "Can't reach the server" else e.message ?: "Failed to refresh labels",
+                code = (e as? VikunjaApiException)?.httpStatus,
+                offline = isNetworkFailure(e),
+            )
         }
     }
 }

@@ -7,7 +7,9 @@ import com.rendyhd.vicu.auth.respondJson
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.LogbookPrefsStore
 import com.rendyhd.vicu.data.local.RoutinePrefsStore
+import com.rendyhd.vicu.data.local.SyncCursorStore
 import com.rendyhd.vicu.data.local.TempIdGenerator
+import com.rendyhd.vicu.data.sync.TaskRefresher
 import com.rendyhd.vicu.data.local.dao.RoutineArchiveDao
 import com.rendyhd.vicu.data.local.entity.RoutineOccurrenceArchiveEntity
 import com.rendyhd.vicu.data.local.entity.TaskEntity
@@ -131,6 +133,15 @@ class RoutineRig(
         logbookPrefsStore = LogbookPrefsStore(InMemoryPreferencesDataStore()),
         dayClock = DayClock(CoroutineScope(Job()), ticking = false),
         tempIds = TempIdGenerator(InMemoryPreferencesDataStore()),
+        refresher = TaskRefresher(
+            taskDao = taskDao,
+            pendingActionDao = pendingActionDao,
+            api = api,
+            taskMapper = mapper,
+            platformHooks = hooks,
+            cursorStore = SyncCursorStore(InMemoryPreferencesDataStore()),
+            time = time,
+        ),
     )
     val store = RoutineArchiveStore(api, json)
     val repository = RoutineRepositoryImpl(

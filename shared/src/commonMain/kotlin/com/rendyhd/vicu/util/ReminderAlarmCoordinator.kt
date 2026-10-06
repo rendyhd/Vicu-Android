@@ -35,6 +35,22 @@ class ReminderAlarmCoordinator(
         )
     }
 
+    /**
+     * Brings the alarms of [changed] tasks in line with their reminders and cancels those of
+     * [goneTaskIds]; every other registered alarm is left as it is. For a sync that changed a few
+     * tasks, instead of a pass over all of them.
+     */
+    suspend fun reconcileTasks(changed: List<Task>, goneTaskIds: Set<Long>) = mutex.withLock {
+        val now = nowMillis()
+        val specs = changed.flatMap { ReminderAlarms.desiredAlarms(it, now) }
+        apply(
+            desired = specs.groupBy({ it.taskId }, { it.requestCode }).mapValues { it.value.toSet() },
+            scope = changed.mapTo(HashSet()) { it.id } + goneTaskIds,
+            toSchedule = specs,
+            titles = changed.associate { it.id to it.title },
+        )
+    }
+
     /** Cancels every registered alarm of one task. */
     suspend fun cancelForTask(taskId: Long) = mutex.withLock {
         apply(desired = emptyMap(), scope = setOf(taskId), toSchedule = emptyList(), titles = emptyMap())

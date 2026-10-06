@@ -10,8 +10,11 @@ import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.TaskPositionDto
 import com.rendyhd.vicu.data.remote.api.MergePatches
+import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.data.sync.TaskRefresher
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.repository.LogbookPage
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.util.DateUtils
@@ -19,11 +22,13 @@ import com.rendyhd.vicu.util.CustomListEnvelope
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.isNetworkFailure
 import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.RoutineEnvelope
 import com.rendyhd.vicu.util.withoutNestedSubtasks
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -37,6 +42,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.datetime.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TaskRepositoryImpl(
@@ -50,10 +56,14 @@ class TaskRepositoryImpl(
     private val logbookPrefsStore: LogbookPrefsStore,
     private val dayClock: DayClock,
     private val tempIds: TempIdGenerator,
+    private val refresher: TaskRefresher,
 ) : TaskRepository {
 
     companion object {
         private const val TAG = "TaskRepoImpl"
+
+        /** Completed tasks fetched per Logbook page. */
+        const val LOGBOOK_PAGE_SIZE = 50
     }
 
     private val completionBatchesMutex = Mutex()
@@ -831,50 +841,49 @@ class TaskRepositoryImpl(
         if (ids.isNotEmpty()) taskDao.deleteByIds(ids.toList())
     }
 
-    override suspend fun refreshAll(filters: Map<String, String>): NetworkResult<Unit> {
-        Logger.d(TAG, "refreshAll() called with filters=$filters")
+    override suspend fun refreshAll(filters: Map<String, String>, full: Boolean): NetworkResult<Unit> {
+        Logger.d(TAG, "refreshAll() called with filters=$filters full=$full")
         return try {
-            val allTasks = api.getAllTasks(filters)
-            // Routine carriers remain cached for their existing merge engine. Custom-list
-            // carriers are owned by CustomListRepository and must never enter user task data,
-            // and routine archive parts (large, read on demand) are never cached at all.
-            val visibleTasks = allTasks.filterNot {
-                CustomListEnvelope.hasMarker(it.description) || RoutineEnvelope.hasArchiveMarker(it.description)
-            }
-            val entities = visibleTasks.map { with(taskMapper) { it.toEntity() } }
-            val pendingTaskIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
-            val existingById = taskDao.getAllSync().associateBy { it.id }
-            val safeEntities = entities.filter { it.id !in pendingTaskIds }
-            val changed = safeEntities.filter { existingById[it.id] != it }
-            taskDao.upsertAll(changed)
-            var routinesTouched = changed.any { entity ->
-                RoutineEnvelope.hasMarker(entity.description) ||
-                    RoutineEnvelope.hasMarker(existingById[entity.id]?.description)
-            }
-            var alarmsTouched = changed.any { e ->
-                val old = existingById[e.id]
-                old == null || old.remindersJson != e.remindersJson ||
-                    old.dueDate != e.dueDate || old.done != e.done
-            }
             if (filters.isEmpty()) {
-                val serverTaskIds = visibleTasks.map { it.id }.toSet() + pendingTaskIds
-                val deletedIds = existingById.keys - serverTaskIds
-                if (deletedIds.isNotEmpty()) {
-                    routinesTouched = routinesTouched || deletedIds.any { id ->
-                        RoutineEnvelope.hasMarker(existingById[id]?.description)
-                    }
-                    taskDao.deleteByIds(deletedIds.toList())
-                    alarmsTouched = true
-                }
+                refresher.refresh(forceFull = full)
+            } else {
+                refresher.refreshMatching(filters)
             }
-            if (alarmsTouched) platformHooks.rescheduleAlarms()
-            if (routinesTouched) platformHooks.routinesChanged()
-            platformHooks.updateWidgets()
-            Logger.d(TAG, "refreshAll() SUCCESS: upserted ${changed.size} changed tasks (skipped ${entities.size - safeEntities.size} with pending actions)")
             NetworkResult.Success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Logger.e(TAG, "refreshAll() FAILED: ${e.message}", e)
-            NetworkResult.Error(e.message ?: "Failed to refresh tasks")
+            refreshFailure(e, "Failed to refresh tasks")
         }
+    }
+
+    override suspend fun loadLogbookPage(page: Int): NetworkResult<LogbookPage> {
+        return try {
+            val prefs = logbookPrefsStore.getPrefs().first()
+            // Only the retention window is fetched when it is set; seconds are enough for a cutoff.
+            val completedSince = if (prefs.enabled) {
+                DateUtils.parseIsoDate(DateUtils.isoDaysAgo(prefs.retentionDays))
+                    ?.let { Instant.fromEpochSeconds(it.epochSeconds).toString() }
+            } else {
+                null
+            }
+            val loaded = refresher.loadCompletedPage(page, LOGBOOK_PAGE_SIZE, completedSince)
+            NetworkResult.Success(LogbookPage(page, loaded.hasMore))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Logger.e(TAG, "loadLogbookPage($page) FAILED: ${e.message}", e)
+            refreshFailure(e, "Failed to load completed tasks")
+        }
+    }
+
+    private fun refreshFailure(e: Exception, fallback: String): NetworkResult.Error {
+        val offline = isNetworkFailure(e)
+        return NetworkResult.Error(
+            message = if (offline) "Can't reach the server" else e.message?.takeIf { it.isNotBlank() } ?: fallback,
+            code = (e as? VikunjaApiException)?.httpStatus,
+            offline = offline,
+        )
     }
 }

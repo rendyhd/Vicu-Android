@@ -18,7 +18,12 @@ import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.BuildInfo
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkMonitor
+import com.rendyhd.vicu.data.sync.LabelRefresher
+import com.rendyhd.vicu.data.sync.ProjectRefresher
 import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.data.sync.TaskRefresher
+import com.rendyhd.vicu.util.SystemTimeSource
+import com.rendyhd.vicu.util.TimeSource
 import com.rendyhd.vicu.worker.SyncEngine
 
 val databaseModule = module {
@@ -45,6 +50,7 @@ val databaseModule = module {
     single { ReviewPrefsStore(createDataStore(get(), "review_prefs")) }
     single { RoutinePrefsStore(createDataStore(get(), "routine_prefs")) }
     single { SnoozeStore(createDataStore(get(), "snooze_prefs"), get()) }
+    single { SyncCursorStore(createDataStore(get(), "sync_cursor")) }
     single { TempIdGenerator(createDataStore(get(), "temp_ids")) }
     single { ThemePrefsStore(createDataStore(get(), "theme_prefs")) }
     single { WidgetPrefsStore(createDataStore(get(), "widget_prefs")) }
@@ -72,6 +78,19 @@ val repositoryModule = module {
     single { ProjectMapper() }
     single { AttachmentMapper() }
 
+    single { TaskRefresher(taskDao = get(), pendingActionDao = get(), api = get(), taskMapper = get(), platformHooks = get(), cursorStore = get(), time = get()) }
+    single {
+        LabelRefresher(
+            labelDao = get(),
+            taskDao = get(),
+            pendingActionDao = get(),
+            api = get(),
+            labelMapper = get(),
+            taskMapper = get(),
+        )
+    }
+    single { ProjectRefresher(projectDao = get(), pendingActionDao = get(), api = get(), projectMapper = get()) }
+
     single<TaskRepository> {
         TaskRepositoryImpl(
             taskDao = get(),
@@ -84,13 +103,15 @@ val repositoryModule = module {
             logbookPrefsStore = get(),
             dayClock = get(),
             tempIds = get(),
+            refresher = get(),
         )
     }
     single<ProjectRepository> {
         ProjectRepositoryImpl(
             projectDao = get(),
             api = get(),
-            projectMapper = get()
+            projectMapper = get(),
+            projectRefresher = get(),
         )
     }
     single<LabelRepository> {
@@ -104,6 +125,7 @@ val repositoryModule = module {
             platformHooks = get(),
             json = get(),
             tempIds = get(),
+            labelRefresher = get(),
         )
     }
     single<AttachmentRepository> {
@@ -142,7 +164,8 @@ val repositoryModule = module {
 val commonModule = module {
     single { SyncStaleness() }
     single { AppMessages() }
-    single { DayClock(scope = get()) }
+    single<TimeSource> { SystemTimeSource }
+    single { DayClock(scope = get(), time = get()) }
     single {
         LocalDataWiper(
             dao = get(),
@@ -154,6 +177,7 @@ val commonModule = module {
             labelOrderPrefs = get(),
             routinePrefs = get(),
             widgetPrefs = get(),
+            syncCursor = get(),
         )
     }
     single { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
@@ -194,6 +218,9 @@ val commonModule = module {
             taskMapper = get(),
             labelMapper = get(),
             projectMapper = get(),
+            taskRefresher = get(),
+            labelRefresher = get(),
+            projectRefresher = get(),
             platformHooks = get(),
             json = get(),
             baseUrlHolder = get(),

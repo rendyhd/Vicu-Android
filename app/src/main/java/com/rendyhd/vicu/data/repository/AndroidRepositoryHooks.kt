@@ -52,6 +52,10 @@ class AndroidRepositoryHooks(
         routineAlarmSchedulerProvider().rescheduleAll()
     }
 
+    override suspend fun updateAlarms(changed: List<Task>, removedTaskIds: Set<Long>) {
+        alarmScheduler.updateAlarms(changed, removedTaskIds)
+    }
+
     override suspend fun cancelAllAlarms() {
         alarmScheduler.cancelAll()
         routineAlarmSchedulerProvider().cancelAll()

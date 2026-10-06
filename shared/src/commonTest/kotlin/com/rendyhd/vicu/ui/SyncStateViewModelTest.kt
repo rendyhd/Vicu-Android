@@ -1,8 +1,10 @@
 package com.rendyhd.vicu.ui
 
 import com.rendyhd.vicu.auth.FakeNetworkMonitor
+import com.rendyhd.vicu.data.local.SyncCursorStore
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.repository.FakePendingActionDao
+import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
 import com.rendyhd.vicu.ui.screens.settings.PlatformSettingsHooks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -16,6 +18,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncStateViewModelTest {
@@ -55,7 +58,7 @@ class SyncStateViewModelTest {
     fun `the failed count follows the queue and retry puts the actions back to pending`() = runTest {
         val dao = FakePendingActionDao()
         val hooks = RecordingSettingsHooks()
-        val vm = SyncStateViewModel(FakeNetworkMonitor(), dao, hooks)
+        val vm = SyncStateViewModel(FakeNetworkMonitor(), dao, hooks, SyncCursorStore(InMemoryPreferencesDataStore()))
         val failed = mutableListOf<Int>()
         val pending = mutableListOf<Int>()
         backgroundScope.launch { vm.failedCount.collect { failed += it } }
@@ -80,7 +83,8 @@ class SyncStateViewModelTest {
     fun `discarding removes the failed actions and syncs so the tasks come back from the server`() = runTest {
         val dao = FakePendingActionDao()
         val hooks = RecordingSettingsHooks()
-        val vm = SyncStateViewModel(FakeNetworkMonitor(), dao, hooks)
+        val cursor = SyncCursorStore(InMemoryPreferencesDataStore())
+        val vm = SyncStateViewModel(FakeNetworkMonitor(), dao, hooks, cursor)
         val failed = mutableListOf<Int>()
         backgroundScope.launch { vm.failedCount.collect { failed += it } }
         dao.insert(failedAction(11))
@@ -93,5 +97,6 @@ class SyncStateViewModelTest {
         assertEquals(0, failed.last())
         assertEquals(emptyList(), dao.snapshot())
         assertEquals(1, hooks.immediateSyncs)
+        assertTrue(cursor.begin().cursor.fullReconcileRequested, "only a full reconcile restores the rows the changes protected")
     }
 }

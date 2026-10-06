@@ -198,6 +198,24 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE description LIKE '%<!-- vicu-routine:%'")
     suspend fun getRoutineCarriersSync(): List<TaskEntity>
 
+    /** Ids of the rows a full reconcile may delete: open tasks and rows that only exist on this device. */
+    @Query("SELECT id FROM tasks WHERE done = 0 OR id < 0")
+    suspend fun getOpenOrLocalOnlyIds(): List<Long>
+
+    /** Completed tasks of the server (positive ids) finished after [doneAt], for the Logbook's page-one reconcile. */
+    @Query(
+        """
+        SELECT * FROM tasks
+        WHERE done = 1 AND id > 0
+        AND doneAt > :doneAt AND doneAt != '' AND doneAt != '0001-01-01T00:00:00Z'
+        """
+    )
+    suspend fun getCompletedAfter(doneAt: String): List<TaskEntity>
+
+    /** Tasks whose cached labels contain [pattern] (a LIKE pattern); a pre-filter, callers check exactly. */
+    @Query("SELECT * FROM tasks WHERE labelsJson LIKE :pattern")
+    suspend fun getByLabelsJsonLike(pattern: String): List<TaskEntity>
+
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun deleteById(id: Long)
 

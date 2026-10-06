@@ -16,6 +16,7 @@ import com.rendyhd.vicu.data.local.NotificationPrefs
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.ReviewPrefs
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
+import com.rendyhd.vicu.data.local.SyncCursorStore
 import com.rendyhd.vicu.data.local.SubprojectDisplayMode
 import com.rendyhd.vicu.data.local.SubtaskDisplayMode
 import com.rendyhd.vicu.data.local.ThemeMode
@@ -101,6 +102,7 @@ class SettingsViewModel(
     private val sessionCleanup: SessionCleanup,
     private val apiService: VikunjaApiService,
     private val platformSettingsHooks: PlatformSettingsHooks,
+    private val syncCursor: SyncCursorStore,
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<Pair<String?, String?>>(null to null)
@@ -648,6 +650,9 @@ class SettingsViewModel(
     fun clearFailedActions() {
         viewModelScope.launch {
             pendingActionDao.deleteFailed()
+            // The rows those changes protected may differ from the server; refresh them fully.
+            syncCursor.requestFullReconcile()
+            platformSettingsHooks.triggerImmediateSync()
             _messages.update { null to "Failed actions cleared" }
         }
     }

@@ -6,6 +6,11 @@ import com.rendyhd.vicu.auth.InMemoryTokenStorage
 import com.rendyhd.vicu.auth.RecordingAuthHooks
 import com.rendyhd.vicu.auth.authTestJson
 import com.rendyhd.vicu.auth.authTestJsonHeaders
+import com.rendyhd.vicu.data.local.SyncCursorStore
+import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
+import com.rendyhd.vicu.data.sync.LabelRefresher
+import com.rendyhd.vicu.data.sync.ProjectRefresher
+import com.rendyhd.vicu.data.sync.TaskRefresher
 import com.rendyhd.vicu.data.local.dao.LabelDao
 import com.rendyhd.vicu.data.local.entity.LabelEntity
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
@@ -61,8 +66,14 @@ class FakeLabelDao : LabelDao {
         labels.forEach { rows[it.id] = it }
     }
 
+    override suspend fun getAllSync(): List<LabelEntity> = rows.values.toList()
+
     override suspend fun deleteById(id: Long) {
         rows.remove(id)
+    }
+
+    override suspend fun deleteByIdsChunk(ids: List<Long>) {
+        ids.forEach { rows.remove(it) }
     }
 
     override suspend fun deleteAll() {
@@ -144,8 +155,17 @@ class SyncEngineHarness(
         install(ContentNegotiation) { json(authTestJson) }
     }
 
-    private val api = VikunjaApiService(client, authTestJson)
+    val api = VikunjaApiService(client, authTestJson)
     private val storage = InMemoryTokenStorage()
+    val cursorStore = SyncCursorStore(InMemoryPreferencesDataStore())
+    val refresher = TaskRefresher(
+        taskDao = taskDao,
+        pendingActionDao = pendingActionDao,
+        api = api,
+        taskMapper = TaskMapper(authTestJson),
+        platformHooks = hooks,
+        cursorStore = cursorStore,
+    )
     val authManager = AuthManager(
         platformAuthHooks = RecordingAuthHooks(),
         tokenStorage = storage,
@@ -164,6 +184,9 @@ class SyncEngineHarness(
         taskMapper = TaskMapper(authTestJson),
         labelMapper = LabelMapper(),
         projectMapper = ProjectMapper(),
+        taskRefresher = refresher,
+        labelRefresher = LabelRefresher(labelDao, taskDao, pendingActionDao, api, LabelMapper(), TaskMapper(authTestJson)),
+        projectRefresher = ProjectRefresher(projectDao, pendingActionDao, api, ProjectMapper()),
         platformHooks = hooks,
         json = authTestJson,
         baseUrlHolder = BaseUrlHolder(storage),

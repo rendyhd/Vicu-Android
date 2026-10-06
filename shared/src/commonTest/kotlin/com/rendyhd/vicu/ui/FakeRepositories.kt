@@ -6,6 +6,7 @@ import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.AttachmentRepository
 import com.rendyhd.vicu.domain.repository.LabelRepository
+import com.rendyhd.vicu.domain.repository.LogbookPage
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.DEFAULT_MAX_UPLOAD_BYTES
@@ -160,12 +161,26 @@ class FakeTaskRepository : TaskRepository {
 
     override suspend fun deleteLocalByIds(ids: Set<Long>) = Unit
 
-    /** The filters of every [refreshAll] call. */
+    /** The filters of every [refreshAll] call, and which of them asked for a full reconcile. */
     val refreshes = mutableListOf<Map<String, String>>()
+    val fullRefreshes = mutableListOf<Boolean>()
 
-    override suspend fun refreshAll(filters: Map<String, String>): NetworkResult<Unit> {
+    /** What [refreshAll] answers; a test sets an error to model a failed or offline refresh. */
+    var refreshResult: NetworkResult<Unit> = NetworkResult.Success(Unit)
+
+    override suspend fun refreshAll(filters: Map<String, String>, full: Boolean): NetworkResult<Unit> {
         refreshes += filters
-        return NetworkResult.Success(Unit)
+        fullRefreshes += full
+        return refreshResult
+    }
+
+    /** The pages of every [loadLogbookPage] call; [logbookResult] decides the outcome. */
+    val logbookPages = mutableListOf<Int>()
+    var logbookResult: (Int) -> NetworkResult<LogbookPage> = { NetworkResult.Success(LogbookPage(it, hasMore = false)) }
+
+    override suspend fun loadLogbookPage(page: Int): NetworkResult<LogbookPage> {
+        logbookPages += page
+        return logbookResult(page)
     }
 }
 

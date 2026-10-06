@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class LocalDataWiperTest {
@@ -77,6 +78,16 @@ class LocalDataWiperTest {
         assertTrue(f.staleness.isStale())
     }
 
+    @Test
+    fun `clearing caches forgets the refresh cursor so the next refresh is a full one`() = runTest {
+        val f = fixture()
+        f.syncCursor.commit(f.syncCursor.begin(), "2026-10-06T09:00:00Z", 5L)
+
+        f.wiper.clearCaches()
+
+        assertNull(f.syncCursor.begin().cursor.tasksUpdatedSince)
+    }
+
     // --- discardUnsyncedAndClearCaches ---
 
     @Test
@@ -90,6 +101,18 @@ class LocalDataWiperTest {
         assertTrue(f.dao.labelIds.isEmpty())
         assertTrue(f.dao.projectIds.isEmpty())
         assertEquals(2, f.dao.routineArchive.size)
+    }
+
+    @Test
+    fun `discarding and wiping also forget the refresh cursor`() = runTest {
+        val f = fixture()
+        f.syncCursor.commit(f.syncCursor.begin(), "2026-10-06T09:00:00Z", 5L)
+        f.wiper.discardUnsyncedAndClearCaches()
+        assertNull(f.syncCursor.begin().cursor.tasksUpdatedSince)
+
+        f.syncCursor.commit(f.syncCursor.begin(), "2026-10-06T09:00:00Z", 5L)
+        f.wiper.wipeEverything()
+        assertNull(f.syncCursor.begin().cursor.tasksUpdatedSince)
     }
 
     // --- wipeEverything ---

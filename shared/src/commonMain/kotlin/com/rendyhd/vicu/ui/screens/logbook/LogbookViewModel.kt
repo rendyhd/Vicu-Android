@@ -57,9 +57,13 @@ class LogbookViewModel(
                 _uiState.update { it.copy(tasks = visibleTasks, isLoading = false) }
             }
         }
-        // Completed tasks are part of every full sync (the app syncs when it opens), so there
-        // is nothing to download here unless that is stale; pull-to-refresh forces a refresh.
-        if (syncStaleness.isStale()) refresh()
+        // Completed history is not part of the normal sync: the first page is fetched whenever
+        // the screen opens (and on pull-to-refresh). The rest of a refresh runs when stale.
+        if (syncStaleness.isStale()) {
+            refresh()
+        } else {
+            viewModelScope.launch { taskRepository.loadLogbookPage(1) }
+        }
     }
 
     fun toggleDone(task: Task) {
@@ -91,11 +95,11 @@ class LogbookViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
             try {
-                // The normal refresh: it includes completed tasks.
                 val tasks = taskRepository.refreshAll()
                 val projects = projectRepository.refreshAll()
                 labelRepository.refreshAll()
-                val failure = listOf(tasks, projects).filterIsInstance<NetworkResult.Error>().firstOrNull()
+                val completed = taskRepository.loadLogbookPage(1)
+                val failure = listOf(tasks, projects, completed).filterIsInstance<NetworkResult.Error>().firstOrNull()
                 if (failure != null) {
                     _uiState.update { it.copy(error = failure.message) }
                 } else {

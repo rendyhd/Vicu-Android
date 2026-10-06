@@ -143,6 +143,18 @@ class TaskEntryViewModelDueDateTest {
     }
 
     @Test
+    fun `saving a task downloads nothing else`() = runTest {
+        val rig = rig()
+        rig.vm.initWithDefaults(defaultProjectId = 1, defaultDueDate = null)
+        runCurrent()
+        rig.vm.setTitle("Buy milk")
+
+        saved(rig)
+
+        assertTrue(rig.tasks.refreshes.isEmpty(), "the create stored the server's answer; no refresh follows")
+    }
+
+    @Test
     fun `a date picked by hand beats a date typed in the title`() = runTest {
         val rig = rig()
         rig.vm.initWithDefaults(defaultProjectId = 1, defaultDueDate = todayDue)

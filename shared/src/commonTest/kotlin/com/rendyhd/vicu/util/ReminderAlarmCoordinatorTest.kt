@@ -62,6 +62,31 @@ class ReminderAlarmCoordinatorTest {
     }
 
     @Test
+    fun `reconciling some tasks leaves every other registered alarm alone`() = runTest {
+        coordinator.reconcileAll(listOf(task(1, 10), task(2, 10), task(3, 10)))
+        backend.cancelled.clear()
+
+        // Task 1 got a later reminder on another device, task 3 was deleted there.
+        coordinator.reconcileTasks(changed = listOf(task(1, 12)), goneTaskIds = setOf(3L))
+
+        assertEquals(setOf(code(1, 0), code(2, 0)), backend.live.keys)
+        assertEquals(listOf(code(3, 0)), backend.cancelled, "only the deleted task's alarm is cancelled")
+        assertEquals(mapOf(1L to setOf(code(1, 0)), 2L to setOf(code(2, 0))), registry.all())
+    }
+
+    @Test
+    fun `a changed task that is now done or has no reminders has its alarms cancelled`() = runTest {
+        coordinator.reconcileAll(listOf(task(1, 10, 11), task(2, 10)))
+        backend.cancelled.clear()
+
+        coordinator.reconcileTasks(changed = listOf(task(1, 10, 11, done = true), task(2)), goneTaskIds = emptySet())
+
+        assertTrue(backend.live.isEmpty())
+        assertEquals(setOf(code(1, 0), code(1, 1), code(2, 0)), backend.cancelled.toSet())
+        assertTrue(registry.all().isEmpty())
+    }
+
+    @Test
     fun `a full pass cancels alarms of tasks completed or deleted on another device`() = runTest {
         coordinator.reconcileAll(listOf(task(1, 10), task(2, 10), task(3, 10)))
         assertEquals(3, backend.live.size)

@@ -122,8 +122,9 @@ class WiperFixture(
     val labelOrder = LabelOrderPrefsStore(InMemoryPreferencesDataStore())
     val routinePrefs = RoutinePrefsStore(InMemoryPreferencesDataStore())
     val widgetPrefs = WidgetPrefsStore(InMemoryPreferencesDataStore())
+    val syncCursor = SyncCursorStore(InMemoryPreferencesDataStore())
     val wiper = LocalDataWiper(
         dao, customLists, bottomBar, hooks, staleness,
-        projectSections, labelOrder, routinePrefs, widgetPrefs,
+        projectSections, labelOrder, routinePrefs, widgetPrefs, syncCursor,
     )
 }

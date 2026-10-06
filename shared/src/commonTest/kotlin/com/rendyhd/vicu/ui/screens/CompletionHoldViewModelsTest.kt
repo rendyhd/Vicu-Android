@@ -215,6 +215,7 @@ class CompletionHoldViewModelsTest {
         runCurrent()
 
         assertTrue(tasks.refreshes.isEmpty())
+        assertEquals(listOf(1), tasks.logbookPages, "only the first page of completed tasks")
     }
 
     @Test
@@ -224,5 +225,6 @@ class CompletionHoldViewModelsTest {
         runCurrent()
 
         assertEquals(listOf(emptyMap<String, String>()), tasks.refreshes)
+        assertEquals(listOf(1), tasks.logbookPages)
     }
 }

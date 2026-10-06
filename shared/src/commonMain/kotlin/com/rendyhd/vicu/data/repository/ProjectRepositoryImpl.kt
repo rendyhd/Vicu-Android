@@ -2,11 +2,15 @@ package com.rendyhd.vicu.data.repository
 
 import com.rendyhd.vicu.data.local.dao.ProjectDao
 import com.rendyhd.vicu.data.mapper.ProjectMapper
+import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.data.sync.ProjectRefresher
 import com.rendyhd.vicu.data.remote.api.MergePatches
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.isNetworkFailure
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -14,6 +18,7 @@ class ProjectRepositoryImpl(
     private val projectDao: ProjectDao,
     private val api: VikunjaApiService,
     private val projectMapper: ProjectMapper,
+    private val projectRefresher: ProjectRefresher,
 ) : ProjectRepository {
 
     override fun getAll(): Flow<List<Project>> =
@@ -77,12 +82,16 @@ class ProjectRepositoryImpl(
 
     override suspend fun refreshAll(): NetworkResult<Unit> {
         return try {
-            val dtos = api.getAllProjects(includeArchived = true)
-            val entities = dtos.map { with(projectMapper) { it.toEntity() } }
-            projectDao.replaceAll(entities)
+            projectRefresher.refresh()
             NetworkResult.Success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            NetworkResult.Error(e.message ?: "Failed to refresh projects")
+            NetworkResult.Error(
+                message = if (isNetworkFailure(e)) "Can't reach the server" else e.message ?: "Failed to refresh projects",
+                code = (e as? VikunjaApiException)?.httpStatus,
+                offline = isNetworkFailure(e),
+            )
         }
     }
 }

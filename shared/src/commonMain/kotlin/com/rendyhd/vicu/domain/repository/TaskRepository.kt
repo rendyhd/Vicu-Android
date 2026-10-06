@@ -59,5 +59,21 @@ interface TaskRepository {
     suspend fun deleteRelation(taskId: Long, relationKind: String, otherTaskId: Long): NetworkResult<Unit>
     suspend fun createRelation(taskId: Long, otherTaskId: Long, relationKind: String): NetworkResult<Unit>
     suspend fun deleteLocalByIds(ids: Set<Long>)
-    suspend fun refreshAll(filters: Map<String, String> = emptyMap()): NetworkResult<Unit>
+
+    /**
+     * Brings the cache up to date. Without [filters] only what changed since the last refresh is
+     * fetched; [full] (pull to refresh) or a due daily reconcile also removes tasks deleted on the
+     * server. With [filters] (a search, a custom list) the tasks they match are merged and nothing
+     * is deleted. Completed history is not downloaded here: see [loadLogbookPage].
+     */
+    suspend fun refreshAll(filters: Map<String, String> = emptyMap(), full: Boolean = false): NetworkResult<Unit>
+
+    /**
+     * Fetches one page (1-based) of completed tasks, newest first, into the cache, within the
+     * Logbook retention window. Page 1 also drops cached completed tasks that are gone on the server.
+     */
+    suspend fun loadLogbookPage(page: Int): NetworkResult<LogbookPage>
 }
+
+/** What a [TaskRepository.loadLogbookPage] call found: whether a later page exists. */
+data class LogbookPage(val page: Int, val hasMore: Boolean)

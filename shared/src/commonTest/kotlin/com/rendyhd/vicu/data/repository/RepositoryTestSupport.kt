@@ -46,6 +46,12 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     /** Sizes of every id list handed to a query that binds one parameter per id. */
     val boundIdListSizes = mutableListOf<Int>()
 
+    /** The same, for the delete statements only. */
+    val deletedIdListSizes = mutableListOf<Int>()
+
+    /** Ids of every row written, in order, so tests can tell which rows a refresh touched. */
+    val upsertedIds = mutableListOf<Long>()
+
     suspend fun snapshot(): List<TaskEntity> = lock.withLock { rows.values.toList() }
     suspend fun entity(id: Long): TaskEntity? = lock.withLock { rows[id] }
 
@@ -99,11 +105,32 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     }
 
     override suspend fun upsert(task: TaskEntity) {
-        lock.withLock { rows[task.id] = task }
+        lock.withLock {
+            rows[task.id] = task
+            upsertedIds += task.id
+        }
     }
 
     override suspend fun upsertAll(tasks: List<TaskEntity>) {
-        lock.withLock { tasks.forEach { rows[it.id] = it } }
+        lock.withLock {
+            tasks.forEach {
+                rows[it.id] = it
+                upsertedIds += it.id
+            }
+        }
+    }
+
+    override suspend fun getOpenOrLocalOnlyIds(): List<Long> =
+        lock.withLock { rows.values.filter { !it.done || it.id < 0 }.map { it.id } }
+
+    override suspend fun getCompletedAfter(doneAt: String): List<TaskEntity> = lock.withLock {
+        rows.values.filter { it.done && it.id > 0 && it.doneAt != "" && it.doneAt != "0001-01-01T00:00:00Z" && it.doneAt > doneAt }
+    }
+
+    override suspend fun getByLabelsJsonLike(pattern: String): List<TaskEntity> = lock.withLock {
+        // LIKE '%x%' with the wildcards stripped is a plain contains.
+        val needle = pattern.trim('%')
+        rows.values.filter { it.labelsJson.contains(needle) }
     }
 
     override suspend fun getAllSync(): List<TaskEntity> = lock.withLock { rows.values.toList() }
@@ -117,6 +144,7 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     override suspend fun deleteByIdsChunk(ids: List<Long>) {
         lock.withLock {
             boundIdListSizes += ids.size
+            deletedIdListSizes += ids.size
             ids.forEach { rows.remove(it) }
         }
     }
@@ -177,9 +205,14 @@ class FakePendingActionDao : PendingActionDao {
         version.value++
     }
 
-    override suspend fun deleteFailedBefore(cutoff: String) {
-        lock.withLock { rows.values.removeAll { it.status == "failed" && it.updatedAt < cutoff } }
+    override suspend fun deleteFailedBefore(cutoff: String): Int {
+        val removed = lock.withLock {
+            val before = rows.size
+            rows.values.removeAll { it.status == "failed" && it.updatedAt < cutoff }
+            before - rows.size
+        }
         version.value++
+        return removed
     }
 
     override suspend fun deleteCompleted() {
@@ -221,6 +254,16 @@ class FakePendingActionDao : PendingActionDao {
         rows.values
             .filter { it.entityType in setOf("task", "routine") && it.status in setOf("pending", "failed", "processing") }
             .map { it.entityId }
+    }
+
+    private val active = setOf("pending", "failed", "processing")
+
+    override suspend fun getLabelIdsWithPendingActions(): List<Long> = lock.withLock {
+        rows.values.filter { it.entityType == "label" && it.status in active }.map { it.entityId }
+    }
+
+    override suspend fun getProjectIdsWithPendingActions(): List<Long> = lock.withLock {
+        rows.values.filter { it.entityType == "project" && it.status in active }.map { it.entityId }
     }
 
     override suspend fun getRemappable(): List<PendingActionEntity> = lock.withLock {

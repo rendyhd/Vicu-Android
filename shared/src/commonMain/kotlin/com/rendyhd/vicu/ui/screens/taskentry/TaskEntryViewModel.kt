@@ -498,12 +498,13 @@ class TaskEntryViewModel(
                         if (pendingImages.isNotEmpty()) {
                             uploadPendingImagesAndUpdateDescription(createdTask, pendingImages)
                         }
-                        // Dismiss immediately; run the full refresh in the background so the
-                        // sheet doesn't hang on the network round-trip (save-task stutter).
+                        // The repository stored the server's answer for the new task, and adding
+                        // labels and uploading files refresh that one task, so nothing else
+                        // needs to be downloaded here: the next screen or sync refresh is
+                        // incremental anyway.
                         _uiState.update {
                             it.copy(isSaving = false, savedTaskId = createdTask.id)
                         }
-                        viewModelScope.launch { taskRepository.refreshAll() }
                     }
                     is NetworkResult.Error -> {
                         _uiState.update {

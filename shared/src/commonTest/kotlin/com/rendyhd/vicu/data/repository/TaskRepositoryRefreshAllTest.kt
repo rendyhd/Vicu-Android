@@ -36,7 +36,7 @@ class TaskRepositoryRefreshAllTest {
         assertIs<NetworkResult.Success<*>>(result)
         assertEquals((1L..100L).toList(), h.taskDao.snapshot().map { it.id })
         assertTrue(h.taskDao.boundIdListSizes.all { it <= MAX_SQL_ID_PARAMS }, "bound ${h.taskDao.boundIdListSizes}")
-        assertEquals(2_400, h.taskDao.boundIdListSizes.sum())
+        assertEquals(2_400, h.taskDao.deletedIdListSizes.sum())
     }
 
     @Test
@@ -73,6 +73,6 @@ class TaskRepositoryRefreshAllTest {
         h.repository.refreshAll(mapOf("q" to "task"))
 
         assertEquals(50, h.taskDao.snapshot().size)
-        assertTrue(h.taskDao.boundIdListSizes.isEmpty())
+        assertTrue(h.taskDao.deletedIdListSizes.isEmpty())
     }
 }

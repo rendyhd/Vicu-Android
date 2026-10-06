@@ -49,14 +49,27 @@ class VikunjaApiService(
         private val MERGE_PATCH = ContentType.parse("application/merge-patch+json")
     }
 
-    suspend fun getTasksPage(filters: Map<String, String> = emptyMap()): PaginatedResponse<TaskDto> =
+    /**
+     * One page of tasks. With [expandSubtasks] (the default) Vikunja returns the tasks that are not
+     * subtasks and then adds the subtasks of those, so a filter that a subtask matches but its
+     * parent does not never reaches the subtask. Pass false for any request that must return
+     * exactly the tasks the filter matches (incremental refresh, completed tasks): every task
+     * still carries its `related_tasks`, which are not part of the expansion.
+     */
+    suspend fun getTasksPage(
+        filters: Map<String, String> = emptyMap(),
+        expandSubtasks: Boolean = true,
+    ): PaginatedResponse<TaskDto> =
         client.get("tasks") {
-            parameter("expand", SUBTASK_EXPANSION)
+            if (expandSubtasks) parameter("expand", SUBTASK_EXPANSION)
             filters.forEach { (key, value) -> parameter(key, value) }
         }.bodyOrThrow()
 
-    suspend fun getAllTasks(filters: Map<String, String> = emptyMap()): List<TaskDto> =
-        fetchAllPages(filters, ::getTasksPage)
+    suspend fun getAllTasks(
+        filters: Map<String, String> = emptyMap(),
+        expandSubtasks: Boolean = true,
+    ): List<TaskDto> =
+        fetchAllPages(filters) { params -> getTasksPage(params, expandSubtasks) }
 
     suspend fun getTask(id: Long): TaskDto =
         client.get("tasks/$id") {

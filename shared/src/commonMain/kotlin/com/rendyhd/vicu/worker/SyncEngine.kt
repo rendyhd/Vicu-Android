@@ -18,6 +18,9 @@ import com.rendyhd.vicu.data.remote.api.TaskDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
+import com.rendyhd.vicu.data.sync.LabelRefresher
+import com.rendyhd.vicu.data.sync.ProjectRefresher
+import com.rendyhd.vicu.data.sync.TaskRefresher
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.CustomListSyncStatus
@@ -61,6 +64,10 @@ class SyncEngine(
     private val taskMapper: TaskMapper,
     private val labelMapper: LabelMapper,
     private val projectMapper: ProjectMapper,
+    /** Pulls tasks, labels and projects from the server; the same code the screens use. */
+    private val taskRefresher: TaskRefresher,
+    private val labelRefresher: LabelRefresher,
+    private val projectRefresher: ProjectRefresher,
     private val platformHooks: PlatformRepositoryHooks,
     private val json: Json,
     private val baseUrlHolder: BaseUrlHolder,
@@ -122,7 +129,9 @@ class SyncEngine(
         // Safe only because no other run can be mid-action while we hold the lock: whatever is
         // still "processing" belongs to a run that was killed or cancelled.
         pendingActionDao.resetProcessingToPending()
-        pendingActionDao.deleteFailedBefore(DateUtils.isoDaysAgo(FAILED_ACTION_RETENTION_DAYS))
+        val expired = pendingActionDao.deleteFailedBefore(DateUtils.isoDaysAgo(FAILED_ACTION_RETENTION_DAYS))
+        // The rows those actions protected may differ from the server now; a delta cannot show it.
+        if (expired > 0) taskRefresher.requestFullReconcile()
 
         var hasRetriableFailures = false
         var pausedForAuth = false
@@ -186,8 +195,8 @@ class SyncEngine(
                 is CustomListSyncStatus.Offline -> hasRetriableFailures = true
                 else -> Unit
             }
-            val refreshed = refreshAllFromServer()
-            uploadLocalRoutineHistory(carriersAuthoritative = refreshed)
+            val outcome = refreshAllFromServer()
+            uploadLocalRoutineHistory(carriersAuthoritative = outcome?.carriersAuthoritative == true)
         } catch (e: Exception) {
             Logger.e(TAG, "SyncEngine failed: ${e.message}", e)
             throw e
@@ -536,55 +545,21 @@ class SyncEngine(
         }
     }
 
-    /** True when tasks, labels and projects were all refreshed, so the carrier cache is the server's. */
-    private suspend fun refreshAllFromServer(): Boolean {
-        try {
-            val allTasks = api.getAllTasks()
-            // Routine archive parts are read on demand from the server and never cached.
-            val visibleTasks = allTasks.filterNot {
-                CustomListEnvelope.hasMarker(it.description) || RoutineEnvelope.hasArchiveMarker(it.description)
-            }
-            val taskEntities = visibleTasks.map { with(taskMapper) { it.toEntity() } }
-            val pendingTaskIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
-            val existingById = taskDao.getAllSync().associateBy { it.id }
-            val safeEntities = taskEntities.filter { it.id !in pendingTaskIds }
-            val changed = safeEntities.filter { existingById[it.id] != it }
-            taskDao.upsertAll(changed)
-            var routinesTouched = changed.any { entity ->
-                RoutineEnvelope.hasMarker(entity.description) ||
-                    RoutineEnvelope.hasMarker(existingById[entity.id]?.description)
-            }
-            var alarmsTouched = changed.any { e ->
-                val old = existingById[e.id]
-                old == null || old.remindersJson != e.remindersJson ||
-                    old.dueDate != e.dueDate || old.done != e.done
-            }
-            val serverTaskIds = visibleTasks.map { it.id }.toSet() + pendingTaskIds
-            val deletedIds = existingById.keys - serverTaskIds
-            if (deletedIds.isNotEmpty()) {
-                routinesTouched = routinesTouched || deletedIds.any { id ->
-                    RoutineEnvelope.hasMarker(existingById[id]?.description)
-                }
-                taskDao.deleteByIds(deletedIds.toList())
-                alarmsTouched = true
-            }
-            if (alarmsTouched) platformHooks.rescheduleAlarms()
-            if (routinesTouched) platformHooks.routinesChanged()
-            Logger.d(TAG, "Refreshed ${changed.size} changed tasks from server (skipped ${taskEntities.size - safeEntities.size} with pending actions)")
-
-            val labelDtos = api.getAllLabels()
-            val labelEntities = labelDtos.map { with(labelMapper) { it.toEntity() } }
-            labelDao.upsertAll(labelEntities)
-            Logger.d(TAG, "Refreshed ${labelEntities.size} labels from server")
-
-            val projectDtos = api.getAllProjects(includeArchived = true)
-            val projectEntities = projectDtos.map { with(projectMapper) { it.toEntity() } }
-            projectDao.replaceAll(projectEntities)
-            Logger.d(TAG, "Refreshed ${projectEntities.size} projects from server")
-            return true
+    /**
+     * Refreshes tasks, labels and projects through the shared refreshers. Returns what the task
+     * refresh did, or null when any part failed (the next sync tries again).
+     */
+    private suspend fun refreshAllFromServer(): TaskRefresher.Outcome? {
+        return try {
+            val outcome = taskRefresher.refresh()
+            labelRefresher.refresh()
+            projectRefresher.refresh()
+            outcome
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Logger.e(TAG, "Server refresh failed: ${e.message}", e)
-            return false
+            null
         }
     }
 }

@@ -26,7 +26,7 @@ class SyncEngineRefreshTest {
 
         assertTrue(h.taskDao.snapshot().isEmpty())
         assertTrue(h.taskDao.boundIdListSizes.all { it <= MAX_SQL_ID_PARAMS }, "bound ${h.taskDao.boundIdListSizes}")
-        assertEquals(2_500, h.taskDao.boundIdListSizes.sum())
+        assertEquals(2_500, h.taskDao.deletedIdListSizes.sum())
         h.close()
     }
 

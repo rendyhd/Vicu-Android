@@ -2,6 +2,7 @@ package com.rendyhd.vicu.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.rendyhd.vicu.data.local.SyncCursorStore
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.ui.screens.settings.PlatformSettingsHooks
 import com.rendyhd.vicu.util.NetworkMonitor
@@ -13,6 +14,7 @@ class SyncStateViewModel(
     networkMonitor: NetworkMonitor,
     private val pendingActionDao: PendingActionDao,
     private val platformSettingsHooks: PlatformSettingsHooks,
+    private val syncCursor: SyncCursorStore,
 ) : ViewModel() {
 
     val isOnline: StateFlow<Boolean> = networkMonitor.isOnline
@@ -36,6 +38,8 @@ class SyncStateViewModel(
     fun discardFailed() {
         viewModelScope.launch {
             pendingActionDao.deleteFailed()
+            // The rows those changes protected may differ from the server; only a full reconcile shows it.
+            syncCursor.requestFullReconcile()
             platformSettingsHooks.triggerImmediateSync()
         }
     }

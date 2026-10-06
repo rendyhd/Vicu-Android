@@ -33,6 +33,8 @@ class LocalDataWiper(
     private val labelOrderPrefs: LabelOrderPrefsStore,
     private val routinePrefs: RoutinePrefsStore,
     private val widgetPrefs: WidgetPrefsStore,
+    /** Forgotten with the cache, so the next refresh starts from the server's full list. */
+    private val syncCursor: SyncCursorStore,
 ) {
     /**
      * Entries of routine history that have not been uploaded to the server yet (the phone-only
@@ -46,6 +48,7 @@ class LocalDataWiper(
     suspend fun clearCaches() {
         SyncEngine.exclusive {
             dao.clearCaches()
+            syncCursor.clear()
             syncStaleness.reset()
         }
     }
@@ -53,6 +56,7 @@ class LocalDataWiper(
     suspend fun discardUnsyncedAndClearCaches() {
         SyncEngine.exclusive {
             dao.discardUnsyncedAndClearCaches()
+            syncCursor.clear()
             syncStaleness.reset()
         }
     }
@@ -68,6 +72,7 @@ class LocalDataWiper(
             labelOrderPrefs.clear()
             routinePrefs.clear()
             widgetPrefs.clear()
+            syncCursor.clear()
             syncStaleness.reset()
         }
         // The old account's reminders must not keep firing for a signed-out (or switched) account.
