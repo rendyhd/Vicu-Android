@@ -69,6 +69,8 @@ class SyncEngine(
     /** Uploads routine history older versions kept only on this phone; see [uploadLocalRoutineHistory]. */
     private val routineRepository: RoutineRepository? = null,
 ) {
+    private val missing = MissingResourceCheck(api)
+
     companion object {
         private const val TAG = "SyncEngine"
         private const val MAX_RETRIES = 5
@@ -80,8 +82,6 @@ class SyncEngine(
          */
         const val FAILED_ACTION_RETENTION_DAYS = 14
 
-        /** Vikunja's error code for "this task does not exist" (the HTTP status is 404). */
-        private const val TASK_DOES_NOT_EXIST_CODE = 4002L
         private val TASK_DEPENDENT_ACTIONS = setOf("update", "toggle_done", "delete")
         private val LABEL_TASK_ACTIONS = setOf("add_label", "remove_label")
 
@@ -157,10 +157,10 @@ class SyncEngine(
                             pendingActionDao.updateStatus(action.id, "pending")
                             pausedForAuth = true
                         }
-                        isTaskGone(action, e) -> {
-                            // The task was deleted on the server, so there is nothing left to
-                            // change. Retrying can never work and "failed" would only nag.
-                            dropActionForGoneTask(action, tempIdMap)
+                        resolveMissingResource(action, e, tempIdMap) -> {
+                            // What the change was about no longer exists on the server (or the
+                            // change already happened there), so retrying can never work and
+                            // "failed" would only nag. The local rows were cleaned up.
                             pendingActionDao.updateStatus(action.id, "completed")
                         }
                         isRetriableNetworkError(e) && action.retryCount < MAX_RETRIES -> {
@@ -205,23 +205,103 @@ class SyncEngine(
     }
 
     /**
-     * True when a queued change to a task was refused because the task no longer exists. A 404
-     * that names another missing resource (a project the task was moved to, say) is not this.
+     * Handles a queued change the server refused with a 404 that means "that thing no longer
+     * exists" (see [MissingResourceCheck]); returns true when the action is finished and must not
+     * be retried or marked failed. A 404 that names another missing resource, or that cannot be
+     * confirmed, returns false and the action fails visibly.
      */
-    private fun isTaskGone(action: PendingActionEntity, e: Exception): Boolean {
-        if (e !is VikunjaApiException || e.httpStatus != 404) return false
-        if (action.entityType != "task" || action.actionType !in TASK_DEPENDENT_ACTIONS) return false
-        val code = e.problem?.code ?: 0L
-        return code == 0L || code == TASK_DOES_NOT_EXIST_CODE
+    private suspend fun resolveMissingResource(
+        action: PendingActionEntity,
+        e: Exception,
+        tempIdMap: Map<Long, Long>,
+    ): Boolean {
+        if (e !is VikunjaApiException) return false
+        return when (action.entityType) {
+            "task" -> {
+                if (action.actionType !in TASK_DEPENDENT_ACTIONS) return false
+                val taskId = tempIdMap[action.entityId] ?: action.entityId
+                if (!missing.taskGone(taskId, e)) return false
+                dropGoneTask(taskId, action.actionType)
+                true
+            }
+            "label" -> resolveMissingForLabelAction(action, e, tempIdMap)
+            else -> false
+        }
     }
 
-    private suspend fun dropActionForGoneTask(action: PendingActionEntity, tempIdMap: Map<Long, Long>) {
-        val taskId = tempIdMap[action.entityId] ?: action.entityId
+    private suspend fun resolveMissingForLabelAction(
+        action: PendingActionEntity,
+        e: VikunjaApiException,
+        tempIdMap: Map<Long, Long>,
+    ): Boolean {
+        val labelId = tempIdMap[action.entityId] ?: action.entityId
+        when (action.actionType) {
+            "delete" -> {
+                // The label is already gone, which is what the user asked for.
+                if (e.httpStatus != 404) return false
+                labelDao.deleteById(labelId)
+                return true
+            }
+            "update" -> {
+                if (!missing.labelGone(labelId, e)) return false
+                labelDao.deleteById(labelId)
+                return true
+            }
+            "add_label", "remove_label" -> {
+                val (taskId, parsedLabelId) = labelTaskIds(action.payload, tempIdMap) ?: return false
+                if (action.actionType == "add_label") {
+                    // Already on the task: the change has happened.
+                    if (e.httpStatus == 400 && e.problem?.code == MissingResourceCheck.LABEL_ALREADY_ON_TASK) return true
+                    return when (missing.labelActionTarget(taskId, parsedLabelId, e)) {
+                        LabelActionTarget.TASK_GONE -> {
+                            dropGoneTask(taskId, action.actionType)
+                            true
+                        }
+                        LabelActionTarget.LABEL_GONE -> {
+                            forgetLabel(taskId, parsedLabelId)
+                            true
+                        }
+                        LabelActionTarget.UNKNOWN -> false
+                    }
+                }
+                // Removing: a 404 means the task or the label is gone, or the label was not on the
+                // task. In every case the label is not on the task, which is what was asked for.
+                if (e.httpStatus != 404) return false
+                if (e.problem?.code == MissingResourceCheck.TASK_DOES_NOT_EXIST) {
+                    dropGoneTask(taskId, action.actionType)
+                } else {
+                    forgetLabel(taskId, parsedLabelId, deleteLabel = false)
+                }
+                return true
+            }
+            else -> return false
+        }
+    }
+
+    /** The task and label ids of an add_label / remove_label payload ("taskId:labelId"), remapped from temp ids. */
+    private fun labelTaskIds(payload: String, tempIdMap: Map<Long, Long>): Pair<Long, Long>? {
+        val parts = payload.split(":")
+        if (parts.size != 2) return null
+        val taskId = parts[0].toLongOrNull()?.let { tempIdMap[it] ?: it } ?: return null
+        val labelId = parts[1].toLongOrNull()?.let { tempIdMap[it] ?: it } ?: return null
+        return taskId to labelId
+    }
+
+    /** The label no longer exists on the server: it leaves the cached task, and (by default) the label cache. */
+    private suspend fun forgetLabel(taskId: Long, labelId: Long, deleteLabel: Boolean = true) {
+        taskDao.getByIdSync(taskId)?.let { entity ->
+            taskDao.upsert(with(taskMapper) { entity.withLabelRemoved(labelId) })
+        }
+        if (deleteLabel) labelDao.deleteById(labelId)
+        Logger.w(TAG, "Label $labelId is gone on the server; dropped the change and the label on task $taskId")
+    }
+
+    private suspend fun dropGoneTask(taskId: Long, actionType: String) {
         val local = taskDao.getByIdSync(taskId)
         taskDao.deleteById(taskId)
         platformHooks.cancelAlarm(taskId)
         if (RoutineEnvelope.hasMarker(local?.description)) platformHooks.routinesChanged()
-        Logger.w(TAG, "Task $taskId no longer exists on the server; dropped ${action.actionType} and the local row")
+        Logger.w(TAG, "Task $taskId no longer exists on the server; dropped $actionType and the local row")
     }
 
     private suspend fun processAction(action: PendingActionEntity, tempIdMap: MutableMap<Long, Long>) {
