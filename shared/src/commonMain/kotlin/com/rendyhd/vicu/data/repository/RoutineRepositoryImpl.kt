@@ -61,6 +61,8 @@ class RoutineRepositoryImpl(
         val issues = mutableListOf<RoutineParseIssue>()
         entities.forEach { entity ->
             val parsed = RoutineEnvelope.parse(entity.description, json)
+            // An archive part is metadata too, but not a routine and not damaged.
+            if (!parsed.isCarrier) return@forEach
             val payload = parsed.payload
             if (payload != null) {
                 routines += Routine(entity.id, payload)

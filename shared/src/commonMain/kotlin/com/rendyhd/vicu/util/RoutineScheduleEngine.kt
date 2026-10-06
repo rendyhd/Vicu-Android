@@ -5,6 +5,7 @@ import com.rendyhd.vicu.domain.model.Routine
 import com.rendyhd.vicu.domain.model.RoutineKind
 import com.rendyhd.vicu.domain.model.RoutineOccurrence
 import com.rendyhd.vicu.domain.model.RoutineOccurrenceRecord
+import com.rendyhd.vicu.domain.model.RoutinePayload
 import com.rendyhd.vicu.domain.model.RoutineSchedule
 import com.rendyhd.vicu.domain.model.RoutineSlot
 import kotlinx.datetime.DateTimeUnit
@@ -13,6 +14,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.daysUntil
 import kotlinx.datetime.plus
 import kotlinx.datetime.minus
+import kotlinx.datetime.toLocalDateTime
 
 object RoutineScheduleEngine {
     fun occurrenceKey(routineId: String, date: String, slotId: String): String =
@@ -44,6 +46,75 @@ object RoutineScheduleEngine {
         }
     }
 
+    // --- After-completion schedules (docs/cross-app-semantics-v1.md, section 6.5) ------------
+
+    /** A completed occurrence and the local date it was completed on. */
+    data class Completion(val record: RoutineOccurrenceRecord, val date: LocalDate)
+
+    /**
+     * The completion date of a `COMPLETED` occurrence: the local date of its `loggedAt` in the
+     * occurrence's own time zone ([deviceZone] when that is missing or unknown), or its
+     * `scheduledDate` when there is no usable `loggedAt`. Null only when neither is a date.
+     */
+    fun completionDate(record: RoutineOccurrenceRecord, deviceZone: TimeZone): LocalDate? {
+        val logged = RoutineTime.parse(record.loggedAt)
+        if (logged != null) {
+            val zone = zoneOrNull(record.timeZoneId) ?: deviceZone
+            return logged.toLocalDateTime(zone).date
+        }
+        return runCatching { LocalDate.parse(record.scheduledDate) }.getOrNull()
+    }
+
+    /**
+     * The `COMPLETED` occurrence with the largest completion date. Among occurrences completed on
+     * the same date the one scheduled earliest is chosen, so the answer never depends on map
+     * order.
+     */
+    fun latestCompletion(
+        occurrences: Collection<RoutineOccurrenceRecord>,
+        deviceZone: TimeZone,
+    ): Completion? {
+        var best: Completion? = null
+        for (record in occurrences) {
+            if (record.status != OccurrenceStatus.COMPLETED) continue
+            val date = completionDate(record, deviceZone) ?: continue
+            val current = best
+            if (current == null ||
+                date > current.date ||
+                (date == current.date && record.scheduledDate < current.record.scheduledDate)
+            ) {
+                best = Completion(record, date)
+            }
+        }
+        return best
+    }
+
+    /** The largest completion date over all `COMPLETED` occurrences, or null when none. */
+    fun latestCompletionDate(
+        occurrences: Collection<RoutineOccurrenceRecord>,
+        deviceZone: TimeZone,
+    ): LocalDate? = latestCompletion(occurrences, deviceZone)?.date
+
+    /**
+     * The next due date of an after-completion routine: the latest completion date plus
+     * `intervalDays`, or `firstDueDate` before the first completion. Null for a calendar routine.
+     */
+    fun dueDate(payload: RoutinePayload, deviceZone: TimeZone): LocalDate? {
+        val schedule = payload.definition.schedule as? RoutineSchedule.AfterCompletion ?: return null
+        return latestCompletionDate(payload.occurrences.values, deviceZone)
+            ?.plus(schedule.intervalDays.coerceAtLeast(1), DateTimeUnit.DAY)
+            ?: LocalDate.parse(schedule.firstDueDate)
+    }
+
+    private fun zoneOrNull(id: String): TimeZone? {
+        if (id.isBlank()) return null
+        return try {
+            TimeZone.of(id)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun occurrencesForDate(
         routine: Routine,
         date: LocalDate,
@@ -52,20 +123,13 @@ object RoutineScheduleEngine {
     ): List<RoutineOccurrence> {
         val definition = routine.definition
         if (definition.archived || date < LocalDate.parse(definition.activeFrom)) return emptyList()
-        val latestCompletion = routine.payload.occurrences.values
-            .asSequence()
-            .filter { it.status == OccurrenceStatus.COMPLETED }
-            .mapNotNull { runCatching { LocalDate.parse(it.scheduledDate) }.getOrNull() }
-            .maxOrNull()
         val effectiveDate = when (val schedule = definition.schedule) {
             is RoutineSchedule.Calendar -> {
-                if (!isScheduledOn(schedule, date, latestCompletion)) return emptyList()
+                if (!isScheduledOn(schedule, date)) return emptyList()
                 date
             }
             is RoutineSchedule.AfterCompletion -> {
-                val due = latestCompletion
-                    ?.plus(schedule.intervalDays.coerceAtLeast(1), DateTimeUnit.DAY)
-                    ?: LocalDate.parse(schedule.firstDueDate)
+                val due = dueDate(routine.payload, timeZone) ?: return emptyList()
                 // Keep a completion-based chore visible once it is due, but only on the
                 // current day; future schedule scans still get exactly one occurrence.
                 if (date != due && !(date == today && due < today)) return emptyList()
@@ -125,42 +189,66 @@ object RoutineScheduleEngine {
         )
     }
 
+    // --- Merge (section 6.3) ------------------------------------------------------------------
+
+    /**
+     * The newer of two records for the same key: the later parsed `modifiedAt`, then the larger
+     * `modifiedBy`. On an exact tie [left] stays.
+     */
+    fun newerOccurrence(left: RoutineOccurrenceRecord, right: RoutineOccurrenceRecord): RoutineOccurrenceRecord =
+        if (RoutineTime.compareWrites(left.modifiedAt, left.modifiedBy, right.modifiedAt, right.modifiedBy) >= 0) {
+            left
+        } else {
+            right
+        }
+
+    /** Union of keys, last-write-wins per key. Earlier maps win exact ties. */
+    fun mergeOccurrenceMaps(
+        vararg maps: Map<String, RoutineOccurrenceRecord>,
+    ): Map<String, RoutineOccurrenceRecord> {
+        val merged = LinkedHashMap<String, RoutineOccurrenceRecord>()
+        for (map in maps) {
+            for ((key, record) in map) {
+                val existing = merged[key]
+                merged[key] = if (existing == null) record else newerOccurrence(existing, record)
+            }
+        }
+        return merged
+    }
+
+    /** Drops every occurrence scheduled before [prunedBefore] (they live in the archive). */
+    fun dropPruned(
+        occurrences: Map<String, RoutineOccurrenceRecord>,
+        prunedBefore: String,
+    ): Map<String, RoutineOccurrenceRecord> {
+        if (prunedBefore.isEmpty()) return occurrences
+        return occurrences.filterValues { it.scheduledDate >= prunedBefore }
+    }
+
+    /**
+     * `prunedBefore` is the later of the two, the definition is last-write-wins by the parsed
+     * `updatedAt` (ties by `updatedBy`), occurrences are the last-write-wins union of both sides
+     * minus what is older than `prunedBefore`. [local] wins exact ties.
+     */
     fun merge(local: RoutinePayloadMergeInput, remote: RoutinePayloadMergeInput): RoutinePayloadMergeInput {
-        val definition = if (isAtLeastAsRecent(
+        val definition = if (
+            RoutineTime.compareWrites(
                 local.definitionUpdatedAt,
                 local.definitionUpdatedBy,
                 remote.definitionUpdatedAt,
                 remote.definitionUpdatedBy,
-            )
+            ) >= 0
         ) local.definition else remote.definition
-        val merged = (remote.occurrences.keys + local.occurrences.keys).associateWith { key ->
-            val left = local.occurrences[key]
-            val right = remote.occurrences[key]
-            when {
-                left == null -> requireNotNull(right)
-                right == null -> left
-                isAtLeastAsRecent(left.modifiedAt, left.modifiedBy, right.modifiedAt, right.modifiedBy) -> left
-                else -> right
-            }
-        }
-        return RoutinePayloadMergeInput(definition, merged)
-    }
-
-    private fun isAtLeastAsRecent(
-        leftTimestamp: String,
-        leftDevice: String,
-        rightTimestamp: String,
-        rightDevice: String,
-    ): Boolean = when {
-        leftTimestamp > rightTimestamp -> true
-        leftTimestamp < rightTimestamp -> false
-        else -> leftDevice >= rightDevice
+        val prunedBefore = maxOf(local.prunedBefore, remote.prunedBefore)
+        val occurrences = dropPruned(mergeOccurrenceMaps(local.occurrences, remote.occurrences), prunedBefore)
+        return RoutinePayloadMergeInput(definition, occurrences, prunedBefore)
     }
 }
 
 data class RoutinePayloadMergeInput(
     val definition: com.rendyhd.vicu.domain.model.RoutineDefinition,
     val occurrences: Map<String, RoutineOccurrenceRecord>,
+    val prunedBefore: String = "",
 ) {
     val definitionUpdatedAt: String get() = definition.updatedAt
     val definitionUpdatedBy: String get() = definition.updatedBy

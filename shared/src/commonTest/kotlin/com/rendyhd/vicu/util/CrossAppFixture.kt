@@ -110,17 +110,20 @@ object CrossAppFixture {
 
     val fixture: Fixture by lazy { json.decodeFromString(Fixture.serializer(), readFixtureText()) }
 
-    private fun readFixtureText(): String {
+    private fun readFixtureText(): String = readTestFixture("cross-app-semantics-v1.json")
+
+    /** The text of one file in `test-fixtures/` (the same files the desktop repo ships). */
+    fun readTestFixture(name: String): String {
         // Gradle runs the tests with the module directory as the working directory; search
         // upward so running them from the repo root or an IDE works too.
         val start: String = System.getProperty("user.dir") ?: "."
         var dir: File? = File(start).absoluteFile
         while (dir != null) {
-            val candidate = File(dir, "test-fixtures/cross-app-semantics-v1.json")
+            val candidate = File(dir, "test-fixtures/$name")
             if (candidate.isFile) return candidate.readText(Charsets.UTF_8)
             dir = dir.parentFile
         }
-        error("test-fixtures/cross-app-semantics-v1.json not found above $start")
+        error("test-fixtures/$name not found above $start")
     }
 
     /** `2026-10-06T10:00:00` (or a bare `2026-10-06`) as an instant in [zone]. */
