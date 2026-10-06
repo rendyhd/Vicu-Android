@@ -4,7 +4,10 @@ import com.rendyhd.vicu.data.local.dao.MAX_SQL_ID_PARAMS
 import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.repository.FakeTaskDao
 import com.rendyhd.vicu.worker.SyncEngineHarness.Companion.emptyPage
+import com.rendyhd.vicu.auth.authTestJsonHeaders
+import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpMethod
+import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -42,6 +45,34 @@ class SyncEngineRefreshTest {
         h.engine.performSync()
 
         assertEquals(listOf(-3L), h.taskDao.snapshot().map { it.id })
+        h.close()
+    }
+
+    @Test
+    fun `server refresh caches routine carriers but never routine archive parts`() = runTest {
+        val tasks = """
+            {"items":[
+              {"id":5,"title":"Buy milk","project_id":7},
+              {"id":6,"title":"Vitamin D","description":"<!-- vicu-routine:v1:e30 -->","done":true,"project_id":7},
+              {"id":7,"title":"Vicu routine archive","description":"<!-- vicu-routine:archive:v1:e30 -->","done":true,"project_id":7}
+            ],"total":3,"page":1,"per_page":100,"total_pages":1}
+        """.trimIndent()
+        val stale = TaskEntity(id = 8, title = "Vicu routine archive", description = "<!-- vicu-routine:archive:v1:e30 -->", done = true, projectId = 7)
+        val h = SyncEngineHarness(taskDao = FakeTaskDao(listOf(stale))) { request ->
+            if (request.method == HttpMethod.Get && request.url.encodedPath == "/tasks") {
+                respond(tasks, HttpStatusCode.OK, authTestJsonHeaders)
+            } else {
+                emptyPage()
+            }
+        }
+
+        h.engine.performSync()
+
+        assertEquals(
+            listOf(5L, 6L),
+            h.taskDao.snapshot().map { it.id }.sorted(),
+            "a part is read on demand; one an older build cached is swept",
+        )
         h.close()
     }
 }

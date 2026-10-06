@@ -137,9 +137,17 @@ fun RoutinesScreen(
                                 text = { Text("Copy history as CSV") },
                                 onClick = {
                                     pageMenuOpen = false
-                                    viewModel.exportCsv { csv ->
-                                        clipboard.setText(AnnotatedString(csv))
-                                        scope.launch { snackbar.showSnackbar("Routine history copied") }
+                                    viewModel.exportCsv { export ->
+                                        clipboard.setText(AnnotatedString(export.csv))
+                                        scope.launch {
+                                            snackbar.showSnackbar(
+                                                if (export.complete) {
+                                                    "Routine history copied"
+                                                } else {
+                                                    "Routine history copied, without older history that could not be loaded"
+                                                },
+                                            )
+                                        }
                                     }
                                 },
                             )
@@ -227,6 +235,16 @@ fun RoutinesScreen(
                 item(key = "issues") {
                     Text(
                         text = "${state.issues.size} routine ${if (state.issues.size == 1) "record needs" else "records need"} repair",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
+            }
+            state.archiveWarning?.let { warning ->
+                item(key = "archive-warning") {
+                    Text(
+                        text = warning,
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(16.dp),

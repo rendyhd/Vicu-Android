@@ -9,6 +9,7 @@ import com.rendyhd.vicu.domain.model.RoutineDay
 import com.rendyhd.vicu.domain.model.RoutineDraft
 import com.rendyhd.vicu.domain.model.RoutineOccurrence
 import com.rendyhd.vicu.domain.model.RoutineOccurrenceRecord
+import com.rendyhd.vicu.domain.repository.RoutineCsvExport
 import com.rendyhd.vicu.domain.repository.RoutineParseIssue
 import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
@@ -30,6 +31,8 @@ data class RoutinesUiState(
     val active: List<Routine> = emptyList(),
     val archived: List<Routine> = emptyList(),
     val issues: List<RoutineParseIssue> = emptyList(),
+    /** A problem archiving old history that did not stop a change from being saved. */
+    val archiveWarning: String? = null,
     val isSaving: Boolean = false,
     val error: String? = null,
 )
@@ -53,21 +56,24 @@ class RoutinesViewModel(
     private val dayFlow = dayClock.today.flatMapLatest { date -> repository.observeDay(date.toString()) }
 
     val uiState: StateFlow<RoutinesUiState> = combine(
-        dayFlow,
-        repository.observeActive(),
-        repository.observeArchived(),
-        repository.observeIssues(),
-        operationState,
-    ) { day, active, archived, issues, operation ->
-        RoutinesUiState(
-            day = day,
-            active = active,
-            archived = archived,
-            issues = issues,
-            isSaving = operation.first,
-            error = operation.second,
-        )
-    }.stateIn(
+        combine(
+            dayFlow,
+            repository.observeActive(),
+            repository.observeArchived(),
+            repository.observeIssues(),
+            operationState,
+        ) { day, active, archived, issues, operation ->
+            RoutinesUiState(
+                day = day,
+                active = active,
+                archived = archived,
+                issues = issues,
+                isSaving = operation.first,
+                error = operation.second,
+            )
+        },
+        repository.archiveWarning,
+    ) { state, archiveWarning -> state.copy(archiveWarning = archiveWarning) }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         RoutinesUiState(day = RoutineDay(dayClock.day.value.date.toString(), emptyList())),
@@ -115,8 +121,8 @@ class RoutinesViewModel(
         }
     }
 
-    fun exportCsv(onReady: (String) -> Unit) {
-        viewModelScope.launch { onReady(repository.exportCsv()) }
+    fun exportCsv(onReady: (RoutineCsvExport) -> Unit) {
+        viewModelScope.launch { onReady(repository.exportCsvWithStatus()) }
     }
 
     private fun setStatus(occurrence: RoutineOccurrence, status: OccurrenceStatus) {

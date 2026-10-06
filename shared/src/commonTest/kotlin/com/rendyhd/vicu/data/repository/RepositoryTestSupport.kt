@@ -72,7 +72,11 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     override fun getAllOpenTasks(): Flow<List<TaskEntity>> =
         flow { emit(lock.withLock { rows.values.filter { !it.done } }) }
     override fun getAllTasksFlow(): Flow<List<TaskEntity>> = flow { emit(lock.withLock { rows.values.toList() }) }
-    override fun getRoutineCarriersFlow(): Flow<List<TaskEntity>> = flowOf(emptyList())
+    /** The SQL is `description LIKE '%<!-- vicu-routine:%'`: main carriers and archive parts alike. */
+    private fun List<TaskEntity>.routineMetadata() = filter { it.description.contains("<!-- vicu-routine:") }
+
+    override fun getRoutineCarriersFlow(): Flow<List<TaskEntity>> =
+        flow { emit(lock.withLock { rows.values.toList() }.routineMetadata()) }
 
     override suspend fun getByIdsChunk(ids: List<Long>): List<TaskEntity> = lock.withLock {
         boundIdListSizes += ids.size
@@ -103,7 +107,8 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     }
 
     override suspend fun getAllSync(): List<TaskEntity> = lock.withLock { rows.values.toList() }
-    override suspend fun getRoutineCarriersSync(): List<TaskEntity> = emptyList()
+    override suspend fun getRoutineCarriersSync(): List<TaskEntity> =
+        lock.withLock { rows.values.toList() }.routineMetadata()
 
     override suspend fun deleteById(id: Long) {
         lock.withLock { rows.remove(id) }

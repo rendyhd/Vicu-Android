@@ -123,6 +123,7 @@ val repositoryModule = module {
             json = get(),
         )
     }
+    single { RoutineArchiveStore(api = get(), json = get()) }
     single<RoutineRepository> {
         RoutineRepositoryImpl(
             taskDao = get(),
@@ -133,6 +134,7 @@ val repositoryModule = module {
             prefsStore = get(),
             platformHooks = get(),
             json = get(),
+            archiveStore = get(),
         )
     }
 }

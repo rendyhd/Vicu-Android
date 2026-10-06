@@ -836,8 +836,11 @@ class TaskRepositoryImpl(
         return try {
             val allTasks = api.getAllTasks(filters)
             // Routine carriers remain cached for their existing merge engine. Custom-list
-            // carriers are owned by CustomListRepository and must never enter user task data.
-            val visibleTasks = allTasks.filterNot { CustomListEnvelope.hasMarker(it.description) }
+            // carriers are owned by CustomListRepository and must never enter user task data,
+            // and routine archive parts (large, read on demand) are never cached at all.
+            val visibleTasks = allTasks.filterNot {
+                CustomListEnvelope.hasMarker(it.description) || RoutineEnvelope.hasArchiveMarker(it.description)
+            }
             val entities = visibleTasks.map { with(taskMapper) { it.toEntity() } }
             val pendingTaskIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
             val existingById = taskDao.getAllSync().associateBy { it.id }

@@ -434,7 +434,10 @@ class SyncEngine(
     private suspend fun refreshAllFromServer() {
         try {
             val allTasks = api.getAllTasks()
-            val visibleTasks = allTasks.filterNot { CustomListEnvelope.hasMarker(it.description) }
+            // Routine archive parts are read on demand from the server and never cached.
+            val visibleTasks = allTasks.filterNot {
+                CustomListEnvelope.hasMarker(it.description) || RoutineEnvelope.hasArchiveMarker(it.description)
+            }
             val taskEntities = visibleTasks.map { with(taskMapper) { it.toEntity() } }
             val pendingTaskIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
             val existingById = taskDao.getAllSync().associateBy { it.id }
