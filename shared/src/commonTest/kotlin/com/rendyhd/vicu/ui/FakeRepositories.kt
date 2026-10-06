@@ -68,7 +68,8 @@ class FakeTaskRepository : TaskRepository {
     override fun getUpcomingTasks(): Flow<List<Task>> = emptyFlow()
     override fun getAnytimeTasks(inboxProjectId: Long): Flow<List<Task>> = emptyFlow()
     override fun getLogbookTasks(): Flow<List<Task>> = all.map { tasks -> tasks.filter { it.done } }
-    override fun getByProjectId(projectId: Long): Flow<List<Task>> = emptyFlow()
+    override fun getByProjectId(projectId: Long): Flow<List<Task>> =
+        all.map { tasks -> tasks.filter { it.projectId == projectId } }
     override fun getById(id: Long): Flow<Task?> = rowFor(id)
     override suspend fun getByIds(ids: Set<Long>): List<Task> = ids.mapNotNull { rowFor(it).value }
     override fun searchByTitle(query: String): Flow<List<Task>> = flowOf(emptyList())

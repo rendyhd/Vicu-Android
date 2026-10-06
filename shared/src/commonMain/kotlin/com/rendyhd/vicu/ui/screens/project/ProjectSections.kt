@@ -65,7 +65,12 @@ fun buildSectionTree(
     return build(rootId)
 }
 
-/** Recursively carry [old]'s isExpanded onto [new], matched by project id (default true for new nodes). */
+/**
+ * Recursively carry [old]'s isExpanded onto [new], matched by project id. A node [old] has not
+ * seen keeps the state it was built with, which is the collapsed state restored from storage
+ * ([restoreExpansion]); defaulting it to expanded would undo the restore the first time a
+ * freshly created ViewModel publishes its sections.
+ */
 fun preserveExpansion(new: List<ProjectSection>, old: List<ProjectSection>): List<ProjectSection> {
     val expandedById = HashMap<Long, Boolean>()
     fun index(list: List<ProjectSection>) {
@@ -77,7 +82,7 @@ fun preserveExpansion(new: List<ProjectSection>, old: List<ProjectSection>): Lis
     index(old)
     fun apply(list: List<ProjectSection>): List<ProjectSection> = list.map { s ->
         s.copy(
-            isExpanded = expandedById[s.project.id] ?: true,
+            isExpanded = expandedById[s.project.id] ?: s.isExpanded,
             children = apply(s.children),
         )
     }

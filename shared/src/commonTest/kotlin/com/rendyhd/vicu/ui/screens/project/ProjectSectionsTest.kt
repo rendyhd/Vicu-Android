@@ -177,6 +177,20 @@ class ProjectSectionsTest {
     // supplementary coverage ----------------------------------------------
 
     @Test
+    fun `preserveExpansion keeps the restored collapsed state of a node old has not seen`() {
+        val restored = restoreExpansion(
+            listOf(ProjectSection(p(10), emptyList(), listOf(ProjectSection(p(100), emptyList())))),
+            collapsedSectionIds = setOf(10L, 100L),
+        )
+
+        // A fresh ViewModel has no old tree at all.
+        val merged = preserveExpansion(restored, emptyList())
+
+        assertFalse(merged[0].isExpanded)
+        assertFalse(merged[0].children[0].isExpanded)
+    }
+
+    @Test
     fun `preserveExpansion defaults a new node absent from old to expanded`() {
         val old = listOf(ProjectSection(p(10), emptyList()))
         val new = listOf(
