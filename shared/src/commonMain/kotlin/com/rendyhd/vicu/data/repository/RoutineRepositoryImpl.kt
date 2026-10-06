@@ -21,6 +21,7 @@ import com.rendyhd.vicu.domain.repository.RoutineParseIssue
 import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.RoutineCsv
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.RoutineEnvelope
 import com.rendyhd.vicu.util.RoutineScheduleEngine
@@ -302,30 +303,14 @@ class RoutineRepositoryImpl(
             RoutineEnvelope.parse(entity.description, json).payload?.let { Routine(entity.id, it) }
         }
         val archived = archiveDao.getAll().map { it.toDomain() }
-        val rows = buildList {
-            routines.forEach { routine ->
+        return RoutineCsv.build(
+            routines.map { routine ->
                 val all = (archived.filter { it.routineId == routine.definition.id } + routine.payload.occurrences.values)
                     .associateBy { it.key }
                     .values
-                all.forEach { occurrence ->
-                    add(
-                        listOf(
-                            routine.definition.name,
-                            occurrence.scheduledDate,
-                            minutesLabel(occurrence.scheduledMinutes),
-                            occurrence.status.name,
-                            occurrence.loggedAt,
-                            occurrence.timeZoneId,
-                            occurrence.note,
-                        ).joinToString(",") { csvEscape(it) },
-                    )
-                }
-            }
-        }
-        return buildString {
-            appendLine("routine,scheduled_date,scheduled_time,status,logged_at,time_zone,note")
-            rows.sorted().forEach(::appendLine)
-        }
+                RoutineCsv.Entry(routine.definition.name, all)
+            },
+        )
     }
 
     private fun occurrencesForSelectedDate(routine: Routine, date: LocalDate, today: LocalDate) =
@@ -448,8 +433,4 @@ class RoutineRepositoryImpl(
         note = note,
     )
 
-    private fun csvEscape(value: String): String = "\"${value.replace("\"", "\"\"")}\""
-
-    private fun minutesLabel(minutes: Int): String =
-        "${(minutes / 60).toString().padStart(2, '0')}:${(minutes % 60).toString().padStart(2, '0')}"
 }
