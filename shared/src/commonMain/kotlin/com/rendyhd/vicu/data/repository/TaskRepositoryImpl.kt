@@ -17,6 +17,7 @@ import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.CustomListEnvelope
 import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.Logger
@@ -351,7 +352,10 @@ class TaskRepositoryImpl(
             ?: return NetworkResult.Error("Task $taskId is not in the local cache")
         val action = behaviorPrefsStore.getPrefs().first().scheduleAction
         val updated = when (action) {
-            ScheduleAction.DUE_TODAY -> current.copy(dueDate = DateUtils.todayEndIso())
+            ScheduleAction.DUE_TODAY -> {
+                val day = dayClock.day.value
+                current.copy(dueDate = DueDates.today(day.date, day.zone).toString())
+            }
             ScheduleAction.PRIORITY_URGENT -> current.copy(priority = 4)
         }
         return update(updated)

@@ -41,12 +41,14 @@ import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
 import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.ui.screens.routines.RoutineOccurrenceRow
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -105,7 +107,8 @@ fun TodayScreen(
         },
         floatingActionButton = {
             if (!selectionActive) {
-                VicuFab(onClick = { onShowTaskEntry(null, DateUtils.todayEndIso()) })
+                val day = LocalClockDay.current
+                VicuFab(onClick = { onShowTaskEntry(null, DueDates.today(day.date, day.zone).toString()) })
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,

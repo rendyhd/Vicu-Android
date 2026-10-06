@@ -153,11 +153,6 @@ class DueDatesFixtureTest {
         scope.coroutineContext[Job]?.cancel()
     }
 
-    private class FixedTimeSource(private val now: Instant, private val zone: TimeZone) : TimeSource {
-        override fun now(): Instant = now
-        override fun zone(): TimeZone = zone
-    }
-
     @Test
     fun `the zones in use really differ`() {
         // Guards against a time zone database that silently maps every id to UTC.

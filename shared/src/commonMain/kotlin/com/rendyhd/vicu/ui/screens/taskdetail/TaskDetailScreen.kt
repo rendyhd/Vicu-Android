@@ -81,6 +81,9 @@ import com.rendyhd.vicu.ui.components.picker.RelationTaskPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.RecurrencePickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
+import com.rendyhd.vicu.ui.components.task.TaskDueBadge
 import com.rendyhd.vicu.ui.components.task.DescriptionField
 import com.rendyhd.vicu.ui.components.task.clearDescriptionEditorFocusOnHostTap
 import com.rendyhd.vicu.ui.components.task.rememberDescriptionEditorController
@@ -322,7 +325,13 @@ fun TaskDetailScreen(
             // Compact edit actions
             item(key = "task_actions") {
                 val hasDueDate = task.dueDate.isNotBlank() && !DateUtils.isNullDate(task.dueDate)
-                val dueDateLabel = if (hasDueDate) DateUtils.formatRelativeDate(task.dueDate) else null
+                val clockDay = LocalClockDay.current
+                val is24Hour = LocalIs24Hour.current
+                val dueDateLabel = if (hasDueDate) {
+                    DateUtils.formatDueDate(task.dueDate, clockDay.date, is24Hour, clockDay.zone)
+                } else {
+                    null
+                }
                 val projectName = state.allProjects.find { it.id == task.projectId }?.title ?: "No project"
                 val priorityLabel = when (task.priority) {
                     1 -> "Low"
@@ -396,6 +405,11 @@ fun TaskDetailScreen(
                         isActive = state.attachments.isNotEmpty(),
                         onClick = filePickerLauncher,
                     )
+                }
+                if (hasDueDate) {
+                    // The icon row only says "has a date"; show it, with its time when it has one.
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TaskDueBadge(dueDate = task.dueDate)
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }

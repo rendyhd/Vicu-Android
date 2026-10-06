@@ -24,12 +24,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
 import com.rendyhd.vicu.util.DateUtils
-import kotlinx.datetime.Instant
-import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toInstant
-import kotlinx.datetime.toLocalDateTime
+import com.rendyhd.vicu.util.DueDates
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,9 +38,14 @@ fun VicuDatePickerDialog(
     onDismiss: () -> Unit,
 ) {
     var showFullDatePicker by remember { mutableStateOf(false) }
+    // Every date this dialog sets goes through DueDates: date-only, local 23:59:59 of the day.
+    val day = LocalClockDay.current
+    val is24Hour = LocalIs24Hour.current
 
     if (showFullDatePicker) {
-        val initialMillis = DateUtils.parseIsoDate(currentDate)?.toEpochMilliseconds()
+        // The Material picker works in UTC days: hand it the UTC midnight of the stored due date's
+        // local calendar day, and read the picked day back the same way.
+        val initialMillis = DueDates.datePickerMillis(currentDate, day.zone)
         val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
 
         DatePickerDialog(
@@ -51,11 +54,8 @@ fun VicuDatePickerDialog(
                 TextButton(
                     onClick = {
                         datePickerState.selectedDateMillis?.let { millis ->
-                            val instant = Instant.fromEpochMilliseconds(millis)
-                            val date = instant.toLocalDateTime(TimeZone.UTC).date
-                            val iso = LocalDateTime(date.year, date.monthNumber, date.dayOfMonth, 12, 0)
-                                .toInstant(TimeZone.UTC).toString()
-                            onDateSelected(iso)
+                            val picked = DueDates.dateFromDatePickerMillis(millis)
+                            onDateSelected(DueDates.pickDate(picked, day.zone).toString())
                         }
                         showFullDatePicker = false
                         onDismiss()
@@ -81,7 +81,7 @@ fun VicuDatePickerDialog(
                     val hasDate = currentDate != null && !DateUtils.isNullDate(currentDate)
                     if (hasDate) {
                         Text(
-                            text = "Current: ${DateUtils.formatFullDate(currentDate)}",
+                            text = "Current: ${DateUtils.formatDueDate(currentDate, day.date, is24Hour, day.zone)}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -91,7 +91,7 @@ fun VicuDatePickerDialog(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilledTonalButton(
                             onClick = {
-                                onDateSelected(DateUtils.todayEndIso())
+                                onDateSelected(DueDates.today(day.date, day.zone).toString())
                                 onDismiss()
                             },
                             modifier = Modifier.fillMaxWidth(),
@@ -101,7 +101,7 @@ fun VicuDatePickerDialog(
 
                         FilledTonalButton(
                             onClick = {
-                                onDateSelected(DateUtils.tomorrowIso())
+                                onDateSelected(DueDates.tomorrow(day.date, day.zone).toString())
                                 onDismiss()
                             },
                             modifier = Modifier.fillMaxWidth(),
@@ -111,7 +111,7 @@ fun VicuDatePickerDialog(
 
                         FilledTonalButton(
                             onClick = {
-                                onDateSelected(DateUtils.nextWeekIso())
+                                onDateSelected(DueDates.nextWeek(day.date, day.zone).toString())
                                 onDismiss()
                             },
                             modifier = Modifier.fillMaxWidth(),

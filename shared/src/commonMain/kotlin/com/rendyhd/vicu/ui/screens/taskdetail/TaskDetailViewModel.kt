@@ -18,8 +18,9 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.Constants
-import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DescriptionHtml
+import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.unfinishedDescendants
@@ -86,6 +87,7 @@ class TaskDetailViewModel(
     private val nlpPrefsStore: NlpPrefsStore,
     private val platformFiles: PlatformFiles,
     private val appMessages: AppMessages,
+    private val dayClock: DayClock,
 ) : ViewModel() {
 
     companion object {
@@ -751,6 +753,7 @@ class TaskDetailViewModel(
                 task = edited,
                 parseResult = state.parseResult,
                 projects = state.allProjects,
+                zone = dayClock.day.value.zone,
                 manuallyEditedTypes = state.manuallyEditedTypes,
             ),
             hasTokens = state.parseResult.tokens.isNotEmpty(),
@@ -761,9 +764,13 @@ class TaskDetailViewModel(
             TokenType.DATE !in state.manuallyEditedTypes -> {
             val bang = extractBangToday(edited.title)
             if (bang.dueDate != null) {
+                val day = dayClock.day.value
                 ShortcutOutcome(
                     result = TaskEditShortcutResult(
-                        task = edited.copy(title = bang.title, dueDate = DateUtils.todayStartIso()),
+                        task = edited.copy(
+                            title = bang.title,
+                            dueDate = DueDates.bang(day.date, day.zone).toString(),
+                        ),
                         labelNames = emptyList(),
                     ),
                     hasTokens = true,

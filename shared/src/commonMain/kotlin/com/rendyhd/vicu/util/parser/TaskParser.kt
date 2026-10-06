@@ -56,9 +56,10 @@ object TaskParser {
 
         // 5. Dates
         if (TokenType.DATE !in suppress) {
-            val (dueDate, tokens) = extractDate(rawInput, consumed)
-            result.dueDate = dueDate
-            result.tokens.addAll(tokens)
+            val dateResult = extractDate(rawInput, consumed)
+            result.dueDate = dateResult.dueDate
+            result.dueDateHasTime = dateResult.hasTime
+            result.tokens.addAll(dateResult.tokens)
         }
 
         // 6. Build title from non-consumed regions
@@ -71,6 +72,7 @@ object TaskParser {
             if (bang.dueDate != null) {
                 result.title = bang.title
                 result.dueDate = bang.dueDate
+                result.dueDateHasTime = false
                 // The bang was found in the rebuilt title; map it back to the raw input as
                 // the first (leading) or last (trailing/standalone) non-consumed,
                 // non-whitespace character so the field highlights it like other tokens.
@@ -104,6 +106,7 @@ object TaskParser {
 private class MutableParseResult(
     var title: String = "",
     var dueDate: LocalDateTime? = null,
+    var dueDateHasTime: Boolean = false,
     var priority: Int? = null,
     var labels: List<String> = emptyList(),
     var project: String? = null,
@@ -113,6 +116,7 @@ private class MutableParseResult(
     fun toParseResult() = ParseResult(
         title = title,
         dueDate = dueDate,
+        dueDateHasTime = dueDateHasTime,
         priority = priority,
         labels = labels,
         project = project,

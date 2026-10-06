@@ -7,7 +7,11 @@ import com.rendyhd.vicu.ui.FakeTaskRepository
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.util.AppMessage
 import com.rendyhd.vicu.util.AppMessages
+import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.FixedTimeSource
 import com.rendyhd.vicu.util.NetworkResult
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -57,6 +61,11 @@ class SelectionViewModelTest {
             labelRepository = FakeLabelRepository(),
             appMessages = messages,
             appScope = backgroundScope,
+            dayClock = DayClock(
+                backgroundScope,
+                FixedTimeSource(Instant.parse("2026-10-06T21:30:00Z"), TimeZone.of("Europe/Amsterdam")),
+                ticking = false,
+            ),
         )
         return Rig(tasks, vm, received)
     }
@@ -178,6 +187,20 @@ class SelectionViewModelTest {
         assertEquals(emptySet(), rig.vm.selectedIds.value)
         assertTrue(rig.received.isEmpty())
         assertEquals("2026-10-07T23:59:59Z", rig.tasks.current(1)!!.dueDate)
+    }
+
+    @Test
+    fun `bulk Today sets local 23_59_59 of the clock's day`() = runTest {
+        val rig = rig(1, 2)
+        rig.select(1, 2)
+        runCurrent()
+
+        rig.vm.bulkToday()
+        runCurrent()
+
+        // 21:30Z on 6 October is 23:30 in Amsterdam (CEST): today there ends at 21:59:59Z.
+        assertEquals("2026-10-06T21:59:59Z", rig.tasks.current(1)!!.dueDate)
+        assertEquals("2026-10-06T21:59:59Z", rig.tasks.current(2)!!.dueDate)
     }
 
     @Test

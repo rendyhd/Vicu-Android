@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.util.parser
 
+import com.rendyhd.vicu.util.DueDates
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
@@ -10,9 +11,14 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
 import kotlinx.datetime.todayIn
 
+/**
+ * [hasTime] says whether the text named a time of day ("3pm"). Without one, [dueDate] carries the
+ * date-only time of day (23:59:59) and callers store the date as date-only (see DueDates).
+ */
 data class DateResult(
     val dueDate: LocalDateTime?,
     val tokens: List<ParsedToken>,
+    val hasTime: Boolean = false,
 )
 
 enum class BangForm { NONE, STANDALONE, LEADING, TRAILING }
@@ -27,10 +33,10 @@ private fun localDateNow(): LocalDate {
     return Clock.System.todayIn(TimeZone.currentSystemDefault())
 }
 
-private fun localDateTimeNowStartOfDay(): LocalDateTime {
-    val today = localDateNow()
-    return LocalDateTime(today.year, today.monthNumber, today.dayOfMonth, 0, 0)
-}
+/** A date without a time of day: carried at the date-only time of day, local 23:59:59. */
+private fun LocalDate.dateOnly(): LocalDateTime = atTime(DueDates.DATE_ONLY_TIME)
+
+private fun localDateTimeEndOfToday(): LocalDateTime = localDateNow().dateOnly()
 
 private fun LocalDate.plusDays(n: Long): LocalDate = this.plus(n, DateTimeUnit.DAY)
 private fun LocalDate.plusWeeks(n: Long): LocalDate = this.plus(n, DateTimeUnit.WEEK)
@@ -92,7 +98,7 @@ fun extractDate(
                 raw = input.substring(start, end),
             ),
         )
-        return DateResult(date, tokens)
+        return DateResult(date, tokens, hasTime = matcher.hasTime)
     }
 
     return DateResult(null, tokens)
@@ -107,7 +113,7 @@ fun extractBangToday(input: String): BangTodayResult {
 
     // Standalone `!`
     if (trimmed == "!") {
-        return BangTodayResult("", localDateTimeNowStartOfDay(), BangForm.STANDALONE)
+        return BangTodayResult("", localDateTimeEndOfToday(), BangForm.STANDALONE)
     }
 
     // Trailing `!` at end of string
@@ -116,7 +122,7 @@ fun extractBangToday(input: String): BangTodayResult {
     if (trailingMatch != null) {
         return BangTodayResult(
             trailingMatch.groupValues[1].trim(),
-            localDateTimeNowStartOfDay(),
+            localDateTimeEndOfToday(),
             BangForm.TRAILING,
         )
     }
@@ -131,7 +137,7 @@ fun extractBangToday(input: String): BangTodayResult {
         if (!isPriorityToken) {
             return BangTodayResult(
                 rest.trim(),
-                localDateTimeNowStartOfDay(),
+                localDateTimeEndOfToday(),
                 BangForm.LEADING,
             )
         }
@@ -154,6 +160,8 @@ private fun buildWorkingText(input: String, consumed: List<IntRange>): String {
 
 private data class DateMatcher(
     val pattern: Regex,
+    /** True when the phrase names a time of day, so the resolved time is kept. */
+    val hasTime: Boolean = false,
     val resolve: (MatchResult) -> LocalDateTime?,
 )
 
@@ -205,6 +213,7 @@ private val DATE_MATCHERS = listOf(
     // "tomorrow 3pm" / "tomorrow at 3pm" / "tomorrow at 3 pm"
     DateMatcher(
         Regex("""${WB}tomorrow\s+(?:at\s+)?(\d{1,2})\s*(am|pm)$WE""", RegexOption.IGNORE_CASE),
+        hasTime = true,
     ) { match ->
         val time = parseTime(match.groupValues[1], match.groupValues[2])
         localDateNow().plusDays(1).atTime(time)
@@ -212,6 +221,7 @@ private val DATE_MATCHERS = listOf(
     // "today 3pm" / "today at 3pm"
     DateMatcher(
         Regex("""${WB}today\s+(?:at\s+)?(\d{1,2})\s*(am|pm)$WE""", RegexOption.IGNORE_CASE),
+        hasTime = true,
     ) { match ->
         val time = parseTime(match.groupValues[1], match.groupValues[2])
         localDateNow().atTime(time)
@@ -219,18 +229,18 @@ private val DATE_MATCHERS = listOf(
     // "today"
     DateMatcher(
         Regex("""${WB}today$WE""", RegexOption.IGNORE_CASE),
-    ) { localDateNow().atTime(23, 59, 59) },
+    ) { localDateTimeEndOfToday() },
     // "tomorrow"
     DateMatcher(
         Regex("""${WB}tomorrow$WE""", RegexOption.IGNORE_CASE),
-    ) { localDateNow().plusDays(1).atTime(12, 0) },
+    ) { localDateNow().plusDays(1).dateOnly() },
     // "next week"
     DateMatcher(
         Regex("""${WB}next\s+week$WE""", RegexOption.IGNORE_CASE),
     ) {
         localDateNow()
             .next(DayOfWeek.MONDAY)
-            .atTime(9, 0)
+            .dateOnly()
     },
     // "in N days/weeks/months/years"
     DateMatcher(
@@ -245,7 +255,7 @@ private val DATE_MATCHERS = listOf(
             "year" -> localDateNow().plusYears(n)
             else -> return@DateMatcher null
         }
-        date.atTime(12, 0)
+        date.dateOnly()
     },
     // Day of week: "monday", "tuesday", etc. (next occurrence)
     DateMatcher(
@@ -255,7 +265,7 @@ private val DATE_MATCHERS = listOf(
         ),
     ) { match ->
         val dow = DAY_MAP[match.groupValues[1].lowercase()] ?: return@DateMatcher null
-        localDateNow().next(dow).atTime(12, 0)
+        localDateNow().next(dow).dateOnly()
     },
     // "jan 15" / "january 15" / "jan 15th"
     DateMatcher(
@@ -276,7 +286,7 @@ private val DATE_MATCHERS = listOf(
         if (date < localDateNow()) {
             date = date.plusYears(1)
         }
-        date.atTime(12, 0)
+        date.dateOnly()
     },
     // "15 jan" / "15th january"
     DateMatcher(
@@ -296,6 +306,6 @@ private val DATE_MATCHERS = listOf(
         if (date < localDateNow()) {
             date = date.plusYears(1)
         }
-        date.atTime(12, 0)
+        date.dateOnly()
     },
 )

@@ -21,7 +21,9 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DefaultReminder
+import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.RecurrenceValue
@@ -39,13 +41,38 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toInstant
 
+
+/**
+ * The due date a new task gets from the picker, the screen's seed and the text, without the bang
+ * shortcut. A date picked by hand wins; otherwise a date typed in the title wins (a date seeded by
+ * the screen, like Today's FAB, counts as unset); otherwise the seed, otherwise none.
+ */
+internal fun resolveEntryDueDate(
+    dueDate: String,
+    dueDateIsManual: Boolean,
+    parserEnabled: Boolean,
+    parsed: ParseResult?,
+    zone: TimeZone,
+): String {
+    val manual = dueDateIsManual && dueDate.isNotBlank() && !DateUtils.isNullDate(dueDate)
+    if (manual) return dueDate
+    if (parserEnabled && parsed != null) {
+        val parsedDue = parsed.dueDate
+        if (parsedDue != null) return DueDates.fromParsed(parsedDue, parsed.dueDateHasTime, zone).toString()
+    }
+    return dueDate
+}
 
 data class TaskEntryUiState(
     val title: String = "",
     val description: String = "",
     val dueDate: String = "",
+    /**
+     * True once the user picked or cleared the date. A date that came from the screen that opened
+     * the entry (Today's FAB) is a seed, not manual, and a date typed in the title beats it.
+     */
+    val dueDateIsManual: Boolean = false,
     val priority: Int = 0,
     val projectId: Long = 0,
     val selectedLabelIds: Set<Long> = emptySet(),
@@ -80,6 +107,7 @@ class TaskEntryViewModel(
     private val notificationPrefsStore: NotificationPrefsStore,
     private val behaviorPrefsStore: BehaviorPrefsStore,
     private val appMessages: AppMessages,
+    private val dayClock: DayClock,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TaskEntryUiState())
@@ -87,6 +115,9 @@ class TaskEntryViewModel(
 
     // Track raw texts for stale suppression detection
     private var suppressedRawTexts: Map<TokenType, List<String>> = emptyMap()
+
+    /** The due date the opening screen asked for; a fresh draft (mass-add) starts from it again. */
+    private var seedDueDate: String? = null
 
 
 
@@ -144,10 +175,12 @@ class TaskEntryViewModel(
     fun initWithDefaults(defaultProjectId: Long?, defaultDueDate: String? = null) {
         viewModelScope.launch {
             val projectId = resolveActiveProjectId(defaultProjectId)
+            seedDueDate = defaultDueDate?.takeIf { it.isNotBlank() }
             _uiState.update {
                 it.copy(
                     projectId = projectId,
-                    dueDate = defaultDueDate ?: "",
+                    dueDate = seedDueDate ?: "",
+                    dueDateIsManual = false,
                 )
             }
         }
@@ -257,11 +290,11 @@ class TaskEntryViewModel(
     }
 
     fun setDueDate(dueDate: String) {
-        _uiState.update { it.copy(dueDate = dueDate) }
+        _uiState.update { it.copy(dueDate = dueDate, dueDateIsManual = true) }
     }
 
     fun clearDueDate() {
-        _uiState.update { it.copy(dueDate = Constants.NULL_DATE_STRING) }
+        _uiState.update { it.copy(dueDate = Constants.NULL_DATE_STRING, dueDateIsManual = true) }
     }
 
     fun setPriority(priority: Int) {
@@ -343,13 +376,17 @@ class TaskEntryViewModel(
         }
         if (title.isBlank()) return
 
-        // Determine due date: manual picker > parsed date > bang today
-        var dueDate = state.dueDate
-        if (config.enabled && parseResult?.dueDate != null &&
-            (dueDate.isBlank() || DateUtils.isNullDate(dueDate))
-        ) {
-            dueDate = parseResult.dueDate.toInstant(TimeZone.currentSystemDefault()).toString()
-        }
+        // Determine due date: date picked by hand > date typed in the title > the screen's seed.
+        val day = dayClock.day.value
+        val manualDueDate = state.dueDateIsManual && state.dueDate.isNotBlank() &&
+            !DateUtils.isNullDate(state.dueDate)
+        var dueDate = resolveEntryDueDate(
+            dueDate = state.dueDate,
+            dueDateIsManual = state.dueDateIsManual,
+            parserEnabled = config.enabled,
+            parsed = parseResult,
+            zone = day.zone,
+        )
 
         // Determine priority: manual > parsed
         var priority = state.priority
@@ -380,15 +417,15 @@ class TaskEntryViewModel(
         )
 
         // Bang-today fallback (works even when parser disabled; skipped when the user
-        // dismissed the Today chip — DATE is then in suppressTypes)
-        if (config.bangToday && TokenType.DATE !in config.suppressTypes &&
-            (dueDate.isBlank() || DateUtils.isNullDate(dueDate))
-        ) {
+        // dismissed the Today chip — DATE is then in suppressTypes). A date picked by hand or typed
+        // as a date phrase wins over it; a seeded date does not.
+        val typedDate = config.enabled && parseResult?.dueDate != null
+        if (config.bangToday && TokenType.DATE !in config.suppressTypes && !manualDueDate && !typedDate) {
             val bang = extractBangToday(title)
             if (bang.dueDate != null) {
                 title = bang.title
-                // Match the NLP parser and desktop: bang-today means start of today.
-                dueDate = DateUtils.todayStartIso()
+                // The "!" shortcut is today, date-only, in every entry point.
+                dueDate = DueDates.bang(day.date, day.zone).toString()
             }
         }
 
@@ -518,7 +555,8 @@ class TaskEntryViewModel(
             it.copy(
                 title = "",
                 description = "",
-                dueDate = "",
+                dueDate = seedDueDate ?: "",
+                dueDateIsManual = false,
                 priority = 0,
                 selectedLabelIds = emptySet(),
                 reminders = emptyList(),

@@ -10,7 +10,8 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.util.AppMessages
-import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.descendantsDepthFirst
 import com.rendyhd.vicu.util.RelationKind
@@ -47,6 +48,7 @@ class SelectionViewModel(
     private val labelRepository: LabelRepository,
     private val appMessages: AppMessages,
     private val appScope: CoroutineScope,
+    private val dayClock: DayClock,
 ) : ViewModel() {
 
     private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
@@ -173,7 +175,8 @@ class SelectionViewModel(
         val ids = _selectedIds.value
         if (ids.isEmpty()) return
         appScope.launch {
-            val dueDate = DateUtils.todayEndIso()
+            val day = dayClock.day.value
+            val dueDate = DueDates.today(day.date, day.zone).toString()
             updateSelected(ids, "schedule") { it.copy(dueDate = dueDate) }
         }
     }

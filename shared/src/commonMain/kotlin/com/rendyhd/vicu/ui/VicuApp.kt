@@ -59,7 +59,10 @@ import com.rendyhd.vicu.domain.model.SharedContent
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
 import com.rendyhd.vicu.ui.components.shared.LocalToday
+import com.rendyhd.vicu.ui.components.shared.rememberIs24HourFormat
 import com.rendyhd.vicu.ui.components.shared.FailedActionsBanner
 import com.rendyhd.vicu.ui.components.shared.OfflineBanner
 import com.rendyhd.vicu.ui.components.task.TaskEntrySheet
@@ -186,6 +189,7 @@ fun VicuApp(
     val dayClock: DayClock = koinInject()
     val clockDay by dayClock.day.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { dayClock.refresh() }
+    val is24Hour = rememberIs24HourFormat()
 
     // Messages for outcomes nobody is looking at (an autosave that failed after the editor
     // closed). Shown in a snackbar above everything, including the full-screen editor.
@@ -491,6 +495,8 @@ fun VicuApp(
                     LocalFabAlignStart provides fabAlignStart,
                     LocalSubtaskDisplayMode provides subtaskDisplayMode,
                     LocalToday provides clockDay.date,
+                    LocalClockDay provides clockDay,
+                    LocalIs24Hour provides is24Hour,
                 ) {
                     AppNavHost(
                         navController = navController,

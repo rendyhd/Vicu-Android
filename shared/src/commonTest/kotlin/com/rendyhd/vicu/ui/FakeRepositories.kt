@@ -14,6 +14,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
@@ -66,8 +67,12 @@ class FakeTaskRepository : TaskRepository {
     var completionOutcome: suspend (Long) -> NetworkResult<Task>? = { null }
 
     override fun getInboxTasks(inboxProjectId: Long): Flow<List<Task>> = emptyFlow()
-    override fun getTodayTasks(): Flow<List<Task>> = emptyFlow()
-    override fun getUpcomingTasks(): Flow<List<Task>> = emptyFlow()
+    /** What [getTodayTasks] and [getUpcomingTasks] emit; a test sets them to the rows a screen shows. */
+    val todayTasks = MutableStateFlow<List<Task>?>(null)
+    val upcomingTasks = MutableStateFlow<List<Task>?>(null)
+
+    override fun getTodayTasks(): Flow<List<Task>> = todayTasks.filterNotNull()
+    override fun getUpcomingTasks(): Flow<List<Task>> = upcomingTasks.filterNotNull()
     override fun getAnytimeTasks(inboxProjectId: Long): Flow<List<Task>> = emptyFlow()
     override fun getLogbookTasks(): Flow<List<Task>> = all.map { tasks -> tasks.filter { it.done } }
     override fun getByProjectId(projectId: Long): Flow<List<Task>> =
@@ -79,7 +84,14 @@ class FakeTaskRepository : TaskRepository {
     override fun getAllOpenTasks(): Flow<List<Task>> = all.map { tasks -> tasks.filter { !it.done } }
     override fun getAllTasks(): Flow<List<Task>> = all
 
-    override suspend fun create(task: Task): NetworkResult<Task> = NetworkResult.Error("not faked")
+    /** Tasks passed to [create]; [createHandler] decides the outcome (an error unless a test sets it). */
+    val created = mutableListOf<Task>()
+    var createHandler: (Task) -> NetworkResult<Task> = { NetworkResult.Error("not faked") }
+
+    override suspend fun create(task: Task): NetworkResult<Task> {
+        created += task
+        return createHandler(task)
+    }
 
     override suspend fun update(task: Task): NetworkResult<Task> {
         updates += task

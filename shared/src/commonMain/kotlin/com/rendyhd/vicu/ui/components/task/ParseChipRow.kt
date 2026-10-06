@@ -13,17 +13,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
+import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.parser.ParseResult
 import com.rendyhd.vicu.util.parser.ParsedRecurrence
 import com.rendyhd.vicu.util.parser.RecurrenceUnit
 import com.rendyhd.vicu.util.parser.TokenType
-import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
-import kotlinx.datetime.todayIn
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -32,7 +32,9 @@ fun ParseChipRow(
     isDarkTheme: Boolean,
     onDismiss: (TokenType) -> Unit,
 ) {
-    val chips = buildChipList(parseResult)
+    val today = LocalClockDay.current.date
+    val is24Hour = LocalIs24Hour.current
+    val chips = buildChipList(parseResult, today, is24Hour)
     if (chips.isEmpty()) return
 
     FlowRow(
@@ -68,11 +70,11 @@ fun ParseChipRow(
 
 private data class ChipInfo(val type: TokenType, val label: String)
 
-private fun buildChipList(result: ParseResult): List<ChipInfo> {
+private fun buildChipList(result: ParseResult, today: LocalDate, is24Hour: Boolean): List<ChipInfo> {
     val chips = mutableListOf<ChipInfo>()
 
     if (result.dueDate != null) {
-        chips.add(ChipInfo(TokenType.DATE, formatDateChip(result.dueDate)))
+        chips.add(ChipInfo(TokenType.DATE, formatDateChip(result.dueDate, result.dueDateHasTime, today, is24Hour)))
     }
     if (result.priority != null) {
         chips.add(ChipInfo(TokenType.PRIORITY, formatPriorityChip(result.priority)))
@@ -89,14 +91,15 @@ private fun buildChipList(result: ParseResult): List<ChipInfo> {
     return chips
 }
 
-private fun formatDateChip(date: LocalDateTime): String {
-    val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
+/** The date, plus the time of day only when the text named one (date-only values show no time). */
+private fun formatDateChip(date: LocalDateTime, hasTime: Boolean, today: LocalDate, is24Hour: Boolean): String {
     val dateOnly = date.date
-    return when {
-        dateOnly == today -> if (date.hour in 1..22) "Today ${date.hour}:00" else "Today"
-        dateOnly == today.plus(1, DateTimeUnit.DAY) -> if (date.hour != 12) "Tomorrow ${date.hour}:00" else "Tomorrow"
+    val day = when (dateOnly) {
+        today -> "Today"
+        today.plus(1, DateTimeUnit.DAY) -> "Tomorrow"
         else -> dateOnly.toString()
     }
+    return if (hasTime) "$day ${DateUtils.formatClockTime(date.time, is24Hour)}" else day
 }
 
 private fun formatPriorityChip(priority: Int): String = when (priority) {

@@ -14,6 +14,7 @@ import com.rendyhd.vicu.ui.FakeLabelRepository
 import com.rendyhd.vicu.ui.FakeProjectRepository
 import com.rendyhd.vicu.ui.FakeTaskRepository
 import com.rendyhd.vicu.util.AppMessages
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.FakePlatformFiles
 import com.rendyhd.vicu.util.PlatformFiles
@@ -93,6 +94,7 @@ class TaskDetailViewModelAutosaveTest {
             nlpPrefsStore = NlpPrefsStore(InMemoryPreferencesDataStore()),
             platformFiles = files,
             appMessages = messages,
+            dayClock = DayClock(authScope, ticking = false),
         )
     }
 

@@ -228,7 +228,10 @@ class TaskParserTest {
     fun `converts trailing bang to today`() {
         val r = extractBangToday("call dentist !")
         assertNotNull(r.dueDate)
-        assertEquals(0, r.dueDate!!.hour)
+        // Date-only: the "!" shortcut is today at 23:59:59, like every other "today".
+        assertEquals(23, r.dueDate!!.hour)
+        assertEquals(59, r.dueDate!!.minute)
+        assertEquals(59, r.dueDate!!.second)
         assertEquals("call dentist", r.title)
     }
 
@@ -444,5 +447,51 @@ class TaskParserTest {
         assertNull(r.dueDate)
         assertEquals("buy milk !", r.title)
         assertTrue(r.tokens.none { it.type == TokenType.DATE })
+    }
+
+    // ─── Date-only vs explicit time ───────────────────────────
+
+    private fun assertDateOnly(input: String) {
+        val r = TaskParser.parse(input, todoist)
+        assertNotNull("'$input' should have a date", r.dueDate)
+        assertEquals("'$input' has no time of day", false, r.dueDateHasTime)
+        assertEquals("'$input' is carried at 23:59:59", 23, r.dueDate!!.hour)
+        assertEquals(59, r.dueDate!!.minute)
+        assertEquals(59, r.dueDate!!.second)
+    }
+
+    @Test
+    fun `phrases without a time are date-only at 23_59_59`() {
+        listOf(
+            "task today",
+            "task tomorrow",
+            "task monday",
+            "task next week",
+            "task in 3 days",
+            "task in 2 weeks",
+            "task jan 15",
+            "task 15 jan",
+            "task !",
+            "! task",
+        ).forEach(::assertDateOnly)
+    }
+
+    @Test
+    fun `phrases with a time keep it and say so`() {
+        val tomorrow = TaskParser.parse("task tomorrow 3pm", todoist)
+        assertEquals(true, tomorrow.dueDateHasTime)
+        assertEquals(15, tomorrow.dueDate!!.hour)
+        assertEquals(0, tomorrow.dueDate!!.minute)
+
+        val today = TaskParser.parse("task today at 9am", todoist)
+        assertEquals(true, today.dueDateHasTime)
+        assertEquals(9, today.dueDate!!.hour)
+    }
+
+    @Test
+    fun `a result without a date has no time flag`() {
+        val r = TaskParser.parse("task", todoist)
+        assertNull(r.dueDate)
+        assertEquals(false, r.dueDateHasTime)
     }
 }

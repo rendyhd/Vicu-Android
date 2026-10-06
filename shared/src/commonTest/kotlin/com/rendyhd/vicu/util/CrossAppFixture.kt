@@ -127,3 +127,9 @@ object CrossAppFixture {
 
     fun date(value: String): LocalDate = LocalDate.parse(value)
 }
+
+/** A time source frozen at one instant in one zone. */
+class FixedTimeSource(private val now: Instant, private val zone: TimeZone) : TimeSource {
+    override fun now(): Instant = now
+    override fun zone(): TimeZone = zone
+}
