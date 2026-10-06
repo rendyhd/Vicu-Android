@@ -71,7 +71,8 @@ class CustomListRepositoryImpl(
     override suspend fun upsert(customList: CustomList) = mutationMutex.withLock {
         val state = ensureState()
         var document = CustomListEnvelope.normalize(state.document)
-        val value = customList.toWire()
+        // Keep the fields of the stored value that this version does not know (another app's).
+        val value = customList.toWire(preserving = document.lists[customList.id]?.value)
         val isNew = document.lists[value.id]?.value == null
         document = document.copy(
             lists = document.lists + (value.id to CustomListSyncRecord(
