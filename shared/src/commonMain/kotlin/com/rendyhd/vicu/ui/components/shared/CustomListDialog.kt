@@ -49,6 +49,7 @@ import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.CustomListFilter
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.util.CustomListFilterBuilder
 import com.rendyhd.vicu.util.randomUuid
 
 private val DUE_DATE_OPTIONS = listOf(
@@ -74,6 +75,12 @@ private val ORDER_OPTIONS = listOf(
 )
 
 private val ICON_OPTIONS = IconRegistry.PRESET_ICONS.map { it.key to it.label }
+
+/** The switch position for a stored `include_overdue`: an absent key means on. */
+internal fun includeOverdueSwitchOn(stored: Boolean?): Boolean = stored != false
+
+/** What the switch stores: the key stays absent unless the user turned overdue off. */
+internal fun includeOverdueToStore(switchOn: Boolean): Boolean? = if (switchOn) null else false
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,6 +120,9 @@ fun CustomListDialog(
     var includeDone by remember { mutableStateOf(customList?.filter?.includeDone ?: false) }
     var includeTodayAllProjects by remember {
         mutableStateOf(customList?.filter?.includeTodayAllProjects ?: false)
+    }
+    var includeOverdue by remember {
+        mutableStateOf(includeOverdueSwitchOn(customList?.filter?.includeOverdue))
     }
 
     var showProjectPicker by remember { mutableStateOf(false) }
@@ -231,6 +241,19 @@ fun CustomListDialog(
                     selected = dueDateFilter,
                     onSelect = { dueDateFilter = it },
                 )
+
+                // Only the today / this week / this month windows have an overdue part to switch.
+                if (CustomListFilterBuilder.windowHonorsIncludeOverdue(dueDateFilter)) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Include overdue tasks", style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = includeOverdue, onCheckedChange = { includeOverdue = it })
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -385,6 +408,7 @@ fun CustomListDialog(
                                     labelIds = selectedLabelIds.toList(),
                                     includeDone = includeDone,
                                     includeTodayAllProjects = includeTodayAllProjects,
+                                    includeOverdue = includeOverdueToStore(includeOverdue),
                                 ),
                             )
                         )
