@@ -9,6 +9,7 @@ import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.ReviewMetadata
 import com.rendyhd.vicu.util.ReviewState
 import com.rendyhd.vicu.util.ReviewStatus
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 
 enum class ReviewTab { DUE, ALL }
 
@@ -59,6 +61,7 @@ class ReviewViewModel(
     private val taskRepository: TaskRepository,
     private val reviewPrefsStore: ReviewPrefsStore,
     private val authManager: AuthManager,
+    private val dayClock: DayClock,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReviewUiState())
@@ -78,8 +81,10 @@ class ReviewViewModel(
                 reviewPrefsStore.getPrefs(),
                 inboxId,
                 reviewedThisSession,
-            ) { projects, prefs, inbox, reviewed ->
-                buildState(projects, prefs, inbox, reviewed, _uiState.value)
+                // A review that falls due at midnight shows up without leaving the screen.
+                dayClock.today,
+            ) { projects, prefs, inbox, reviewed, today ->
+                buildState(projects, prefs, inbox, reviewed, today, _uiState.value)
             }.collect { built -> _uiState.value = built }
         }
         refresh()
@@ -90,6 +95,7 @@ class ReviewViewModel(
         prefs: ReviewPrefs,
         inbox: Long?,
         reviewed: Set<Long>,
+        today: LocalDate,
         state: ReviewUiState,
     ): ReviewUiState {
         val tracked = projects
@@ -99,7 +105,7 @@ class ReviewViewModel(
             .map {
                 ReviewItem(
                     it,
-                    ReviewMetadata.computeStatus(ReviewMetadata.parse(it.description), prefs.defaultCadenceDays),
+                    ReviewMetadata.computeStatus(ReviewMetadata.parse(it.description), prefs.defaultCadenceDays, today),
                 )
             }
             .filter { it.status.metadata.state != ReviewState.EXCLUDED }
@@ -166,7 +172,7 @@ class ReviewViewModel(
         viewModelScope.launch {
             val prev = project
             val meta = ReviewMetadata.parse(project.description)
-                .let { ReviewMetadata(ReviewState.REVIEWED, ReviewMetadata.todayLocalIsoDate(), it.cadenceDaysOverride) }
+                .let { ReviewMetadata(ReviewState.REVIEWED, dayClock.day.value.date.toString(), it.cadenceDaysOverride) }
             val updated = project.copy(description = ReviewMetadata.upsert(project.description, meta))
             reviewedThisSession.value = reviewedThisSession.value + project.id
             _uiState.update { it.copy(undo = prev) }

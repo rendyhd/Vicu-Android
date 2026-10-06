@@ -202,7 +202,13 @@ class FakeProjectRepository(initial: List<Project> = emptyList()) : ProjectRepos
         flowOf(projects.value.filter { it.parentProjectId == parentId })
 
     override suspend fun create(project: Project): NetworkResult<Project> = NetworkResult.Success(project)
-    override suspend fun update(project: Project): NetworkResult<Project> = NetworkResult.Success(project)
+    /** Projects passed to [update], in call order. */
+    val updates = mutableListOf<Project>()
+
+    override suspend fun update(project: Project): NetworkResult<Project> {
+        updates += project
+        return NetworkResult.Success(project)
+    }
     override suspend fun delete(projectId: Long): NetworkResult<Unit> = NetworkResult.Success(Unit)
     override suspend fun refreshAll(): NetworkResult<Unit> = NetworkResult.Success(Unit)
 }
