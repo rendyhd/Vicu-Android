@@ -83,6 +83,26 @@ object CustomListFilterBuilder {
         zone: TimeZone,
     ): List<Task> = tasks.filter { matches(it, filter, today, zone) }
 
+    /**
+     * The rows a custom list shows, from the full task set [tasks]: the list's conditions first,
+     * then only tasks of projects that still exist ([activeProjectIds]), then nested subtasks
+     * hidden among the matches, then the configured sort. The list screen and the home screen
+     * widget both call this, so they always show the same tasks.
+     */
+    fun visibleTasks(
+        tasks: List<Task>,
+        filter: CustomListFilter,
+        today: LocalDate,
+        zone: TimeZone,
+        activeProjectIds: Set<Long>,
+    ): List<Task> = sortTasks(
+        applyClientSideFilters(tasks, filter, today, zone)
+            .filter { it.projectId in activeProjectIds }
+            .withoutNestedSubtasks(hideChildrenOfCompletedParents = false),
+        filter.sortBy,
+        filter.orderBy,
+    )
+
     // --- Server filter --------------------------------------------------------------------
 
     /**
