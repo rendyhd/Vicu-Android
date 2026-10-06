@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.worker
 
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.auth.AuthState
 import com.rendyhd.vicu.data.local.dao.LabelDao
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.ProjectDao
@@ -13,6 +14,7 @@ import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.LabelTaskDto
 import com.rendyhd.vicu.data.remote.api.MergePatches
 import com.rendyhd.vicu.data.remote.api.TaskDto
+import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.Label
@@ -25,6 +27,7 @@ import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.RoutineEnvelope
 import com.rendyhd.vicu.util.CustomListEnvelope
+import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
@@ -64,6 +67,15 @@ class SyncEngine(
         private const val TAG = "SyncEngine"
         private const val MAX_RETRIES = 5
         private const val DUPLICATE_WINDOW_SECS = 900L
+
+        /**
+         * How long a failed action is kept for the user to retry or discard. After that it is
+         * dropped at the start of a sync run and the server's version of the task wins again.
+         */
+        const val FAILED_ACTION_RETENTION_DAYS = 14
+
+        /** Vikunja's error code for "this task does not exist" (the HTTP status is 404). */
+        private const val TASK_DOES_NOT_EXIST_CODE = 4002L
         private val TASK_DEPENDENT_ACTIONS = setOf("update", "toggle_done", "delete")
         private val LABEL_TASK_ACTIONS = setOf("add_label", "remove_label")
 
@@ -93,11 +105,21 @@ class SyncEngine(
         baseUrlHolder.ensureInitialized()
         authManager.ensureInitializedAndGetToken()
 
+        if (authManager.authState.value == AuthState.NeedsReAuth) {
+            // The session ended and the user has to sign in again. Every request would be
+            // answered with 401, so send none: the queued changes stay as they are and signing
+            // in again starts a new run. Reporting success keeps WorkManager from retrying.
+            Logger.w(TAG, "Sync paused: sign-in required, queued actions stay pending")
+            return true
+        }
+
         // Safe only because no other run can be mid-action while we hold the lock: whatever is
         // still "processing" belongs to a run that was killed or cancelled.
         pendingActionDao.resetProcessingToPending()
+        pendingActionDao.deleteFailedBefore(DateUtils.isoDaysAgo(FAILED_ACTION_RETENTION_DAYS))
 
         var hasRetriableFailures = false
+        var pausedForAuth = false
 
         try {
             val actions = pendingActionDao.getRetryable()
@@ -121,16 +143,37 @@ class SyncEngine(
                         throw e
                     }
                     Logger.e(TAG, "Action ${action.id} failed: ${e.message}", e)
-                    if (isRetriableNetworkError(e) && action.retryCount < MAX_RETRIES) {
-                        pendingActionDao.updateStatus(action.id, "pending", action.retryCount + 1)
-                        hasRetriableFailures = true
-                    } else {
-                        pendingActionDao.updateStatus(action.id, "failed")
+                    when {
+                        isUnauthorized(e) -> {
+                            // The HTTP client already tried to refresh the token, so the session
+                            // is gone, not this action: keep it untouched and stop, because every
+                            // later action would be refused the same way.
+                            pendingActionDao.updateStatus(action.id, "pending")
+                            pausedForAuth = true
+                        }
+                        isTaskGone(action, e) -> {
+                            // The task was deleted on the server, so there is nothing left to
+                            // change. Retrying can never work and "failed" would only nag.
+                            dropActionForGoneTask(action, tempIdMap)
+                            pendingActionDao.updateStatus(action.id, "completed")
+                        }
+                        isRetriableNetworkError(e) && action.retryCount < MAX_RETRIES -> {
+                            pendingActionDao.updateStatus(action.id, "pending", action.retryCount + 1)
+                            hasRetriableFailures = true
+                        }
+                        else -> pendingActionDao.markFailed(action.id, DateUtils.nowIso())
                     }
+                    if (pausedForAuth) break
                 }
             }
 
             pendingActionDao.deleteCompleted()
+
+            if (pausedForAuth) {
+                // The token refresh flags NeedsReAuth; signing in again starts a new run, so no
+                // retry is needed. A 401 without that flag is unexpected: try again later.
+                return authManager.authState.value == AuthState.NeedsReAuth
+            }
 
             when (customListRepository.sync()) {
                 CustomListSyncStatus.Pending,
@@ -146,6 +189,32 @@ class SyncEngine(
         }
 
         return !hasRetriableFailures
+    }
+
+    private fun isUnauthorized(e: Exception): Boolean = when (e) {
+        is VikunjaApiException -> e.httpStatus == 401
+        is ResponseException -> e.response.status.value == 401
+        else -> false
+    }
+
+    /**
+     * True when a queued change to a task was refused because the task no longer exists. A 404
+     * that names another missing resource (a project the task was moved to, say) is not this.
+     */
+    private fun isTaskGone(action: PendingActionEntity, e: Exception): Boolean {
+        if (e !is VikunjaApiException || e.httpStatus != 404) return false
+        if (action.entityType != "task" || action.actionType !in TASK_DEPENDENT_ACTIONS) return false
+        val code = e.problem?.code ?: 0L
+        return code == 0L || code == TASK_DOES_NOT_EXIST_CODE
+    }
+
+    private suspend fun dropActionForGoneTask(action: PendingActionEntity, tempIdMap: Map<Long, Long>) {
+        val taskId = tempIdMap[action.entityId] ?: action.entityId
+        val local = taskDao.getByIdSync(taskId)
+        taskDao.deleteById(taskId)
+        platformHooks.cancelAlarm(taskId)
+        if (RoutineEnvelope.hasMarker(local?.description)) platformHooks.routinesChanged()
+        Logger.w(TAG, "Task $taskId no longer exists on the server; dropped ${action.actionType} and the local row")
     }
 
     private suspend fun processAction(action: PendingActionEntity, tempIdMap: MutableMap<Long, Long>) {
@@ -171,7 +240,10 @@ class SyncEngine(
                         if (routineId != null) {
                             RoutineEnvelope.parse(dto.description, json).payload?.definition?.id == routineId
                         } else {
-                            !CustomListEnvelope.isAnyMetadataTask(dto.description)
+                            // Same title in the same project is common; the description tells a
+                            // real earlier attempt of this create from a different task.
+                            dto.description == task.description &&
+                                !CustomListEnvelope.isAnyMetadataTask(dto.description)
                         }
                 }
         }

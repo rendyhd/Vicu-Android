@@ -144,7 +144,7 @@ class SyncEngineHarness(
 
     private val api = VikunjaApiService(client, authTestJson)
     private val storage = InMemoryTokenStorage()
-    private val authManager = AuthManager(
+    val authManager = AuthManager(
         platformAuthHooks = RecordingAuthHooks(),
         tokenStorage = storage,
         apiServiceProvider = { api },

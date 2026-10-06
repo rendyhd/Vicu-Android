@@ -15,6 +15,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.auth.AuthState
 import com.rendyhd.vicu.data.local.ThemeMode
 import com.rendyhd.vicu.data.local.ThemePrefsStore
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
@@ -68,6 +69,18 @@ class MainActivity : ComponentActivity() {
             if (authManager.authState.value == com.rendyhd.vicu.auth.AuthState.Authenticated) {
                 TokenRefreshScheduler.schedule(this@MainActivity)
                 SyncScheduler.enqueueWhenOnline(this@MainActivity)
+            }
+        }
+
+        // A sync that stopped because the session ended (401 after a failed token refresh) left
+        // the queued changes pending; signing in again resumes it.
+        lifecycleScope.launch {
+            var neededReAuth = false
+            authManager.authState.collect { state ->
+                if (state == AuthState.Authenticated && neededReAuth) {
+                    SyncScheduler.enqueueImmediate(this@MainActivity)
+                }
+                neededReAuth = state == AuthState.NeedsReAuth
             }
         }
 

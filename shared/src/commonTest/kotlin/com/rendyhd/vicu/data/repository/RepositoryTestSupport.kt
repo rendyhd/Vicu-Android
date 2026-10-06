@@ -14,6 +14,7 @@ import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -128,10 +129,16 @@ class FakePendingActionDao : PendingActionDao {
     private val lock = Mutex()
     private var nextId = 1L
 
+    /** Bumped after every write so the count flows below can re-read the rows. */
+    private val version = MutableStateFlow(0)
+
     suspend fun snapshot(): List<PendingActionEntity> = lock.withLock { rows.values.toList() }
 
+    private suspend fun countWithStatus(status: String): Int =
+        lock.withLock { rows.values.count { it.status == status } }
+
     override fun getPending(): Flow<List<PendingActionEntity>> = flowOf(emptyList())
-    override fun getPendingCount(): Flow<Int> = flowOf(0)
+    override fun getPendingCount(): Flow<Int> = version.map { countWithStatus("pending") }
 
     override suspend fun getRetryable(): List<PendingActionEntity> = lock.withLock {
         rows.values.filter { it.status == "pending" && it.retryCount < it.maxRetries }
@@ -141,15 +148,28 @@ class FakePendingActionDao : PendingActionDao {
     override suspend fun insert(action: PendingActionEntity): Long = lock.withLock {
         val id = nextId++
         rows[id] = action.copy(id = id)
+        version.value++
         id
     }
 
     override suspend fun updateStatusOnly(id: Long, status: String) {
         lock.withLock { rows[id]?.let { rows[id] = it.copy(status = status) } }
+        version.value++
     }
 
     override suspend fun updateStatusAndRetry(id: Long, status: String, retryCount: Int) {
         lock.withLock { rows[id]?.let { rows[id] = it.copy(status = status, retryCount = retryCount) } }
+        version.value++
+    }
+
+    override suspend fun markFailed(id: Long, failedAt: String) {
+        lock.withLock { rows[id]?.let { rows[id] = it.copy(status = "failed", updatedAt = failedAt) } }
+        version.value++
+    }
+
+    override suspend fun deleteFailedBefore(cutoff: String) {
+        lock.withLock { rows.values.removeAll { it.status == "failed" && it.updatedAt < cutoff } }
+        version.value++
     }
 
     override suspend fun deleteCompleted() {
@@ -161,10 +181,11 @@ class FakePendingActionDao : PendingActionDao {
     }
 
     override fun getFailed(): Flow<List<PendingActionEntity>> = flowOf(emptyList())
-    override fun getFailedCount(): Flow<Int> = flowOf(0)
+    override fun getFailedCount(): Flow<Int> = version.map { countWithStatus("failed") }
 
     override suspend fun deleteFailed() {
         lock.withLock { rows.values.removeAll { it.status == "failed" } }
+        version.value++
     }
 
     override suspend fun retryAllFailed() {
@@ -174,6 +195,7 @@ class FakePendingActionDao : PendingActionDao {
                 if (row.status == "failed") rows[id] = row.copy(status = "pending", retryCount = 0)
             }
         }
+        version.value++
     }
 
     override suspend fun resetProcessingToPending() {

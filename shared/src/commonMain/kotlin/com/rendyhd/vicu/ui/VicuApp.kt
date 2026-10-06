@@ -60,6 +60,7 @@ import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.LocalToday
+import com.rendyhd.vicu.ui.components.shared.FailedActionsBanner
 import com.rendyhd.vicu.ui.components.shared.OfflineBanner
 import com.rendyhd.vicu.ui.components.task.TaskEntrySheet
 import com.rendyhd.vicu.ui.components.task.LocalSubtaskDisplayMode
@@ -387,6 +388,7 @@ fun VicuApp(
     val syncStateViewModel: SyncStateViewModel = koinViewModel()
     val isOnline by syncStateViewModel.isOnline.collectAsStateWithLifecycle()
     val pendingCount by syncStateViewModel.pendingCount.collectAsStateWithLifecycle(initialValue = 0)
+    val failedCount by syncStateViewModel.failedCount.collectAsStateWithLifecycle(initialValue = 0)
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -477,6 +479,11 @@ fun VicuApp(
                     OfflineBanner(
                         isOffline = !isOnline,
                         pendingCount = pendingCount,
+                    )
+                    FailedActionsBanner(
+                        failedCount = failedCount,
+                        onRetry = syncStateViewModel::retryFailed,
+                        onDiscard = syncStateViewModel::discardFailed,
                     )
                 }
                 val navHostModifier = Modifier.weight(1f)

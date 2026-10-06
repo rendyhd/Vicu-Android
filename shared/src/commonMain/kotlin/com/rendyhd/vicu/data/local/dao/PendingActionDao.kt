@@ -36,6 +36,14 @@ interface PendingActionDao {
         }
     }
 
+    /** Marks an action failed for good; [failedAt] starts the clock for [deleteFailedBefore]. */
+    @Query("UPDATE pending_actions SET status = 'failed', updatedAt = :failedAt WHERE id = :id")
+    suspend fun markFailed(id: Long, failedAt: String)
+
+    /** Drops failed actions that failed before [cutoff] (an ISO-8601 UTC timestamp). */
+    @Query("DELETE FROM pending_actions WHERE status = 'failed' AND updatedAt < :cutoff")
+    suspend fun deleteFailedBefore(cutoff: String)
+
     @Query("DELETE FROM pending_actions WHERE status = 'completed'")
     suspend fun deleteCompleted()
 
@@ -57,6 +65,16 @@ interface PendingActionDao {
     @Query("UPDATE pending_actions SET status = 'pending' WHERE status = 'processing'")
     suspend fun resetProcessingToPending()
 
+    /**
+     * Ids of the tasks whose local row holds a change the server has not accepted yet. A refresh
+     * must not overwrite these rows.
+     *
+     * Failed actions count too, on purpose: the row is the only copy of the user's change until
+     * they retry or discard it from the failed-changes banner. They do not protect it for ever:
+     * the sync engine drops failed actions older than its failed-action retention (14 days) at the
+     * start of each run, and discarding deletes them at once, so the server version wins after
+     * the next refresh in both cases.
+     */
     @Query("SELECT entityId FROM pending_actions WHERE entityType IN ('task', 'routine') AND status IN ('pending', 'failed', 'processing')")
     suspend fun getTaskIdsWithPendingActions(): List<Long>
 
