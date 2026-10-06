@@ -25,6 +25,13 @@ import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.RoutineEnvelope
 import com.rendyhd.vicu.util.CustomListEnvelope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Duration.Companion.seconds
@@ -59,14 +66,28 @@ class SyncEngine(
         private const val DUPLICATE_WINDOW_SECS = 900L
         private val TASK_DEPENDENT_ACTIONS = setOf("update", "toggle_done", "delete")
         private val LABEL_TASK_ACTIONS = setOf("add_label", "remove_label")
+
+        /**
+         * One sync at a time for the whole process. The queue has two unique works ("when online"
+         * and "immediate", which REPLACEs) plus any future entry point, and two runs would each
+         * start by resetting the other's in-flight actions to pending and then replay them
+         * (duplicate creates, duplicate deletes). Companion-level so it does not depend on how
+         * many engine instances exist.
+         */
+        private val syncMutex = Mutex()
     }
 
-    suspend fun performSync(): Boolean {
+    suspend fun performSync(): Boolean = syncMutex.withLock { performSyncLocked() }
+
+    /** Must only run while holding [syncMutex]. */
+    private suspend fun performSyncLocked(): Boolean {
         Logger.d(TAG, "SyncEngine started")
 
         baseUrlHolder.ensureInitialized()
         authManager.ensureInitializedAndGetToken()
 
+        // Safe only because no other run can be mid-action while we hold the lock: whatever is
+        // still "processing" belongs to a run that was killed or cancelled.
         pendingActionDao.resetProcessingToPending()
 
         var hasRetriableFailures = false
@@ -84,6 +105,14 @@ class SyncEngine(
                     pendingActionDao.updateStatus(action.id, "completed")
                     Logger.d(TAG, "Action ${action.id} (${action.entityType}/${action.actionType}) completed")
                 } catch (e: Exception) {
+                    if (e is CancellationException && !currentCoroutineContext().isActive) {
+                        // The run itself was cancelled (for example replaced by an immediate
+                        // sync). That says nothing about the action: put it back untouched and
+                        // stop. A CancellationException from a nested timeout in a still-active
+                        // run is an ordinary failure and falls through.
+                        withContext(NonCancellable) { pendingActionDao.updateStatus(action.id, "pending") }
+                        throw e
+                    }
                     Logger.e(TAG, "Action ${action.id} failed: ${e.message}", e)
                     if (isRetriableNetworkError(e) && action.retryCount < MAX_RETRIES) {
                         pendingActionDao.updateStatus(action.id, "pending", action.retryCount + 1)
