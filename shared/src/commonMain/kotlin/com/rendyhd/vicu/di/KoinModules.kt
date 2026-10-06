@@ -51,13 +51,7 @@ val databaseModule = module {
 }
 
 val networkModule = module {
-    single {
-        Json {
-            ignoreUnknownKeys = true
-            encodeDefaults = true
-            isLenient = true
-        }
-    }
+    single { createApiJson() }
     single { BaseUrlHolder(get()) }
     single {
         KtorClientFactory.create(
