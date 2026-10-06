@@ -137,6 +137,21 @@ class TaskRepositoryImpl(
         platformHooks.triggerSync()
     }
 
+    /**
+     * The row to store while an edit of [edited] is in flight or queued: the cached row with only
+     * the edited fields replaced. Falls back to a full mapping when the task was never cached.
+     */
+    private fun optimisticEntity(cached: TaskEntity?, edited: Task): TaskEntity =
+        with(taskMapper) {
+            cached?.withEditedFields(edited) ?: edited.toDto().toEntity()
+        }
+
+    /** Like [optimisticEntity], for a completion toggle: only `done` and `done_at` change. */
+    private fun optimisticDoneEntity(cached: TaskEntity?, toggled: Task): TaskEntity =
+        with(taskMapper) {
+            cached?.withDoneState(toggled.done, toggled.doneAt) ?: toggled.toDto().toEntity()
+        }
+
     private fun queuedUpdatePayload(task: Task, patch: JsonObject): String =
         if (task.id < 0L) {
             json.encodeToString(Task.serializer(), task)
@@ -259,9 +274,7 @@ class TaskRepositoryImpl(
         val previous = taskDao.getByIdSync(task.id)
         val previousTask = previous?.let { with(taskMapper) { it.toDomain() } }
         val patch = MergePatches.task(previousTask, task)
-        val dto = with(taskMapper) { task.toDto() }
-        val optimisticEntity = with(taskMapper) { dto.toEntity() }
-        taskDao.upsert(optimisticEntity)
+        taskDao.upsert(optimisticEntity(previous, task))
 
         if (task.id < 0L) {
             queueTaskAction(
@@ -647,7 +660,8 @@ class TaskRepositoryImpl(
         targetDone: Boolean,
         playSound: Boolean,
     ): NetworkResult<Task> {
-        val cached = taskDao.getByIdSync(task.id)?.let { with(taskMapper) { it.toDomain() } }
+        val cachedEntity = taskDao.getByIdSync(task.id)
+        val cached = cachedEntity?.let { with(taskMapper) { it.toDomain() } }
         val current = cached ?: task
         val toggled = task.copy(
             relatedTasks = current.relatedTasks.ifEmpty { task.relatedTasks },
@@ -659,8 +673,7 @@ class TaskRepositoryImpl(
         }
         val patch = MergePatches.taskDone(toggled.done)
         if (task.id < 0L) {
-            val dto = with(taskMapper) { toggled.toDto() }
-            taskDao.upsert(with(taskMapper) { dto.toEntity() })
+            taskDao.upsert(optimisticDoneEntity(cachedEntity, toggled))
             queueTaskAction(
                 task.id,
                 "toggle_done",
@@ -685,9 +698,7 @@ class TaskRepositoryImpl(
             NetworkResult.Success(result)
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
-                val dto = with(taskMapper) { toggled.toDto() }
-                val entity = with(taskMapper) { dto.toEntity() }
-                taskDao.upsert(entity)
+                taskDao.upsert(optimisticDoneEntity(cachedEntity, toggled))
                 queueTaskAction(
                     task.id,
                     "toggle_done",
