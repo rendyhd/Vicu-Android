@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.data.repository
 
+import com.rendyhd.vicu.data.local.TempIdGenerator
 import com.rendyhd.vicu.data.local.dao.LabelDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
@@ -15,11 +16,9 @@ import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.isRetriableNetworkError
-import com.rendyhd.vicu.util.AtomicLong
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
-import kotlinx.datetime.Clock
 
 class LabelRepositoryImpl(
     private val labelDao: LabelDao,
@@ -30,9 +29,8 @@ class LabelRepositoryImpl(
     private val taskMapper: TaskMapper,
     private val platformHooks: PlatformRepositoryHooks,
     private val json: Json,
+    private val tempIds: TempIdGenerator,
 ) : LabelRepository {
-
-    private val tempIdCounter = AtomicLong(-(Clock.System.now().epochSeconds + 1_000_000))
 
     private suspend fun queueLabelAction(entityId: Long, actionType: String, payload: String) {
         val action = PendingActionEntity(
@@ -80,7 +78,7 @@ class LabelRepositoryImpl(
             NetworkResult.Success(with(labelMapper) { entity.toDomain() })
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
-                val tempId = tempIdCounter.decrementAndGet()
+                val tempId = tempIds.next()
                 val localLabel = label.copy(
                     id = tempId,
                     created = DateUtils.nowIso(),

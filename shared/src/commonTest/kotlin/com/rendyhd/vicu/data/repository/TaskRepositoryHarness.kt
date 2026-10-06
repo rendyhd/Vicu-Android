@@ -5,6 +5,7 @@ import com.rendyhd.vicu.auth.authTestJsonHeaders
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.LogbookPrefsStore
 import com.rendyhd.vicu.data.local.ScheduleAction
+import com.rendyhd.vicu.data.local.TempIdGenerator
 import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.TaskDto
@@ -45,6 +46,7 @@ class TaskRepositoryHarness(
     scheduleAction: ScheduleAction = ScheduleAction.DUE_TODAY,
     /** A clock frozen at the real day unless a test needs the day to change. */
     dayClock: DayClock = DayClock(CoroutineScope(Job()), ticking = false),
+    val tempIds: TempIdGenerator = TempIdGenerator(InMemoryPreferencesDataStore()),
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ) {
     val json: Json = authTestJson
@@ -74,6 +76,7 @@ class TaskRepositoryHarness(
         behaviorPrefsStore = behaviorPrefsStore,
         logbookPrefsStore = LogbookPrefsStore(InMemoryPreferencesDataStore()),
         dayClock = dayClock,
+        tempIds = tempIds,
     )
 
     suspend fun initScheduleAction() {

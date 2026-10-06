@@ -45,6 +45,7 @@ val databaseModule = module {
     single { ReviewPrefsStore(createDataStore(get(), "review_prefs")) }
     single { RoutinePrefsStore(createDataStore(get(), "routine_prefs")) }
     single { SnoozeStore(createDataStore(get(), "snooze_prefs"), get()) }
+    single { TempIdGenerator(createDataStore(get(), "temp_ids")) }
     single { ThemePrefsStore(createDataStore(get(), "theme_prefs")) }
     single { WidgetPrefsStore(createDataStore(get(), "widget_prefs")) }
 }
@@ -88,6 +89,7 @@ val repositoryModule = module {
             behaviorPrefsStore = get(),
             logbookPrefsStore = get(),
             dayClock = get(),
+            tempIds = get(),
         )
     }
     single<ProjectRepository> {
@@ -106,7 +108,8 @@ val repositoryModule = module {
             labelMapper = get(),
             taskMapper = get(),
             platformHooks = get(),
-            json = get()
+            json = get(),
+            tempIds = get(),
         )
     }
     single<AttachmentRepository> {

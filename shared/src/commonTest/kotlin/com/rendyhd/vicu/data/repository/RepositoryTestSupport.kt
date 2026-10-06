@@ -21,13 +21,16 @@ import kotlinx.coroutines.sync.withLock
 /** In-memory [DataStore] so the preference stores can run in plain unit tests. */
 class InMemoryPreferencesDataStore : DataStore<Preferences> {
     private val state = MutableStateFlow(emptyPreferences())
+    private val writeLock = Mutex()
     override val data: Flow<Preferences> = state
 
-    override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
-        val updated = transform(state.value)
-        state.value = updated
-        return updated
-    }
+    /** One writer at a time, like the real DataStore, so concurrent edits do not lose updates. */
+    override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences =
+        writeLock.withLock {
+            val updated = transform(state.value)
+            state.value = updated
+            updated
+        }
 }
 
 /**

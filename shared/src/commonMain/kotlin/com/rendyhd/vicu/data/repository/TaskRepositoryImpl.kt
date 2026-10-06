@@ -2,6 +2,7 @@ package com.rendyhd.vicu.data.repository
 
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.LogbookPrefsStore
+import com.rendyhd.vicu.data.local.TempIdGenerator
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
@@ -35,8 +36,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.datetime.Clock
-import com.rendyhd.vicu.util.AtomicLong
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TaskRepositoryImpl(
@@ -49,13 +48,13 @@ class TaskRepositoryImpl(
     private val behaviorPrefsStore: BehaviorPrefsStore,
     private val logbookPrefsStore: LogbookPrefsStore,
     private val dayClock: DayClock,
+    private val tempIds: TempIdGenerator,
 ) : TaskRepository {
 
     companion object {
         private const val TAG = "TaskRepoImpl"
     }
 
-    private val tempIdCounter = AtomicLong(-(Clock.System.now().epochSeconds))
     private val completionBatchesMutex = Mutex()
     private val parentReferenceMutex = Mutex()
     private val completionBatches = mutableMapOf<Long, List<DescendantLink>>()
@@ -259,7 +258,7 @@ class TaskRepositoryImpl(
             NetworkResult.Success(created)
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
-                val tempId = tempIdCounter.decrementAndGet()
+                val tempId = tempIds.next()
                 val localTask = task.copy(
                     id = tempId,
                     created = DateUtils.nowIso(),
@@ -486,7 +485,7 @@ class TaskRepositoryImpl(
             ?.let { with(taskMapper) { it.toDomain() } }
             ?.copy(relatedTasks = emptyMap(), attachments = emptyList())
             ?: Task(id = parentTaskId, title = "", projectId = subtask.projectId)
-        val tempId = tempIdCounter.decrementAndGet()
+        val tempId = tempIds.next()
         val now = DateUtils.nowIso()
         val localTask = subtask.copy(
             id = tempId,
