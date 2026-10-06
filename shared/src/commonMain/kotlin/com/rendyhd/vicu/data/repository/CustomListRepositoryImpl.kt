@@ -49,11 +49,15 @@ class CustomListRepositoryImpl(
             if (normalized != null) return existing.copy(document = normalized)
         }
         val deviceId = existing?.deviceId?.takeIf { it.isNotBlank() } ?: randomUuid()
-        val document = CustomListEnvelope.fromLists(
-            store.getLegacyLists().map { it.toWire() },
-            deviceId,
-            Clock.System.now().toEpochMilliseconds(),
-        )
+        val legacyLists = store.getLegacyLists().map { it.toWire() }
+        val document = if (legacyLists.isEmpty()) {
+            // A device that never synced has no order of its own. Stamp the empty one with wall
+            // time 0, so any real order on the carrier wins the first merge instead of being
+            // overwritten by an empty order that merely looks newer.
+            CustomListEnvelope.empty(deviceId, 0L)
+        } else {
+            CustomListEnvelope.fromLists(legacyLists, deviceId, Clock.System.now().toEpochMilliseconds())
+        }
         return CustomListSyncLocalState(
             deviceId = deviceId,
             document = document,

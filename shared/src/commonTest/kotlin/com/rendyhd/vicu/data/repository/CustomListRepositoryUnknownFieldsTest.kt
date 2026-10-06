@@ -188,8 +188,10 @@ class CustomListRepositoryUnknownFieldsTest {
     @Test
     fun `a sync that changes nothing does not rewrite the carrier`() = runTest {
         val rig = rig(CarrierServer(marker(desktopDocument)))
-        // A fresh device may write once: its (empty) order is newer than the desktop's.
+        // The first sync only reads: a fresh device's empty order is stamped 0, so it never beats
+        // the desktop's (CustomListFirstSyncOrderTest).
         rig.repository.sync()
+        assertTrue(rig.server.writes.isEmpty(), "a fresh device does not write the carrier back")
         rig.server.writes.clear()
 
         assertEquals(CustomListSyncStatus.Idle, rig.repository.sync())
