@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.util
 
+import com.rendyhd.vicu.domain.model.CustomListWireFilter
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
@@ -54,6 +55,15 @@ object CrossAppFixture {
         val upcoming: List<Long>,
     )
 
+    /** A custom-list vector: the filter exactly as it is synced, and the task ids it keeps. */
+    @Serializable
+    data class CustomListVector(
+        val name: String,
+        val today: String,
+        val filter: CustomListWireFilter,
+        val expect: List<Long>,
+    )
+
     @Serializable
     data class ReviewMeta(
         val state: String,
@@ -85,6 +95,7 @@ object CrossAppFixture {
         val weeks: List<Week>,
         val tasks: List<FixtureTask>,
         val smartLists: List<SmartList>,
+        val customLists: List<CustomListVector>,
         val review: List<Review>,
     )
 

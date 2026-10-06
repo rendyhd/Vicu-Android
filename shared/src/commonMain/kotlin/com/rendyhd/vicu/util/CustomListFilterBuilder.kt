@@ -2,196 +2,152 @@ package com.rendyhd.vicu.util
 
 import com.rendyhd.vicu.domain.model.CustomListFilter
 import com.rendyhd.vicu.domain.model.Task
-import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
-import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
-import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
-import kotlinx.datetime.todayIn
-import kotlinx.datetime.atStartOfDayIn
-import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * The one custom-list evaluator (docs/cross-app-semantics-v1.md, sections 2 and 3). Desktop runs
+ * the same vectors (`test-fixtures/cross-app-semantics-v1.json`) against its own evaluator.
+ *
+ * - Dates are local calendar dates: a due date is compared by the date it falls on in the zone,
+ *   never by its instant or its UTC date. Weeks start on Monday ([DueDates.endOfWeek]).
+ * - "Today" and the zone are passed in (from [DayClock]); nothing here reads the system clock.
+ * - The server filter is only a superset of the exact window, built from the same local-day
+ *   boundaries. The exact rule is always [matches], applied client-side.
+ * - Every condition is evaluated on the full task set. A caller hides nested subtasks after
+ *   filtering, so a matching subtask shows even when its parent does not.
+ */
 object CustomListFilterBuilder {
 
+    /** The windows the `include_overdue` flag applies to. */
+    private val WINDOWS_WITH_OVERDUE = setOf("today", "this_week", "this_month")
+
+    /** Whether the "include overdue" option has any effect for [window] (the editor shows it then). */
+    fun windowHonorsIncludeOverdue(window: String): Boolean = window in WINDOWS_WITH_OVERDUE
+
+    // --- Evaluator ------------------------------------------------------------------------
+
     /**
-     * Builds a Vikunja API filter string from a CustomListFilter.
-     * Only the first project_id is sent to the API (multi-project is client-side).
+     * Whether a task due on local date [due] (null when it has none) falls in [window] on
+     * [today]. [includeOverdue] only matters for the today, this week and this month windows.
+     * A window this version does not know (from a newer app) is no date condition.
      */
-    fun buildFilterString(filter: CustomListFilter): String {
+    fun inDateWindow(due: LocalDate?, window: String, includeOverdue: Boolean, today: LocalDate): Boolean =
+        when (window) {
+            "overdue" -> due != null && due < today
+            "today" -> due != null && (due == today || (includeOverdue && due < today))
+            "this_week" -> due != null &&
+                ((due >= today && due <= DueDates.endOfWeek(today)) || (includeOverdue && due < today))
+            "this_month" -> due != null &&
+                ((due >= today && due <= DueDates.endOfMonth(today)) || (includeOverdue && due < today))
+            "has_due_date" -> due != null
+            "no_due_date" -> due == null
+            else -> true // "all", or a window from a newer app
+        }
+
+    /** Whether [task] belongs on the list described by [filter] on the local date [today]. */
+    fun matches(task: Task, filter: CustomListFilter, today: LocalDate, zone: TimeZone): Boolean {
+        if (!filter.includeDone && task.done) return false
+
+        val includeOverdue = filter.includesOverdue
+        val due = DueDates.localDateOf(task.dueDate, zone)
+        if (!inDateWindow(due, filter.dueDateFilter, includeOverdue, today)) return false
+
+        if (filter.projectIds.isNotEmpty()) {
+            val listed = task.projectId in filter.projectIds
+            val projectOk = if (filter.projectFilterMode == "exclude") !listed else listed
+            // "Today from all projects" brings back anything in the today window, whatever its project.
+            if (!projectOk && !(filter.includeTodayAllProjects && inDateWindow(due, "today", includeOverdue, today))) {
+                return false
+            }
+        }
+
+        if (filter.priorityFilter.isNotEmpty() && task.priority !in filter.priorityFilter) return false
+
+        if (filter.labelIds.isNotEmpty() && task.labels.none { it.id in filter.labelIds }) return false
+
+        return true
+    }
+
+    /**
+     * The tasks that match, in their original order. Call it on the full task set, before nested
+     * subtasks are hidden, so a subtask that matches is kept even when its parent does not.
+     */
+    fun applyClientSideFilters(
+        tasks: List<Task>,
+        filter: CustomListFilter,
+        today: LocalDate,
+        zone: TimeZone,
+    ): List<Task> = tasks.filter { matches(it, filter, today, zone) }
+
+    // --- Server filter --------------------------------------------------------------------
+
+    /**
+     * The clause for a date window, a superset of [inDateWindow] built from local-day boundaries
+     * as UTC instants: `due_date < '<start of the day after the window's last day>'`. Null when
+     * the window has no date condition.
+     */
+    private fun dateWindowClause(window: String, includeOverdue: Boolean, today: LocalDate, zone: TimeZone): String? {
+        val notNull = "due_date != '${Constants.NULL_DATE_STRING}'"
+        fun before(lastDay: LocalDate) = DueDates.startOfDay(lastDay.plus(1, DateTimeUnit.DAY), zone)
+        fun bounded(lastDay: LocalDate) =
+            if (includeOverdue) {
+                "due_date < '${before(lastDay)}' && $notNull"
+            } else {
+                "due_date >= '${DueDates.startOfDay(today, zone)}' && due_date < '${before(lastDay)}'"
+            }
+
+        return when (window) {
+            "overdue" -> "due_date < '${DueDates.startOfDay(today, zone)}' && $notNull"
+            "today" -> bounded(today)
+            "this_week" -> bounded(DueDates.endOfWeek(today))
+            "this_month" -> bounded(DueDates.endOfMonth(today))
+            "has_due_date" -> notNull
+            "no_due_date" -> "due_date = '${Constants.NULL_DATE_STRING}'"
+            else -> null
+        }
+    }
+
+    /**
+     * Builds a Vikunja API filter string for [filter] on [today] in [zone]. It never excludes a
+     * task [matches] would accept: a project clause is only sent for include mode (and widened
+     * with the today window for "today from all projects"), and priority and labels are left to
+     * the client. The server may send more than the list shows; [applyClientSideFilters] decides.
+     */
+    fun buildFilterString(filter: CustomListFilter, today: LocalDate, zone: TimeZone): String {
         val parts = mutableListOf<String>()
+        if (!filter.includeDone) parts.add("done = false")
 
-        // Done filter
-        if (!filter.includeDone) {
-            parts.add("done = false")
-        }
-
-        // Single project filter (API only supports one; exclude mode uses client-side only)
-        if (filter.projectFilterMode != "exclude" && filter.projectIds.size == 1) {
-            parts.add("project_id = ${filter.projectIds.first()}")
-        }
-
-        // Due date filter
-        val now = Clock.System.todayIn(TimeZone.UTC)
-        val nullDate = Constants.NULL_DATE_STRING
-        when (filter.dueDateFilter) {
-            "overdue" -> {
-                val startOfToday = now.atStartOfDayIn(TimeZone.UTC)
-                parts.add("due_date < '$startOfToday'")
-                parts.add("due_date != '$nullDate'")
-            }
-            "today" -> {
-                val startOfToday = now.atStartOfDayIn(TimeZone.UTC)
-                val tomorrow = now.plus(1, DateTimeUnit.DAY)
-                val endOfToday = tomorrow.atStartOfDayIn(TimeZone.UTC) - 1.milliseconds
-                parts.add("due_date >= '$startOfToday'")
-                parts.add("due_date <= '$endOfToday'")
-                parts.add("due_date != '$nullDate'")
-            }
-            "this_week" -> {
-                val startOfToday = now.atStartOfDayIn(TimeZone.UTC)
-                val nextWeek = now.plus(1, DateTimeUnit.WEEK)
-                val endOfWeek = nextWeek.atStartOfDayIn(TimeZone.UTC) - 1.milliseconds
-                parts.add("due_date >= '$startOfToday'")
-                parts.add("due_date <= '$endOfWeek'")
-                parts.add("due_date != '$nullDate'")
-            }
-            "this_month" -> {
-                val startOfToday = now.atStartOfDayIn(TimeZone.UTC)
-                val nextMonth = now.plus(1, DateTimeUnit.MONTH)
-                val endOfMonth = nextMonth.atStartOfDayIn(TimeZone.UTC) - 1.milliseconds
-                parts.add("due_date >= '$startOfToday'")
-                parts.add("due_date <= '$endOfMonth'")
-                parts.add("due_date != '$nullDate'")
-            }
-            "has_due_date" -> {
-                parts.add("due_date != '$nullDate'")
-                parts.add("due_date != ''")
-            }
-            "no_due_date" -> {
-                parts.add("(due_date = '$nullDate' || due_date = '')")
-            }
-            // "all" -> no due date filter
-        }
-
-        // Include today from all projects (union mode) — only for include mode
-        if (filter.projectFilterMode != "exclude" && filter.includeTodayAllProjects && filter.projectIds.isNotEmpty()) {
-            val tomorrow = now.plus(1, DateTimeUnit.DAY)
-            val endOfToday = tomorrow.atStartOfDayIn(TimeZone.UTC) - 1.milliseconds
-            val startOfToday = now.atStartOfDayIn(TimeZone.UTC)
-            val projectFilter = if (filter.projectIds.size == 1) {
+        val includeOverdue = filter.includesOverdue
+        if (filter.projectIds.isNotEmpty() && filter.projectFilterMode != "exclude") {
+            val projectClause = if (filter.projectIds.size == 1) {
                 "project_id = ${filter.projectIds.first()}"
             } else {
-                // Multi-project handled client-side, use first project for API
-                "project_id = ${filter.projectIds.first()}"
+                filter.projectIds.joinToString(" || ", "(", ")") { "project_id = $it" }
             }
-            val doneFilter = if (!filter.includeDone) "done = false && " else ""
-            return "${doneFilter}(($projectFilter) || (due_date >= '$startOfToday' && due_date <= '$endOfToday' && due_date != '$nullDate'))"
+            if (filter.includeTodayAllProjects) {
+                val todayClause = dateWindowClause("today", includeOverdue, today, zone)
+                parts.add("($projectClause || ($todayClause))")
+            } else {
+                parts.add(projectClause)
+            }
         }
+
+        dateWindowClause(filter.dueDateFilter, includeOverdue, today, zone)?.let { parts.add(it) }
 
         return parts.joinToString(" && ")
     }
 
-    /**
-     * Builds query parameters for the Vikunja API.
-     */
-    fun buildQueryParams(filter: CustomListFilter): Map<String, String> = buildMap {
-        val filterStr = buildFilterString(filter)
+    /** Builds the query parameters for the Vikunja API (see [buildFilterString]). */
+    fun buildQueryParams(filter: CustomListFilter, today: LocalDate, zone: TimeZone): Map<String, String> = buildMap {
+        val filterStr = buildFilterString(filter, today, zone)
         if (filterStr.isNotBlank()) {
             put("filter", filterStr)
         }
         put("sort_by", filter.sortBy)
         put("order_by", filter.orderBy)
-    }
-
-    /**
-     * Applies client-side filters that can't be handled by the API.
-     * Call this on the task list returned from the API/Room.
-     */
-    fun applyClientSideFilters(tasks: List<Task>, filter: CustomListFilter): List<Task> {
-        var result = tasks
-
-        // Project filter (handles include and exclude modes)
-        if (filter.projectIds.isNotEmpty()) {
-            if (filter.projectFilterMode == "exclude") {
-                // Exclude mode: remove tasks from the selected projects
-                if (filter.includeTodayAllProjects) {
-                    result = result.filter { task ->
-                        task.projectId !in filter.projectIds || isTaskDueToday(task.dueDate)
-                    }
-                } else {
-                    result = result.filter { it.projectId !in filter.projectIds }
-                }
-            } else {
-                // Include mode (default)
-                if (filter.includeTodayAllProjects) {
-                    result = result.filter { task ->
-                        task.projectId in filter.projectIds || isTaskDueToday(task.dueDate)
-                    }
-                } else {
-                    result = result.filter { it.projectId in filter.projectIds }
-                }
-            }
-        }
-
-        // Due date filter
-        val timeZone = TimeZone.currentSystemDefault()
-        val now = Clock.System.todayIn(timeZone)
-        when (filter.dueDateFilter) {
-            "overdue" -> {
-                val startOfToday = now.atStartOfDayIn(timeZone)
-                result = result.filter { task ->
-                    val instant = DateUtils.parseIsoDate(task.dueDate)
-                    instant != null && instant < startOfToday
-                }
-            }
-            "today" -> {
-                val startOfToday = now.atStartOfDayIn(timeZone)
-                val endOfToday = now.plus(1, DateTimeUnit.DAY).atStartOfDayIn(timeZone)
-                result = result.filter { task ->
-                    val instant = DateUtils.parseIsoDate(task.dueDate)
-                    instant != null && instant >= startOfToday && instant < endOfToday
-                }
-            }
-            "this_week" -> {
-                val startOfToday = now.atStartOfDayIn(timeZone)
-                val endOfWeek = now.plus(1, DateTimeUnit.WEEK).atStartOfDayIn(timeZone)
-                result = result.filter { task ->
-                    val instant = DateUtils.parseIsoDate(task.dueDate)
-                    instant != null && instant >= startOfToday && instant < endOfWeek
-                }
-            }
-            "this_month" -> {
-                val startOfToday = now.atStartOfDayIn(timeZone)
-                val endOfMonth = now.plus(1, DateTimeUnit.MONTH).atStartOfDayIn(timeZone)
-                result = result.filter { task ->
-                    val instant = DateUtils.parseIsoDate(task.dueDate)
-                    instant != null && instant >= startOfToday && instant < endOfMonth
-                }
-            }
-            "has_due_date" -> {
-                result = result.filter { !DateUtils.isNullDate(it.dueDate) }
-            }
-            "no_due_date" -> {
-                result = result.filter { DateUtils.isNullDate(it.dueDate) }
-            }
-            // "all" -> no due date filter
-        }
-
-        // Priority filter
-        if (filter.priorityFilter.isNotEmpty()) {
-            result = result.filter { it.priority in filter.priorityFilter }
-        }
-
-        // Label filter (task must have at least one of the selected labels)
-        if (filter.labelIds.isNotEmpty()) {
-            result = result.filter { task ->
-                task.labels.any { it.id in filter.labelIds }
-            }
-        }
-
-        return result
     }
 
     /** A date key that sorts the null sentinel and blanks after every real date. */
@@ -216,14 +172,5 @@ object CustomListFilterBuilder {
         }
         val sorted = tasks.sortedWith(comparator)
         return if (orderBy.equals("desc", ignoreCase = true)) sorted.reversed() else sorted
-    }
-
-    private fun isTaskDueToday(dueDate: String): Boolean {
-        val instant = DateUtils.parseIsoDate(dueDate) ?: return false
-        val timeZone = TimeZone.currentSystemDefault()
-        val now = Clock.System.todayIn(timeZone)
-        val startOfToday = now.atStartOfDayIn(timeZone)
-        val startOfTomorrow = now.plus(1, DateTimeUnit.DAY).atStartOfDayIn(timeZone)
-        return instant >= startOfToday && instant < startOfTomorrow
     }
 }

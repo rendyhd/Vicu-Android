@@ -200,7 +200,7 @@ class TaskWidgetWorker(
                     val allTasks = taskDao.getAllOpenTasksSync(200)
                     val domainTasks = allTasks.map { with(taskMapper) { it.toDomain() } }
                     val filtered = CustomListFilterBuilder.sortTasks(
-                        CustomListFilterBuilder.applyClientSideFilters(domainTasks, customList.filter),
+                        CustomListFilterBuilder.applyClientSideFilters(domainTasks, customList.filter, day.date, day.zone),
                         customList.filter.sortBy,
                         customList.filter.orderBy,
                     )

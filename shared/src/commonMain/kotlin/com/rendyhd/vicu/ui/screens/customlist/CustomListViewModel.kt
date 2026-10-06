@@ -15,6 +15,7 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.util.CustomListFilterBuilder
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +50,7 @@ class CustomListViewModel(
     private val labelRepository: LabelRepository,
     private val customListRepository: CustomListRepository,
     private val authManager: AuthManager,
+    private val dayClock: DayClock,
 ) : ViewModel() {
 
     private val listId: String = savedStateHandle["listId"]!!
@@ -82,9 +84,11 @@ class CustomListViewModel(
                         } else {
                             taskRepository.getAllOpenTasks()
                         }
-                        combine(source, projectRepository.getAll(), completions.state) { tasks, projects, _ ->
+                        // The windows follow the local day, so the list is re-evaluated at midnight and
+                        // when the time zone changes.
+                        combine(source, projectRepository.getAll(), completions.state, dayClock.day) { tasks, projects, _, day ->
                             val activeIds = projects.mapTo(mutableSetOf()) { it.id }
-                            val filtered = CustomListFilterBuilder.applyClientSideFilters(tasks, customList.filter)
+                            val filtered = CustomListFilterBuilder.applyClientSideFilters(tasks, customList.filter, day.date, day.zone)
                                 .filter { it.projectId in activeIds }
                             customList to completions.merge(
                                 CustomListFilterBuilder.sortTasks(
@@ -100,14 +104,17 @@ class CustomListViewModel(
                     _uiState.update { it.copy(customList = customList, tasks = tasks, isLoading = false) }
                 }
         }
-        // Background network refresh, once per distinct filter config (Room paints first).
+        // Background network refresh, once per distinct filter config and local day (Room paints
+        // first). The server filter is built from the local day's boundaries.
         viewModelScope.launch {
-            customListRepository.lists.map { lists -> lists.find { it.id == listId } }
-                .map { it?.filter }
+            combine(
+                customListRepository.lists.map { lists -> lists.find { it.id == listId }?.filter },
+                dayClock.day,
+            ) { filter, day -> filter to day }
                 .distinctUntilChanged()
-                .collect { filter ->
+                .collect { (filter, day) ->
                     if (filter != null) {
-                        taskRepository.refreshAll(CustomListFilterBuilder.buildQueryParams(filter))
+                        taskRepository.refreshAll(CustomListFilterBuilder.buildQueryParams(filter, day.date, day.zone))
                     }
                 }
         }
@@ -125,7 +132,8 @@ class CustomListViewModel(
                 customListRepository.sync()
                 val customList = _uiState.value.customList
                 if (customList != null) {
-                    val params = CustomListFilterBuilder.buildQueryParams(customList.filter)
+                    val day = dayClock.day.value
+                    val params = CustomListFilterBuilder.buildQueryParams(customList.filter, day.date, day.zone)
                     taskRepository.refreshAll(params)
                 }
                 projectRepository.refreshAll()
