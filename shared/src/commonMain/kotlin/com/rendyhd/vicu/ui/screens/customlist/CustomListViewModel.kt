@@ -17,6 +17,7 @@ import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.util.CustomListFilterBuilder
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.withoutNestedSubtasks
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -79,10 +80,13 @@ class CustomListViewModel(
                     if (customList == null) {
                         flowOf<Pair<CustomList?, List<Task>>>(null to emptyList())
                     } else {
+                        // Flat: the list's conditions apply to every task, and nested subtasks are
+                        // hidden afterwards among the matches (a matching subtask shows even when
+                        // its parent does not match).
                         val source = if (customList.filter.includeDone) {
-                            taskRepository.getAllTasks()
+                            taskRepository.getAllTasksFlat()
                         } else {
-                            taskRepository.getAllOpenTasks()
+                            taskRepository.getAllOpenTasksFlat()
                         }
                         // The windows follow the local day, so the list is re-evaluated at midnight and
                         // when the time zone changes.
@@ -90,6 +94,7 @@ class CustomListViewModel(
                             val activeIds = projects.mapTo(mutableSetOf()) { it.id }
                             val filtered = CustomListFilterBuilder.applyClientSideFilters(tasks, customList.filter, day.date, day.zone)
                                 .filter { it.projectId in activeIds }
+                                .withoutNestedSubtasks(hideChildrenOfCompletedParents = false)
                             customList to completions.merge(
                                 CustomListFilterBuilder.sortTasks(
                                     filtered,

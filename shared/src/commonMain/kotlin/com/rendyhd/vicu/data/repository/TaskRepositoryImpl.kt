@@ -162,10 +162,12 @@ class TaskRepositoryImpl(
             json.encodeToString(JsonObject.serializer(), patch)
         }
 
-    private fun List<TaskEntity>.toTopLevelTasks(): List<Task> =
+    /** Every task, nested subtasks included; sync metadata tasks are never user tasks. */
+    private fun List<TaskEntity>.toTasks(): List<Task> =
         filterNot { CustomListEnvelope.isAnyMetadataTask(it.description) }
             .map { with(taskMapper) { it.toDomain() } }
-            .withoutNestedSubtasks()
+
+    private fun List<TaskEntity>.toTopLevelTasks(): List<Task> = toTasks().withoutNestedSubtasks()
 
     override fun getInboxTasks(inboxProjectId: Long): Flow<List<Task>> =
         behaviorPrefsStore.getPrefs()
@@ -248,6 +250,16 @@ class TaskRepositoryImpl(
     override fun getAllTasks(): Flow<List<Task>> =
         taskDao.getAllTasksFlow().distinctUntilChanged().map { entities ->
             entities.toTopLevelTasks()
+        }
+
+    override fun getAllOpenTasksFlat(): Flow<List<Task>> =
+        taskDao.getAllOpenTasks().distinctUntilChanged().map { entities ->
+            entities.toTasks()
+        }
+
+    override fun getAllTasksFlat(): Flow<List<Task>> =
+        taskDao.getAllTasksFlow().distinctUntilChanged().map { entities ->
+            entities.toTasks()
         }
 
     override suspend fun create(task: Task): NetworkResult<Task> {

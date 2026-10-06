@@ -12,6 +12,7 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.withoutNestedSubtasks
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -54,14 +55,16 @@ class TagViewModel(
         }
         viewModelScope.launch {
             combine(
-                taskRepository.getAllOpenTasks(),
+                taskRepository.getAllOpenTasksFlat(),
                 projectRepository.getAll(),
                 completions.state,
             ) { tasks, projects, _ ->
                 val activeIds = projects.mapTo(mutableSetOf()) { it.id }
-                val filtered = tasks.filter { task ->
-                    task.projectId in activeIds && task.labels.any { it.id == labelId }
-                }
+                // Filter first, then hide nested subtasks among the matches: a labeled subtask
+                // shows even when its parent does not carry the label (X-16).
+                val filtered = tasks
+                    .filter { task -> task.projectId in activeIds && task.labels.any { it.id == labelId } }
+                    .withoutNestedSubtasks(hideChildrenOfCompletedParents = false)
                 completions.merge(filtered)
             }.collect { filtered ->
                 _uiState.update { it.copy(tasks = filtered, isLoading = false) }

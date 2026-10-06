@@ -13,6 +13,7 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
@@ -68,8 +69,9 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     override fun getById(id: Long): Flow<TaskEntity?> = flowOf(null)
     override fun searchByTitle(query: String): Flow<List<TaskEntity>> = flowOf(emptyList())
     override fun searchByTitleIncludingDone(query: String): Flow<List<TaskEntity>> = flowOf(emptyList())
-    override fun getAllOpenTasks(): Flow<List<TaskEntity>> = flowOf(emptyList())
-    override fun getAllTasksFlow(): Flow<List<TaskEntity>> = flowOf(emptyList())
+    override fun getAllOpenTasks(): Flow<List<TaskEntity>> =
+        flow { emit(lock.withLock { rows.values.filter { !it.done } }) }
+    override fun getAllTasksFlow(): Flow<List<TaskEntity>> = flow { emit(lock.withLock { rows.values.toList() }) }
     override fun getRoutineCarriersFlow(): Flow<List<TaskEntity>> = flowOf(emptyList())
 
     override suspend fun getByIdsChunk(ids: List<Long>): List<TaskEntity> = lock.withLock {

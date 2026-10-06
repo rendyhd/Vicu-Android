@@ -18,6 +18,15 @@ interface TaskRepository {
     fun getAllOpenTasks(): Flow<List<Task>>
     fun getAllTasks(): Flow<List<Task>>
 
+    /**
+     * Like [getAllOpenTasks] and [getAllTasks], but nested subtasks are not hidden: every task is
+     * a row. For views that apply their own conditions first (Tag, custom lists) and hide nested
+     * subtasks only among the tasks that match, so a matching subtask shows even when its parent
+     * does not match. Hide them with `withoutNestedSubtasks(hideChildrenOfCompletedParents = false)`.
+     */
+    fun getAllOpenTasksFlat(): Flow<List<Task>>
+    fun getAllTasksFlat(): Flow<List<Task>>
+
     suspend fun create(task: Task): NetworkResult<Task>
     suspend fun update(task: Task): NetworkResult<Task>
     /**
