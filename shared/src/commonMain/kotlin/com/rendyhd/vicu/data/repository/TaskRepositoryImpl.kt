@@ -270,7 +270,11 @@ class TaskRepositoryImpl(
             taskDao.upsert(responseEntity)
             val created = with(taskMapper) { responseEntity.toDomain() }
             platformHooks.scheduleAlarm(created)
-            anchorNewTaskAtEnd(task.projectId, created.id)
+            // Metadata tasks (routine carriers) are hidden from every list, so their position
+            // does not matter and the extra requests would only slow the create down.
+            if (!CustomListEnvelope.isAnyMetadataTask(task.description)) {
+                anchorNewTaskAtEnd(task.projectId, created.id)
+            }
             platformHooks.updateWidgets()
             NetworkResult.Success(created)
         } catch (e: Exception) {

@@ -248,6 +248,7 @@ class TaskMapper(private val json: Json) {
     fun Task.toCreateDto(): CreateTaskDto = CreateTaskDto(
         title = title,
         description = description,
+        done = done,
         dueDate = dateOrNullable(dueDate),
         startDate = dateOrNullable(startDate),
         priority = priority,
