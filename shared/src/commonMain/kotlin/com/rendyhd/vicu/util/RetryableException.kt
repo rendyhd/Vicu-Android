@@ -15,3 +15,12 @@ fun isRetriableNetworkError(e: Exception): Boolean {
 }
 
 expect fun isPlatformRetriableError(e: Exception): Boolean
+
+/**
+ * True when [e] means no HTTP response was received at all: offline, DNS failure, timeout,
+ * connection reset, TLS failure. Unlike [isRetriableNetworkError] this says nothing about
+ * whether a retry is worthwhile, and TLS failures count.
+ */
+fun isNetworkFailure(e: Exception): Boolean = isPlatformNetworkFailure(e)
+
+expect fun isPlatformNetworkFailure(e: Exception): Boolean

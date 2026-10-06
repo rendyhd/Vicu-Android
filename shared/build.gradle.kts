@@ -86,6 +86,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
+    testOptions {
+        // Shared code logs through android.util.Log; unit tests must not crash on it.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 room {

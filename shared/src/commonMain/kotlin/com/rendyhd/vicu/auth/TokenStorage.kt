@@ -7,10 +7,25 @@ interface TokenStorage {
     suspend fun getJwt(): String?
     suspend fun getJwtExpiry(): Long
 
+    /** Stores a token the user supplied. It is not ours to revoke, so any backup token id is cleared. */
     suspend fun storeApiToken(token: String, expiry: Long)
+
+    /** Stores the backup token this app created, together with its server-side id, in one write. */
+    suspend fun storeBackupApiToken(token: String, expiry: Long, tokenId: Long)
     suspend fun getApiToken(): String?
     suspend fun getApiTokenExpiry(): Long
+
+    /** Server-side id of the backup token created by this app, or null for a user-supplied or unknown token. */
+    suspend fun getBackupApiTokenId(): Long?
+
+    /** True only when a stored API token exists and can actually be read back (decrypted). */
     suspend fun hasApiToken(): Boolean
+
+    /**
+     * Random id identifying this install, generated on first use. It survives [clear] (so a
+     * re-login keeps its token titles) but is not backed up, so a restored device gets a new one.
+     */
+    suspend fun getInstallId(): String
 
     suspend fun storeRefreshToken(token: String)
     suspend fun getRefreshToken(): String?

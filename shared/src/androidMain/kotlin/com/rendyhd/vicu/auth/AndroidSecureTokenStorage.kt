@@ -37,6 +37,8 @@ class AndroidSecureTokenStorage(
         val PROVIDER_KEY = stringPreferencesKey("provider_key")
         val VIKUNJA_URL = stringPreferencesKey("vikunja_url")
         val INBOX_PROJECT_ID = longPreferencesKey("inbox_project_id")
+        val BACKUP_TOKEN_ID = longPreferencesKey("backup_api_token_id")
+        val INSTALL_ID = stringPreferencesKey("install_id")
     }
 
     companion object {
@@ -138,7 +140,22 @@ class AndroidSecureTokenStorage(
         context.authDataStore.edit { prefs ->
             prefs[Keys.API_TOKEN] = encrypt(token)
             prefs[Keys.API_TOKEN_EXPIRY] = expiry
+            // A user-supplied token is not ours to revoke.
+            prefs.remove(Keys.BACKUP_TOKEN_ID)
         }
+    }
+
+    override suspend fun storeBackupApiToken(token: String, expiry: Long, tokenId: Long) {
+        context.authDataStore.edit { prefs ->
+            prefs[Keys.API_TOKEN] = encrypt(token)
+            prefs[Keys.API_TOKEN_EXPIRY] = expiry
+            prefs[Keys.BACKUP_TOKEN_ID] = tokenId
+        }
+    }
+
+    override suspend fun getBackupApiTokenId(): Long? {
+        val prefs = context.authDataStore.data.first()
+        return prefs[Keys.BACKUP_TOKEN_ID]
     }
 
     override suspend fun getApiToken(): String? {
@@ -152,12 +169,22 @@ class AndroidSecureTokenStorage(
     }
 
     /**
-     * Quick check whether an API token is stored (without decrypting).
-     * Used by AuthManager to decide whether to attempt backup token creation.
+     * Whether a usable API token is stored. Ciphertext that can no longer be decrypted (the
+     * keystore was reset, or the app was restored onto another device) does not count, so
+     * AuthManager recreates the backup token instead of keeping a token it cannot read.
      */
-    override suspend fun hasApiToken(): Boolean {
-        val prefs = context.authDataStore.data.first()
-        return prefs[Keys.API_TOKEN] != null
+    override suspend fun hasApiToken(): Boolean = getApiToken() != null
+
+    override suspend fun getInstallId(): String {
+        val existing = context.authDataStore.data.first()[Keys.INSTALL_ID]
+        if (existing != null && ApiTokenTitle.isValidInstallId(existing)) return existing
+
+        var installId = ""
+        context.authDataStore.edit { prefs ->
+            val current = prefs[Keys.INSTALL_ID]?.takeIf { ApiTokenTitle.isValidInstallId(it) }
+            installId = current ?: ApiTokenTitle.newInstallId().also { prefs[Keys.INSTALL_ID] = it }
+        }
+        return installId
     }
 
     // Refresh Token (Vikunja 2.0 session cookie)
@@ -236,8 +263,14 @@ class AndroidSecureTokenStorage(
         return prefs[Keys.INBOX_PROJECT_ID]
     }
 
-    // Clear all
+    // Clear all credentials and settings. The install id identifies this install rather than a
+    // session, so it is kept: a token left behind on the server by an offline logout can then
+    // still be recognised and cleaned up after the next login.
     override suspend fun clear() {
-        context.authDataStore.edit { it.clear() }
+        context.authDataStore.edit { prefs ->
+            val installId = prefs[Keys.INSTALL_ID]
+            prefs.clear()
+            if (installId != null) prefs[Keys.INSTALL_ID] = installId
+        }
     }
 }

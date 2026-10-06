@@ -26,6 +26,8 @@ class IosKeychainTokenStorage : TokenStorage {
         private const val KEY_SERVER_IS_V2 = "server_is_v2"
         private const val KEY_JWT_EXPIRY = "jwt_expiry"
         private const val KEY_API_TOKEN_EXPIRY = "api_token_expiry"
+        private const val KEY_BACKUP_TOKEN_ID = "backup_api_token_id"
+        private const val KEY_INSTALL_ID = "install_id"
         
         private const val SERVICE_NAME = "com.rendyhd.vicu"
         private const val ACCOUNT_JWT = "jwt"
@@ -91,6 +93,19 @@ class IosKeychainTokenStorage : TokenStorage {
     override suspend fun storeApiToken(token: String, expiry: Long) {
         saveKeychainString(ACCOUNT_API_TOKEN, token)
         defaults.setInteger(expiry, KEY_API_TOKEN_EXPIRY)
+        // A user-supplied token is not ours to revoke.
+        defaults.removeObjectForKey(KEY_BACKUP_TOKEN_ID)
+    }
+
+    override suspend fun storeBackupApiToken(token: String, expiry: Long, tokenId: Long) {
+        saveKeychainString(ACCOUNT_API_TOKEN, token)
+        defaults.setInteger(expiry, KEY_API_TOKEN_EXPIRY)
+        defaults.setInteger(tokenId, KEY_BACKUP_TOKEN_ID)
+    }
+
+    override suspend fun getBackupApiTokenId(): Long? {
+        val id = defaults.integerForKey(KEY_BACKUP_TOKEN_ID)
+        return if (id == 0L) null else id
     }
 
     override suspend fun getApiToken(): String? = getKeychainString(ACCOUNT_API_TOKEN)
@@ -98,6 +113,14 @@ class IosKeychainTokenStorage : TokenStorage {
     override suspend fun getApiTokenExpiry(): Long = defaults.integerForKey(KEY_API_TOKEN_EXPIRY)
 
     override suspend fun hasApiToken(): Boolean = getApiToken() != null
+
+    override suspend fun getInstallId(): String {
+        val existing = defaults.stringForKey(KEY_INSTALL_ID)
+        if (existing != null && ApiTokenTitle.isValidInstallId(existing)) return existing
+        val created = ApiTokenTitle.newInstallId()
+        defaults.setObject(created, KEY_INSTALL_ID)
+        return created
+    }
 
     override suspend fun storeRefreshToken(token: String) {
         saveKeychainString(ACCOUNT_REFRESH_TOKEN, token)
@@ -146,6 +169,7 @@ class IosKeychainTokenStorage : TokenStorage {
         deleteKeychainItem(ACCOUNT_REFRESH_TOKEN)
         defaults.removeObjectForKey(KEY_JWT_EXPIRY)
         defaults.removeObjectForKey(KEY_API_TOKEN_EXPIRY)
+        defaults.removeObjectForKey(KEY_BACKUP_TOKEN_ID)
         defaults.removeObjectForKey(KEY_AUTH_METHOD)
         defaults.removeObjectForKey(KEY_PROVIDER_KEY)
         defaults.removeObjectForKey(KEY_VIKUNJA_URL)

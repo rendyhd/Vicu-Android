@@ -17,3 +17,16 @@ actual fun isPlatformRetriableError(e: Exception): Boolean {
     if (e.cause is IOException) return true
     return false
 }
+
+private const val MAX_CAUSE_DEPTH = 8
+
+actual fun isPlatformNetworkFailure(e: Exception): Boolean {
+    var current: Throwable? = e
+    var depth = 0
+    while (current != null && depth < MAX_CAUSE_DEPTH) {
+        if (current is IOException) return true
+        current = current.cause
+        depth++
+    }
+    return false
+}
