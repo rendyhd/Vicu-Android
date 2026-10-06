@@ -26,7 +26,9 @@ object KtorClientFactory {
         json: Json,
         baseUrlHolder: BaseUrlHolder,
         authManager: AuthManager,
-        enableLogging: Boolean = true
+        // Request logging puts every URL (server host, search terms, filters) into logcat, so it
+        // is opt-in and only the debug build turns it on (see KoinModules).
+        enableLogging: Boolean = false
     ): HttpClient {
         val client = HttpClient(engine) {
             install(ContentNegotiation) {

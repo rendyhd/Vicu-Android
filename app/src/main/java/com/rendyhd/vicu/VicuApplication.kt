@@ -4,7 +4,9 @@ import android.app.Application
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.notification.NotificationChannelManager
+import com.rendyhd.vicu.util.BuildInfo
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
 import com.rendyhd.vicu.worker.RoutineMaintenanceScheduler
 import org.koin.android.ext.koin.androidContext
@@ -22,6 +24,10 @@ class VicuApplication : Application(), SingletonImageLoader.Factory, KoinCompone
 
     override fun onCreate() {
         super.onCreate()
+        // Tell the shared module which build this is before anything logs or builds the HTTP
+        // client: release builds get no request logging, no debug logs and no auth log file.
+        BuildInfo.configure(isDebug = BuildConfig.DEBUG)
+        AuthDebugLog.init(this)
         startKoin {
             androidContext(this@VicuApplication)
             workManagerFactory()

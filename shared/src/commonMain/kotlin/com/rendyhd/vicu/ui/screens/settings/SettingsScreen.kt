@@ -73,6 +73,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -106,11 +107,14 @@ import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.LabelEditDialog
 import com.rendyhd.vicu.ui.components.settings.ExactAlarmBanner
 import com.rendyhd.vicu.ui.components.settings.NotificationsDisabledBanner
+import com.rendyhd.vicu.util.BuildInfo
 import com.rendyhd.vicu.util.buildProjectTree
 import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.ui.components.shared.ProjectEditDialog
 import com.rendyhd.vicu.ui.components.shared.ReviewCadenceInputDialog
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val REMINDER_OFFSET_OPTIONS = listOf(
     "None" to 0,
@@ -1748,7 +1752,8 @@ private fun GeneralTab(
             }
         }
 
-        item(key = "auth_debug_log") {
+        // The auth debug log only exists in debug builds.
+        if (BuildInfo.isDebug) item(key = "auth_debug_log") {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2639,7 +2644,10 @@ private fun buildFilterSummary(list: CustomList): String {
 private fun AuthDebugLogDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val logText = remember { AuthDebugLog.readLog() }
+    // The log is a file: read it off the main thread. Null while it loads.
+    val logText by produceState<String?>(initialValue = null) {
+        value = withContext(Dispatchers.IO) { AuthDebugLog.readLog() }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2650,23 +2658,27 @@ private fun AuthDebugLogDialog(onDismiss: () -> Unit) {
                     .fillMaxWidth()
                     .fillMaxHeight(0.6f),
             ) {
-                val vScroll = rememberScrollState(Int.MAX_VALUE) // scroll to bottom
-                val hScroll = rememberScrollState()
-                Text(
-                    text = logText,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = FontFamily.Monospace,
-                    ),
-                    modifier = Modifier
-                        .verticalScroll(vScroll)
-                        .horizontalScroll(hScroll),
-                )
+                val loaded = logText
+                if (loaded != null) {
+                    val vScroll = rememberScrollState(Int.MAX_VALUE) // scroll to bottom
+                    val hScroll = rememberScrollState()
+                    Text(
+                        text = loaded,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                        ),
+                        modifier = Modifier
+                            .verticalScroll(vScroll)
+                            .horizontalScroll(hScroll),
+                    )
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                clipboardManager.setText(AnnotatedString(logText))
-            }) {
+            TextButton(
+                enabled = logText != null,
+                onClick = { clipboardManager.setText(AnnotatedString(logText.orEmpty())) },
+            ) {
                 Text("Copy")
             }
         },

@@ -109,6 +109,22 @@
 -dontwarn coil3.**
 
 # =============================================================================
+# Logging: strip verbose/debug/info logging from release builds
+# =============================================================================
+# Request URLs, search terms and auth events must not reach logcat in release. Logger.d/i are
+# already no-ops at runtime outside debug builds; removing the calls also drops the string
+# building at every call site. Warnings and errors are kept.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}
+-assumenosideeffects class com.rendyhd.vicu.util.Logger {
+    public void d(java.lang.String, java.lang.String);
+    public void i(java.lang.String, java.lang.String);
+}
+
+# =============================================================================
 # Kotlin
 # =============================================================================
 -keep class kotlin.Metadata { *; }

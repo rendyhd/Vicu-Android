@@ -14,6 +14,7 @@ import com.rendyhd.vicu.domain.repository.*
 import com.rendyhd.vicu.data.remote.*
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.auth.*
+import com.rendyhd.vicu.util.BuildInfo
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.worker.SyncEngine
@@ -59,6 +60,8 @@ val networkModule = module {
             json = get(),
             baseUrlHolder = get(),
             authManager = get(),
+            // Set by the host app from its BuildConfig before Koin starts.
+            enableLogging = BuildInfo.isDebug,
         )
     }
     single { VikunjaApiService(get(), get()) }
