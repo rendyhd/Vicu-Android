@@ -32,6 +32,13 @@ interface TaskRepository {
     /** Deletes a task. Descendants are deleted by default so they cannot be silently promoted. */
     suspend fun delete(taskId: Long, deleteSubtasks: Boolean = true): NetworkResult<Unit>
     suspend fun toggleDone(task: Task): NetworkResult<Task>
+    /**
+     * Idempotent completion: brings the stored task to [done] and does nothing when it is
+     * already there. Unlike [toggleDone] it can never reopen a task, so it is the right call for
+     * actions that may run twice or against data that changed since the user last looked
+     * (notification buttons).
+     */
+    suspend fun setDone(taskId: Long, done: Boolean): NetworkResult<Task>
     suspend fun createSubtask(parentTaskId: Long, subtask: Task): NetworkResult<Task>
     suspend fun toggleSubtaskDone(parentTaskId: Long, subtask: Task): NetworkResult<Task>
     suspend fun deleteRelation(taskId: Long, relationKind: String, otherTaskId: Long): NetworkResult<Unit>

@@ -655,6 +655,15 @@ class TaskRepositoryImpl(
         return toggleTaskTree(task)
     }
 
+    override suspend fun setDone(taskId: Long, done: Boolean): NetworkResult<Task> {
+        val current = taskDao.getByIdSync(taskId)?.let { with(taskMapper) { it.toDomain() } }
+            ?: return NetworkResult.Error("Task $taskId is not in the local cache")
+        if (current.done == done) return NetworkResult.Success(current)
+        // The task is not in the requested state, so flipping it reaches that state; this goes
+        // through the same path (subtask cascade, queueing) as completing from a list.
+        return toggleTaskTree(current)
+    }
+
     private suspend fun setTaskDone(
         task: Task,
         targetDone: Boolean,

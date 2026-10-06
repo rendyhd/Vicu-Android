@@ -6,8 +6,6 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import com.rendyhd.vicu.auth.AuthManager
-import com.rendyhd.vicu.data.local.dao.TaskDao
-import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
@@ -26,8 +24,6 @@ class NotificationActionReceiver : BroadcastReceiver(), KoinComponent {
         const val ACTION_SNOOZE = "com.rendyhd.vicu.ACTION_SNOOZE"
     }
 
-    private val taskDao: TaskDao by inject()
-    private val taskMapper: TaskMapper by inject()
     private val alarmScheduler: AlarmScheduler by inject()
     private val taskRepository: TaskRepository by inject()
     private val baseUrlHolder: BaseUrlHolder by inject()
@@ -55,9 +51,9 @@ class NotificationActionReceiver : BroadcastReceiver(), KoinComponent {
                 baseUrlHolder.ensureInitialized()
                 authManager.ensureInitializedAndGetToken()
 
-                val entity = taskDao.getByIdSync(taskId) ?: return@launch
-                val task = with(taskMapper) { entity.toDomain() }
-                taskRepository.toggleDone(task)
+                // Explicit completion, never a toggle: if sync already stored the task as done
+                // (completed on another device) this must leave it done, not reopen it.
+                taskRepository.setDone(taskId, true)
                 SyncScheduler.enqueueWhenOnline(context)
 
                 alarmScheduler.cancelForTask(taskId)

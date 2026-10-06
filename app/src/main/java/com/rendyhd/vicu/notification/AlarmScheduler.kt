@@ -6,22 +6,29 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import com.rendyhd.vicu.data.local.ReminderAlarmRegistry
 import com.rendyhd.vicu.data.local.SnoozeEntry
 import com.rendyhd.vicu.data.local.SnoozeStore
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.domain.model.Task
-import com.rendyhd.vicu.domain.model.TaskReminder
-import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.ReminderAlarmBackend
+import com.rendyhd.vicu.util.ReminderAlarmCoordinator
+import com.rendyhd.vicu.util.ReminderAlarmSpec
+import kotlinx.coroutines.CancellationException
 
-import kotlinx.datetime.Instant
-import kotlin.time.Duration.Companion.seconds
-
+/**
+ * Registers task reminder alarms with AlarmManager. Which alarms exist is tracked in
+ * [ReminderAlarmRegistry], so an alarm can be cancelled exactly (completed or deleted task,
+ * removed reminder, sign-out) instead of probing request codes. The pure rules live in
+ * [com.rendyhd.vicu.util.ReminderAlarms]; [AlarmReceiver] re-checks the task when an alarm fires.
+ */
 class AlarmScheduler(
     private val context: Context,
     private val taskDao: TaskDao,
     private val taskMapper: TaskMapper,
     private val snoozeStore: SnoozeStore,
+    registry: ReminderAlarmRegistry,
 ) {
     companion object {
         private const val TAG = "AlarmScheduler"
@@ -30,46 +37,29 @@ class AlarmScheduler(
     private val alarmManager: AlarmManager
         get() = context.getSystemService(AlarmManager::class.java)
 
-    fun scheduleForTask(task: Task) {
-        cancelReminders(task.id)
+    private val coordinator = ReminderAlarmCoordinator(
+        registry = registry,
+        backend = object : ReminderAlarmBackend {
+            override fun schedule(alarm: ReminderAlarmSpec, taskTitle: String) =
+                registerReminderAlarm(alarm, taskTitle)
 
-        if (task.done || task.reminders.isEmpty()) return
+            override fun cancel(requestCode: Int) = cancelReminderAlarm(requestCode)
+        },
+    )
 
-        task.reminders.forEachIndexed { index, reminder ->
-            val triggerAtMillis = resolveReminderTime(reminder, task.dueDate)
-            if (triggerAtMillis != null && triggerAtMillis > System.currentTimeMillis()) {
-                scheduleAlarm(task.id, task.title, index, triggerAtMillis)
-            }
-        }
-    }
-
-    private fun cancelReminders(taskId: Long) {
-        // Cancel up to 100 potential reminders per task
-        for (i in 0 until 100) {
-            val requestCode = alarmRequestCode(taskId, i)
-            val intent = Intent(context, AlarmReceiver::class.java)
-            val pending = PendingIntent.getBroadcast(
-                context,
-                requestCode,
-                intent,
-                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
-            )
-            if (pending != null) {
-                alarmManager.cancel(pending)
-                pending.cancel()
-            }
-        }
-    }
+    /** Replaces the alarms of [task] with the ones its reminders call for right now. */
+    suspend fun scheduleForTask(task: Task) = coordinator.scheduleForTask(task)
 
     suspend fun rescheduleAll() {
         Log.d(TAG, "rescheduleAll() start")
         try {
             val entities = taskDao.getAllWithReminders()
-            entities.forEach { entity ->
-                val task = with(taskMapper) { entity.toDomain() }
-                scheduleForTask(task)
-            }
-            Log.d(TAG, "rescheduleAll() scheduled for ${entities.size} tasks")
+            val tasks = entities.map { entity -> with(taskMapper) { entity.toDomain() } }
+            // A full pass also cancels alarms of tasks that are no longer open with reminders.
+            coordinator.reconcileAll(tasks)
+            Log.d(TAG, "rescheduleAll() reconciled ${tasks.size} tasks")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "rescheduleAll() failed", e)
         }
@@ -77,8 +67,14 @@ class AlarmScheduler(
 
     /** Cancels everything for a task, including a pending snooze (task done/deleted). */
     suspend fun cancelForTask(taskId: Long) {
-        cancelReminders(taskId)
+        coordinator.cancelForTask(taskId)
         cancelSnooze(taskId)
+    }
+
+    /** Sign-out: cancels every reminder alarm and every pending snooze. */
+    suspend fun cancelAll() {
+        coordinator.cancelAll()
+        snoozeStore.all().forEach { cancelSnooze(it.taskId) }
     }
 
     suspend fun scheduleSnooze(taskId: Long, taskTitle: String, triggerAtMillis: Long) {
@@ -130,23 +126,29 @@ class AlarmScheduler(
         alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pending)
     }
 
-    /**
-     * Stable, collision-resistant PendingIntent request code from (taskId, index).
-     * Hashing the 64-bit (taskId*100+index) avoids the Int truncation/overflow of large
-     * server IDs that let one task's cancel hit another task's alarms.
-     */
-    private fun alarmRequestCode(taskId: Long, index: Int): Int =
-        (taskId * 100 + index).hashCode()
-
-    private fun scheduleAlarm(taskId: Long, taskTitle: String, reminderIndex: Int, triggerAtMillis: Long) {
-        val requestCode = alarmRequestCode(taskId, reminderIndex)
-        val intent = Intent(context, AlarmReceiver::class.java).apply {
-            putExtra(AlarmReceiver.EXTRA_TASK_ID, taskId)
-            putExtra(AlarmReceiver.EXTRA_TASK_TITLE, taskTitle)
-        }
+    private fun cancelReminderAlarm(requestCode: Int) {
         val pending = PendingIntent.getBroadcast(
             context,
             requestCode,
+            Intent(context, AlarmReceiver::class.java),
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        )
+        if (pending != null) {
+            alarmManager.cancel(pending)
+            pending.cancel()
+        }
+    }
+
+    private fun registerReminderAlarm(alarm: ReminderAlarmSpec, taskTitle: String) {
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra(AlarmReceiver.EXTRA_TASK_ID, alarm.taskId)
+            putExtra(AlarmReceiver.EXTRA_TASK_TITLE, taskTitle)
+            // The receiver checks that the task still has a reminder resolving to this time.
+            putExtra(AlarmReceiver.EXTRA_TRIGGER_AT_MILLIS, alarm.triggerAtMillis)
+        }
+        val pending = PendingIntent.getBroadcast(
+            context,
+            alarm.requestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -155,38 +157,16 @@ class AlarmScheduler(
             // Without the exact-alarm permission, fall back to an inexact alarm so the
             // reminder still fires (approximately) instead of silently dying. The Settings
             // banner prompts the user to grant exact alarms for precise timing.
-            Log.w(TAG, "Exact alarms not permitted — scheduling inexact fallback")
-            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pending)
+            Log.w(TAG, "Exact alarms not permitted - scheduling inexact fallback")
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, alarm.triggerAtMillis, pending)
             return
         }
 
         alarmManager.setExactAndAllowWhileIdle(
             AlarmManager.RTC_WAKEUP,
-            triggerAtMillis,
+            alarm.triggerAtMillis,
             pending,
         )
-        Log.d(TAG, "Scheduled alarm taskId=$taskId index=$reminderIndex at $triggerAtMillis")
-    }
-
-    private fun resolveReminderTime(reminder: TaskReminder, dueDate: String): Long? {
-        // Absolute reminder: reminder field has a valid ISO timestamp
-        if (reminder.reminder.isNotBlank()) {
-            val instant = DateUtils.parseIsoDate(reminder.reminder)
-            if (instant != null) return instant.toEpochMilliseconds()
-        }
-
-        // Relative reminder: offset from due_date (or start_date/end_date via relativeTo).
-        // A period of 0 with a non-blank relativeTo means "at the base date" (e.g. "At due
-        // time"), which previously fell through to null and never scheduled an alarm.
-        if (reminder.relativePeriod != 0L || reminder.relativeTo.isNotBlank()) {
-            val baseDate = DateUtils.parseIsoDate(dueDate)
-            if (baseDate != null) {
-                // relativePeriod is in seconds, negative = before due date
-                val triggerInstant = baseDate + reminder.relativePeriod.seconds
-                return triggerInstant.toEpochMilliseconds()
-            }
-        }
-
-        return null
+        Log.d(TAG, "Scheduled alarm taskId=${alarm.taskId} index=${alarm.reminderIndex} at ${alarm.triggerAtMillis}")
     }
 }

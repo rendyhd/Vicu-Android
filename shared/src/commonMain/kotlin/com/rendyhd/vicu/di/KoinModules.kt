@@ -38,6 +38,7 @@ val databaseModule = module {
     single { NlpPrefsStore(createDataStore(get(), "nlp_prefs")) }
     single { NotificationPrefsStore(createDataStore(get(), "notification_prefs")) }
     single { ProjectSectionPrefsStore(createDataStore(get(), "project_section_prefs")) }
+    single { ReminderAlarmRegistry(createDataStore(get(), "reminder_alarm_registry"), get()) }
     single { ReviewPrefsStore(createDataStore(get(), "review_prefs")) }
     single { RoutinePrefsStore(createDataStore(get(), "routine_prefs")) }
     single { SnoozeStore(createDataStore(get(), "snooze_prefs"), get()) }

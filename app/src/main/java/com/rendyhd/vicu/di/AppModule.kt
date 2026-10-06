@@ -82,7 +82,7 @@ val appModule = module {
     single<PlatformFiles> { AndroidPlatformFiles(get()) }
     single<PlatformSettingsHooks> { AndroidSettingsHooks(androidContext(), get()) }
 
-    single { AlarmScheduler(androidContext(), get(), get(), get()) }
+    single { AlarmScheduler(androidContext(), get(), get(), get(), get()) }
     single { RoutineAlarmScheduler(androidContext(), get(), get()) }
     single { DailySummaryScheduler(androidContext()) }
     single { CompletionSoundPlayer(androidContext(), get()) }
