@@ -3,6 +3,7 @@ package com.rendyhd.vicu.data.remote.api
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
+import io.ktor.client.request.forms.ChannelProvider
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
@@ -10,9 +11,11 @@ import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.prepareGet
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.Headers
@@ -20,6 +23,8 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import com.rendyhd.vicu.util.Constants
+import com.rendyhd.vicu.util.contentDispositionFileParameter
+import io.ktor.utils.io.ByteReadChannel
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
@@ -155,17 +160,22 @@ class VikunjaApiService(
             }.bodyOrThrow()
         }
 
-    suspend fun uploadAttachment(taskId: Long, fileName: String, content: ByteArray) {
+    /**
+     * Uploads a file by streaming it: [content] is asked for the bytes when the request is sent
+     * (and again if it has to be sent again), so the file is never held in memory. [size] lets
+     * the request state its length up front.
+     */
+    suspend fun uploadAttachment(taskId: Long, fileName: String, size: Long?, content: () -> ByteReadChannel) {
         client.post("tasks/$taskId/attachments") {
             setBody(
                 MultiPartFormDataContent(
                     formData {
                         append(
                             "files",
-                            content,
+                            ChannelProvider(size, content),
                             Headers.build {
                                 append(HttpHeaders.ContentType, "application/octet-stream")
-                                append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
+                                append(HttpHeaders.ContentDisposition, contentDispositionFileParameter(fileName))
                             },
                         )
                     },
@@ -174,8 +184,15 @@ class VikunjaApiService(
         }.requireStatus(HttpStatusCode.Created)
     }
 
-    suspend fun downloadAttachment(taskId: Long, attachmentId: Long): ByteArray =
-        client.get("tasks/$taskId/attachments/$attachmentId").bodyOrThrow()
+    /** Streams an attachment to [consume] as it arrives; the body is never collected in memory. */
+    suspend fun <T> downloadAttachment(
+        taskId: Long,
+        attachmentId: Long,
+        consume: suspend (ByteReadChannel) -> T,
+    ): T = client.prepareGet("tasks/$taskId/attachments/$attachmentId").execute { response ->
+        response.ensureSuccess()
+        consume(response.bodyAsChannel())
+    }
 
     suspend fun deleteAttachment(taskId: Long, attachmentId: Long) {
         client.delete("tasks/$taskId/attachments/$attachmentId").requireNoContent()

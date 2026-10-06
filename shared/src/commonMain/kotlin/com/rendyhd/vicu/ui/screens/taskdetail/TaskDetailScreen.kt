@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Sell
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -72,6 +73,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.rendyhd.vicu.domain.model.Attachment
 import com.rendyhd.vicu.ui.components.picker.LabelPickerDialog
 import com.rendyhd.vicu.ui.components.picker.PriorityPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
@@ -124,6 +126,8 @@ fun TaskDetailScreen(
             viewModel.requireDescriptionConflictResolution()
         }
     }
+
+    var attachmentPendingDelete by remember { mutableStateOf<Attachment?>(null) }
 
     val filePickerLauncher = rememberFilePicker(viewModel::uploadAttachment)
     val imagePickerLauncher = rememberImagePicker(viewModel::addImageAttachment)
@@ -199,7 +203,9 @@ fun TaskDetailScreen(
                     .map { it.attachmentId }
                     .toSet()
             }
-            val visibleAttachments = state.attachments.filter { it.id !in imageTokenIds }
+            val visibleAttachments = state.attachments.filter {
+                it.id !in imageTokenIds && it.id !in state.deletingAttachmentIds
+            }
 
             LazyColumn(
                 modifier = Modifier
@@ -561,6 +567,10 @@ fun TaskDetailScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clickable(
+                                enabled = attachment.id !in state.downloadingAttachmentIds,
+                                onClickLabel = "Open ${attachment.fileName}",
+                            ) { viewModel.openAttachment(attachment) }
                             .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -586,7 +596,18 @@ fun TaskDetailScreen(
                                 )
                             }
                         }
-                        IconButton(onClick = { viewModel.deleteAttachment(attachment.id) }) {
+                        if (attachment.id in state.downloadingAttachmentIds) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            IconButton(onClick = { viewModel.shareAttachment(attachment) }) {
+                                Icon(
+                                    Icons.Default.Share,
+                                    contentDescription = "Share ${attachment.fileName}",
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                        IconButton(onClick = { attachmentPendingDelete = attachment }) {
                             Icon(
                                 Icons.Default.Delete,
                                 contentDescription = "Delete",
@@ -642,6 +663,23 @@ fun TaskDetailScreen(
             }
         }
         }
+    }
+
+    attachmentPendingDelete?.let { attachment ->
+        AlertDialog(
+            onDismissRequest = { attachmentPendingDelete = null },
+            title = { Text("Delete attachment?") },
+            text = { Text("\"${attachment.fileName}\" will be removed from this task. This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        attachmentPendingDelete = null
+                        viewModel.deleteAttachment(attachment.id)
+                    },
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { attachmentPendingDelete = null }) { Text("Cancel") } },
+        )
     }
 
     // Delete confirmation dialog

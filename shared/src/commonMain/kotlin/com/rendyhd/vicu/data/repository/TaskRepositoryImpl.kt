@@ -438,11 +438,11 @@ class TaskRepositoryImpl(
     }
 
     override suspend fun createSubtask(parentTaskId: Long, subtask: Task): NetworkResult<Task> {
+        // A parent that only exists on this device cannot be linked on the server yet.
+        if (parentTaskId < 0L) return queueSubtaskCreate(parentTaskId, subtask)
         return try {
             val createDto = with(taskMapper) { subtask.toCreateDto() }
             val createdDto = api.createTask(subtask.projectId, createDto)
-            val createdEntity = with(taskMapper) { createdDto.toEntity() }
-            taskDao.upsert(createdEntity)
 
             api.createRelation(
                 parentTaskId,
@@ -451,6 +451,8 @@ class TaskRepositoryImpl(
                     relationKind = RelationKind.SUBTASK,
                 ),
             )
+            val createdEntity = with(taskMapper) { createdDto.toEntity() }
+            taskDao.upsert(createdEntity)
 
             val linkedChildEntity = taskDao.getByIdSync(parentTaskId)?.let { parent ->
                 with(taskMapper) {
@@ -462,8 +464,44 @@ class TaskRepositoryImpl(
 
             NetworkResult.Success(with(taskMapper) { linkedChildEntity.toDomain() })
         } catch (e: Exception) {
-            NetworkResult.Error(e.message ?: "Failed to create subtask")
+            if (isRetriableNetworkError(e)) {
+                // Offline, or the server is down. This also covers a task that was created but
+                // could not be linked: the sync engine finds that task again (same title,
+                // description and project) instead of creating a second one, and links it.
+                queueSubtaskCreate(parentTaskId, subtask)
+            } else {
+                NetworkResult.Error(e.message ?: "Failed to create subtask")
+            }
         }
+    }
+
+    /**
+     * Stores a subtask that could not be created on the server yet: a local row with a temporary
+     * id, shown under its parent, and a queued create that carries the parent so the sync engine
+     * links the two once both exist.
+     */
+    private suspend fun queueSubtaskCreate(parentTaskId: Long, subtask: Task): NetworkResult<Task> {
+        val parentEntity = taskDao.getByIdSync(parentTaskId)
+        val parentStub = parentEntity
+            ?.let { with(taskMapper) { it.toDomain() } }
+            ?.copy(relatedTasks = emptyMap(), attachments = emptyList())
+            ?: Task(id = parentTaskId, title = "", projectId = subtask.projectId)
+        val tempId = tempIdCounter.decrementAndGet()
+        val now = DateUtils.nowIso()
+        val localTask = subtask.copy(
+            id = tempId,
+            created = now,
+            updated = now,
+            relatedTasks = subtask.relatedTasks + (RelationKind.PARENTTASK to listOf(parentStub)),
+        )
+        val localDto = with(taskMapper) { localTask.toDto() }
+        taskDao.upsert(with(taskMapper) { localDto.toEntity() })
+        parentEntity?.let { parent ->
+            taskDao.upsert(with(taskMapper) { parent.withRelatedTaskAdded(RelationKind.SUBTASK, localDto) })
+        }
+        queueTaskAction(tempId, "create", json.encodeToString(Task.serializer(), localTask))
+        platformHooks.updateWidgets()
+        return NetworkResult.Success(localTask)
     }
 
     override suspend fun toggleSubtaskDone(parentTaskId: Long, subtask: Task): NetworkResult<Task> {

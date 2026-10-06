@@ -65,6 +65,11 @@ data class TaskDetailUiState(
     val isDeleted: Boolean = false,
     val inboxProjectId: Long = 0L,
     val isUploadingImage: Boolean = false,
+    val isUploadingAttachment: Boolean = false,
+    /** Attachments being deleted: hidden until the server answers, back again if it refuses. */
+    val deletingAttachmentIds: Set<Long> = emptySet(),
+    /** Attachments being downloaded to open or share. */
+    val downloadingAttachmentIds: Set<Long> = emptySet(),
     val parseResult: ParseResult? = null,
     val parserConfig: ParserConfig = ParserConfig(),
     val suppressedTypes: Set<TokenType> = emptySet(),
@@ -578,21 +583,20 @@ class TaskDetailViewModel(
 
     fun uploadAttachment(uriString: String) {
         val task = _uiState.value.task ?: return
-        val fileInfo = platformFiles.getFileNameAndBytes(uriString) ?: return
         viewModelScope.launch {
-            when (val result = attachmentRepository.upload(task.id, fileInfo.first, fileInfo.second)) {
-                is NetworkResult.Error -> _uiState.update { it.copy(error = result.message) }
-                else -> {}
-            }
+            _uiState.update { it.copy(isUploadingAttachment = true) }
+            val result = attachmentRepository.uploadPicked(task.id, uriString)
+            _uiState.update { it.copy(isUploadingAttachment = false) }
+            // Posted to the app-wide snackbar: the editor may have been closed by now.
+            if (result is NetworkResult.Error) appMessages.post(result.message)
         }
     }
 
     fun addImageAttachment(uriString: String) {
         val taskIdSnapshot = _uiState.value.task?.id ?: return
-        val fileInfo = platformFiles.getFileNameAndBytes(uriString) ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isUploadingImage = true) }
-            when (val result = attachmentRepository.upload(taskIdSnapshot, fileInfo.first, fileInfo.second)) {
+            when (val result = attachmentRepository.uploadPicked(taskIdSnapshot, uriString)) {
                 is NetworkResult.Success -> {
                     // Read the LATEST description inside .update so keystrokes typed
                     // during the upload aren't dropped by a pre-launch snapshot.
@@ -608,30 +612,55 @@ class TaskDetailViewModel(
                     // process kill before the sheet's onDispose save fires.
                     saveIfChanged(final = false)
                 }
-                is NetworkResult.Error -> _uiState.update {
-                    it.copy(isUploadingImage = false, error = result.message)
+                is NetworkResult.Error -> {
+                    _uiState.update { it.copy(isUploadingImage = false) }
+                    appMessages.post(result.message)
                 }
                 else -> _uiState.update { it.copy(isUploadingImage = false) }
             }
         }
     }
 
+    /**
+     * Deletes an attachment. The row is hidden while the server is asked and comes back if it
+     * refuses (the cached row is only removed after the server agrees), so nothing is lost on
+     * a failure. The screen asks the user to confirm before calling this.
+     */
     fun deleteAttachment(attachmentId: Long) {
         val task = _uiState.value.task ?: return
-        _uiState.update { it.copy(attachments = it.attachments.filter { a -> a.id != attachmentId }) }
+        if (attachmentId in _uiState.value.deletingAttachmentIds) return
+        _uiState.update { it.copy(deletingAttachmentIds = it.deletingAttachmentIds + attachmentId) }
         viewModelScope.launch {
-            when (val result = attachmentRepository.delete(task.id, attachmentId)) {
-                is NetworkResult.Error -> _uiState.update { it.copy(error = result.message) }
-                else -> {}
+            val result = attachmentRepository.delete(task.id, attachmentId)
+            _uiState.update { it.copy(deletingAttachmentIds = it.deletingAttachmentIds - attachmentId) }
+            if (result is NetworkResult.Error) {
+                appMessages.post("Could not delete the attachment: ${result.message}")
             }
         }
     }
 
-    suspend fun downloadAttachment(attachmentId: Long): ByteArray? {
-        val task = _uiState.value.task ?: return null
-        return when (val result = attachmentRepository.download(task.id, attachmentId)) {
-            is NetworkResult.Success -> result.data
-            else -> null
+    /** Downloads the attachment to the app cache and opens it in another app. */
+    fun openAttachment(attachment: Attachment) {
+        withCachedAttachment(attachment) { path -> platformFiles.openFile(path, attachment.mimeType) }
+    }
+
+    /** Downloads the attachment to the app cache and offers it to other apps. */
+    fun shareAttachment(attachment: Attachment) {
+        withCachedAttachment(attachment) { path -> platformFiles.shareFile(path, attachment.mimeType) }
+    }
+
+    private fun withCachedAttachment(attachment: Attachment, present: (String) -> String?) {
+        if (attachment.id in _uiState.value.downloadingAttachmentIds) return
+        _uiState.update { it.copy(downloadingAttachmentIds = it.downloadingAttachmentIds + attachment.id) }
+        viewModelScope.launch {
+            val result = attachmentRepository.downloadToCache(attachment)
+            _uiState.update { it.copy(downloadingAttachmentIds = it.downloadingAttachmentIds - attachment.id) }
+            when (result) {
+                is NetworkResult.Success -> present(result.data)?.let(appMessages::post)
+                is NetworkResult.Error ->
+                    appMessages.post("Could not download \"${attachment.fileName}\": ${result.message}")
+                else -> {}
+            }
         }
     }
 

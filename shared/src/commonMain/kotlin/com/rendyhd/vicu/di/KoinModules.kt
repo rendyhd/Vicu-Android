@@ -113,7 +113,8 @@ val repositoryModule = module {
         AttachmentRepositoryImpl(
             attachmentDao = get(),
             api = get(),
-            attachmentMapper = get()
+            attachmentMapper = get(),
+            platformFiles = get(),
         )
     }
     single<CustomListRepository> {

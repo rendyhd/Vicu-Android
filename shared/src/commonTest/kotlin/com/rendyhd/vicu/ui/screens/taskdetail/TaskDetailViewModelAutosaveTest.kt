@@ -15,6 +15,7 @@ import com.rendyhd.vicu.ui.FakeProjectRepository
 import com.rendyhd.vicu.ui.FakeTaskRepository
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.FakePlatformFiles
 import com.rendyhd.vicu.util.PlatformFiles
 import com.rendyhd.vicu.util.parser.TokenType
 import kotlinx.coroutines.CompletableDeferred
@@ -58,10 +59,7 @@ class TaskDetailViewModelAutosaveTest {
         Dispatchers.resetMain()
     }
 
-    private val noFiles = object : PlatformFiles {
-        override fun getFileNameAndBytes(uriString: String): Pair<String, ByteArray>? = null
-        override fun getDisplayName(uriString: String): String? = null
-    }
+    private val noFiles: PlatformFiles = FakePlatformFiles()
 
     private class Rig(scope: TestScope) {
         val tasks = FakeTaskRepository()

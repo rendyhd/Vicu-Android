@@ -11,6 +11,7 @@ import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.mapper.LabelMapper
 import com.rendyhd.vicu.data.mapper.ProjectMapper
 import com.rendyhd.vicu.data.mapper.TaskMapper
+import com.rendyhd.vicu.data.remote.api.CreateRelationDto
 import com.rendyhd.vicu.data.remote.api.LabelTaskDto
 import com.rendyhd.vicu.data.remote.api.MergePatches
 import com.rendyhd.vicu.data.remote.api.TaskDto
@@ -25,6 +26,7 @@ import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.Logger
+import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.RoutineEnvelope
 import com.rendyhd.vicu.util.CustomListEnvelope
 import io.ktor.client.plugins.ResponseException
@@ -280,6 +282,7 @@ class SyncEngine(
                 } else {
                     platformHooks.scheduleAlarm(created)
                 }
+                linkToQueuedParents(task, created.id, tempIdMap)
                 if (action.entityId != responseEntity.id) {
                     tempIdMap[action.entityId] = responseEntity.id
                     remapPendingDependents(action.entityId, responseEntity.id)
@@ -323,6 +326,30 @@ class SyncEngine(
             }
             "delete" -> {
                 api.deleteTask(tempIdMap[action.entityId] ?: action.entityId)
+            }
+        }
+    }
+
+    /**
+     * A subtask created offline carries its parent in the queued task. Now that the subtask
+     * exists on the server, link it. A parent that is still only local (its own create has not
+     * run) leaves the subtask unlinked rather than failing it.
+     */
+    private suspend fun linkToQueuedParents(task: Task, childId: Long, tempIdMap: Map<Long, Long>) {
+        for (parent in task.relatedTasks[RelationKind.PARENTTASK].orEmpty()) {
+            val parentId = tempIdMap[parent.id] ?: parent.id
+            if (parentId < 0L) {
+                Logger.w(TAG, "Parent $parentId of new subtask $childId is not on the server yet; leaving it unlinked")
+                continue
+            }
+            try {
+                api.createRelation(
+                    parentId,
+                    CreateRelationDto(otherTaskId = childId, relationKind = RelationKind.SUBTASK),
+                )
+            } catch (e: VikunjaApiException) {
+                // 409: the pair is already linked (an earlier attempt got this far).
+                if (e.httpStatus != 409) throw e
             }
         }
     }
@@ -371,6 +398,8 @@ class SyncEngine(
     private suspend fun remapPendingDependents(tempId: Long, realId: Long) {
         for (a in pendingActionDao.getRemappable()) {
             when {
+                a.entityType == "task" && a.actionType == "create" && a.entityId != tempId ->
+                    remapCreateParent(a, tempId, realId)
                 a.entityType == "task" && a.entityId == tempId &&
                     a.actionType in TASK_DEPENDENT_ACTIONS -> {
                     pendingActionDao.remapEntity(a.id, realId, a.payload, "pending")
@@ -382,6 +411,24 @@ class SyncEngine(
                 }
             }
         }
+    }
+
+    /** A queued subtask create that names [tempId] as its parent now names [realId]. */
+    private suspend fun remapCreateParent(action: PendingActionEntity, tempId: Long, realId: Long) {
+        val task = runCatching { json.decodeFromString<Task>(action.payload) }.getOrNull() ?: return
+        val parents = task.relatedTasks[RelationKind.PARENTTASK].orEmpty()
+        if (parents.none { it.id == tempId }) return
+        val remapped = task.copy(
+            relatedTasks = task.relatedTasks + (
+                RelationKind.PARENTTASK to parents.map { if (it.id == tempId) it.copy(id = realId) else it }
+                ),
+        )
+        pendingActionDao.remapEntity(
+            action.id,
+            action.entityId,
+            json.encodeToString(Task.serializer(), remapped),
+            "pending",
+        )
     }
 
     private suspend fun refreshAllFromServer() {

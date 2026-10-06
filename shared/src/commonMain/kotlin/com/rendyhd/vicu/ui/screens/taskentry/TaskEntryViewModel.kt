@@ -1,6 +1,6 @@
 package com.rendyhd.vicu.ui.screens.taskentry
 
-import com.rendyhd.vicu.util.PlatformFiles
+import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.randomUuid
 import androidx.lifecycle.ViewModel
@@ -79,7 +79,7 @@ class TaskEntryViewModel(
     private val nlpPrefsStore: NlpPrefsStore,
     private val notificationPrefsStore: NotificationPrefsStore,
     private val behaviorPrefsStore: BehaviorPrefsStore,
-    private val platformFiles: PlatformFiles,
+    private val appMessages: AppMessages,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TaskEntryUiState())
@@ -489,8 +489,7 @@ class TaskEntryViewModel(
     ) {
         val mapping = mutableMapOf<String, Long>()
         for ((uuid, uri) in pendingImages) {
-            val fileInfo = platformFiles.getFileNameAndBytes(uri) ?: continue
-            when (val uploadResult = attachmentRepository.upload(task.id, fileInfo.first, fileInfo.second)) {
+            when (val uploadResult = attachmentRepository.uploadPicked(task.id, uri)) {
                 is NetworkResult.Success -> mapping[uuid] = uploadResult.data.id
                 else -> {} // skip failed uploads; pending token will remain and be ignored client-side
             }
@@ -505,8 +504,9 @@ class TaskEntryViewModel(
     private fun uploadPendingAttachments(taskId: Long, uris: List<String>) {
         viewModelScope.launch {
             for (uri in uris) {
-                val fileInfo = platformFiles.getFileNameAndBytes(uri) ?: continue
-                attachmentRepository.upload(taskId, fileInfo.first, fileInfo.second)
+                // Too large or unreadable files are reported, so one bad file does not hide the rest.
+                val result = attachmentRepository.uploadPicked(taskId, uri)
+                if (result is NetworkResult.Error) appMessages.post(result.message)
             }
             attachmentRepository.refreshForTask(taskId)
         }

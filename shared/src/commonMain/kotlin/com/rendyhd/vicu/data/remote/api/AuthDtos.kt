@@ -37,6 +37,8 @@ data class OidcProviderDto(
 data class ServerInfoDto(
     val auth: AuthInfoDto = AuthInfoDto(),
     val version: String = "",
+    /** The largest upload the server accepts, as text such as "20MB". */
+    @SerialName("max_file_size") val maxFileSize: String = "",
 )
 
 @Serializable

@@ -8,7 +8,9 @@ import com.rendyhd.vicu.domain.repository.AttachmentRepository
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.util.DEFAULT_MAX_UPLOAD_BYTES
 import com.rendyhd.vicu.util.NetworkResult
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -194,14 +196,44 @@ class FakeProjectRepository(initial: List<Project> = emptyList()) : ProjectRepos
 }
 
 class FakeAttachmentRepository : AttachmentRepository {
-    override fun getByTaskId(taskId: Long): Flow<List<Attachment>> = flowOf(emptyList())
+    val attachments = MutableStateFlow<List<Attachment>>(emptyList())
 
-    override suspend fun upload(taskId: Long, fileName: String, content: ByteArray): NetworkResult<Attachment> =
-        NetworkResult.Error("not faked")
+    /** (task id, picked uri) of every upload. */
+    val uploads = mutableListOf<Pair<Long, String>>()
+    var uploadResult: (Long, String) -> NetworkResult<Attachment> = { _, _ -> NetworkResult.Error("not faked") }
 
-    override suspend fun download(taskId: Long, attachmentId: Long): NetworkResult<ByteArray> =
-        NetworkResult.Error("not faked")
+    val downloads = mutableListOf<Long>()
+    var downloadResult: (Attachment) -> NetworkResult<String> =
+        { NetworkResult.Success("/cache/attachments/${it.id}/${it.fileName}") }
 
-    override suspend fun delete(taskId: Long, attachmentId: Long): NetworkResult<Unit> = NetworkResult.Success(Unit)
+    /** (task id, attachment id) of every delete; [deleteGate] can hold the call until a test says so. */
+    val deletes = mutableListOf<Pair<Long, Long>>()
+    var deleteGate: CompletableDeferred<Unit>? = null
+    var deleteResult: NetworkResult<Unit> = NetworkResult.Success(Unit)
+
+    override fun getByTaskId(taskId: Long): Flow<List<Attachment>> =
+        attachments.map { list -> list.filter { it.taskId == taskId } }
+
+    override suspend fun maxUploadBytes(): Long = DEFAULT_MAX_UPLOAD_BYTES
+
+    override suspend fun uploadPicked(taskId: Long, uriString: String): NetworkResult<Attachment> {
+        uploads += taskId to uriString
+        return uploadResult(taskId, uriString)
+    }
+
+    override suspend fun downloadToCache(attachment: Attachment): NetworkResult<String> {
+        downloads += attachment.id
+        return downloadResult(attachment)
+    }
+
+    override suspend fun delete(taskId: Long, attachmentId: Long): NetworkResult<Unit> {
+        deletes += taskId to attachmentId
+        deleteGate?.await()
+        if (deleteResult is NetworkResult.Success) {
+            attachments.value = attachments.value.filter { it.id != attachmentId }
+        }
+        return deleteResult
+    }
+
     override suspend fun refreshForTask(taskId: Long): NetworkResult<Unit> = NetworkResult.Success(Unit)
 }
