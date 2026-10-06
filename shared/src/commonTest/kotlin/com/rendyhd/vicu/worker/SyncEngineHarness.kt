@@ -22,6 +22,7 @@ import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.CustomListSyncStatus
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.CustomListRepository
+import com.rendyhd.vicu.domain.repository.RoutineRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -122,6 +123,7 @@ class SyncEngineHarness(
     val labelDao: FakeLabelDao = FakeLabelDao(),
     val hooks: RecordingRepositoryHooks = RecordingRepositoryHooks(),
     val customLists: CustomListRepository = FakeCustomListRepository(),
+    val routines: RoutineRepository? = null,
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ) {
     private val requestLock = Mutex()
@@ -167,6 +169,7 @@ class SyncEngineHarness(
         baseUrlHolder = BaseUrlHolder(storage),
         authManager = authManager,
         customListRepository = customLists,
+        routineRepository = routines,
     )
 
     val engine: SyncEngine = newEngine()

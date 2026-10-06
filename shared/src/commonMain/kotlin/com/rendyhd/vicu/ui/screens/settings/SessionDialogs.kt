@@ -52,9 +52,15 @@ internal fun SignOutDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Sign out of your Vikunja account? Tasks and other data cached on this device are deleted.")
+                // Routine history lives on the server. Only entries from before it moved there and
+                // that have not been uploaded yet exist nowhere else.
                 if (routineHistoryCount > 0) {
+                    val noun = if (routineHistoryCount == 1) "entry" else "entries"
                     Text(
-                        "Routine history that is stored only on this device ($routineHistoryCount entries) is deleted too.",
+                        "Routine history that has not been uploaded to your server yet " +
+                            "($routineHistoryCount $noun) is deleted too. " +
+                            "Open Routines while you are online to upload it first.",
+                        color = MaterialTheme.colorScheme.error,
                     )
                 }
                 if (unsynced > 0) {
@@ -86,8 +92,8 @@ internal fun SignOutDialog(
 }
 
 /**
- * Clearing the cache keeps offline changes and routine history by default. Discarding the
- * offline queue too is an explicit, separate choice.
+ * Clearing the cache keeps offline changes by default. Discarding the offline queue too is an
+ * explicit, separate choice. Routine history is stored on the server and is not touched.
  */
 @Composable
 internal fun ClearCacheDialog(
@@ -118,7 +124,7 @@ internal fun ClearCacheDialog(
                         label = "Also discard unsynced changes",
                     )
                 } else {
-                    Text("Routine history stored on this device is kept.")
+                    Text("Routine history is stored on your server and is not affected.")
                 }
             }
         },

@@ -10,7 +10,8 @@ import kotlinx.coroutines.flow.Flow
  *
  *  - caches of server data (tasks, projects, labels, attachments), which a sync rebuilds;
  *  - local-only state that nothing can rebuild: the offline queue (`pending_actions`) and the
- *    routine history archive (`routine_occurrence_archive`).
+ *    phone-only routine history of versions before 1.9 that is waiting to be uploaded to the
+ *    server (`routine_occurrence_archive`, empty once the upload has run).
  *
  * Clearing caches must never take the second group with it, and must keep the cached rows that
  * queued actions still refer to (an offline-created task exists only as that row and its queued
@@ -57,7 +58,7 @@ interface LocalDataDao {
     @Query("DELETE FROM routine_occurrence_archive")
     suspend fun deleteAllRoutineArchive()
 
-    /** Entries in the local-only routine history. */
+    /** Entries of phone-only routine history that have not been uploaded yet. */
     @Query("SELECT COUNT(*) FROM routine_occurrence_archive")
     fun observeRoutineArchiveCount(): Flow<Int>
 

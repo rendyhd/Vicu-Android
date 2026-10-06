@@ -13,8 +13,8 @@ import kotlinx.coroutines.flow.Flow
  * account it belongs to is gone.
  *
  *  - [clearCaches]: a "clear cache and re-sync". Tasks, projects, labels and attachments are
- *    rebuilt from the server. The offline queue, the rows the queue refers to, and the routine
- *    history archive stay.
+ *    rebuilt from the server. The offline queue, the rows the queue refers to, and routine
+ *    history that is still waiting to be uploaded stay.
  *  - [discardUnsyncedAndClearCaches]: the same, after the user chose to drop the offline queue.
  *  - [wipeEverything]: sign-out, or a different account signed in. Also forgets the preferences
  *    that are keyed by the old account's ids (collapsed sections, label order, routine and
@@ -34,7 +34,10 @@ class LocalDataWiper(
     private val routinePrefs: RoutinePrefsStore,
     private val widgetPrefs: WidgetPrefsStore,
 ) {
-    /** Entries of routine history that exist only on this device (sign-out deletes them). */
+    /**
+     * Entries of routine history that have not been uploaded to the server yet (the phone-only
+     * history older versions kept; sign-out deletes them). Zero once the upload has run.
+     */
     val routineHistoryCount: Flow<Int> = dao.observeRoutineArchiveCount()
 
     /** Queued changes (waiting, in flight or failed) that have not reached the server. */

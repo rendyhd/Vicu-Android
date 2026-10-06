@@ -286,7 +286,7 @@ class SettingsViewModel(
 
     // --- Logout ---
 
-    /** Routine history that exists only on this device (sign-out deletes it). */
+    /** Routine history not uploaded to the server yet (sign-out deletes it). */
     val routineHistoryCount: StateFlow<Int> = sessionCleanup.routineHistoryCount
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 

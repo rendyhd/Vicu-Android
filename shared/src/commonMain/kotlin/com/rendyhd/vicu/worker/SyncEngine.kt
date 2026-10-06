@@ -23,7 +23,9 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.CustomListSyncStatus
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.domain.repository.CustomListRepository
+import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.RelationKind
@@ -64,6 +66,8 @@ class SyncEngine(
     private val baseUrlHolder: BaseUrlHolder,
     private val authManager: AuthManager,
     private val customListRepository: CustomListRepository,
+    /** Uploads routine history older versions kept only on this phone; see [uploadLocalRoutineHistory]. */
+    private val routineRepository: RoutineRepository? = null,
 ) {
     companion object {
         private const val TAG = "SyncEngine"
@@ -182,7 +186,8 @@ class SyncEngine(
                 is CustomListSyncStatus.Offline -> hasRetriableFailures = true
                 else -> Unit
             }
-            refreshAllFromServer()
+            val refreshed = refreshAllFromServer()
+            uploadLocalRoutineHistory(carriersAuthoritative = refreshed)
         } catch (e: Exception) {
             Logger.e(TAG, "SyncEngine failed: ${e.message}", e)
             throw e
@@ -431,7 +436,28 @@ class SyncEngine(
         )
     }
 
-    private suspend fun refreshAllFromServer() {
+    /**
+     * Routine history that versions before 1.9 kept only on this phone goes into archive parts on
+     * the server as soon as it can be reached. This is the retry for a first launch that was
+     * offline. A failure never fails the sync: the next run, or the next time routines are
+     * opened, tries again.
+     */
+    private suspend fun uploadLocalRoutineHistory(carriersAuthoritative: Boolean) {
+        val repository = routineRepository ?: return
+        try {
+            val result = repository.migrateLocalArchive(carriersAuthoritative)
+            if (result is NetworkResult.Error) {
+                Logger.w(TAG, "Routine history upload will be retried: ${result.message}")
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Logger.w(TAG, "Routine history upload failed: ${e.message}")
+        }
+    }
+
+    /** True when tasks, labels and projects were all refreshed, so the carrier cache is the server's. */
+    private suspend fun refreshAllFromServer(): Boolean {
         try {
             val allTasks = api.getAllTasks()
             // Routine archive parts are read on demand from the server and never cached.
@@ -475,8 +501,10 @@ class SyncEngine(
             val projectEntities = projectDtos.map { with(projectMapper) { it.toEntity() } }
             projectDao.replaceAll(projectEntities)
             Logger.d(TAG, "Refreshed ${projectEntities.size} projects from server")
+            return true
         } catch (e: Exception) {
             Logger.e(TAG, "Server refresh failed: ${e.message}", e)
+            return false
         }
     }
 }

@@ -20,7 +20,7 @@ class SessionCleanup(
     private val authManager: AuthManager,
     private val wiper: LocalDataWiper,
 ) {
-    /** Entries of routine history that exist only on this device (sign-out deletes them). */
+    /** Entries of routine history not uploaded to the server yet (sign-out deletes them). */
     val routineHistoryCount: Flow<Int> get() = wiper.routineHistoryCount
 
     /**
@@ -44,7 +44,7 @@ class SessionCleanup(
 
     /**
      * Clears cached tasks, projects and labels. The offline queue (and the rows it refers to)
-     * and routine history stay unless [discardUnsynced] is set.
+     * and routine history waiting to be uploaded stay unless [discardUnsynced] is set.
      */
     suspend fun clearCaches(discardUnsynced: Boolean) {
         if (discardUnsynced) wiper.discardUnsyncedAndClearCaches() else wiper.clearCaches()

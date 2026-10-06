@@ -199,6 +199,7 @@ val commonModule = module {
             baseUrlHolder = get(),
             authManager = get(),
             customListRepository = get(),
+            routineRepository = get(),
         )
     }
 }
