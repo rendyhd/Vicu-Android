@@ -3,14 +3,16 @@ package com.rendyhd.vicu.ui.screens.setup
 import com.rendyhd.vicu.util.Logger
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.rendyhd.vicu.auth.AccountSession
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.auth.LoginDataAction
+import com.rendyhd.vicu.auth.LoginPlan
 import com.rendyhd.vicu.auth.OidcHandler
 import com.rendyhd.vicu.auth.OidcResult
 import com.rendyhd.vicu.auth.PasswordLoginHandler
 import com.rendyhd.vicu.auth.PasswordLoginResult
 import com.rendyhd.vicu.auth.isTotpPasscodeComplete
 import com.rendyhd.vicu.auth.sanitizeTotpPasscode
-import com.rendyhd.vicu.data.local.VikunjaDatabase
 import com.rendyhd.vicu.data.remote.api.OidcProviderDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
@@ -20,9 +22,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 
 enum class SetupStep {
     ServerUrl,
@@ -50,7 +53,11 @@ data class SetupUiState(
     val projects: List<Project> = emptyList(),
     val selectedProjectId: Long? = null,
     val setupComplete: Boolean = false,
+    /** Set when signing in would discard queued changes of a different account; needs a decision. */
+    val discardPrompt: DiscardPrompt? = null,
 )
+
+data class DiscardPrompt(val unsyncedChanges: Int)
 
 class SetupViewModel(
     private val apiService: VikunjaApiService,
@@ -58,7 +65,7 @@ class SetupViewModel(
     private val baseUrlHolder: BaseUrlHolder,
     private val passwordLoginHandler: PasswordLoginHandler,
     private val oidcHandler: OidcHandler,
-    private val database: VikunjaDatabase,
+    private val accountSession: AccountSession,
     private val platformAuthHooks: PlatformAuthHooks,
 ) : ViewModel() {
 
@@ -176,12 +183,13 @@ class SetupViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             when (val result = oidcHandler.handleCallbackResult(code, state, error, provider, url, totpPasscode)) {
-                is OidcResult.Success -> {
-                    clearLocalData()
+                is OidcResult.Success -> verifyAndSignIn(
+                    serverUrl = url,
+                    token = result.token,
+                    failurePrefix = "Could not verify your account",
+                    createBackupToken = true,
+                ) {
                     authManager.onLoginSuccess(result.token, "oidc", url, provider.key, result.refreshToken)
-                    _uiState.update { it.copy(password = "", totpPasscode = "", apiToken = "") }
-                    createBackupApiToken()
-                    fetchProjectsForSelection()
                 }
                 is OidcResult.NeedsTOTP -> {
                     _uiState.update {
@@ -217,12 +225,13 @@ class SetupViewModel(
             _uiState.update { it.copy(isLoading = true, error = null) }
             val totp = if (state.showTotpField) state.totpPasscode else null
             when (val result = passwordLoginHandler.login(state.username, state.password, totp)) {
-                is PasswordLoginResult.Success -> {
-                    clearLocalData()
+                is PasswordLoginResult.Success -> verifyAndSignIn(
+                    serverUrl = state.serverUrl,
+                    token = result.token,
+                    failurePrefix = "Could not verify your account",
+                    createBackupToken = true,
+                ) {
                     authManager.onLoginSuccess(result.token, "password", state.serverUrl, refreshToken = result.refreshToken)
-                    _uiState.update { it.copy(password = "", totpPasscode = "", apiToken = "") }
-                    createBackupApiToken()
-                    fetchProjectsForSelection()
                 }
                 is PasswordLoginResult.NeedsTOTP -> {
                     _uiState.update { it.copy(isLoading = false, showTotpField = true, error = null) }
@@ -243,18 +252,103 @@ class SetupViewModel(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            try {
-                clearLocalData()
-                authManager.onApiTokenLogin(token, _uiState.value.serverUrl)
-                _uiState.update { it.copy(password = "", totpPasscode = "", apiToken = "") }
-                // Validate the token by fetching current user
-                apiService.getCurrentUser()
-                fetchProjectsForSelection()
-            } catch (e: Exception) {
-                authManager.logout()
-                _uiState.update { it.copy(isLoading = false, error = "Invalid API token: ${e.localizedMessage}") }
+            val serverUrl = _uiState.value.serverUrl
+            // The token is checked against the server before any stored credential or local data
+            // is touched, so a mistyped token changes nothing (it used to wipe the data and sign
+            // the user out).
+            verifyAndSignIn(
+                serverUrl = serverUrl,
+                token = token,
+                failurePrefix = "Invalid API token",
+                createBackupToken = false,
+            ) {
+                authManager.onApiTokenLogin(token, serverUrl)
             }
         }
+    }
+
+    /**
+     * Verifies [token] with the server, decides what to do with local data, and signs in.
+     *
+     * Nothing stored is touched until the server has accepted the credentials. Local data is
+     * wiped only when they belong to a different account than the one on record; if that would
+     * discard queued changes the user is asked first (see [confirmDiscardAndSignIn]). A
+     * re-login of the same account keeps the offline queue and routine history.
+     */
+    private suspend fun verifyAndSignIn(
+        serverUrl: String,
+        token: String,
+        failurePrefix: String,
+        createBackupToken: Boolean,
+        storeCredentials: suspend () -> Unit,
+    ) {
+        val plan = try {
+            accountSession.plan(accountSession.verify(serverUrl, token))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Logger.e(TAG, "Could not verify the account", e)
+            _uiState.update { it.copy(isLoading = false, error = "$failurePrefix: ${e.localizedMessage}") }
+            return
+        }
+
+        if (plan.action == LoginDataAction.WIPE_ALL && plan.unsyncedActionsLost > 0) {
+            pendingLogin = PendingLogin(plan, createBackupToken, storeCredentials)
+            _uiState.update {
+                it.copy(isLoading = false, discardPrompt = DiscardPrompt(plan.unsyncedActionsLost))
+            }
+            return
+        }
+        completeSignIn(plan, createBackupToken, storeCredentials)
+    }
+
+    private class PendingLogin(
+        val plan: LoginPlan,
+        val createBackupToken: Boolean,
+        val storeCredentials: suspend () -> Unit,
+    )
+
+    private var pendingLogin: PendingLogin? = null
+
+    /** The user accepted losing the previous account's queued changes. */
+    fun confirmDiscardAndSignIn() {
+        val pending = pendingLogin ?: return
+        pendingLogin = null
+        viewModelScope.launch {
+            _uiState.update { it.copy(discardPrompt = null, isLoading = true, error = null) }
+            completeSignIn(pending.plan, pending.createBackupToken, pending.storeCredentials)
+        }
+    }
+
+    /** The user kept the previous account's queued changes; nothing was touched. */
+    fun cancelDiscard() {
+        pendingLogin = null
+        _uiState.update { it.copy(discardPrompt = null, isLoading = false) }
+    }
+
+    private suspend fun completeSignIn(
+        plan: LoginPlan,
+        createBackupToken: Boolean,
+        storeCredentials: suspend () -> Unit,
+    ) {
+        try {
+            // Wipe, credentials and identity are one step: cancelling between them would leave
+            // an emptied database with the old account still signed in.
+            withContext(NonCancellable) {
+                accountSession.apply(plan)
+                storeCredentials()
+                accountSession.recordIdentity(plan.identity)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Logger.e(TAG, "Sign-in failed after verification", e)
+            _uiState.update { it.copy(isLoading = false, error = "Sign-in failed: ${e.localizedMessage}") }
+            return
+        }
+        _uiState.update { it.copy(password = "", totpPasscode = "", apiToken = "") }
+        if (createBackupToken) createBackupApiToken()
+        fetchProjectsForSelection()
     }
 
     fun goBack() {
@@ -279,10 +373,6 @@ class SetupViewModel(
             platformAuthHooks.updateWidgets()
             platformAuthHooks.scheduleRefresh()
         }
-    }
-
-    private suspend fun clearLocalData() {
-        withContext(Dispatchers.IO) { database.clearAllTables() }
     }
 
     private suspend fun fetchProjectsForSelection() {

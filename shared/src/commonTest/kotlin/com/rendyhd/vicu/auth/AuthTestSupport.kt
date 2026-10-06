@@ -44,6 +44,7 @@ class InMemoryTokenStorage(
     private var providerKey: String? = null
     private val vikunjaUrl = MutableStateFlow<String?>(null)
     private var inboxProjectId: Long? = null
+    private var userId: Long? = null
 
     override suspend fun storeJwt(jwt: String, expiry: Long) {
         this.jwt = jwt
@@ -110,6 +111,12 @@ class InMemoryTokenStorage(
 
     override suspend fun getInboxProjectId(): Long? = inboxProjectId
 
+    override suspend fun storeUserId(id: Long) {
+        userId = id
+    }
+
+    override suspend fun getUserId(): Long? = userId
+
     /** Like the real stores, [clear] keeps the install id: it identifies the install, not the session. */
     override suspend fun clear() {
         jwt = null
@@ -123,6 +130,7 @@ class InMemoryTokenStorage(
         providerKey = null
         vikunjaUrl.value = null
         inboxProjectId = null
+        userId = null
     }
 }
 

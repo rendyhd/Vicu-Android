@@ -247,6 +247,8 @@ class RecordingRepositoryHooks : PlatformRepositoryHooks {
         private set
     var rescheduleAllCalls = 0
         private set
+    var cancelAllAlarmsCalls = 0
+        private set
 
     override fun triggerSync() {
         syncTriggers++
@@ -268,5 +270,9 @@ class RecordingRepositoryHooks : PlatformRepositoryHooks {
 
     override suspend fun rescheduleAlarms() {
         rescheduleAllCalls++
+    }
+
+    override suspend fun cancelAllAlarms() {
+        cancelAllAlarmsCalls++
     }
 }

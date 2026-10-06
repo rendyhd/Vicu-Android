@@ -19,6 +19,11 @@ class SyncStaleness {
         lastSyncMs.set(Clock.System.now().toEpochMilliseconds())
     }
 
+    /** Forgets the last sync, so the next screen refreshes (cache cleared, account changed). */
+    fun reset() {
+        lastSyncMs.set(0L)
+    }
+
     companion object {
         private const val TTL_MS = 60_000L
     }

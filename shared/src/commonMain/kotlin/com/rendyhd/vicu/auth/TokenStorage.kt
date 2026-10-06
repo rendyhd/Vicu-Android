@@ -47,5 +47,13 @@ interface TokenStorage {
     suspend fun storeInboxProjectId(id: Long)
     suspend fun getInboxProjectId(): Long?
 
+    /**
+     * Server-side id of the signed-in user, recorded at login (or backfilled for sessions that
+     * predate it). Together with the server URL it tells a re-login of the same account from a
+     * switch to another one. Null when unknown. Cleared by [clear].
+     */
+    suspend fun storeUserId(id: Long)
+    suspend fun getUserId(): Long?
+
     suspend fun clear()
 }

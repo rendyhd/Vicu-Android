@@ -23,6 +23,7 @@ class IosKeychainTokenStorage : TokenStorage {
         private const val KEY_PROVIDER_KEY = "provider_key"
         private const val KEY_VIKUNJA_URL = "vikunja_url"
         private const val KEY_INBOX_PROJECT_ID = "inbox_project_id"
+        private const val KEY_USER_ID = "user_id"
         private const val KEY_SERVER_IS_V2 = "server_is_v2"
         private const val KEY_JWT_EXPIRY = "jwt_expiry"
         private const val KEY_API_TOKEN_EXPIRY = "api_token_expiry"
@@ -163,6 +164,15 @@ class IosKeychainTokenStorage : TokenStorage {
         return if (id == 0L) null else id
     }
 
+    override suspend fun storeUserId(id: Long) {
+        defaults.setInteger(id, KEY_USER_ID)
+    }
+
+    override suspend fun getUserId(): Long? {
+        val id = defaults.integerForKey(KEY_USER_ID)
+        return if (id == 0L) null else id
+    }
+
     override suspend fun clear() {
         deleteKeychainItem(ACCOUNT_JWT)
         deleteKeychainItem(ACCOUNT_API_TOKEN)
@@ -174,6 +184,7 @@ class IosKeychainTokenStorage : TokenStorage {
         defaults.removeObjectForKey(KEY_PROVIDER_KEY)
         defaults.removeObjectForKey(KEY_VIKUNJA_URL)
         defaults.removeObjectForKey(KEY_INBOX_PROJECT_ID)
+        defaults.removeObjectForKey(KEY_USER_ID)
         defaults.removeObjectForKey(KEY_SERVER_IS_V2)
         _authMethodFlow.value = null
         _vikunjaUrlFlow.value = null

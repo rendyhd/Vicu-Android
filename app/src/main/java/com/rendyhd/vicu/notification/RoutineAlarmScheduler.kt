@@ -99,7 +99,8 @@ class RoutineAlarmScheduler(
         }
     }
 
-    private fun cancelAll() {
+    /** Cancels every routine alarm that is registered (sign-out, account switch). */
+    fun cancelAll() {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs.getStringSet(KEY_IDS, emptySet()).orEmpty().forEach { raw ->
             val requestCode = raw.toIntOrNull() ?: return@forEach

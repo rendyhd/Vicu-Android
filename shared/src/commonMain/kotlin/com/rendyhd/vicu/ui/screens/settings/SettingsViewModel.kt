@@ -3,6 +3,8 @@ package com.rendyhd.vicu.ui.screens.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.auth.SessionCleanup
+import com.rendyhd.vicu.auth.SignOutResult
 import com.rendyhd.vicu.auth.TokenStorage
 import com.rendyhd.vicu.data.local.BehaviorPrefs
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
@@ -21,7 +23,6 @@ import com.rendyhd.vicu.data.local.ThemePrefsStore
 import com.rendyhd.vicu.data.local.WidgetPrefsStore
 import com.rendyhd.vicu.util.parser.ParserConfig
 import com.rendyhd.vicu.util.parser.SyntaxMode
-import com.rendyhd.vicu.data.local.VikunjaDatabase
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.domain.model.BottomBarSlot
@@ -97,7 +98,7 @@ class SettingsViewModel(
     private val logbookPrefsStore: LogbookPrefsStore,
     private val pendingActionDao: PendingActionDao,
     private val networkMonitor: NetworkMonitor,
-    private val database: VikunjaDatabase,
+    private val sessionCleanup: SessionCleanup,
     private val apiService: VikunjaApiService,
     private val platformSettingsHooks: PlatformSettingsHooks,
 ) : ViewModel() {
@@ -285,21 +286,36 @@ class SettingsViewModel(
 
     // --- Logout ---
 
-    fun logout() {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            database.clearAllTables()
-            customListRepository.clearLocal()
-            bottomBarPrefsStore.clear()
-            authManager.logout() // calls POST /user/logout internally
-            platformSettingsHooks.updateWidgets()
+    /** Routine history that exists only on this device (sign-out deletes it). */
+    val routineHistoryCount: StateFlow<Int> = sessionCleanup.routineHistoryCount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /**
+     * Signs out and deletes local data. Offline changes that never reached the server are lost
+     * with it, so with any queued the caller must pass [discardUnsynced] = true (the dialog makes
+     * the user choose that); without it nothing happens.
+     */
+    fun logout(discardUnsynced: Boolean) {
+        viewModelScope.launch {
+            when (val result = sessionCleanup.signOut(discardUnsynced)) {
+                is SignOutResult.NeedsDiscard ->
+                    _messages.update {
+                        "${result.unsyncedChanges} unsynced change(s) would be lost. Discard them to sign out." to null
+                    }
+                SignOutResult.Done -> platformSettingsHooks.updateWidgets()
+            }
         }
     }
 
     // --- Clear cache & re-sync ---
 
-    fun clearCacheAndResync() {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            database.clearAllTables()
+    /**
+     * Clears the cached tasks, projects and labels and syncs again. The offline queue (and the
+     * rows it refers to) and routine history stay unless [discardUnsynced] is set.
+     */
+    fun clearCacheAndResync(discardUnsynced: Boolean = false) {
+        viewModelScope.launch {
+            sessionCleanup.clearCaches(discardUnsynced)
             platformSettingsHooks.triggerImmediateSync()
             _messages.update { null to "Cache cleared, syncing..." }
         }

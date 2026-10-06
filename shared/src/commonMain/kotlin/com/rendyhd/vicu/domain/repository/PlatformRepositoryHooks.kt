@@ -10,6 +10,9 @@ interface PlatformRepositoryHooks {
     suspend fun cancelAlarm(taskId: Long)
     suspend fun rescheduleAlarms()
 
+    /** Cancels every task reminder, snooze and routine alarm (sign-out, account switch). */
+    suspend fun cancelAllAlarms() {}
+
     /** Called after a routine definition or occurrence changes. */
     suspend fun routinesChanged() {
         updateWidgets()

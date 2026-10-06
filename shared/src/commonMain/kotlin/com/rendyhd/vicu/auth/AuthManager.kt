@@ -187,11 +187,13 @@ class AuthManager(
                     _authState.value = AuthState.Authenticated
                     scheduleProactiveRefresh()
                     ensureBackupApiToken()
+                    ensureUserIdStored()
                 }
                 apiToken != null -> {
                     Logger.d(TAG, "initialize: JWT missing/expired, using API token → Authenticated")
                     cachedToken = apiToken
                     _authState.value = AuthState.Authenticated
+                    ensureUserIdStored()
                 }
                 jwt != null -> {
                     Logger.d(TAG, "initialize: JWT expired, no API token — attempting V2 refresh")
@@ -213,11 +215,13 @@ class AuthManager(
                         _authState.value = AuthState.Authenticated
                         scheduleProactiveRefresh()
                         ensureBackupApiToken()
+                        ensureUserIdStored()
                     } else if (cachedToken != null && !isExpired(cachedJwtExpiry)) {
                         Logger.i(TAG, "initialize: V2 refresh returned false but cached JWT is valid → Authenticated")
                         _authState.value = AuthState.Authenticated
                         scheduleProactiveRefresh()
                         ensureBackupApiToken()
+                        ensureUserIdStored()
                     } else {
                         Logger.w(TAG, "initialize: V2 refresh failed, no API token → NeedsReAuth")
                         cachedToken = null
@@ -545,6 +549,25 @@ class AuthManager(
             }
         } catch (e: Exception) {
             Logger.w(TAG, "Backup token revocation failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Records who the signed-in account is for sessions that predate the stored user id, so a
+     * later re-login can tell "same account again" (keep the offline queue) from "someone else"
+     * (wipe). Does nothing once an id is stored.
+     */
+    private fun ensureUserIdStored() {
+        appScope.launch {
+            try {
+                if (tokenStorage.getUserId() != null) return@launch
+                val user = apiServiceProvider().getCurrentUser()
+                if (user.id > 0L) tokenStorage.storeUserId(user.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Logger.w(TAG, "Could not record the user id (non-fatal): ${e.message}")
+            }
         }
     }
 

@@ -1,0 +1,150 @@
+package com.rendyhd.vicu.ui.screens.settings
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+
+/** "3 changes (2 waiting, 1 failed)" for the dialogs below. */
+internal fun unsyncedChangesSummary(pending: Int, failed: Int): String {
+    val total = pending + failed
+    val noun = if (total == 1) "change" else "changes"
+    val parts = buildList {
+        if (pending > 0) add("$pending waiting")
+        if (failed > 0) add("$failed failed")
+    }
+    return "$total unsynced $noun (${parts.joinToString(", ")})"
+}
+
+/**
+ * Sign-out deletes everything on this device, including offline changes that never reached the
+ * server, so when there are any the user has to tick an explicit "discard" box first.
+ */
+@Composable
+internal fun SignOutDialog(
+    pendingCount: Int,
+    failedCount: Int,
+    routineHistoryCount: Int,
+    onConfirm: (discardUnsynced: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val unsynced = pendingCount + failedCount
+    var discard by rememberSaveable { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sign Out") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Sign out of your Vikunja account? Tasks and other data cached on this device are deleted.")
+                if (routineHistoryCount > 0) {
+                    Text(
+                        "Routine history that is stored only on this device ($routineHistoryCount entries) is deleted too.",
+                    )
+                }
+                if (unsynced > 0) {
+                    Text(
+                        "${unsyncedChangesSummary(pendingCount, failedCount)} " +
+                            "have not reached the server and will be lost.",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    DiscardCheckRow(
+                        checked = discard,
+                        onCheckedChange = { discard = it },
+                        label = "Discard unsynced changes",
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(unsynced > 0) },
+                enabled = unsynced == 0 || discard,
+            ) {
+                Text("Sign Out", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+/**
+ * Clearing the cache keeps offline changes and routine history by default. Discarding the
+ * offline queue too is an explicit, separate choice.
+ */
+@Composable
+internal fun ClearCacheDialog(
+    pendingCount: Int,
+    failedCount: Int,
+    onConfirm: (discardUnsynced: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val unsynced = pendingCount + failedCount
+    var discard by rememberSaveable { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Clear Cache") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Clear cached tasks, projects and labels and re-sync from the server? " +
+                        "You will not be signed out.",
+                )
+                if (unsynced > 0) {
+                    Text(
+                        "${unsyncedChangesSummary(pendingCount, failedCount)}. " +
+                            "They are kept and sent on the next sync unless you discard them.",
+                    )
+                    DiscardCheckRow(
+                        checked = discard,
+                        onCheckedChange = { discard = it },
+                        label = "Also discard unsynced changes",
+                    )
+                } else {
+                    Text("Routine history stored on this device is kept.")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(discard && unsynced > 0) }) { Text("Clear & Sync") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
+private fun DiscardCheckRow(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    label: String,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Checkbox) { onCheckedChange(!checked) }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = checked, onCheckedChange = null)
+        Text(text = label, modifier = Modifier.padding(start = 12.dp))
+    }
+}

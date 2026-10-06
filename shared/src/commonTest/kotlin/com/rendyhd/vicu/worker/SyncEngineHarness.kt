@@ -72,11 +72,16 @@ class FakeLabelDao : LabelDao {
 class FakeCustomListRepository : CustomListRepository {
     override val lists: Flow<List<CustomList>> = flowOf(emptyList())
     override val syncStatus: StateFlow<CustomListSyncStatus> = MutableStateFlow(CustomListSyncStatus.Idle)
+    var clearLocalCalls = 0
+        private set
 
     override suspend fun upsert(customList: CustomList) = Unit
     override suspend fun delete(id: String) = Unit
     override suspend fun reorder(fromIndex: Int, toIndex: Int) = Unit
-    override suspend fun clearLocal() = Unit
+
+    override suspend fun clearLocal() {
+        clearLocalCalls++
+    }
     override suspend fun sync(): CustomListSyncStatus = CustomListSyncStatus.Idle
 }
 

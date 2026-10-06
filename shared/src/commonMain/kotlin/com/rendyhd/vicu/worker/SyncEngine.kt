@@ -75,6 +75,13 @@ class SyncEngine(
          * many engine instances exist.
          */
         private val syncMutex = Mutex()
+
+        /**
+         * Runs [block] while no sync is running and none can start. Used by operations that
+         * rewrite the queue or wipe local data, which must not interleave with a run that is
+         * mid-action. Never call this from inside a sync run.
+         */
+        suspend fun <T> exclusive(block: suspend () -> T): T = syncMutex.withLock { block() }
     }
 
     suspend fun performSync(): Boolean = syncMutex.withLock { performSyncLocked() }

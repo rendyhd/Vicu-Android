@@ -37,6 +37,7 @@ class AndroidSecureTokenStorage(
         val PROVIDER_KEY = stringPreferencesKey("provider_key")
         val VIKUNJA_URL = stringPreferencesKey("vikunja_url")
         val INBOX_PROJECT_ID = longPreferencesKey("inbox_project_id")
+        val USER_ID = longPreferencesKey("user_id")
         val BACKUP_TOKEN_ID = longPreferencesKey("backup_api_token_id")
         val INSTALL_ID = stringPreferencesKey("install_id")
     }
@@ -261,6 +262,18 @@ class AndroidSecureTokenStorage(
     override suspend fun getInboxProjectId(): Long? {
         val prefs = context.authDataStore.data.first()
         return prefs[Keys.INBOX_PROJECT_ID]
+    }
+
+    // User id (identity of the signed-in account)
+    override suspend fun storeUserId(id: Long) {
+        context.authDataStore.edit { prefs ->
+            prefs[Keys.USER_ID] = id
+        }
+    }
+
+    override suspend fun getUserId(): Long? {
+        val prefs = context.authDataStore.data.first()
+        return prefs[Keys.USER_ID]
     }
 
     // Clear all credentials and settings. The install id identifies this install rather than a

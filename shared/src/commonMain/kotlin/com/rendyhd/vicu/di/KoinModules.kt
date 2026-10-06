@@ -29,6 +29,7 @@ val databaseModule = module {
     single { get<VikunjaDatabase>().pendingActionDao() }
     single { get<VikunjaDatabase>().attachmentDao() }
     single { get<VikunjaDatabase>().routineArchiveDao() }
+    single { get<VikunjaDatabase>().localDataDao() }
 
     single { BehaviorPrefsStore(createDataStore(get(), "behavior_prefs")) }
     single { BottomBarPrefsStore(createDataStore(get(), "bottom_bar_prefs")) }
@@ -137,6 +138,15 @@ val repositoryModule = module {
 
 val commonModule = module {
     single { SyncStaleness() }
+    single {
+        LocalDataWiper(
+            dao = get(),
+            customLists = get(),
+            bottomBarPrefs = get(),
+            platformHooks = get(),
+            syncStaleness = get(),
+        )
+    }
     single { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
     single {
         AuthManager(
@@ -147,6 +157,14 @@ val commonModule = module {
             networkMonitor = get()
         )
     }
+    single {
+        AccountSession(
+            tokenStorage = get(),
+            apiService = get(),
+            wiper = get(),
+        )
+    }
+    single { SessionCleanup(authManager = get(), wiper = get()) }
     single {
         PasswordLoginHandler(
             apiServiceProvider = { get() }

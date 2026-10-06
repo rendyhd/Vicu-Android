@@ -141,6 +141,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val useDeviceColors by viewModel.useDeviceColors.collectAsState()
+    val routineHistoryCount by viewModel.routineHistoryCount.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
@@ -716,47 +717,30 @@ fun SettingsScreen(
         )
     }
 
-    // Logout confirmation
+    // Logout confirmation: unsynced changes are shown and must be discarded explicitly
     if (showLogoutDialog) {
-        AlertDialog(
-            onDismissRequest = { showLogoutDialog = false },
-            title = { Text("Sign Out") },
-            text = { Text("Sign out of your Vikunja account? All local data will be cleared.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.logout()
-                    showLogoutDialog = false
-                }) {
-                    Text("Sign Out", color = MaterialTheme.colorScheme.error)
-                }
+        SignOutDialog(
+            pendingCount = state.pendingActionCount,
+            failedCount = state.failedActionCount,
+            routineHistoryCount = routineHistoryCount,
+            onConfirm = { discardUnsynced ->
+                viewModel.logout(discardUnsynced)
+                showLogoutDialog = false
             },
-            dismissButton = {
-                TextButton(onClick = { showLogoutDialog = false }) {
-                    Text("Cancel")
-                }
-            },
+            onDismiss = { showLogoutDialog = false },
         )
     }
 
-    // Clear cache confirmation
+    // Clear cache confirmation: keeps unsynced changes and routine history unless told otherwise
     if (showClearCacheDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearCacheDialog = false },
-            title = { Text("Clear Cache") },
-            text = { Text("Clear all cached data and re-sync from the server? You will not be signed out.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.clearCacheAndResync()
-                    showClearCacheDialog = false
-                }) {
-                    Text("Clear & Sync")
-                }
+        ClearCacheDialog(
+            pendingCount = state.pendingActionCount,
+            failedCount = state.failedActionCount,
+            onConfirm = { discardUnsynced ->
+                viewModel.clearCacheAndResync(discardUnsynced)
+                showClearCacheDialog = false
             },
-            dismissButton = {
-                TextButton(onClick = { showClearCacheDialog = false }) {
-                    Text("Cancel")
-                }
-            },
+            onDismiss = { showClearCacheDialog = false },
         )
     }
 

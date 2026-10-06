@@ -48,6 +48,11 @@ class AndroidRepositoryHooks(
         routineAlarmSchedulerProvider().rescheduleAll()
     }
 
+    override suspend fun cancelAllAlarms() {
+        alarmScheduler.cancelAll()
+        routineAlarmSchedulerProvider().cancelAll()
+    }
+
     override suspend fun routinesChanged() {
         routineAlarmSchedulerProvider().rescheduleAll()
         RoutineWidget().updateAllWidgets(context)

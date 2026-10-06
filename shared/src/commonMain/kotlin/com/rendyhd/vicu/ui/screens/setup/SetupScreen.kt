@@ -161,6 +161,14 @@ fun SetupScreen(
 
         Spacer(modifier = Modifier.weight(2f))
     }
+
+    state.discardPrompt?.let { prompt ->
+        DiscardOnSignInDialog(
+            prompt = prompt,
+            onConfirm = viewModel::confirmDiscardAndSignIn,
+            onCancel = viewModel::cancelDiscard,
+        )
+    }
 }
 
 @Composable

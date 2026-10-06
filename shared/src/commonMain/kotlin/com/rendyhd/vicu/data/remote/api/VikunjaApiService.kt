@@ -19,6 +19,7 @@ import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import com.rendyhd.vicu.util.Constants
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
@@ -233,6 +234,23 @@ class VikunjaApiService(
 
     suspend fun getCurrentUser(): UserDto =
         client.get("user").bodyOrThrow()
+
+    /**
+     * Asks the server at [baseUrl] who [token] belongs to, without using or changing the app's
+     * session. The request goes through a bare copy of the client (same engine and JSON setup,
+     * none of the base-URL redirection, Authorization injection or 401 refresh handling), so a
+     * wrong token cannot trigger a refresh, flip the auth state or leave anything stored behind.
+     */
+    suspend fun getCurrentUserWithToken(baseUrl: String, token: String): UserDto {
+        val bare = client.config { }
+        try {
+            return bare.get("${baseUrl.trim().trimEnd('/')}${Constants.API_BASE_PATH}/user") {
+                header(HttpHeaders.Authorization, "Bearer $token")
+            }.bodyOrThrow()
+        } finally {
+            bare.close()
+        }
+    }
 
     suspend fun exchangeOidcToken(
         providerKey: String,
