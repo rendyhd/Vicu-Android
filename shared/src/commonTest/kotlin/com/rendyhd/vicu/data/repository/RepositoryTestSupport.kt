@@ -285,6 +285,10 @@ class RecordingRepositoryHooks : PlatformRepositoryHooks {
         private set
     var cancelAllAlarmsCalls = 0
         private set
+    var cancelAccountBackgroundWorkCalls = 0
+        private set
+    var clearWidgetConfigurationsCalls = 0
+        private set
 
     override fun triggerSync() {
         syncTriggers++
@@ -310,5 +314,13 @@ class RecordingRepositoryHooks : PlatformRepositoryHooks {
 
     override suspend fun cancelAllAlarms() {
         cancelAllAlarmsCalls++
+    }
+
+    override suspend fun cancelAccountBackgroundWork() {
+        cancelAccountBackgroundWorkCalls++
+    }
+
+    override suspend fun clearWidgetConfigurations() {
+        clearWidgetConfigurationsCalls++
     }
 }

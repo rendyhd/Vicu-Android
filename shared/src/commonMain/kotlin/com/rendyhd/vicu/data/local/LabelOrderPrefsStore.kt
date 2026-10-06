@@ -29,5 +29,10 @@ class LabelOrderPrefsStore(
     suspend fun setOrder(ids: List<Long>) {
         dataStore.edit { it[KEY_ORDER] = ids.joinToString(",") }
     }
+
+    /** Forgets the order (the label ids belong to the account that is gone). */
+    suspend fun clear() {
+        dataStore.edit { it.clear() }
+    }
 }
 

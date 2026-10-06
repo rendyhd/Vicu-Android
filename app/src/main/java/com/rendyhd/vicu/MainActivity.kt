@@ -16,16 +16,20 @@ import androidx.lifecycle.lifecycleScope
 import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.AuthState
+import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.ThemeMode
 import com.rendyhd.vicu.data.local.ThemePrefsStore
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.SharedContent
+import com.rendyhd.vicu.notification.DailySummaryScheduler
 import com.rendyhd.vicu.ui.VicuApp
+import com.rendyhd.vicu.worker.RoutineMaintenanceScheduler
 import com.rendyhd.vicu.worker.TokenRefreshScheduler
 import com.rendyhd.vicu.worker.SyncScheduler
 import com.rendyhd.vicu.ui.theme.VicuTheme
 import org.koin.android.ext.android.inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -38,6 +42,8 @@ class MainActivity : ComponentActivity() {
     private val authManager: AuthManager by inject()
     private val baseUrlHolder: BaseUrlHolder by inject()
     private val themePrefsStore: ThemePrefsStore by inject()
+    private val notificationPrefsStore: NotificationPrefsStore by inject()
+    private val dailySummaryScheduler: DailySummaryScheduler by inject()
 
     private val _initialTaskId = MutableStateFlow<Long?>(null)
     private val _showTaskEntry = MutableStateFlow(false)
@@ -76,11 +82,18 @@ class MainActivity : ComponentActivity() {
         // the queued changes pending; signing in again resumes it.
         lifecycleScope.launch {
             var neededReAuth = false
+            var signedOut = false
             authManager.authState.collect { state ->
                 if (state == AuthState.Authenticated && neededReAuth) {
                     SyncScheduler.enqueueImmediate(this@MainActivity)
                 }
+                if (state == AuthState.Authenticated && signedOut) {
+                    // Sign-out cancelled the daily summaries and the routine maintenance.
+                    RoutineMaintenanceScheduler.schedule(this@MainActivity)
+                    dailySummaryScheduler.scheduleFromPrefs(notificationPrefsStore.getPrefs().first())
+                }
                 neededReAuth = state == AuthState.NeedsReAuth
+                signedOut = state == AuthState.Unauthenticated
             }
         }
 

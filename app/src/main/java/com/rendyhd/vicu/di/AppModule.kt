@@ -75,6 +75,7 @@ val appModule = module {
             routineAlarmSchedulerProvider = { get() },
             completionSoundPlayer = get(),
             appScope = get(),
+            dailySummaryScheduler = get(),
         )
     }
     single<NetworkMonitor> { AndroidNetworkMonitor(androidContext()) }

@@ -118,5 +118,12 @@ class WiperFixture(
     val staleness: SyncStaleness = SyncStaleness(),
 ) {
     val bottomBar = BottomBarPrefsStore(InMemoryPreferencesDataStore())
-    val wiper = LocalDataWiper(dao, customLists, bottomBar, hooks, staleness)
+    val projectSections = ProjectSectionPrefsStore(InMemoryPreferencesDataStore())
+    val labelOrder = LabelOrderPrefsStore(InMemoryPreferencesDataStore())
+    val routinePrefs = RoutinePrefsStore(InMemoryPreferencesDataStore())
+    val widgetPrefs = WidgetPrefsStore(InMemoryPreferencesDataStore())
+    val wiper = LocalDataWiper(
+        dao, customLists, bottomBar, hooks, staleness,
+        projectSections, labelOrder, routinePrefs, widgetPrefs,
+    )
 }

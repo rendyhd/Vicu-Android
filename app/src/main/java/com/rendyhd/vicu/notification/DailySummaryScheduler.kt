@@ -6,6 +6,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.rendyhd.vicu.data.local.NotificationPrefs
 import com.rendyhd.vicu.worker.DailySummaryWorker
 
 import kotlinx.datetime.Clock
@@ -79,6 +80,17 @@ class DailySummaryScheduler(
             request,
         )
         Log.d(TAG, "Scheduled $slot daily summary at $hour:$minute (delay=${initialDelayMillis / 60000}min)")
+    }
+
+    /** Schedules, or cancels, both summaries as [prefs] says (used after signing in again). */
+    fun scheduleFromPrefs(prefs: NotificationPrefs) {
+        scheduleIfEnabled(SLOT_MORNING, prefs.dailySummaryEnabled, prefs.dailySummaryHour, prefs.dailySummaryMinute)
+        scheduleIfEnabled(
+            SLOT_AFTERNOON,
+            prefs.afternoonSummaryEnabled,
+            prefs.afternoonSummaryHour,
+            prefs.afternoonSummaryMinute,
+        )
     }
 
     fun cancel(slot: String) {

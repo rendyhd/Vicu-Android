@@ -148,6 +148,10 @@ val commonModule = module {
             bottomBarPrefs = get(),
             platformHooks = get(),
             syncStaleness = get(),
+            projectSectionPrefs = get(),
+            labelOrderPrefs = get(),
+            routinePrefs = get(),
+            widgetPrefs = get(),
         )
     }
     single { CoroutineScope(SupervisorJob() + Dispatchers.Main) }

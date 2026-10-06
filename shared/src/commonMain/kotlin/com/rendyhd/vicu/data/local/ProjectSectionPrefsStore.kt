@@ -41,6 +41,11 @@ class ProjectSectionPrefsStore(
         }
     }
 
+    /** Forgets every collapsed section (the project ids belong to the account that is gone). */
+    suspend fun clear() {
+        dataStore.edit { it.clear() }
+    }
+
     private fun key(rootProjectId: Long) =
         stringPreferencesKey("collapsed_sections_$rootProjectId")
 

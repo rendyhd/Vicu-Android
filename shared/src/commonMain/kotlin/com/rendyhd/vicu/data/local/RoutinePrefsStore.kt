@@ -32,4 +32,9 @@ class RoutinePrefsStore(
     suspend fun setRemindersEnabled(enabled: Boolean) {
         dataStore.edit { it[KEY_REMINDERS_ENABLED] = enabled }
     }
+
+    /** Back to defaults, with a new device id for the next account's routine history. */
+    suspend fun clear() {
+        dataStore.edit { it.clear() }
+    }
 }

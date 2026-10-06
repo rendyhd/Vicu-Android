@@ -110,6 +110,53 @@ class LocalDataWiperTest {
         assertEquals(0, f.wiper.routineHistoryCount.first())
     }
 
+    @Test
+    fun `wiping everything forgets the preferences that only made sense for the old account`() = runTest {
+        val f = fixture()
+        f.projectSections.setExpanded(rootProjectId = 10, sectionProjectId = 11, isExpanded = false)
+        f.labelOrder.setOrder(listOf(20, 21, 22))
+        f.routinePrefs.setRemindersEnabled(false)
+        val oldDeviceId = f.routinePrefs.getOrCreateDeviceId()
+        f.widgetPrefs.setSmartAdd(false)
+        f.widgetPrefs.setContextNav(false)
+
+        f.wiper.wipeEverything()
+
+        assertEquals(emptySet(), f.projectSections.collapsedSectionIds(10).first())
+        assertEquals(emptyList(), f.labelOrder.getOrder().first())
+        assertTrue(f.routinePrefs.remindersEnabled.first(), "back to the default")
+        assertTrue(f.routinePrefs.getOrCreateDeviceId() != oldDeviceId, "a new device id for the next account")
+        assertTrue(f.widgetPrefs.smartAdd.first() && f.widgetPrefs.contextNav.first())
+    }
+
+    @Test
+    fun `wiping everything stops the account's background work and resets its widgets`() = runTest {
+        val f = fixture()
+
+        f.wiper.wipeEverything()
+
+        assertEquals(1, f.hooks.cancelAccountBackgroundWorkCalls)
+        assertEquals(1, f.hooks.clearWidgetConfigurationsCalls)
+    }
+
+    @Test
+    fun `clearing caches keeps the preferences and the background work`() = runTest {
+        val f = fixture()
+        f.projectSections.setExpanded(rootProjectId = 10, sectionProjectId = 11, isExpanded = false)
+        f.labelOrder.setOrder(listOf(20, 21))
+        f.widgetPrefs.setSmartAdd(false)
+
+        f.wiper.clearCaches()
+        f.wiper.discardUnsyncedAndClearCaches()
+
+        // The same account is re-synced, so its ids are still valid.
+        assertEquals(setOf(11L), f.projectSections.collapsedSectionIds(10).first())
+        assertEquals(listOf(20L, 21L), f.labelOrder.getOrder().first())
+        assertEquals(false, f.widgetPrefs.smartAdd.first())
+        assertEquals(0, f.hooks.cancelAccountBackgroundWorkCalls)
+        assertEquals(0, f.hooks.clearWidgetConfigurationsCalls)
+    }
+
     // --- counts ---
 
     @Test

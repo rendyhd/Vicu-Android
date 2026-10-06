@@ -89,6 +89,13 @@ object RoutineMaintenanceScheduler {
         )
     }
 
+    /** Stops the midnight maintenance (sign-out); signing in again calls [schedule]. */
+    fun cancel(context: Context) {
+        val manager = WorkManager.getInstance(context)
+        manager.cancelUniqueWork(LEGACY_PERIODIC_WORK_NAME)
+        manager.cancelUniqueWork(MIDNIGHT_WORK_NAME)
+    }
+
     internal fun scheduleNext(context: Context) {
         WorkManager.getInstance(context).enqueueUniqueWork(
             MIDNIGHT_WORK_NAME,
