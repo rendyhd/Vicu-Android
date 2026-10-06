@@ -46,17 +46,34 @@ object ReminderAlarms {
     fun requestCode(taskId: Long, reminderIndex: Int): Int = (taskId * 100 + reminderIndex).hashCode()
 
     /**
-     * When [reminder] fires for a task due at [dueDate], or null if it cannot be resolved.
-     * An absolute reminder is its own timestamp; a relative one is an offset (seconds, negative
-     * for before) from the due date. A period of 0 with a `relative_to` means "at due time".
+     * When [reminder] fires, or null if it cannot be resolved.
+     *
+     * An absolute reminder is its own timestamp. A relative one is an offset (seconds, negative
+     * for before) from the date its `relative_to` names: `due_date`, `start_date` or `end_date`,
+     * taken from [dueDate], [startDate] and [endDate]. The server fills the absolute time in once
+     * it has seen the task, but a task edited offline has only the relative form, and it must be
+     * counted from the right date, never from the due date by default. A period of 0 with a
+     * `relative_to` means "at that date". A relative reminder without a `relative_to` keeps the
+     * old meaning, the due date; an unknown `relative_to` or a missing date gives null.
      */
-    fun resolveTriggerMillis(reminder: TaskReminder, dueDate: String): Long? {
+    fun resolveTriggerMillis(
+        reminder: TaskReminder,
+        dueDate: String,
+        startDate: String = "",
+        endDate: String = "",
+    ): Long? {
         if (reminder.reminder.isNotBlank()) {
             val instant = DateUtils.parseIsoDate(reminder.reminder)
             if (instant != null) return instant.toEpochMilliseconds()
         }
         if (reminder.relativePeriod != 0L || reminder.relativeTo.isNotBlank()) {
-            val baseDate = DateUtils.parseIsoDate(dueDate)
+            val base = when (reminder.relativeTo.trim().lowercase()) {
+                "", "due_date" -> dueDate
+                "start_date" -> startDate
+                "end_date" -> endDate
+                else -> return null
+            }
+            val baseDate = DateUtils.parseIsoDate(base)
             if (baseDate != null) {
                 return (baseDate + reminder.relativePeriod.seconds).toEpochMilliseconds()
             }
@@ -64,11 +81,15 @@ object ReminderAlarms {
         return null
     }
 
+    /** [resolveTriggerMillis] for a reminder of [task]. */
+    fun resolveTriggerMillis(reminder: TaskReminder, task: Task): Long? =
+        resolveTriggerMillis(reminder, task.dueDate, task.startDate, task.endDate)
+
     /** The alarms [task] should have right now: none for a done task or a reminder in the past. */
     fun desiredAlarms(task: Task, nowMillis: Long): List<ReminderAlarmSpec> {
         if (task.done) return emptyList()
         return task.reminders.mapIndexedNotNull { index, reminder ->
-            val trigger = resolveTriggerMillis(reminder, task.dueDate) ?: return@mapIndexedNotNull null
+            val trigger = resolveTriggerMillis(reminder, task) ?: return@mapIndexedNotNull null
             if (trigger <= nowMillis) return@mapIndexedNotNull null
             ReminderAlarmSpec(task.id, index, requestCode(task.id, index), trigger)
         }
@@ -91,7 +112,7 @@ object ReminderAlarms {
         val stillHasReminder = if (triggerAtMillis == null) {
             task.reminders.isNotEmpty()
         } else {
-            task.reminders.any { resolveTriggerMillis(it, task.dueDate) == triggerAtMillis }
+            task.reminders.any { resolveTriggerMillis(it, task) == triggerAtMillis }
         }
         return if (stillHasReminder) {
             ReminderFireDecision.Show(task.title)

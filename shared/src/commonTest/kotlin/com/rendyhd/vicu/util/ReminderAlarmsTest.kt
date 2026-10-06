@@ -45,6 +45,86 @@ class ReminderAlarmsTest {
         assertNull(ReminderAlarms.resolveTriggerMillis(oneHourBeforeDue, ""))
     }
 
+    // --- relative_to (A-ALARM-3) ---
+
+    private val start = "2026-10-06T09:00:00Z"
+    private val startMillis = Instant.parse(start).toEpochMilliseconds()
+    private val end = "2026-10-06T17:00:00Z"
+    private val endMillis = Instant.parse(end).toEpochMilliseconds()
+
+    @Test
+    fun `a relative reminder counts from the field named in relative_to`() {
+        val fromStart = TaskReminder(relativePeriod = -600, relativeTo = "start_date")
+        val fromEnd = TaskReminder(relativePeriod = 1_800, relativeTo = "end_date")
+        val fromDue = TaskReminder(relativePeriod = -600, relativeTo = "due_date")
+
+        assertEquals(startMillis - 600_000, ReminderAlarms.resolveTriggerMillis(fromStart, due, start, end))
+        assertEquals(endMillis + 1_800_000, ReminderAlarms.resolveTriggerMillis(fromEnd, due, start, end))
+        assertEquals(dueMillis - 600_000, ReminderAlarms.resolveTriggerMillis(fromDue, due, start, end))
+    }
+
+    @Test
+    fun `a relative reminder never falls back to another date than the one it names`() {
+        val fromStart = TaskReminder(relativePeriod = -600, relativeTo = "start_date")
+        val fromEnd = TaskReminder(relativePeriod = -600, relativeTo = "end_date")
+
+        // The task has a due date but no start or end date: nothing to count from.
+        assertNull(ReminderAlarms.resolveTriggerMillis(fromStart, due, "", ""))
+        assertNull(ReminderAlarms.resolveTriggerMillis(fromEnd, due, "0001-01-01T00:00:00Z", "0001-01-01T00:00:00Z"))
+    }
+
+    @Test
+    fun `a relative reminder without a relative_to still counts from the due date`() {
+        val legacy = TaskReminder(relativePeriod = -3_600)
+
+        assertEquals(dueMillis - 3_600_000, ReminderAlarms.resolveTriggerMillis(legacy, due, start, end))
+    }
+
+    @Test
+    fun `an unknown relative_to cannot be resolved`() {
+        val odd = TaskReminder(relativePeriod = -600, relativeTo = "created")
+
+        assertNull(ReminderAlarms.resolveTriggerMillis(odd, due, start, end))
+    }
+
+    @Test
+    fun `an absolute reminder time wins over the relative fields`() {
+        val both = TaskReminder(reminder = "2026-10-06T10:30:00Z", relativePeriod = -600, relativeTo = "start_date")
+
+        assertEquals(absoluteMillis, ReminderAlarms.resolveTriggerMillis(both, due, start, end))
+    }
+
+    @Test
+    fun `desired alarms for a start-based reminder use the start date and not the due date`() {
+        val t = task(reminders = listOf(TaskReminder(relativePeriod = -900, relativeTo = "start_date")))
+            .copy(startDate = start)
+
+        val alarms = ReminderAlarms.desiredAlarms(t, now)
+
+        assertEquals(listOf(startMillis - 900_000), alarms.map { it.triggerAtMillis })
+    }
+
+    @Test
+    fun `a start-based reminder on a task without a start date gets no alarm`() {
+        val t = task(reminders = listOf(TaskReminder(relativePeriod = -900, relativeTo = "start_date")))
+
+        assertTrue(ReminderAlarms.desiredAlarms(t, now).isEmpty())
+    }
+
+    @Test
+    fun `a fired start-based reminder follows the start date it was scheduled for`() {
+        val reminder = TaskReminder(relativePeriod = -900, relativeTo = "start_date")
+        val scheduledFor = startMillis - 900_000
+        val same = task(reminders = listOf(reminder)).copy(startDate = start)
+        val moved = same.copy(startDate = "2026-10-08T09:00:00Z")
+
+        assertEquals(ReminderFireDecision.Show("Pay rent"), ReminderAlarms.decideFire(same, scheduledFor, false))
+        assertEquals(
+            ReminderFireDecision.Skip(ReminderSkipReason.REMINDER_REMOVED),
+            ReminderAlarms.decideFire(moved, scheduledFor, false),
+        )
+    }
+
     // --- desiredAlarms / requestCode ---
 
     @Test
