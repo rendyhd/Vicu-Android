@@ -29,6 +29,7 @@ data class TaskWidgetState(
     val smartAdd: Boolean = true,
     val contextNav: Boolean = true,
     val addToProjectId: Long = 0L, // for custom lists: which project the + button targets
+    val transparentBackground: Boolean = false,
 )
 
 @Serializable
@@ -36,4 +37,12 @@ data class WidgetConfig(
     val viewType: WidgetViewType = WidgetViewType.TODAY,
     val viewId: String = "",
     val viewName: String = "Today",
+    val transparentBackground: Boolean = false,
+)
+
+fun TaskWidgetState.withConfig(config: WidgetConfig): TaskWidgetState = copy(
+    viewType = config.viewType,
+    viewId = config.viewId,
+    viewName = config.viewName,
+    transparentBackground = config.transparentBackground,
 )

@@ -52,12 +52,14 @@ class TaskWidgetWorker(
             if (!isLoggedIn) {
                 Log.d(TAG, "User not logged in, showing login prompt on all widgets")
                 for (glanceId in glanceIds) {
+                    val appWidgetId = manager.getAppWidgetId(glanceId)
+                    val config = WidgetConfigStore.getConfig(applicationContext, appWidgetId) ?: WidgetConfig()
                     val state = TaskWidgetState(
                         tasks = emptyList(),
                         totalCount = 0,
                         lastUpdated = DateUtils.nowIso(),
                         error = "Log in to see your tasks",
-                    )
+                    ).withConfig(config)
                     updateAppWidgetState(
                         applicationContext,
                         TaskWidgetStateDefinition,
@@ -125,9 +127,6 @@ class TaskWidgetWorker(
                 }
 
                 val state = TaskWidgetState(
-                    viewType = resolvedConfig.viewType,
-                    viewId = resolvedConfig.viewId,
-                    viewName = resolvedConfig.viewName,
                     tasks = widgetTasks,
                     totalCount = totalCount,
                     lastUpdated = DateUtils.nowIso(),
@@ -135,7 +134,7 @@ class TaskWidgetWorker(
                     contextNav = contextNavEnabled,
                     addToProjectId = addToProjectId,
                     error = if (projectUnavailable) "Project archived — reconfigure widget" else null,
-                )
+                ).withConfig(resolvedConfig)
 
                 updateAppWidgetState(
                     applicationContext,
