@@ -29,15 +29,28 @@ Type tasks the way you think. Vicu parses freeform text into structured fields a
 
 | Token | Example | Effect |
 |-------|---------|--------|
-| Dates | `tomorrow`, `next Monday`, `in 3 days` | Sets due date |
-| Times | `tomorrow 3pm`, `today at 14:00` | Sets due date + time |
-| `!` | `Buy milk !` | Due today |
-| Priority | `p1`–`p4`, `!urgent`, `!high`, `!medium`, `!low` | Sets priority |
+| Days | `today`, `tomorrow`, `friday`, `this friday`, `next Monday`, `next week`, `next month`, `in 3 days`, `in 2 weeks` | Sets the due date (date only) |
+| Calendar dates | `jan 15`, `15 jan`, `march 3rd`, `2026-10-15`, `10/15` | Sets the due date; a date that has already passed this year means next year |
+| Times | `tomorrow 3pm`, `today at 14:00`, `fri 9:30am`, `in 2 hours`, `in 30 minutes`, `at 5pm` | Sets due date + time |
+| `!` | `Buy milk !`, `! Buy milk`, `Buy milk!` | Due today |
+| Priority | `p1`–`p4`, `!urgent`, `!critical`, `!high`, `!medium`, `!med`, `!low` | Sets priority |
 | Labels | `@shopping`, `@"grocery list"` | Applies labels |
 | Projects | `#work`, `#"side project"` | Assigns to project |
-| Recurrence | `every 3 days`, `weekly`, `monthly` | Sets repeat interval |
+| Recurrence | `every 3 days`, `every 2 weeks`, `every friday`, `daily`, `weekly`, `biweekly` | Sets repeat interval |
 
 Everything that isn't a recognized token becomes the task title. Tokens can appear anywhere in the input and are shown as dismissible chips below the text field. Tap a chip to remove it.
+
+How dates and recurrence are read:
+
+- A bare weekday or `this <weekday>` is the next one on or after today, so `tuesday` typed on a Tuesday is today. `next <weekday>` is that day in the following week (weeks start on Monday), and `next week` is next Monday.
+- A date without a time is stored as a date only. A time without a date means today if it is still ahead, otherwise tomorrow. A time can come before or after the date (`3pm tomorrow`).
+- Three-letter weekdays (`mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`) only count after `on`, `next`, `this`, `by` or `due`, or before a time, so "Buy sun cream" has no date. Full weekday names always count.
+- Connector words go with the date: "Submit report by friday" becomes "Submit report", "Call at 9am" becomes "Call".
+- Slash dates follow your phone's order (`10/15` is October 15 in en-US, `5/11` is 5 November in en-GB). When the first number can't be a month, the order flips (`15/10`).
+- `daily`, `weekly`, `monthly`, `yearly`, `annually`, `biweekly` and `fortnightly` make a task recurring only as the last word ("Water plants daily"); "weekly standup" stays a title. `every friday` repeats weekly and sets the due date to the next Friday (today counts), unless the text has another date.
+- The `!` shortcut works even when natural language parsing is turned off. An explicit date wins over it ("Call mom tomorrow!" is due tomorrow).
+
+These rules are shared with the desktop app and checked against the same test corpus (`test-fixtures/nlp-corpus-v1.json`).
 
 Two syntax modes are available in Settings: **Todoist** (default — `@` for labels, `#` for projects) and **Vikunja** (`*` for labels, `+` for projects).
 
