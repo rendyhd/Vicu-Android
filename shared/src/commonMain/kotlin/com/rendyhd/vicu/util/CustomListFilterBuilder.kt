@@ -161,14 +161,27 @@ object CustomListFilterBuilder {
         return parts.joinToString(" && ")
     }
 
-    /** Builds the query parameters for the Vikunja API (see [buildFilterString]). */
+    /**
+     * The sorts `GET /tasks` accepts. Anything else (a list view's "position", or text from an
+     * old or edited list) makes the server answer 400 and the refresh fail, so it is not sent.
+     */
+    private val SERVER_SORT_KEYS: Set<String> =
+        setOf("due_date", "created", "updated", "priority", "title", "done_at")
+
+    /**
+     * Builds the query parameters for the Vikunja API (see [buildFilterString]). The list is
+     * ordered on the phone by [sortTasks], so a sort the server cannot do is left out: the server
+     * only has to send the right tasks.
+     */
     fun buildQueryParams(filter: CustomListFilter, today: LocalDate, zone: TimeZone): Map<String, String> = buildMap {
         val filterStr = buildFilterString(filter, today, zone)
         if (filterStr.isNotBlank()) {
             put("filter", filterStr)
         }
-        put("sort_by", filter.sortBy)
-        put("order_by", filter.orderBy)
+        if (filter.sortBy in SERVER_SORT_KEYS) {
+            put("sort_by", filter.sortBy)
+            filter.orderBy.lowercase().takeIf { it == "asc" || it == "desc" }?.let { put("order_by", it) }
+        }
     }
 
     /** The sort keys [sortTasks] understands, in the order the editor offers them. */

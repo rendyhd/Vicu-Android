@@ -294,6 +294,47 @@ class CustomListFilterBuilderTest {
         assertFalse("filter" in CustomListFilterBuilder.buildQueryParams(CustomListFilter(includeDone = true), tue, amsterdam))
     }
 
+    @Test
+    fun `every sort the server can do is sent, the way the list is configured`() {
+        for (key in listOf("due_date", "created", "updated", "priority", "title", "done_at")) {
+            val params = CustomListFilterBuilder.buildQueryParams(
+                CustomListFilter(sortBy = key, orderBy = "asc"), tue, amsterdam,
+            )
+            assertEquals(key, params["sort_by"], key)
+            assertEquals("asc", params["order_by"], key)
+        }
+    }
+
+    @Test
+    fun `a sort the tasks endpoint does not know is not sent, since it answers 400 to it`() {
+        // "position" only exists in a project's list view, and an old or hand-edited list can
+        // carry any text. The list is ordered on the phone by [sortTasks] either way.
+        for (key in listOf("position", "", "no_such_field", "due_date; drop")) {
+            val params = CustomListFilterBuilder.buildQueryParams(
+                CustomListFilter(dueDateFilter = "today", sortBy = key, orderBy = "desc"), tue, amsterdam,
+            )
+            assertFalse("sort_by" in params, "sort_by for '$key'")
+            assertFalse("order_by" in params, "order_by for '$key'")
+            assertEquals("done = false && due_date < '2026-10-06T22:00:00Z' && $nullDate", params["filter"], key)
+        }
+    }
+
+    @Test
+    fun `a direction that is not asc or desc is not sent`() {
+        val params = CustomListFilterBuilder.buildQueryParams(
+            CustomListFilter(sortBy = "title", orderBy = "sideways"), tue, amsterdam,
+        )
+        assertEquals("title", params["sort_by"])
+        assertFalse("order_by" in params)
+    }
+
+    @Test
+    fun `position stays an order the list can be sorted by on the phone`() {
+        assertTrue("position" in CustomListFilterBuilder.SORT_KEYS)
+        val tasks = listOf(Task(id = 1, title = "b", position = 20.0), Task(id = 2, title = "a", position = 10.0))
+        assertEquals(listOf(2L, 1L), CustomListFilterBuilder.sortTasks(tasks, "position", "asc").map { it.id })
+    }
+
     // --- Server filter is a superset of the evaluator ---------------------------------------
 
     /** Due instants around every local midnight in a range: just before, at, and just after it. */
