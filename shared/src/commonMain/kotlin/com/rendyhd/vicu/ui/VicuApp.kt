@@ -557,6 +557,7 @@ fun VicuApp(
             taskId = taskDetailTaskId,
             onDismiss = { showTaskDetailSheet = false },
             viewModel = taskDetailViewModel,
+            onOpenTask = onTaskClick,
         )
     }
 

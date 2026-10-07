@@ -39,6 +39,8 @@ import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -65,10 +67,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -83,7 +89,7 @@ import com.rendyhd.vicu.ui.components.picker.RecurrencePickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
-import com.rendyhd.vicu.ui.components.task.TaskDueBadge
+import com.rendyhd.vicu.ui.components.task.AnimatedCheckbox
 import com.rendyhd.vicu.ui.components.task.DescriptionField
 import com.rendyhd.vicu.ui.components.task.clearDescriptionEditorFocusOnHostTap
 import com.rendyhd.vicu.ui.components.task.rememberDescriptionEditorController
@@ -93,6 +99,7 @@ import com.rendyhd.vicu.ui.components.task.ParseChipRow
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.descendantsDepthFirst
+import com.rendyhd.vicu.util.unfinishedDescendants
 import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.ReminderFormat
 import com.rendyhd.vicu.util.parseHexColor
@@ -104,6 +111,8 @@ fun TaskDetailScreen(
     taskId: Long,
     onDismiss: () -> Unit,
     viewModel: TaskDetailViewModel,
+    /** Opens another task (a subtask) in this screen; edits made here are saved first. */
+    onOpenTask: (Long) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
     var showDatePicker by remember { mutableStateOf(false) }
@@ -121,6 +130,13 @@ fun TaskDetailScreen(
         mutableStateOf(TextFieldValue(state.task?.title.orEmpty()))
     }
     val descriptionEditorController = rememberDescriptionEditorController()
+    val focusManager = LocalFocusManager.current
+    val openSubtask: (Long) -> Unit = { subtaskId ->
+        // The description is typed into the editor, not yet into the view model: hand it over so
+        // opening the subtask saves it with the rest.
+        descriptionEditorController.flush()
+        onOpenTask(subtaskId)
+    }
     val dismissEditor = {
         descriptionEditorController.flush()
         if (state.descriptionConflict == null) {
@@ -222,45 +238,69 @@ fun TaskDetailScreen(
             item(key = "title") {
                 var fieldSize by remember { mutableStateOf(IntSize.Zero) }
                 Column {
-                    Box {
-                        OutlinedTextField(
-                            value = titleFieldValue,
-                            onValueChange = { newValue ->
-                                titleFieldValue = newValue
-                                viewModel.updateTitle(newValue.text)
-                            },
-                            placeholder = { Text("Task title") },
-                            maxLines = 3,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .onSizeChanged { fieldSize = it },
-                            textStyle = MaterialTheme.typography.titleMedium,
-                            shape = RoundedCornerShape(12.dp),
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.Sentences,
-                            ),
-                            visualTransformation = NlpVisualTransformation(
-                                tokens = state.parseResult?.tokens ?: emptyList(),
-                                isDarkTheme = isDarkTheme,
-                            ),
+                    Row(verticalAlignment = Alignment.Top) {
+                        // Completes or reopens the task itself (not only its subtasks); the 4 dp
+                        // centres the circle on the first line of the title field.
+                        AnimatedCheckbox(
+                            done = task.done,
+                            onToggle = viewModel::requestToggleDone,
+                            contentDescription = "Done",
+                            modifier = Modifier.padding(top = 4.dp),
                         )
+                        Box(modifier = Modifier.weight(1f)) {
+                            OutlinedTextField(
+                                value = titleFieldValue,
+                                onValueChange = { newValue ->
+                                    // One line: Enter must not insert a break, and pasted text loses its.
+                                    val clean = newValue.text.withoutLineBreaks()
+                                    titleFieldValue = if (clean == newValue.text) {
+                                        newValue
+                                    } else {
+                                        newValue.copy(
+                                            text = clean,
+                                            selection = TextRange(
+                                                newValue.selection.start.coerceAtMost(clean.length),
+                                                newValue.selection.end.coerceAtMost(clean.length),
+                                            ),
+                                        )
+                                    }
+                                    viewModel.updateTitle(clean)
+                                },
+                                placeholder = { Text("Task title") },
+                                maxLines = 3,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onSizeChanged { fieldSize = it },
+                                textStyle = MaterialTheme.typography.titleMedium,
+                                shape = RoundedCornerShape(12.dp),
+                                keyboardOptions = KeyboardOptions(
+                                    capitalization = KeyboardCapitalization.Sentences,
+                                    imeAction = ImeAction.Done,
+                                ),
+                                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                                visualTransformation = NlpVisualTransformation(
+                                    tokens = state.parseResult?.tokens ?: emptyList(),
+                                    isDarkTheme = isDarkTheme,
+                                ),
+                            )
 
-                        NlpAutocompleteDropdown(
-                            inputValue = titleFieldValue.text,
-                            cursorPosition = titleFieldValue.selection.start,
-                            prefixes = getPrefixes(state.parserConfig.syntaxMode),
-                            projects = state.allProjects,
-                            labels = state.allLabels,
-                            enabled = state.parserConfig.enabled,
-                            onSelect = { newText, newCursor ->
-                                titleFieldValue = TextFieldValue(
-                                    text = newText,
-                                    selection = TextRange(newCursor),
-                                )
-                                viewModel.updateTitle(newText)
-                            },
-                            anchorSize = fieldSize,
-                        )
+                            NlpAutocompleteDropdown(
+                                inputValue = titleFieldValue.text,
+                                cursorPosition = titleFieldValue.selection.start,
+                                prefixes = getPrefixes(state.parserConfig.syntaxMode),
+                                projects = state.allProjects,
+                                labels = state.allLabels,
+                                enabled = state.parserConfig.enabled,
+                                onSelect = { newText, newCursor ->
+                                    titleFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursor),
+                                    )
+                                    viewModel.updateTitle(newText)
+                                },
+                                anchorSize = fieldSize,
+                            )
+                        }
                     }
 
                     val parseResult = state.parseResult
@@ -332,14 +372,9 @@ fun TaskDetailScreen(
                 } else {
                     null
                 }
-                val projectName = state.allProjects.find { it.id == task.projectId }?.title ?: "No project"
-                val priorityLabel = when (task.priority) {
-                    1 -> "Low"
-                    2 -> "Medium"
-                    3 -> "High"
-                    4 -> "Urgent"
-                    else -> null
-                }
+                val knownProjectName = state.allProjects.find { it.id == task.projectId }?.title
+                val projectName = knownProjectName ?: "No project"
+                val priorityLabel = priorityName(task.priority)
                 val recurrenceLabel = DateUtils.formatRecurrence(task.repeatAfter, task.repeatMode)
 
                 Row(
@@ -406,10 +441,47 @@ fun TaskDetailScreen(
                         onClick = filePickerLauncher,
                     )
                 }
-                if (hasDueDate) {
-                    // The icon row only says "has a date"; show it, with its time when it has one.
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TaskDueBadge(dueDate = task.dueDate)
+                // The icons only say what can be set; these say what is set, as text.
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    val values = taskDetailValues(
+                        dueText = dueDateLabel,
+                        dueOverdue = hasDueDate && DateUtils.isOverdue(task.dueDate, clockDay.date, clockDay.zone),
+                        projectName = knownProjectName,
+                        priority = task.priority,
+                        recurrence = recurrenceLabel,
+                        reminders = if (task.reminders.isEmpty()) "" else ReminderFormat.summary(task.reminders),
+                    )
+                    values.forEach { value ->
+                        val tint = if (value.emphasis) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        AssistChip(
+                            onClick = {
+                                when (value.field) {
+                                    DetailField.DUE_DATE -> showDatePicker = true
+                                    DetailField.PROJECT -> showProjectPicker = true
+                                    DetailField.PRIORITY -> showPriorityPicker = true
+                                    DetailField.RECURRENCE -> showRecurrencePicker = true
+                                    DetailField.REMINDERS -> showReminderPicker = true
+                                }
+                            },
+                            label = { Text(value.text, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            leadingIcon = {
+                                Icon(value.field.icon(), contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            colors = AssistChipDefaults.assistChipColors(
+                                labelColor = tint,
+                                leadingIconContentColor = tint,
+                            ),
+                            modifier = Modifier.semantics { contentDescription = value.description },
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -454,12 +526,14 @@ fun TaskDetailScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clickable(onClickLabel = "Open subtask") { openSubtask(subtask.id) }
                         .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(
                         checked = subtask.done,
                         onCheckedChange = { viewModel.requestToggleSubtaskDone(subtask) },
+                        modifier = Modifier.semantics { contentDescription = subtask.title },
                     )
                     Text(
                         text = subtask.title,
@@ -735,6 +809,23 @@ fun TaskDetailScreen(
         )
     }
 
+    if (state.showCompleteConfirmation) {
+        val count = state.task?.unfinishedDescendants()?.size ?: 0
+        AlertDialog(
+            onDismissRequest = viewModel::dismissCompletion,
+            title = { Text("Complete task and subtasks?") },
+            text = {
+                Text("This will also complete $count unfinished ${if (count == 1) "subtask" else "subtasks"}.")
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmCompletion) { Text("Complete all") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissCompletion) { Text("Cancel") }
+            },
+        )
+    }
+
     state.pendingSubtaskCompletion?.let { subtask ->
         val count = subtask.descendantsDepthFirst().count { !it.done }
         AlertDialog(
@@ -828,6 +919,15 @@ fun TaskDetailScreen(
             onDismiss = { showRelationPicker = false },
         )
     }
+}
+
+/** The icon the action row uses for the same part of the task. */
+private fun DetailField.icon(): ImageVector = when (this) {
+    DetailField.DUE_DATE -> Icons.Default.CalendarToday
+    DetailField.PROJECT -> Icons.Default.Folder
+    DetailField.PRIORITY -> Icons.Default.Flag
+    DetailField.RECURRENCE -> Icons.Default.Repeat
+    DetailField.REMINDERS -> Icons.Default.Notifications
 }
 
 @Composable

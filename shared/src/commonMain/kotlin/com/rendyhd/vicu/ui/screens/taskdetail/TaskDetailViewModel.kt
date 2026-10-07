@@ -64,6 +64,8 @@ data class TaskDetailUiState(
     val attachments: List<Attachment> = emptyList(),
     val showDeleteConfirmation: Boolean = false,
     val pendingSubtaskCompletion: Task? = null,
+    /** Asking whether to complete the open task together with its unfinished subtasks. */
+    val showCompleteConfirmation: Boolean = false,
     val isDeleted: Boolean = false,
     val inboxProjectId: Long = 0L,
     val isUploadingImage: Boolean = false,
@@ -196,6 +198,7 @@ class TaskDetailViewModel(
                 isLoading = true,
                 isDeleted = false,
                 error = null,
+                showCompleteConfirmation = false,
                 descriptionConflict = null,
                 parseResult = null,
                 suppressedTypes = emptySet(),
@@ -290,7 +293,9 @@ class TaskDetailViewModel(
         }
     }
 
-    fun updateTitle(title: String) {
+    fun updateTitle(rawTitle: String) {
+        // A title is one line, whatever the keyboard or a paste delivered.
+        val title = rawTitle.withoutLineBreaks()
         _uiState.update { state ->
             val activeSuppressed = state.suppressedTypes.filter { type ->
                 val texts = suppressedRawTexts[type] ?: return@filter false
@@ -546,6 +551,61 @@ class TaskDetailViewModel(
 
     fun setRelationSearchQuery(q: String) {
         _relationSearchQuery.value = q
+    }
+
+    /**
+     * The checkbox of the open task. Completing a task that still has unfinished subtasks asks
+     * first, because completing it completes them too (the same question the lists ask).
+     */
+    fun requestToggleDone() {
+        val task = _uiState.value.task ?: return
+        if (!task.done && task.unfinishedDescendants().isNotEmpty()) {
+            _uiState.update { it.copy(showCompleteConfirmation = true) }
+        } else {
+            toggleDone()
+        }
+    }
+
+    fun confirmCompletion() {
+        _uiState.update { it.copy(showCompleteConfirmation = false) }
+        toggleDone()
+    }
+
+    fun dismissCompletion() {
+        _uiState.update { it.copy(showCompleteConfirmation = false) }
+    }
+
+    /**
+     * Completes or reopens the open task through the repository, not through the editor's save:
+     * completion has its own path (subtasks, repeating tasks, queueing). Edits typed so far are
+     * saved first and waited for, so a save cannot answer after the completion with the old state.
+     * The editor and its baseline both move to the new state at once, so the change is not an
+     * unsaved edit that a later save would send a second time.
+     */
+    private fun toggleDone() {
+        val task = _uiState.value.task ?: return
+        val target = !task.done
+        val generation = loadGeneration
+        viewModelScope.launch {
+            saveIfChanged(final = false)
+            _uiState.first { !it.isSaving }
+            if (generation != loadGeneration) return@launch
+            setEditorDone(target)
+            val result = taskRepository.setDone(task.id, target)
+            if (result is NetworkResult.Error) {
+                if (generation == loadGeneration) setEditorDone(!target)
+                _uiState.update { it.copy(error = result.message) }
+            }
+        }
+    }
+
+    private fun setEditorDone(done: Boolean) {
+        _uiState.update {
+            it.copy(
+                task = it.task?.copy(done = done),
+                originalTask = it.originalTask?.copy(done = done),
+            )
+        }
     }
 
     fun requestToggleSubtaskDone(subtask: Task) {
