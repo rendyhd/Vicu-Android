@@ -183,10 +183,20 @@ class LabelRepositoryImpl(
     }
 
     override suspend fun addToTask(taskId: Long, labelId: Long): NetworkResult<Unit> =
-        changeTaskLabel(taskId, labelId, add = true)
+        changeTaskLabel(currentTaskId(taskId), currentLabelId(labelId), add = true)
 
     override suspend fun removeFromTask(taskId: Long, labelId: Long): NetworkResult<Unit> =
-        changeTaskLabel(taskId, labelId, add = false)
+        changeTaskLabel(currentTaskId(taskId), currentLabelId(labelId), add = false)
+
+    /**
+     * The server's id for a task or label created offline whose create has gone through since the
+     * caller read it (the sync swapped the rows and remembered the ids); otherwise the id itself.
+     */
+    private suspend fun currentTaskId(id: Long): Long =
+        if (id >= 0L || taskDao.getByIdSync(id) != null) id else tempIds.realIdFor(id) ?: id
+
+    private suspend fun currentLabelId(id: Long): Long =
+        if (id >= 0L || labelDao.getById(id) != null) id else tempIds.realIdFor(id) ?: id
 
     /**
      * Adds or removes a label on a task, through the same gate as the task's own changes: queued

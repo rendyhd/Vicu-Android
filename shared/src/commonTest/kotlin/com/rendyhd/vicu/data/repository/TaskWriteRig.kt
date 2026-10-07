@@ -86,7 +86,13 @@ class TaskWriteRig {
         writeGate = tasks.writeGate,
         mappingDispatcher = Dispatchers.Unconfined,
     )
-    val sync = SyncEngineHarness(taskDao = taskDao, pendingActionDao = pendingActionDao, labelDao = labelDao) { route(it) }
+    val sync = SyncEngineHarness(
+        taskDao = taskDao,
+        pendingActionDao = pendingActionDao,
+        labelDao = labelDao,
+        tempIds = tasks.tempIds,
+        writeGate = tasks.writeGate,
+    ) { route(it) }
 
     suspend fun current(): Task = with(mapper) { checkNotNull(taskDao.entity(42)).toDomain() }
 

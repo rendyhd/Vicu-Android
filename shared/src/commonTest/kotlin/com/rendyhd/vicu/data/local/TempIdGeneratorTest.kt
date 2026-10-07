@@ -36,6 +36,28 @@ class TempIdGeneratorTest {
     }
 
     @Test
+    fun `the real id of a replayed create is remembered across restarts`() = runTest {
+        val store = InMemoryPreferencesDataStore()
+        TempIdGenerator(store).rememberRealId(-3, 501)
+
+        val afterRestart = TempIdGenerator(store)
+
+        assertEquals(501L, afterRestart.realIdFor(-3))
+        assertNull(afterRestart.realIdFor(-4))
+    }
+
+    @Test
+    fun `only the newest real ids are kept`() = runTest {
+        val ids = TempIdGenerator(InMemoryPreferencesDataStore())
+        for (n in 1L..501L) ids.rememberRealId(-n, 1000 + n)
+
+        assertNull(ids.realIdFor(-1), "the oldest made room")
+        assertEquals(1002L, ids.realIdFor(-2))
+        assertEquals(1501L, ids.realIdFor(-501))
+        assertEquals(500, ids.realIds().size)
+    }
+
+    @Test
     fun `nothing is issued before the first request`() = runTest {
         assertNull(TempIdGenerator(InMemoryPreferencesDataStore()).lastIssued())
     }

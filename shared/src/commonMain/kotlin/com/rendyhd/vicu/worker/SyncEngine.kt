@@ -2,6 +2,7 @@ package com.rendyhd.vicu.worker
 
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.AuthState
+import com.rendyhd.vicu.data.local.TempIdGenerator
 import com.rendyhd.vicu.data.local.dao.LabelDao
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.ProjectDao
@@ -19,6 +20,8 @@ import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.data.repository.ListPositioner
+import com.rendyhd.vicu.data.repository.TaskWriteGate
+import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.data.sync.ProjectRefresher
 import com.rendyhd.vicu.data.sync.TaskRefresher
@@ -78,6 +81,10 @@ class SyncEngine(
     private val routineRepository: RoutineRepository? = null,
     /** Puts a task whose create is replayed at the end of its list, like an online create does. */
     private val positioner: ListPositioner? = null,
+    /** Remembers the real id each replayed create got, for changes still holding the temporary one. */
+    private val tempIds: TempIdGenerator? = null,
+    /** The repositories' per-task write lock; the swap of a created task takes it. */
+    private val writeGate: TaskWriteGate? = null,
 ) {
     private val missing = MissingResourceCheck(api)
 
@@ -140,6 +147,9 @@ class SyncEngine(
         if (expired > 0) taskRefresher.requestFullReconcile()
 
         val run = RunState()
+        // Creates replayed by earlier runs: a change queued with the temporary id after that run
+        // moved the others (a screen still showed the old id) goes to the created task.
+        tempIds?.realIds()?.let { run.tempIdMap.putAll(it) }
 
         try {
             replayQueue(run)
@@ -465,8 +475,7 @@ class SyncEngine(
                 val responseDto = duplicate
                     ?: api.createTask(task.projectId, with(taskMapper) { task.toCreateDto() })
                 val responseEntity = with(taskMapper) { responseDto.toEntity() }
-                taskDao.deleteById(action.entityId)
-                taskDao.upsert(responseEntity)
+                adoptCreated(action.entityId, responseEntity, tempIdMap)
 
                 var finalEntity = responseEntity
                 if (task.done) {
@@ -496,10 +505,6 @@ class SyncEngine(
                     positioner?.anchorAtEndInBackground(task.projectId, created.id)
                 }
                 linkToQueuedParents(task, created.id, tempIdMap)
-                if (action.entityId != responseEntity.id) {
-                    tempIdMap[action.entityId] = responseEntity.id
-                    remapPendingDependents(action.entityId, responseEntity.id)
-                }
             }
             "update", "toggle_done" -> {
                 val taskId = tempIdMap[action.entityId] ?: action.entityId
@@ -541,6 +546,26 @@ class SyncEngine(
                 api.deleteTask(tempIdMap[action.entityId] ?: action.entityId)
             }
         }
+    }
+
+    /**
+     * Puts the task the server created in place of the local row [tempId]: the ids are remembered,
+     * the rows swapped and the queued changes moved to the real id in one step, under the task's
+     * write lock. A change made on a screen at that moment then lands on the local row before the
+     * swap (and is moved with the others) or on the created task after it, never on a row that
+     * has just been replaced.
+     */
+    private suspend fun adoptCreated(tempId: Long, created: TaskEntity, tempIdMap: MutableMap<Long, Long>) {
+        suspend fun swap() {
+            if (tempId != created.id) tempIds?.rememberRealId(tempId, created.id)
+            taskDao.deleteById(tempId)
+            taskDao.upsert(created)
+            if (tempId != created.id) {
+                tempIdMap[tempId] = created.id
+                remapPendingDependents(tempId, created.id)
+            }
+        }
+        if (writeGate != null) writeGate.withTaskLock(tempId) { swap() } else swap()
     }
 
     /**
@@ -586,6 +611,7 @@ class SyncEngine(
                 val dto = with(labelMapper) { label.toCreateDto() }
                 val responseDto = api.createLabel(dto)
                 val entity = with(labelMapper) { responseDto.toEntity() }
+                if (action.entityId != responseDto.id) tempIds?.rememberRealId(action.entityId, responseDto.id)
                 labelDao.deleteById(action.entityId)
                 labelDao.upsert(entity)
                 if (action.entityId != responseDto.id) {

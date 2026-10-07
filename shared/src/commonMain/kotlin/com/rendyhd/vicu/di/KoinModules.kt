@@ -263,6 +263,8 @@ val commonModule = module {
             customListRepository = get(),
             routineRepository = get(),
             positioner = get(),
+            tempIds = get(),
+            writeGate = get(),
         )
     }
 }

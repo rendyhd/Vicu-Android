@@ -173,6 +173,37 @@ class TaskRepositoryImpl(
     }
 
     /**
+     * [id] itself, or the server's id when [id] is the temporary id of a task whose create has gone
+     * through since the caller read it: the sync swapped in the created task, and a screen or a
+     * notification may still hold the old id.
+     */
+    private suspend fun currentId(id: Long): Long {
+        if (id >= 0L || taskDao.getByIdSync(id) != null) return id
+        return tempIds.realIdFor(id) ?: id
+    }
+
+    /** What happened to a change of a task that only exists on this device. */
+    private sealed interface LocalChange<out T> {
+        /** Made here and queued behind the task's create. */
+        data class Done<T>(val result: NetworkResult<T>) : LocalChange<T>
+
+        /** Nothing was done: the create has gone through and the task is [realId] now. */
+        data class Created(val realId: Long) : LocalChange<Nothing>
+    }
+
+    /**
+     * Runs [change] for the offline-created task [tempId] while the sync cannot swap in the created
+     * task (it does that under the same lock), so the change either lands on the local row before
+     * the swap, and moves to the real id with the other queued changes, or goes to the real task
+     * after it. Without that it could bring a deleted local row back as a duplicate.
+     */
+    private suspend fun <T> changeLocalTask(tempId: Long, change: suspend () -> NetworkResult<T>): LocalChange<T> =
+        writeGate.withTaskLock(tempId) {
+            val realId = tempIds.realIdFor(tempId)
+            if (realId != null) LocalChange.Created(realId) else LocalChange.Done(change())
+        }
+
+    /**
      * The row to store while an edit of [edited] is in flight or queued: the cached row with only
      * the edited fields replaced. Falls back to a full mapping when the task was never cached.
      */
@@ -328,6 +359,12 @@ class TaskRepositoryImpl(
     }
 
     override suspend fun update(task: Task): NetworkResult<Task> {
+        if (task.id < 0L) {
+            return when (val outcome = changeLocalTask(task.id) { updateLocalTask(task) }) {
+                is LocalChange.Done -> outcome.result
+                is LocalChange.Created -> update(task.copy(id = outcome.realId))
+            }
+        }
         val previous = taskDao.getByIdSync(task.id)
         val previousTask = previous?.let { with(taskMapper) { it.toDomain() } }
         val patch = MergePatches.task(previousTask, task)
@@ -341,17 +378,6 @@ class TaskRepositoryImpl(
             taskDao.updatePosition(task.id, 0.0)
         }
 
-        if (task.id < 0L) {
-            queueTaskAction(
-                task.id,
-                "update",
-                queuedUpdatePayload(task, patch),
-            )
-            // A task that only exists here: its reminders may have changed with this edit.
-            platformHooks.scheduleAlarm(task)
-            platformHooks.updateWidgets()
-            return NetworkResult.Success(task)
-        }
         if (patch.isEmpty()) return NetworkResult.Success(task)
 
         return writeGate.sendOrQueue(
@@ -369,6 +395,25 @@ class TaskRepositoryImpl(
                 NetworkResult.Error(e.message ?: "Failed to update task")
             },
         )
+    }
+
+    /** An edit of a task that only exists here: the local row changes and the queued create takes it. */
+    private suspend fun updateLocalTask(task: Task): NetworkResult<Task> {
+        // Gone without having been created (deleted here, or its create was discarded): writing
+        // it would bring back a task nobody can sync.
+        val previous = taskDao.getByIdSync(task.id)
+            ?: return NetworkResult.Error("This task is no longer on this device")
+        taskDao.upsert(optimisticEntity(previous, task))
+        if (previous.projectId != task.projectId) {
+            positioner.invalidate(previous.projectId)
+            positioner.invalidate(task.projectId)
+            taskDao.updatePosition(task.id, 0.0)
+        }
+        queueTaskAction(task.id, "update", json.encodeToString(Task.serializer(), task))
+        // A task that only exists here: its reminders may have changed with this edit.
+        platformHooks.scheduleAlarm(task)
+        platformHooks.updateWidgets()
+        return NetworkResult.Success(task)
     }
 
     private suspend fun sendUpdate(task: Task, patch: JsonObject): NetworkResult<Task> {
@@ -415,7 +460,7 @@ class TaskRepositoryImpl(
         // Always start from the stored row: the swipe that triggered this may belong to a row
         // that was composed before the task changed elsewhere. update() diffs against the same
         // row, so the patch holds only the field the action sets.
-        val current = taskDao.getByIdSync(taskId)?.let { with(taskMapper) { it.toDomain() } }
+        val current = taskDao.getByIdSync(currentId(taskId))?.let { with(taskMapper) { it.toDomain() } }
             ?: return NetworkResult.Error("Task $taskId is not in the local cache")
         val action = behaviorPrefsStore.getPrefs().first().scheduleAction
         val updated = when (action) {
@@ -429,7 +474,7 @@ class TaskRepositoryImpl(
     }
 
     override suspend fun scheduleDue(taskId: Long, due: QuickDue): NetworkResult<Task> {
-        val current = taskDao.getByIdSync(taskId)?.let { with(taskMapper) { it.toDomain() } }
+        val current = taskDao.getByIdSync(currentId(taskId))?.let { with(taskMapper) { it.toDomain() } }
             ?: return NetworkResult.Error("Task $taskId is not in the local cache")
         val day = dayClock.day.value
         val instant = when (due) {
@@ -440,7 +485,7 @@ class TaskRepositoryImpl(
     }
 
     override suspend fun moveToProject(taskId: Long, newProjectId: Long): NetworkResult<Unit> {
-        val entity = taskDao.getByIdSync(taskId)
+        val entity = taskDao.getByIdSync(currentId(taskId))
             ?: return NetworkResult.Error("Task $taskId not in local cache; cannot move")
         val task = with(taskMapper) { entity.toDomain() }
         if (task.projectId == newProjectId) return NetworkResult.Success(Unit)
@@ -452,7 +497,7 @@ class TaskRepositoryImpl(
     }
 
     override suspend fun moveDescendantsToProject(taskId: Long, newProjectId: Long): NetworkResult<Int> {
-        val root = taskDao.getByIdSync(taskId)?.let { with(taskMapper) { it.toDomain() } }
+        val root = taskDao.getByIdSync(currentId(taskId))?.let { with(taskMapper) { it.toDomain() } }
             ?: return NetworkResult.Success(0)
         val descendants = descendantLinks(root).map { it.task }.filter { it.projectId != newProjectId }
         var moved = 0
@@ -478,6 +523,9 @@ class TaskRepositoryImpl(
     }
 
     override suspend fun delete(taskId: Long, deleteSubtasks: Boolean): NetworkResult<Unit> {
+        val heldId = taskId
+        @Suppress("NAME_SHADOWING")
+        val taskId = currentId(heldId)
         if (deleteSubtasks) {
             val root = taskDao.getByIdSync(taskId)?.let { with(taskMapper) { it.toDomain() } }
             if (root != null) {
@@ -489,17 +537,26 @@ class TaskRepositoryImpl(
                 }
             }
         }
-        completionBatchesMutex.withLock { completionBatches.remove(taskId) }
+        completionBatchesMutex.withLock {
+            completionBatches.remove(taskId)
+            completionBatches.remove(heldId)
+        }
         return deleteSingle(taskId)
     }
 
     private suspend fun deleteSingle(taskId: Long): NetworkResult<Unit> {
         if (taskId < 0L) {
-            platformHooks.cancelAlarm(taskId)
-            taskDao.deleteById(taskId)
-            queueTaskAction(taskId, "delete", "")
-            platformHooks.updateWidgets()
-            return NetworkResult.Success(Unit)
+            val outcome = changeLocalTask(taskId) {
+                platformHooks.cancelAlarm(taskId)
+                taskDao.deleteById(taskId)
+                queueTaskAction(taskId, "delete", "")
+                platformHooks.updateWidgets()
+                NetworkResult.Success(Unit)
+            }
+            return when (outcome) {
+                is LocalChange.Done -> outcome.result
+                is LocalChange.Created -> deleteSingle(outcome.realId)
+            }
         }
         platformHooks.cancelAlarm(taskId)
         taskDao.deleteById(taskId)
@@ -520,6 +577,8 @@ class TaskRepositoryImpl(
     }
 
     override suspend fun createSubtask(parentTaskId: Long, subtask: Task): NetworkResult<Task> {
+        @Suppress("NAME_SHADOWING")
+        val parentTaskId = currentId(parentTaskId)
         // A parent that only exists on this device cannot be linked on the server yet.
         if (parentTaskId < 0L) return queueSubtaskCreate(parentTaskId, subtask)
         return try {
@@ -594,7 +653,14 @@ class TaskRepositoryImpl(
     }
 
     override suspend fun toggleSubtaskDone(parentTaskId: Long, subtask: Task): NetworkResult<Task> {
-        return toggleTaskTree(subtask, parentTaskId)
+        return toggleTaskTree(current(subtask), currentId(parentTaskId))
+    }
+
+    /** [task], or the created task it became when its create has gone through since it was read. */
+    private suspend fun current(task: Task): Task {
+        val id = currentId(task.id)
+        if (id == task.id) return task
+        return taskDao.getByIdSync(id)?.let { with(taskMapper) { it.toDomain() } } ?: task.copy(id = id)
     }
 
     private suspend fun toggleTaskTree(
@@ -695,20 +761,31 @@ class TaskRepositoryImpl(
         }
 
         updateParentDoneReferences(current, toggled.done, parentTaskId)
-        cached?.let {
-            taskDao.upsert(it.copy(done = toggled.done, doneAt = DateUtils.normalizeToUtc(toggled.doneAt)))
-        }
 
         val patch = MergePatches.taskDone(toggled.done)
         if (subtask.id < 0L) {
-            queueTaskAction(
-                subtask.id,
-                "toggle_done",
-                queuedUpdatePayload(toggled, patch),
-            )
-            if (toggled.done) platformHooks.cancelAlarm(subtask.id)
-            platformHooks.updateWidgets()
-            return NetworkResult.Success(toggled)
+            val outcome = changeLocalTask(subtask.id) {
+                // Read again under the lock: a row the sync has just replaced must not come back.
+                taskDao.getByIdSync(subtask.id)?.let {
+                    taskDao.upsert(it.copy(done = toggled.done, doneAt = DateUtils.normalizeToUtc(toggled.doneAt)))
+                }
+                queueTaskAction(
+                    subtask.id,
+                    "toggle_done",
+                    queuedUpdatePayload(toggled, patch),
+                )
+                if (toggled.done) platformHooks.cancelAlarm(subtask.id)
+                platformHooks.updateWidgets()
+                NetworkResult.Success(toggled)
+            }
+            return when (outcome) {
+                is LocalChange.Done -> outcome.result
+                is LocalChange.Created ->
+                    setLinkedTaskDone(parentTaskId, subtask.copy(id = outcome.realId), targetDone, playSound = false)
+            }
+        }
+        cached?.let {
+            taskDao.upsert(it.copy(done = toggled.done, doneAt = DateUtils.normalizeToUtc(toggled.doneAt)))
         }
         return writeGate.sendOrQueue(
             taskId = subtask.id,
@@ -771,6 +848,10 @@ class TaskRepositoryImpl(
         otherTaskId: Long,
         relationKind: String,
     ): NetworkResult<Unit> {
+        @Suppress("NAME_SHADOWING")
+        val taskId = currentId(taskId)
+        @Suppress("NAME_SHADOWING")
+        val otherTaskId = currentId(otherTaskId)
         return try {
             api.createRelation(
                 taskId,
@@ -803,6 +884,10 @@ class TaskRepositoryImpl(
         relationKind: String,
         otherTaskId: Long,
     ): NetworkResult<Unit> {
+        @Suppress("NAME_SHADOWING")
+        val taskId = currentId(taskId)
+        @Suppress("NAME_SHADOWING")
+        val otherTaskId = currentId(otherTaskId)
         return try {
             api.deleteRelation(taskId, relationKind, otherTaskId)
             taskDao.getByIdSync(taskId)?.let { base ->
@@ -831,11 +916,11 @@ class TaskRepositoryImpl(
     }
 
     override suspend fun toggleDone(task: Task): NetworkResult<Task> {
-        return toggleTaskTree(task)
+        return toggleTaskTree(current(task))
     }
 
     override suspend fun setDone(taskId: Long, done: Boolean): NetworkResult<Task> {
-        val current = taskDao.getByIdSync(taskId)?.let { with(taskMapper) { it.toDomain() } }
+        val current = taskDao.getByIdSync(currentId(taskId))?.let { with(taskMapper) { it.toDomain() } }
             ?: return NetworkResult.Error("Task $taskId is not in the local cache")
         if (current.done == done) return NetworkResult.Success(current)
         // The task is not in the requested state, so flipping it reaches that state; this goes
@@ -861,16 +946,25 @@ class TaskRepositoryImpl(
         }
         val patch = MergePatches.taskDone(toggled.done)
         if (task.id < 0L) {
-            taskDao.upsert(optimisticDoneEntity(cachedEntity, toggled))
-            queueTaskAction(
-                task.id,
-                "toggle_done",
-                queuedUpdatePayload(toggled, patch),
-            )
-            updateParentDoneReferences(toggled, toggled.done)
-            if (toggled.done) platformHooks.cancelAlarm(task.id)
-            platformHooks.updateWidgets()
-            return NetworkResult.Success(toggled)
+            val outcome = changeLocalTask(task.id) {
+                // Read again under the lock: a row the sync has just replaced must not come back.
+                val local = taskDao.getByIdSync(task.id)
+                    ?: return@changeLocalTask NetworkResult.Error("This task is no longer on this device")
+                taskDao.upsert(optimisticDoneEntity(local, toggled))
+                queueTaskAction(
+                    task.id,
+                    "toggle_done",
+                    queuedUpdatePayload(toggled, patch),
+                )
+                updateParentDoneReferences(toggled, toggled.done)
+                if (toggled.done) platformHooks.cancelAlarm(task.id)
+                platformHooks.updateWidgets()
+                NetworkResult.Success(toggled)
+            }
+            return when (outcome) {
+                is LocalChange.Done -> outcome.result
+                is LocalChange.Created -> setTaskDone(task.copy(id = outcome.realId), targetDone, playSound = false)
+            }
         }
         return writeGate.sendOrQueue(
             taskId = task.id,

@@ -7,6 +7,8 @@ import com.rendyhd.vicu.auth.RecordingAuthHooks
 import com.rendyhd.vicu.auth.authTestJson
 import com.rendyhd.vicu.auth.authTestJsonHeaders
 import com.rendyhd.vicu.data.local.SyncCursorStore
+import com.rendyhd.vicu.data.local.TempIdGenerator
+import com.rendyhd.vicu.data.repository.TaskWriteGate
 import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
 import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.data.sync.ProjectRefresher
@@ -138,6 +140,10 @@ class SyncEngineHarness(
     val routines: RoutineRepository? = null,
     /** Gives the engine a [ListPositioner] (over the harness's DAO), so replayed creates are put at the end of their list. */
     anchorCreates: Boolean = false,
+    /** Where the engine remembers the real ids of replayed creates; share it with a repository under test. */
+    val tempIds: TempIdGenerator = TempIdGenerator(InMemoryPreferencesDataStore()),
+    /** The per-task write lock the engine shares with the repositories, when a test has them. */
+    val writeGate: TaskWriteGate? = null,
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ) {
     private val requestLock = Mutex()
@@ -205,6 +211,8 @@ class SyncEngineHarness(
         customListRepository = customLists,
         routineRepository = routines,
         positioner = enginePositioner,
+        tempIds = tempIds,
+        writeGate = writeGate,
     )
 
     val engine: SyncEngine = newEngine()
