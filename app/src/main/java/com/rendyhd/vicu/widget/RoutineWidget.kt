@@ -43,6 +43,8 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.rendyhd.vicu.MainActivity
+import com.rendyhd.vicu.putViewTarget
+import com.rendyhd.vicu.ui.navigation.ViewTarget
 import com.rendyhd.vicu.R
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.repository.RoutineRepository
@@ -105,7 +107,7 @@ class RoutineWidget : GlanceAppWidget() {
 class OpenRoutinesWidgetAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         context.startActivity(Intent(context, MainActivity::class.java).apply {
-            putExtra("navigate_to_view_type", "ROUTINES")
+            putViewTarget(ViewTarget.Routines)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         })
     }

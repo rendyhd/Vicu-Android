@@ -119,6 +119,14 @@ class TaskEntryViewModel(
     /** The due date the opening screen asked for; a fresh draft (mass-add) starts from it again. */
     private var seedDueDate: String? = null
 
+    /**
+     * True once a screen has initialised the draft ([initWithDefaults] or [initWithSharedContent]).
+     * A rotation recreates the sheet around this same view model; finding it set, the sheet keeps
+     * the draft instead of resetting it to the defaults or to the shared text again.
+     */
+    var isInitialized: Boolean = false
+        private set
+
 
 
     init {
@@ -174,6 +182,7 @@ class TaskEntryViewModel(
     }
 
     fun initWithDefaults(defaultProjectId: Long?, defaultDueDate: String? = null) {
+        isInitialized = true
         viewModelScope.launch {
             val projectId = resolveActiveProjectId(defaultProjectId)
             seedDueDate = defaultDueDate?.takeIf { it.isNotBlank() }
@@ -188,6 +197,7 @@ class TaskEntryViewModel(
     }
 
     fun initWithSharedContent(defaultProjectId: Long?, sharedContent: SharedContent) {
+        isInitialized = true
         viewModelScope.launch {
             val projectId = resolveActiveProjectId(defaultProjectId)
             _uiState.update {

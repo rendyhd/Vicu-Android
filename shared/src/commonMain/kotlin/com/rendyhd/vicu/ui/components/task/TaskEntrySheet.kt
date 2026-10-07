@@ -49,6 +49,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -118,12 +119,22 @@ fun TaskEntrySheet(
         }
     }
 
+    // A rotation recreates this sheet around the same view model: the draft is already there, so
+    // it is kept instead of being reset to the defaults (or the shared text) again. The flag is
+    // saved with the instance state; a new view model (process death) is initialised as usual.
+    var initializedBeforeRecreation by rememberSaveable { mutableStateOf(false) }
+    var firstRun by remember { mutableStateOf(true) }
     LaunchedEffect(defaultProjectId, defaultDueDate, sharedContent) {
-        if (sharedContent != null) {
-            viewModel.initWithSharedContent(defaultProjectId, sharedContent)
-        } else {
-            viewModel.initWithDefaults(defaultProjectId, defaultDueDate)
+        val recreated = firstRun && initializedBeforeRecreation && viewModel.isInitialized
+        firstRun = false
+        if (!recreated) {
+            if (sharedContent != null) {
+                viewModel.initWithSharedContent(defaultProjectId, sharedContent)
+            } else {
+                viewModel.initWithDefaults(defaultProjectId, defaultDueDate)
+            }
         }
+        initializedBeforeRecreation = true
     }
 
     // Defer focus until the sheet has fully expanded, so the keyboard-show animation doesn't

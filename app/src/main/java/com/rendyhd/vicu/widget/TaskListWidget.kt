@@ -12,6 +12,7 @@ import androidx.glance.GlanceId
 import androidx.glance.LocalContext
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
@@ -46,6 +47,8 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.rendyhd.vicu.MainActivity
+import com.rendyhd.vicu.putViewTarget
+import com.rendyhd.vicu.ui.navigation.ViewTarget
 import com.rendyhd.vicu.util.DateUtils
 
 class TaskListWidget : GlanceAppWidget() {
@@ -117,8 +120,8 @@ class OpenWidgetViewAction : ActionCallback {
     }
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val intent = Intent(context, MainActivity::class.java).apply {
-            putExtra("navigate_to_view_type", parameters[ViewTypeKey] ?: "")
-            putExtra("navigate_to_view_id", parameters[ViewIdKey] ?: "")
+            // The action parameters can only carry strings; the intent carries the typed target.
+            ViewTarget.parse(parameters[ViewTypeKey], parameters[ViewIdKey])?.let { putViewTarget(it) }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         context.startActivity(intent)
@@ -160,17 +163,19 @@ private fun resolveAddProjectId(state: TaskWidgetState): Long {
  * Otherwise, just opens the app.
  */
 @Composable
-private fun titleClickAction(state: TaskWidgetState) =
-    if (state.contextNav) {
+private fun titleClickAction(state: TaskWidgetState): Action {
+    val target = if (state.contextNav) state.viewType.toViewTarget(state.viewId) else null
+    return if (target != null) {
         actionRunCallback<OpenWidgetViewAction>(
             actionParametersOf(
-                OpenWidgetViewAction.ViewTypeKey to state.viewType.name,
-                OpenWidgetViewAction.ViewIdKey to state.viewId,
+                OpenWidgetViewAction.ViewTypeKey to target.typeName,
+                OpenWidgetViewAction.ViewIdKey to target.idOrEmpty,
             )
         )
     } else {
         actionStartActivity<MainActivity>()
     }
+}
 
 @Composable
 private fun CompactWidget(state: TaskWidgetState) {

@@ -85,8 +85,15 @@ import com.rendyhd.vicu.ui.navigation.SearchRoute
 import com.rendyhd.vicu.ui.navigation.SettingsRoute
 import com.rendyhd.vicu.ui.navigation.SetupRoute
 import com.rendyhd.vicu.ui.navigation.TagRoute
+import com.rendyhd.vicu.ui.navigation.SharedContentSaver
 import com.rendyhd.vicu.ui.navigation.TodayRoute
 import com.rendyhd.vicu.ui.navigation.UpcomingRoute
+import com.rendyhd.vicu.ui.navigation.ViewTarget
+import com.rendyhd.vicu.ui.navigation.currentRouteKey
+import com.rendyhd.vicu.ui.navigation.navigateTopLevel
+import com.rendyhd.vicu.ui.navigation.routeKey
+import com.rendyhd.vicu.ui.navigation.startDestinationFor
+import com.rendyhd.vicu.ui.navigation.toRoute
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailScreen
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailViewModel
 import com.rendyhd.vicu.util.AppMessages
@@ -162,7 +169,7 @@ fun VicuApp(
     showTaskEntry: kotlinx.coroutines.flow.StateFlow<Boolean>? = null,
     showTaskEntryProjectId: kotlinx.coroutines.flow.StateFlow<Long?>? = null,
     onShowTaskEntryConsumed: () -> Unit = {},
-    navigateToView: kotlinx.coroutines.flow.StateFlow<Pair<String, String>?>? = null,
+    navigateToView: kotlinx.coroutines.flow.StateFlow<ViewTarget?>? = null,
     onNavigateToViewConsumed: () -> Unit = {},
     sharedContent: kotlinx.coroutines.flow.StateFlow<SharedContent?>? = null,
     onSharedContentConsumed: () -> Unit = {},
@@ -180,7 +187,10 @@ fun VicuApp(
     var showTaskDetailSheet by rememberSaveable { mutableStateOf(false) }
     var taskDetailTaskId by rememberSaveable { mutableLongStateOf(0L) }
     var showNewListDialog by rememberSaveable { mutableStateOf(false) }
-    var pendingSharedContent by remember { mutableStateOf<SharedContent?>(null) }
+    // Saved with the instance state: a rotation reopens the sheet with the shared text and files.
+    var pendingSharedContent by rememberSaveable(stateSaver = SharedContentSaver) {
+        mutableStateOf<SharedContent?>(null)
+    }
     val taskDetailViewModel: TaskDetailViewModel = koinViewModel()
     val taskDetailUiState by taskDetailViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -272,32 +282,19 @@ fun VicuApp(
         onShowTaskEntryConsumed()
     }
 
-    // Handle widget title click → navigate to matching screen
+    // Handle widget title click → navigate to matching screen, the same way the drawer does
     val navigateToViewValue = navigateToView?.collectAsStateWithLifecycle()?.value
     LaunchedEffect(navigateToViewValue, authState) {
-        val (viewType, viewId) = navigateToViewValue ?: return@LaunchedEffect
+        val target = navigateToViewValue ?: return@LaunchedEffect
         if (authState == AuthState.Loading) return@LaunchedEffect
         if (authState != AuthState.Authenticated) {
             onNavigateToViewConsumed()
             return@LaunchedEffect
         }
-        when (viewType) {
-            "TODAY" -> navController.navigate(TodayRoute) { launchSingleTop = true }
-            "INBOX" -> navController.navigate(InboxRoute) { launchSingleTop = true }
-            "UPCOMING" -> navController.navigate(UpcomingRoute) { launchSingleTop = true }
-            "ANYTIME" -> navController.navigate(AnytimeRoute) { launchSingleTop = true }
-            "ROUTINES" -> navController.navigate(RoutinesRoute) { launchSingleTop = true }
-            "PROJECT" -> {
-                val projectId = viewId.toLongOrNull()
-                if (projectId != null) {
-                    navController.navigate(ProjectRoute(projectId)) { launchSingleTop = true }
-                }
-            }
-            "CUSTOM_LIST" -> {
-                if (viewId.isNotBlank()) {
-                    navController.navigate(CustomListRoute(viewId)) { launchSingleTop = true }
-                }
-            }
+        val route = target.toRoute()
+        // Already there: re-navigating would re-create a project, tag or list and reset its scroll.
+        if (routeKey(route) != currentRouteKey(navController.currentBackStackEntry)) {
+            navController.navigateTopLevel(route)
         }
         onNavigateToViewConsumed()
     }
@@ -331,10 +328,14 @@ fun VicuApp(
         AuthDebugLog.log("NAVIGATION", "authState=$authState currentDest=${currentDestination?.route}")
         when (authState) {
             AuthState.Unauthenticated, AuthState.NeedsReAuth -> {
-                Logger.d("VicuApp", "Navigating to SetupRoute")
-                AuthDebugLog.log("NAVIGATION", "→ SetupRoute (reason: $authState)")
-                navController.navigate(SetupRoute) {
-                    popUpTo(0) { inclusive = true }
+                // A cold start that is not signed in already begins on Setup; navigating to it
+                // again would replace its entry (and its view model) for nothing.
+                if (currentDestination?.hasRoute(SetupRoute::class) != true) {
+                    Logger.d("VicuApp", "Navigating to SetupRoute")
+                    AuthDebugLog.log("NAVIGATION", "→ SetupRoute (reason: $authState)")
+                    navController.navigate(SetupRoute) {
+                        popUpTo(0) { inclusive = true }
+                    }
                 }
             }
             AuthState.Authenticated -> {
@@ -362,32 +363,13 @@ fun VicuApp(
         return
     }
 
+    // The first screen follows the auth state the app starts with: the navigation graph is built
+    // once, with the state known (the spinner above waited for it), so the Inbox is neither
+    // composed nor refreshed on a start that is not signed in.
+    val startDestination = remember { startDestinationFor(authState) }
+
     // Resolve current route name for drawer/bottom bar active highlighting
-    val currentRoute = currentDestination?.let { dest ->
-        when {
-            dest.hasRoute(InboxRoute::class) -> "InboxRoute"
-            dest.hasRoute(TodayRoute::class) -> "TodayRoute"
-            dest.hasRoute(UpcomingRoute::class) -> "UpcomingRoute"
-            dest.hasRoute(AnytimeRoute::class) -> "AnytimeRoute"
-            dest.hasRoute(LogbookRoute::class) -> "LogbookRoute"
-            dest.hasRoute(ReviewRoute::class) -> "ReviewRoute"
-            dest.hasRoute(RoutinesRoute::class) -> "RoutinesRoute"
-            dest.hasRoute(SettingsRoute::class) -> "SettingsRoute"
-            dest.hasRoute(ProjectRoute::class) -> {
-                val id = navBackStackEntry?.arguments?.getLong("projectId")
-                "ProjectRoute/$id"
-            }
-            dest.hasRoute(TagRoute::class) -> {
-                val id = navBackStackEntry?.arguments?.getLong("labelId")
-                "TagRoute/$id"
-            }
-            dest.hasRoute(CustomListRoute::class) -> {
-                val id = navBackStackEntry?.arguments?.getString("listId")
-                "CustomListRoute/$id"
-            }
-            else -> null
-        }
-    }
+    val currentRoute = currentRouteKey(navBackStackEntry)
 
     // Disable drawer on Setup, Search screens
     val enableDrawerGestures = authState == AuthState.Authenticated && currentDestination?.let { dest ->
@@ -435,16 +417,9 @@ fun VicuApp(
                 currentRoute = currentRoute,
                 onNavigate = { route ->
                     scope.launch { drawerState.close() }
-                    val isParameterized = route is ProjectRoute ||
-                        route is TagRoute ||
-                        route is CustomListRoute
-                    navController.navigate(route) {
-                        popUpTo(navController.graph.startDestinationId) {
-                            saveState = !isParameterized
-                        }
-                        launchSingleTop = !isParameterized
-                        restoreState = !isParameterized
-                    }
+                    // Choosing the screen that is already open only closes the drawer: for a
+                    // project, tag or list it used to re-create the entry (scroll and view model).
+                    if (routeKey(route) != currentRoute) navController.navigateTopLevel(route)
                 },
                 onToggleProjects = drawerViewModel::toggleProjectsExpanded,
                 onToggleLists = drawerViewModel::toggleListsExpanded,
@@ -495,14 +470,7 @@ fun VicuApp(
                                     // destination and would otherwise be re-created (replaying its
                                     // loading state) on every re-tap — see issue #6.
                                     if (currentRoute != item.routeName) {
-                                        val isStartDest = item.route is InboxRoute
-                                        navController.navigate(item.route) {
-                                            popUpTo(navController.graph.startDestinationId) {
-                                                saveState = !item.isParameterized && !isStartDest
-                                            }
-                                            launchSingleTop = !item.isParameterized
-                                            restoreState = !item.isParameterized && !isStartDest
-                                        }
+                                        navController.navigateTopLevel(item.route)
                                     }
                                 },
                             )
@@ -534,6 +502,7 @@ fun VicuApp(
                 ) {
                     AppNavHost(
                         navController = navController,
+                        startDestination = startDestination,
                         onOpenDrawer = { scope.launch { drawerState.open() } },
                         onNavigateToSearch = {
                             navController.navigate(SearchRoute) {

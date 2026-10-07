@@ -7,6 +7,8 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.rendyhd.vicu.MainActivity
+import com.rendyhd.vicu.putViewTarget
+import com.rendyhd.vicu.ui.navigation.ViewTarget
 import com.rendyhd.vicu.R
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.repository.RoutineRepository
@@ -42,7 +44,7 @@ class RoutineAlarmReceiver : BroadcastReceiver(), KoinComponent {
 
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("navigate_to_view_type", "ROUTINES")
+            putViewTarget(ViewTarget.Routines)
         }
         val openPending = PendingIntent.getActivity(
             context,

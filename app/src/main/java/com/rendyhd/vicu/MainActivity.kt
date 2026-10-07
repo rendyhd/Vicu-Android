@@ -23,6 +23,7 @@ import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.SharedContent
 import com.rendyhd.vicu.notification.DailySummaryScheduler
 import com.rendyhd.vicu.ui.VicuApp
+import com.rendyhd.vicu.ui.navigation.ViewTarget
 import com.rendyhd.vicu.worker.PeriodicSyncScheduler
 import com.rendyhd.vicu.worker.RoutineMaintenanceScheduler
 import com.rendyhd.vicu.worker.TokenRefreshScheduler
@@ -49,7 +50,7 @@ class MainActivity : ComponentActivity() {
     private val _initialTaskId = MutableStateFlow<Long?>(null)
     private val _showTaskEntry = MutableStateFlow(false)
     private val _showTaskEntryProjectId = MutableStateFlow<Long?>(null)
-    private val _navigateToView = MutableStateFlow<Pair<String, String>?>(null)
+    private val _navigateToView = MutableStateFlow<ViewTarget?>(null)
     private val _sharedContent = MutableStateFlow<SharedContent?>(null)
 
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -63,7 +64,10 @@ class MainActivity : ComponentActivity() {
         AuthDebugLog.init(applicationContext)
         AuthDebugLog.lifecycle("onCreate (savedState=${savedInstanceState != null})")
 
-        handleIntent(intent)
+        // The launch intent is still the activity's intent after a rotation or a restore. Handling
+        // it again would reopen a share, a task or a widget "add" the user had already finished
+        // with; what was in progress comes back through the saved state instead.
+        if (savedInstanceState == null) handleIntent(intent)
         requestNotificationPermission()
 
         lifecycleScope.launch {
@@ -168,11 +172,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val navViewType = intent.getStringExtra("navigate_to_view_type")
-        if (!navViewType.isNullOrBlank()) {
-            val navViewId = intent.getStringExtra("navigate_to_view_id") ?: ""
-            _navigateToView.value = navViewType to navViewId
-        }
+        intent.viewTargetOrNull()?.let { _navigateToView.value = it }
 
         when (intent.action) {
             Intent.ACTION_SEND -> handleSendIntent(intent)
