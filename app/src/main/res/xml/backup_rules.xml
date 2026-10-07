@@ -6,6 +6,7 @@
     <exclude domain="file" path="datastore/reminder_alarm_registry.preferences_pb" />
     <exclude domain="file" path="datastore/temp_ids.preferences_pb" />
     <exclude domain="file" path="datastore/sync_cursor.preferences_pb" />
+    <exclude domain="file" path="datastore/carrier_ids.preferences_pb" />
     <exclude domain="file" path="auth_debug.log" />
     <exclude domain="database" path="vicu_database" />
     <exclude domain="database" path="vicu_database-shm" />

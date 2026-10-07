@@ -5,6 +5,8 @@ import com.rendyhd.vicu.data.local.CustomListStore
 import com.rendyhd.vicu.data.remote.api.CreateTaskDto
 import com.rendyhd.vicu.data.remote.api.TaskDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.data.sync.CarrierFinder
+import com.rendyhd.vicu.data.sync.CarrierSpec
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.CustomListSyncDocumentV1
 import com.rendyhd.vicu.domain.model.CustomListSyncLocalState
@@ -34,6 +36,7 @@ class CustomListRepositoryImpl(
     private val authManager: AuthManager,
     private val platformHooks: PlatformRepositoryHooks,
     private val json: Json,
+    private val carrierFinder: CarrierFinder,
 ) : CustomListRepository {
     override val lists = store.getAll()
     private val _syncStatus = MutableStateFlow<CustomListSyncStatus>(CustomListSyncStatus.Idle)
@@ -133,8 +136,9 @@ class CustomListRepositoryImpl(
         val valid = mutableListOf<Pair<TaskDto, CustomListSyncDocumentV1>>()
         var malformed = 0
         var futureVersion: Int? = null
-        api.getAllTasks(mapOf("filter" to "done = true", "sort_by" to "updated", "order_by" to "desc"))
-            .filter { it.title == CustomListEnvelope.CARRIER_TITLE || CustomListEnvelope.hasMarker(it.description) }
+        // The carriers seen before are fetched by id; completed history is not paged through on
+        // every sync (CarrierFinder falls back to a scan when an id is gone, and daily).
+        carrierFinder.find(CarrierSpec.CUSTOM_LISTS, serverKey())
             .forEach { task ->
                 val parsed = CustomListEnvelope.parse(task.description, json)
                 when {
@@ -147,6 +151,8 @@ class CustomListRepositoryImpl(
             }
         return Triple(valid, malformed, futureVersion)
     }
+
+    private suspend fun serverKey(): String = authManager.getVikunjaUrl().orEmpty()
 
     private suspend fun writeCarrier(id: Long, document: CustomListSyncDocumentV1) {
         api.updateTask(id, buildJsonObject {
@@ -169,6 +175,7 @@ class CustomListRepositoryImpl(
             reminders = emptyList(),
         ))
         writeCarrier(task.id, document)
+        carrierFinder.remember(CarrierSpec.CUSTOM_LISTS, serverKey(), task.id)
         return task.id
     }
 

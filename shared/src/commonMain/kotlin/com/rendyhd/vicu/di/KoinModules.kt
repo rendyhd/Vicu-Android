@@ -18,6 +18,7 @@ import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.BuildInfo
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkMonitor
+import com.rendyhd.vicu.data.sync.CarrierFinder
 import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.data.sync.ProjectRefresher
 import com.rendyhd.vicu.data.sync.ScreenRefresher
@@ -41,6 +42,7 @@ val databaseModule = module {
 
     single { BehaviorPrefsStore(createDataStore(get(), "behavior_prefs")) }
     single { BottomBarPrefsStore(createDataStore(get(), "bottom_bar_prefs")) }
+    single { CarrierIdStore(createDataStore(get(), "carrier_ids")) }
     single { CustomListStore(createDataStore(get(), "custom_lists")) }
     single { LabelOrderPrefsStore(createDataStore(get(), "label_order_prefs")) }
     single { LogbookPrefsStore(createDataStore(get(), "logbook_prefs")) }
@@ -139,6 +141,7 @@ val repositoryModule = module {
             platformFiles = get(),
         )
     }
+    single { CarrierFinder(api = get(), store = get(), time = get()) }
     single<CustomListRepository> {
         CustomListRepositoryImpl(
             store = get(),
@@ -146,6 +149,7 @@ val repositoryModule = module {
             authManager = get(),
             platformHooks = get(),
             json = get(),
+            carrierFinder = get(),
         )
     }
     single { RoutineArchiveStore(api = get(), json = get()) }
@@ -189,6 +193,7 @@ val commonModule = module {
             routinePrefs = get(),
             widgetPrefs = get(),
             syncCursor = get(),
+            carrierIds = get(),
         )
     }
     single { CoroutineScope(SupervisorJob() + Dispatchers.Main) }

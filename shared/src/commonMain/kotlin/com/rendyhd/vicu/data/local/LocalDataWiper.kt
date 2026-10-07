@@ -35,6 +35,8 @@ class LocalDataWiper(
     private val widgetPrefs: WidgetPrefsStore,
     /** Forgotten with the cache, so the next refresh starts from the server's full list. */
     private val syncCursor: SyncCursorStore,
+    /** The ids of the account's hidden carrier tasks; another account's ids mean nothing. */
+    private val carrierIds: CarrierIdStore,
 ) {
     /**
      * Entries of routine history that have not been uploaded to the server yet (the phone-only
@@ -72,6 +74,7 @@ class LocalDataWiper(
             labelOrderPrefs.clear()
             routinePrefs.clear()
             widgetPrefs.clear()
+            carrierIds.clear()
             syncCursor.clear()
             syncStaleness.reset()
         }

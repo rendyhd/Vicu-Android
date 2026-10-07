@@ -153,6 +153,18 @@ class LocalDataWiperTest {
     }
 
     @Test
+    fun `wiping everything forgets the remembered carrier ids but a cache clear keeps them`() = runTest {
+        val f = fixture()
+        f.carrierIds.set("https://v.example", "custom-lists", listOf(900L), 5L)
+
+        f.wiper.clearCaches()
+        assertEquals(listOf(900L), f.carrierIds.get("https://v.example", "custom-lists").ids)
+
+        f.wiper.wipeEverything()
+        assertEquals(emptyList(), f.carrierIds.get("https://v.example", "custom-lists").ids)
+    }
+
+    @Test
     fun `wiping everything stops the account's background work and resets its widgets`() = runTest {
         val f = fixture()
 

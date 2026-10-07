@@ -3,8 +3,10 @@ package com.rendyhd.vicu.data.repository
 import com.rendyhd.vicu.auth.authHarness
 import com.rendyhd.vicu.auth.authTestJson
 import com.rendyhd.vicu.auth.authTestJsonHeaders
+import com.rendyhd.vicu.data.local.CarrierIdStore
 import com.rendyhd.vicu.data.local.CustomListStore
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.data.sync.CarrierFinder
 import com.rendyhd.vicu.domain.model.CustomListSyncStatus
 import com.rendyhd.vicu.util.CustomListEnvelope
 import io.ktor.client.HttpClient
@@ -110,12 +112,14 @@ class CustomListFirstSyncOrderTest {
             install(ContentNegotiation) { json(json) }
         }
         val store = CustomListStore(InMemoryPreferencesDataStore())
+        val api = VikunjaApiService(client, json)
         val repository = CustomListRepositoryImpl(
             store = store,
-            api = VikunjaApiService(client, json),
+            api = api,
             authManager = authHarness(backgroundScope) { respond("", HttpStatusCode.NotFound) }.manager,
             platformHooks = RecordingRepositoryHooks(),
             json = json,
+            carrierFinder = CarrierFinder(api, CarrierIdStore(InMemoryPreferencesDataStore())),
         )
         return Rig(repository, store, server)
     }
