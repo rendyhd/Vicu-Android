@@ -5,6 +5,7 @@ import com.rendyhd.vicu.data.local.LogbookPrefsStore
 import com.rendyhd.vicu.data.local.TempIdGenerator
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
+import com.rendyhd.vicu.data.repository.ListPositioner
 import com.rendyhd.vicu.data.repository.TaskRepositoryImpl
 import com.rendyhd.vicu.data.sync.TaskListServer
 import com.rendyhd.vicu.util.DayClock
@@ -44,6 +45,7 @@ class SharedRefreshPathTest {
         dayClock = DayClock(CoroutineScope(Job()), ticking = false),
         tempIds = TempIdGenerator(InMemoryPreferencesDataStore()),
         refresher = h.refresher,
+        positioner = ListPositioner(h.api, CoroutineScope(Job())),
     )
 
     @Test

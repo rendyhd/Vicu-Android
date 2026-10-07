@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.data.local
 
 import com.rendyhd.vicu.data.local.dao.LocalDataDao
+import com.rendyhd.vicu.data.repository.ListPositioner
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
@@ -37,6 +38,8 @@ class LocalDataWiper(
     private val syncCursor: SyncCursorStore,
     /** The ids of the account's hidden carrier tasks; another account's ids mean nothing. */
     private val carrierIds: CarrierIdStore,
+    /** What was learned about the old account's lists (view ids, last positions). */
+    private val listPositions: ListPositioner,
 ) {
     /**
      * Entries of routine history that have not been uploaded to the server yet (the phone-only
@@ -75,6 +78,7 @@ class LocalDataWiper(
             routinePrefs.clear()
             widgetPrefs.clear()
             carrierIds.clear()
+            listPositions.clear()
             syncCursor.clear()
             syncStaleness.reset()
         }

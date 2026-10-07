@@ -13,6 +13,8 @@ import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.TaskDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.SystemTimeSource
+import com.rendyhd.vicu.util.TimeSource
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -27,6 +29,9 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -55,11 +60,22 @@ class TaskRepositoryHarness(
     val cursorStore: SyncCursorStore = SyncCursorStore(InMemoryPreferencesDataStore()),
     /** Unconfined, so list flows deliver in the collector's own steps; a test can pass a recording one. */
     mappingDispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
+    /** The clock the position cache expires by. */
+    positionerTime: TimeSource = SystemTimeSource,
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ) {
     val json: Json = authTestJson
     val mapper = TaskMapper(json)
-    val sent = mutableListOf<SentRequest>()
+    /**
+     * Background work (positioning a new task) sends requests while a test reads this, so the log
+     * is an immutable snapshot swapped atomically, never a list that is changed under the reader.
+     */
+    private val sentLog = MutableStateFlow<List<SentRequest>>(emptyList())
+    val sent: List<SentRequest> get() = sentLog.value
+
+    fun clearSent() {
+        sentLog.value = emptyList()
+    }
 
     private val behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore())
     private val scheduleActionDefault = scheduleAction
@@ -67,7 +83,7 @@ class TaskRepositoryHarness(
     private val client = HttpClient(
         MockEngine { request ->
             val body = (request.body as? TextContent)?.text
-            sent += SentRequest(request.method.value, request.url.encodedPath, body)
+            sentLog.update { it + SentRequest(request.method.value, request.url.encodedPath, body) }
             handler(request)
         },
     ) {
@@ -75,6 +91,9 @@ class TaskRepositoryHarness(
     }
 
     val api = VikunjaApiService(client, authTestJson)
+
+    /** Unconfined, so a background position request starts at once and a test can wait for it with awaitIdle(). */
+    val positioner = ListPositioner(api, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined), positionerTime)
 
     val repository = TaskRepositoryImpl(
         taskDao = taskDao,
@@ -95,6 +114,7 @@ class TaskRepositoryHarness(
             platformHooks = hooks,
             cursorStore = cursorStore,
         ),
+        positioner = positioner,
         mappingDispatcher = mappingDispatcher,
     )
 

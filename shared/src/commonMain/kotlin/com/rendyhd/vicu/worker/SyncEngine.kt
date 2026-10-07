@@ -385,6 +385,9 @@ class SyncEngine(
                 } else {
                     platformHooks.scheduleAlarm(created)
                 }
+                // The offline create scheduled its alarms under the temporary id; they now belong
+                // to the real one, which was scheduled just above.
+                if (action.entityId != created.id) platformHooks.cancelAlarm(action.entityId)
                 linkToQueuedParents(task, created.id, tempIdMap)
                 if (action.entityId != responseEntity.id) {
                     tempIdMap[action.entityId] = responseEntity.id

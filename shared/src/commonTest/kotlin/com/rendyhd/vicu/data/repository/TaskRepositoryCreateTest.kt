@@ -26,7 +26,8 @@ class TaskRepositoryCreateTest {
                     HttpStatusCode.Created,
                     authTestJsonHeaders,
                 )
-            request.url.encodedPath == "/projects/7/views" -> jsonOk("[]")
+            request.url.encodedPath == "/projects/7/views" ->
+                jsonOk("""{"items":[],"total":0,"page":1,"per_page":100,"total_pages":1}""")
             else -> respond("", HttpStatusCode.NotFound)
         }
     }
@@ -83,6 +84,7 @@ class TaskRepositoryCreateTest {
         val h = harness()
 
         h.repository.create(Task(id = 0, title = "Buy milk", projectId = 7))
+        h.positioner.awaitIdle()
 
         assertTrue(h.sent.any { it.method == "GET" && it.path == "/projects/7/views" })
     }

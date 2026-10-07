@@ -1,11 +1,24 @@
 package com.rendyhd.vicu.data.local
 
+import com.rendyhd.vicu.auth.authTestJson
+import com.rendyhd.vicu.auth.authTestJsonHeaders
 import com.rendyhd.vicu.data.local.dao.LocalDataDao
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
+import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
+import com.rendyhd.vicu.data.repository.ListPositioner
 import com.rendyhd.vicu.data.repository.RecordingRepositoryHooks
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.worker.FakeCustomListRepository
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.yield
@@ -124,8 +137,30 @@ class WiperFixture(
     val widgetPrefs = WidgetPrefsStore(InMemoryPreferencesDataStore())
     val syncCursor = SyncCursorStore(InMemoryPreferencesDataStore())
     val carrierIds = CarrierIdStore(InMemoryPreferencesDataStore())
+    /** Over a server that has one project (7) with a list view, so a test can make it remember something. */
+    val listPositions = ListPositioner(
+        api = VikunjaApiService(
+            HttpClient(
+                MockEngine { request ->
+                    val json = authTestJsonHeaders
+                    when (request.url.encodedPath) {
+                        "/projects/7/views" -> respond(
+                            """{"items":[{"id":70,"project_id":7,"title":"List","view_kind":"list"}],"total":1,"page":1,"per_page":100,"total_pages":1}""",
+                            HttpStatusCode.OK,
+                            json,
+                        )
+                        "/projects/7/views/70/tasks" ->
+                            respond("""{"items":[],"total":0,"page":1,"per_page":1,"total_pages":1}""", HttpStatusCode.OK, json)
+                        else -> respond("{}", HttpStatusCode.OK, json)
+                    }
+                },
+            ) { install(ContentNegotiation) { json(authTestJson) } },
+            authTestJson,
+        ),
+        scope = CoroutineScope(Job() + Dispatchers.Unconfined),
+    )
     val wiper = LocalDataWiper(
         dao, customLists, bottomBar, hooks, staleness,
-        projectSections, labelOrder, routinePrefs, widgetPrefs, syncCursor, carrierIds,
+        projectSections, labelOrder, routinePrefs, widgetPrefs, syncCursor, carrierIds, listPositions,
     )
 }

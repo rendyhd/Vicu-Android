@@ -8,7 +8,6 @@ import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
-import com.rendyhd.vicu.data.remote.api.TaskPositionDto
 import com.rendyhd.vicu.data.remote.api.MergePatches
 import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
@@ -60,6 +59,8 @@ class TaskRepositoryImpl(
     private val dayClock: DayClock,
     private val tempIds: TempIdGenerator,
     private val refresher: TaskRefresher,
+    /** Puts new tasks at the end of their list, after the create has returned, and remembers what it asked. */
+    private val positioner: ListPositioner,
     /**
      * Where the Room rows of the live lists are mapped to domain tasks (JSON decoding, nesting).
      * Without it that work ran on the collector's dispatcher, the main thread, for every emission
@@ -108,38 +109,10 @@ class TaskRepositoryImpl(
         return result
     }
 
-    private suspend fun anchorNewTaskAtEnd(projectId: Long, newTaskId: Long) {
-        if (projectId <= 0L) return
-        try {
-            val views = api.getProjectViews(projectId)
-            val listView = views.firstOrNull { it.viewKind == "list" } ?: return
-            val existing = api.getViewTasksPage(
-                projectId,
-                listView.id,
-                mapOf("sort_by" to "position", "order_by" to "desc", "per_page" to "1"),
-            ).items
-            val maxPos = existing.firstOrNull()?.position ?: 0.0
-            api.updateTaskPosition(
-                newTaskId,
-                TaskPositionDto(position = maxPos + 65_536.0, projectViewId = listView.id),
-            )
-        } catch (e: Exception) {
-            Logger.w(TAG, "anchorNewTaskAtEnd failed (non-fatal) for project=$projectId task=$newTaskId: ${e.message}")
-        }
-    }
-
     override suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double) {
         taskDao.updatePosition(taskId, newPosition)
-        try {
-            val views = api.getProjectViews(projectId)
-            val listView = views.firstOrNull { it.viewKind == "list" } ?: return
-            api.updateTaskPosition(
-                taskId,
-                TaskPositionDto(position = newPosition, projectViewId = listView.id),
-            )
-        } catch (e: Exception) {
-            Logger.w(TAG, "updatePosition failed (non-fatal) for task=$taskId: ${e.message}")
-        }
+        // Best effort; the list view id is remembered, so a reorder is a single request.
+        positioner.setPosition(projectId, taskId, newPosition)
     }
 
     private suspend fun queueTaskAction(entityId: Long, actionType: String, payload: String) {
@@ -285,10 +258,11 @@ class TaskRepositoryImpl(
             taskDao.upsert(responseEntity)
             val created = with(taskMapper) { responseEntity.toDomain() }
             platformHooks.scheduleAlarm(created)
-            // Metadata tasks (routine carriers) are hidden from every list, so their position
-            // does not matter and the extra requests would only slow the create down.
+            // The server puts a new task at the top; moving it to the end happens in the
+            // background, so the create returns as soon as the task exists. Metadata tasks
+            // (routine carriers) are hidden from every list, so their position does not matter.
             if (!CustomListEnvelope.isAnyMetadataTask(task.description)) {
-                anchorNewTaskAtEnd(task.projectId, created.id)
+                positioner.anchorAtEndInBackground(task.projectId, created.id)
             }
             platformHooks.updateWidgets()
             NetworkResult.Success(created)
@@ -304,6 +278,9 @@ class TaskRepositoryImpl(
                 val entity = with(taskMapper) { dto.toEntity() }
                 taskDao.upsert(entity)
                 queueTaskAction(tempId, "create", json.encodeToString(Task.serializer(), localTask))
+                // The reminders must fire without waiting for the sync. The alarm is keyed by the
+                // temporary id; the sync cancels it and schedules the real one when the create replays.
+                platformHooks.scheduleAlarm(localTask)
                 platformHooks.updateWidgets()
                 NetworkResult.Success(localTask)
             } else {
@@ -317,6 +294,11 @@ class TaskRepositoryImpl(
         val previousTask = previous?.let { with(taskMapper) { it.toDomain() } }
         val patch = MergePatches.task(previousTask, task)
         taskDao.upsert(optimisticEntity(previous, task))
+        if (previous != null && previous.projectId != task.projectId) {
+            // The task changes lists: what is remembered about where each list ends is out of date.
+            positioner.invalidate(previous.projectId)
+            positioner.invalidate(task.projectId)
+        }
 
         if (task.id < 0L) {
             queueTaskAction(
@@ -324,6 +306,8 @@ class TaskRepositoryImpl(
                 "update",
                 queuedUpdatePayload(task, patch),
             )
+            // A task that only exists here: its reminders may have changed with this edit.
+            platformHooks.scheduleAlarm(task)
             platformHooks.updateWidgets()
             return NetworkResult.Success(task)
         }

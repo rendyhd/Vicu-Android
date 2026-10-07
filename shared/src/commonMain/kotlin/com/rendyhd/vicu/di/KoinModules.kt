@@ -95,6 +95,7 @@ val repositoryModule = module {
     }
     single { ProjectRefresher(projectDao = get(), pendingActionDao = get(), api = get(), projectMapper = get()) }
 
+    single { ListPositioner(api = get(), scope = CoroutineScope(SupervisorJob() + Dispatchers.Default), time = get()) }
     single<TaskRepository> {
         TaskRepositoryImpl(
             taskDao = get(),
@@ -108,6 +109,7 @@ val repositoryModule = module {
             dayClock = get(),
             tempIds = get(),
             refresher = get(),
+            positioner = get(),
         )
     }
     single<ProjectRepository> {
@@ -196,6 +198,7 @@ val commonModule = module {
             widgetPrefs = get(),
             syncCursor = get(),
             carrierIds = get(),
+            listPositions = get(),
         )
     }
     single { CoroutineScope(SupervisorJob() + Dispatchers.Main) }

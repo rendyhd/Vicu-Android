@@ -134,6 +134,7 @@ class RoutineRig(
         logbookPrefsStore = LogbookPrefsStore(InMemoryPreferencesDataStore()),
         dayClock = DayClock(CoroutineScope(Job()), ticking = false),
         tempIds = TempIdGenerator(InMemoryPreferencesDataStore()),
+        positioner = ListPositioner(api, appScope, time),
         refresher = TaskRefresher(
             taskDao = taskDao,
             pendingActionDao = pendingActionDao,

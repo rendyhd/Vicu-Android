@@ -165,6 +165,18 @@ class LocalDataWiperTest {
     }
 
     @Test
+    fun `wiping everything forgets what was learned about the old account's lists`() = runTest {
+        val f = fixture()
+        f.listPositions.anchorAtEndInBackground(projectId = 7, taskId = 1)
+        f.listPositions.awaitIdle()
+        assertTrue(f.listPositions.hasCached(7), "the positioner remembered the project's list view")
+
+        f.wiper.wipeEverything()
+
+        assertFalse(f.listPositions.hasCached(7))
+    }
+
+    @Test
     fun `wiping everything stops the account's background work and resets its widgets`() = runTest {
         val f = fixture()
 
