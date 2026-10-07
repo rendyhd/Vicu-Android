@@ -190,6 +190,42 @@ internal fun LazyListScope.reviewSection(
     }
 }
 
+internal fun LazyListScope.routinesSection(
+    state: SettingsUiState,
+    viewModel: SettingsViewModel,
+) {
+    item(key = "routines_header") {
+        Text(
+            text = "Routines",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+        )
+    }
+    item(key = "routines_enabled") {
+        SwitchRow(
+            label = "Enable routines",
+            description = "Off hides routines and stops their reminders; nothing is deleted",
+            checked = state.routineVisibility.enabled,
+            onCheckedChange = viewModel::setRoutinesEnabled,
+        )
+    }
+    if (state.routineVisibility.enabled) {
+        item(key = "routines_in_today") {
+            SwitchRow(
+                label = "Show routines in Today",
+                description = "Lists the routines still open today; finished ones are left out",
+                checked = state.routineVisibility.showInToday,
+                onCheckedChange = viewModel::setRoutinesShowInToday,
+            )
+        }
+    }
+    item(key = "routines_divider") {
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+    }
+}
+
 internal fun LazyListScope.inboxSection(
     state: SettingsUiState,
     viewModel: SettingsViewModel,

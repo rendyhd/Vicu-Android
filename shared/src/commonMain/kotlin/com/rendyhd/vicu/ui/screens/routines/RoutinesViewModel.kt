@@ -82,6 +82,10 @@ class RoutinesViewModel(
     val remindersEnabled: StateFlow<Boolean> = prefsStore.remindersEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
+    /** Routines turned off in Settings; the screen is still reachable from a widget or a notification. */
+    val routinesEnabled: StateFlow<Boolean> = prefsStore.enabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
     fun save(draft: RoutineDraft, routineId: String? = null, onSaved: () -> Unit = {}) {
         launchOperation(onSuccess = onSaved) {
             if (routineId == null) repository.create(draft) else repository.update(routineId, draft)

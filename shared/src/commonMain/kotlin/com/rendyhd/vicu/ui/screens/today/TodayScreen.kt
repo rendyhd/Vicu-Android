@@ -126,7 +126,9 @@ fun TodayScreen(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                if (state.routineDay.occurrences.isNotEmpty()) {
+                // Finished routines (completed or skipped) are left out; the count still covers the day.
+                val openRoutines = state.routineDay.open
+                if (openRoutines.isNotEmpty()) {
                     item(key = "routine_header", contentType = "header") {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 10.dp),
@@ -140,7 +142,7 @@ fun TodayScreen(
                             TextButton(onClick = onOpenRoutines) { Text("Manage") }
                         }
                     }
-                    items(state.routineDay.occurrences, key = { "routine_${it.key}" }, contentType = { "occurrence" }) { occurrence ->
+                    items(openRoutines, key = { "routine_${it.key}" }, contentType = { "occurrence" }) { occurrence ->
                         RoutineOccurrenceRow(
                             occurrence = occurrence,
                             onToggle = { viewModel.toggleRoutine(occurrence) },
@@ -151,7 +153,7 @@ fun TodayScreen(
                 }
 
                 if (state.projectGroups.isEmpty() && state.overdueGroups.isEmpty() &&
-                    state.routineDay.occurrences.isEmpty() && !state.isLoading
+                    openRoutines.isEmpty() && !state.isLoading
                 ) {
                     item {
                         EmptyState(

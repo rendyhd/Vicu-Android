@@ -199,14 +199,17 @@ fun DrawerContent(
                     )
                 }
 
-                item(key = "smart_routines", contentType = "smart") {
-                    SmartListItem(
-                        label = "Routines",
-                        icon = Icons.Outlined.FavoriteBorder,
-                        iconTint = HealthColor,
-                        selected = currentRoute == "RoutinesRoute",
-                        onClick = { onNavigate(RoutinesRoute) },
-                    )
+                // Routines; hidden when they are turned off in Settings
+                if (state.routinesEnabled) {
+                    item(key = "smart_routines", contentType = "smart") {
+                        SmartListItem(
+                            label = "Routines",
+                            icon = Icons.Outlined.FavoriteBorder,
+                            iconTint = HealthColor,
+                            selected = currentRoute == "RoutinesRoute",
+                            onClick = { onNavigate(RoutinesRoute) },
+                        )
+                    }
                 }
 
                 // Review (with overdue badge); hidden when the feature is disabled

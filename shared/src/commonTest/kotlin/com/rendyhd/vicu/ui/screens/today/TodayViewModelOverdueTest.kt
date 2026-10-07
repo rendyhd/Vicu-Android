@@ -43,6 +43,8 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.minutes
+import com.rendyhd.vicu.data.local.RoutinePrefsStore
+import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
 
 /**
  * The Today list has an Overdue section (local date before today) above the Today section (local
@@ -103,6 +105,7 @@ class TodayViewModelOverdueTest {
             projectRepository = projects,
             labelRepository = labels,
             routineRepository = EmptyRoutines(),
+            routinePrefsStore = RoutinePrefsStore(InMemoryPreferencesDataStore()),
             authManager = AuthManager(
                 platformAuthHooks = RecordingAuthHooks(),
                 tokenStorage = InMemoryTokenStorage(),

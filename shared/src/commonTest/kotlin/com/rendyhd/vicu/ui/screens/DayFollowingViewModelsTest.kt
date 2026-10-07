@@ -152,6 +152,7 @@ class DayFollowingViewModelsTest {
             projectRepository = projects,
             labelRepository = labels,
             routineRepository = repository,
+            routinePrefsStore = RoutinePrefsStore(InMemoryPreferencesDataStore()),
             authManager = AuthManager(
                 platformAuthHooks = RecordingAuthHooks(),
                 tokenStorage = InMemoryTokenStorage(),
@@ -169,6 +170,46 @@ class DayFollowingViewModelsTest {
         runCurrent()
 
         assertEquals("2026-10-07", vm.uiState.value.routineDay.date)
+        authScope.cancel()
+    }
+
+    @Test
+    fun `Today leaves routines alone while they are turned off and picks them up when turned on`() = runTest {
+        val repository = FakeRoutineRepository()
+        val prefs = RoutinePrefsStore(InMemoryPreferencesDataStore())
+        prefs.setShowInToday(false)
+        val authScope = CoroutineScope(SupervisorJob())
+        val tasks = FakeTaskRepository()
+        val projects = FakeProjectRepository()
+        val labels = FakeLabelRepository()
+        val vm = TodayViewModel(
+            taskRepository = tasks,
+            projectRepository = projects,
+            labelRepository = labels,
+            routineRepository = repository,
+            routinePrefsStore = prefs,
+            authManager = AuthManager(
+                platformAuthHooks = RecordingAuthHooks(),
+                tokenStorage = InMemoryTokenStorage(),
+                apiServiceProvider = { error("no network in this test") },
+                appScope = authScope,
+                networkMonitor = FakeNetworkMonitor(),
+            ),
+            refresher = fakeScreenRefresher(tasks, projects, labels),
+            dayClock = dayClock("2026-10-06T08:00:00Z"),
+        )
+        runCurrent()
+        assertEquals(emptyList(), repository.observedDates, "the routines are not read for Today")
+        assertEquals("2026-10-06", vm.uiState.value.routineDay.date)
+
+        prefs.setShowInToday(true)
+        runCurrent()
+        assertEquals(listOf("2026-10-06"), repository.observedDates)
+
+        prefs.setEnabled(false)
+        runCurrent()
+        assertEquals(listOf("2026-10-06"), repository.observedDates, "turning routines off stops reading them again")
+        assertEquals(emptyList(), vm.uiState.value.routineDay.occurrences)
         authScope.cancel()
     }
 }

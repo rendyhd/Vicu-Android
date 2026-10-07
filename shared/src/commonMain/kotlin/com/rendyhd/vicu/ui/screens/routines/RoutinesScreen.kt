@@ -82,6 +82,7 @@ import com.rendyhd.vicu.domain.model.RoutineOccurrenceRecord
 import com.rendyhd.vicu.domain.model.RoutinePeriod
 import com.rendyhd.vicu.domain.model.RoutineSchedule
 import com.rendyhd.vicu.domain.model.RoutineSlot
+import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.copyPlainText
 import com.rendyhd.vicu.ui.components.shared.LocalToday
@@ -99,6 +100,11 @@ fun RoutinesScreen(
     onNavigateToSearch: () -> Unit = {},
     viewModel: RoutinesViewModel = koinViewModel(),
 ) {
+    val routinesEnabled by viewModel.routinesEnabled.collectAsStateWithLifecycle()
+    if (!routinesEnabled) {
+        RoutinesTurnedOff(onOpenDrawer, onNavigateToSearch)
+        return
+    }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val remindersEnabled by viewModel.remindersEnabled.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -769,4 +775,25 @@ private fun routineSummary(routine: Routine): String {
     }
     val times = definition.slots.joinToString(" + ") { periodLabel(it.period) }
     return listOf(schedule, times).filter { it.isNotBlank() }.joinToString(" · ")
+}
+
+/** What the screen shows while routines are turned off in Settings. */
+@Composable
+private fun RoutinesTurnedOff(onOpenDrawer: () -> Unit, onNavigateToSearch: () -> Unit) {
+    Scaffold(
+        topBar = {
+            VicuTopAppBar(
+                title = { Text("Routines") },
+                onOpenDrawer = onOpenDrawer,
+                onNavigateToSearch = onNavigateToSearch,
+            )
+        },
+    ) { padding ->
+        EmptyState(
+            icon = Icons.Outlined.FavoriteBorder,
+            title = "Routines are turned off",
+            subtitle = "Turn them on in Settings to track health and home routines",
+            modifier = Modifier.padding(padding),
+        )
+    }
 }

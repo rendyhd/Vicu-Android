@@ -48,6 +48,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import com.rendyhd.vicu.data.local.RoutinePrefsStore
 
 /**
  * Screens that depend on the Inbox project observe it instead of reading it once, so an Inbox
@@ -294,6 +295,7 @@ class InboxProjectFlowViewModelsTest {
             authManager = auth.manager,
             bottomBarPrefsStore = BottomBarPrefsStore(InMemoryPreferencesDataStore()),
             reviewPrefsStore = ReviewPrefsStore(InMemoryPreferencesDataStore()),
+            routinePrefsStore = RoutinePrefsStore(InMemoryPreferencesDataStore()),
             labelOrderPrefsStore = LabelOrderPrefsStore(InMemoryPreferencesDataStore()),
             behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
             dayClock = DayClock(backgroundScope, time),

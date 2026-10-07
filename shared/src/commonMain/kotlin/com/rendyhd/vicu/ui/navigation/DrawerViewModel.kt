@@ -7,6 +7,7 @@ import com.rendyhd.vicu.data.local.BottomBarPrefsStore
 import com.rendyhd.vicu.data.local.LabelOrderPrefsStore
 import com.rendyhd.vicu.data.local.ReviewPrefs
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
+import com.rendyhd.vicu.data.local.RoutinePrefsStore
 import com.rendyhd.vicu.domain.model.BottomBarSlot
 import com.rendyhd.vicu.domain.model.BottomBarSlotType
 import com.rendyhd.vicu.domain.model.CustomList
@@ -60,6 +61,7 @@ data class DrawerUiState(
     val inboxProjectId: Long = 0L,
     val reviewEnabled: Boolean = true,
     val reviewOverdueCount: Int = 0,
+    val routinesEnabled: Boolean = true,
 ) {
     val displacedSmartLists: Set<BottomBarSlotType>
         get() {
@@ -79,6 +81,7 @@ class DrawerViewModel(
     private val authManager: AuthManager,
     private val bottomBarPrefsStore: BottomBarPrefsStore,
     private val reviewPrefsStore: ReviewPrefsStore,
+    routinePrefsStore: RoutinePrefsStore,
     private val labelOrderPrefsStore: LabelOrderPrefsStore,
     behaviorPrefsStore: com.rendyhd.vicu.data.local.BehaviorPrefsStore,
     dayClock: com.rendyhd.vicu.util.DayClock,
@@ -121,12 +124,12 @@ class DrawerViewModel(
     private val stored: StateFlow<DrawerUiState> = combine(
         sources,
         bottomBarPrefsStore.slots,
-        reviewPrefsStore.getPrefs(),
+        combine(reviewPrefsStore.getPrefs(), routinePrefsStore.enabled) { review, routines -> review to routines },
         labelOrderPrefsStore.getOrder(),
         // A review that falls due at midnight must show up in the badge without a restart.
         dayClock.today,
-    ) { sources, slots, reviewPrefs, labelOrder, today ->
-        buildDrawerState(sources, slots, reviewPrefs, labelOrder, today)
+    ) { sources, slots, (reviewPrefs, routinesEnabled), labelOrder, today ->
+        buildDrawerState(sources, slots, reviewPrefs, labelOrder, today, routinesEnabled)
     }.flowOn(dispatchers.default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DrawerUiState())
 
@@ -313,6 +316,7 @@ internal fun buildDrawerState(
     reviewPrefs: ReviewPrefs,
     labelOrder: List<Long>,
     today: LocalDate,
+    routinesEnabled: Boolean = true,
 ): DrawerUiState {
     val inboxId = sources.inboxProjectId
     val projects = sources.projects
@@ -352,6 +356,7 @@ internal fun buildDrawerState(
         inboxProjectId = inboxId ?: 0L,
         reviewEnabled = reviewPrefs.enabled,
         reviewOverdueCount = reviewOverdue,
+        routinesEnabled = routinesEnabled,
     )
 }
 

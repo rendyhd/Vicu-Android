@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.data.local.RoutinePrefsStore
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.model.RoutineDay
@@ -27,7 +28,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -40,6 +44,7 @@ data class TodayUiState(
     val isRefreshing: Boolean = false,
     val error: String? = null,
     val completedTaskIds: Set<Long> = emptySet(),
+    /** Today's routines; empty when routines or their Today section are turned off. The screen lists [RoutineDay.open]. */
     val routineDay: RoutineDay = RoutineDay("", emptyList()),
 )
 
@@ -48,6 +53,7 @@ class TodayViewModel(
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
     private val routineRepository: RoutineRepository,
+    routinePrefsStore: RoutinePrefsStore,
     private val authManager: AuthManager,
     private val refresher: ScreenRefresher,
     private val dayClock: DayClock,
@@ -66,11 +72,18 @@ class TodayViewModel(
         const val OVERDUE_SCOPE = 1L
     }
 
-    /** The routines of the current day; switches to the new day at midnight. */
+    /**
+     * The routines of the current day; switches to the new day at midnight. Nothing while
+     * routines, or their place in Today, are turned off in Settings.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val routinesForToday = dayClock.today.flatMapLatest { date ->
-        routineRepository.observeDay(date.toString())
-    }
+    private val routinesForToday = combine(
+        dayClock.today,
+        routinePrefsStore.visibility.map { it.inToday }.distinctUntilChanged(),
+    ) { date, shown -> date to shown }
+        .flatMapLatest { (date, shown) ->
+            if (shown) routineRepository.observeDay(date.toString()) else flowOf(RoutineDay(date.toString(), emptyList()))
+        }
 
     init {
         viewModelScope.launch {
