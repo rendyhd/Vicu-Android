@@ -12,3 +12,9 @@ keystore.properties
 *.jks
 *.keystore
 .claude/
+
+# Device logs and local tool folders (never commit)
+logcat*.txt
+*.logcat
+.debug-logs/
+.codex-remote-attachments/

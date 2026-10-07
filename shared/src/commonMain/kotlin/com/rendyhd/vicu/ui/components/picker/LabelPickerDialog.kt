@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,12 +44,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Label
-
-private val PRESET_COLORS = listOf(
-    "#e8384f", "#fd612c", "#fd9a00", "#eec300",
-    "#a4cf30", "#37c5ab", "#20aaea", "#4186e0",
-    "#7a6ff0", "#aa62e3",
-)
+import com.rendyhd.vicu.util.PRESET_COLORS
+import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -84,19 +81,20 @@ fun LabelPickerDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                LazyColumn(modifier = Modifier.height(250.dp)) {
-                    items(filteredLabels, key = { it.id }) { label ->
+                if (filteredLabels.isEmpty()) {
+                    Text(
+                        text = if (allLabels.isEmpty()) "No labels yet" else "No label matches",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp),
+                    )
+                }
+                // As tall as the labels need, up to what the dialog has room for: the list gives
+                // way when the create section opens or the keyboard is up.
+                LazyColumn(modifier = Modifier.weight(1f, fill = false).heightIn(max = 320.dp)) {
+                    items(filteredLabels, key = { it.id }, contentType = { "label" }) { label ->
                         val isChecked = label.id in selectedLabelIds
-                        val labelColor = try {
-                            val hex = label.hexColor
-                            if (hex.isNotBlank()) {
-                                Color(
-                                    android.graphics.Color.parseColor(
-                                        if (hex.startsWith("#")) hex else "#$hex"
-                                    )
-                                )
-                            } else null
-                        } catch (_: Exception) { null }
+                        val labelColor = parseHexColor(label.hexColor)
 
                         Row(
                             modifier = Modifier
@@ -129,7 +127,11 @@ fun LabelPickerDialog(
 
                 if (!showCreateSection) {
                     TextButton(
-                        onClick = { showCreateSection = true },
+                        onClick = {
+                            // What was searched for and not found is the likely name of the new label.
+                            if (newLabelName.isBlank()) newLabelName = searchQuery.trim()
+                            showCreateSection = true
+                        },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -165,7 +167,7 @@ fun LabelPickerDialog(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         PRESET_COLORS.forEach { hex ->
-                            val color = Color(android.graphics.Color.parseColor(hex))
+                            val color = parseHexColor(hex) ?: Color.Gray
                             val isSelected = hex == selectedColor
 
                             Box(

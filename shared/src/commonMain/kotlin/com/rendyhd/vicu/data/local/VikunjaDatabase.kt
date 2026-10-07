@@ -6,6 +6,7 @@ import androidx.room.ConstructedBy
 import androidx.room.RoomDatabaseConstructor
 import com.rendyhd.vicu.data.local.dao.AttachmentDao
 import com.rendyhd.vicu.data.local.dao.LabelDao
+import com.rendyhd.vicu.data.local.dao.LocalDataDao
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.ProjectDao
 import com.rendyhd.vicu.data.local.dao.RoutineArchiveDao
@@ -26,7 +27,7 @@ import com.rendyhd.vicu.data.local.entity.TaskEntity
         AttachmentEntity::class,
         RoutineOccurrenceArchiveEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @ConstructedBy(VikunjaDatabaseConstructor::class)
@@ -37,6 +38,7 @@ abstract class VikunjaDatabase : RoomDatabase() {
     abstract fun pendingActionDao(): PendingActionDao
     abstract fun attachmentDao(): AttachmentDao
     abstract fun routineArchiveDao(): RoutineArchiveDao
+    abstract fun localDataDao(): LocalDataDao
 }
 
 @Suppress("NO_ACTUAL_FOR_EXPECT")

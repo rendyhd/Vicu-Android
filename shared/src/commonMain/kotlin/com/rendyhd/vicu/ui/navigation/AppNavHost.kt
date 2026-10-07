@@ -26,6 +26,7 @@ import com.rendyhd.vicu.ui.screens.upcoming.UpcomingScreen
 @Composable
 fun AppNavHost(
     navController: NavHostController,
+    startDestination: Any = InboxRoute,
     onOpenDrawer: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onTaskClick: (Long) -> Unit = {},
@@ -34,7 +35,7 @@ fun AppNavHost(
 ) {
     NavHost(
         navController = navController,
-        startDestination = InboxRoute,
+        startDestination = startDestination,
         modifier = modifier,
         enterTransition = { EnterTransition.None },
         exitTransition = { ExitTransition.None },
@@ -91,7 +92,11 @@ fun AppNavHost(
             )
         }
         composable<ReviewRoute> {
-            ReviewScreen(onOpenDrawer = onOpenDrawer, onTaskClick = onTaskClick)
+            ReviewScreen(
+                onOpenDrawer = onOpenDrawer,
+                onNavigateToSearch = onNavigateToSearch,
+                onTaskClick = onTaskClick,
+            )
         }
         composable<RoutinesRoute> {
             RoutinesScreen(

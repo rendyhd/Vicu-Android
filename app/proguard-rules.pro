@@ -32,19 +32,12 @@
 -keep @kotlinx.serialization.Serializable class com.rendyhd.vicu.** { *; }
 
 # =============================================================================
-# Retrofit
+# Reflection metadata (generic signatures and annotations that Ktor, kotlinx.serialization and
+# Room read at runtime)
 # =============================================================================
-# Keep Retrofit service interface methods and annotations
 -keepattributes Signature,Exceptions,InnerClasses,EnclosingMethod
 -keepattributes RuntimeVisibleAnnotations,RuntimeVisibleParameterAnnotations
 -keepattributes *Annotation*
-
--keep,allowobfuscation,allowshrinking interface retrofit2.Call
--keep,allowobfuscation,allowshrinking class retrofit2.Response
--keep,allowobfuscation,allowshrinking class kotlin.coroutines.Continuation
-
-# Keep our API service interface
--keep interface com.rendyhd.vicu.data.remote.api.VikunjaApiService { *; }
 
 # =============================================================================
 # OkHttp
@@ -63,15 +56,6 @@
 -keep @androidx.room.Database class * {
     public abstract *;
 }
-
-# =============================================================================
-# Hilt / Dagger
-# =============================================================================
--keep @dagger.Module class * { *; }
--keep @dagger.hilt.InstallIn class * { *; }
--keep class dagger.hilt.** { *; }
--keep class javax.inject.** { *; }
--keep @dagger.hilt.android.lifecycle.HiltViewModel class * { *; }
 
 # =============================================================================
 # Glance (Widgets)
@@ -107,6 +91,22 @@
 # Coil
 # =============================================================================
 -dontwarn coil3.**
+
+# =============================================================================
+# Logging: strip verbose/debug/info logging from release builds
+# =============================================================================
+# Request URLs, search terms and auth events must not reach logcat in release. Logger.d/i are
+# already no-ops at runtime outside debug builds; removing the calls also drops the string
+# building at every call site. Warnings and errors are kept.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}
+-assumenosideeffects class com.rendyhd.vicu.util.Logger {
+    public void d(java.lang.String, java.lang.String);
+    public void i(java.lang.String, java.lang.String);
+}
 
 # =============================================================================
 # Kotlin

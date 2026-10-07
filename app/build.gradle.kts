@@ -1,12 +1,10 @@
 import java.util.Properties
 
 plugins {
+    // Kotlin support is built into the Android application plugin since AGP 9.
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.room)
 }
 
 kotlin {
@@ -31,8 +29,8 @@ android {
         applicationId = "com.rendyhd.vicu"
         minSdk = 26
         targetSdk = 36
-        versionCode = 40
-        versionName = "1.8.2"
+        versionCode = 41
+        versionName = "1.9.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -75,10 +73,10 @@ android {
         compose = true
         buildConfig = true
     }
-}
-
-room {
-    schemaDirectory("$projectDir/schemas")
+    testOptions {
+        // The Koin graph test builds the Android-only classes against the stub android.jar.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -104,10 +102,6 @@ dependencies {
     implementation(libs.koin.androidx.workmanager)
     implementation(libs.koin.compose)
     implementation(libs.koin.compose.viewmodel)
-
-    // Room
-    implementation(libs.room.runtime)
-    ksp(libs.room.compiler)
 
     // Networking
     implementation(libs.okhttp)
@@ -138,6 +132,10 @@ dependencies {
 
     // Testing
     testImplementation(libs.junit)
+    testImplementation(libs.koin.test)
+    testImplementation(libs.kotlinx.coroutines.test)
+    // KoinGraphTest builds the generated Room database class, whose supertype lives here.
+    testImplementation(libs.room.runtime)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

@@ -141,6 +141,47 @@ class TaskMapper(private val json: Json) {
         )
     }
 
+    /**
+     * Applies the editable fields of [edited] onto this cached row and keeps everything else:
+     * relations, attachments, labels, ordering (`position`, `task_index`, kanban), creation
+     * metadata and `updated`. A [Task] edit patch never carries those, so an optimistic row that
+     * rebuilt them from the domain object (which has no relations or attachments in its DTO form)
+     * would silently drop subtasks and attachments until the next sync.
+     *
+     * Dates go through the same conversion as a full mapping, so the stored form of "no date"
+     * is unchanged.
+     */
+    fun TaskEntity.withEditedFields(edited: Task): TaskEntity {
+        val scalars = edited.toDto().toEntity()
+        return copy(
+            title = scalars.title,
+            description = scalars.description,
+            isMetadata = scalars.isMetadata,
+            done = scalars.done,
+            doneAt = scalars.doneAt,
+            dueDate = scalars.dueDate,
+            priority = scalars.priority,
+            projectId = scalars.projectId,
+            repeatAfter = scalars.repeatAfter,
+            repeatMode = scalars.repeatMode,
+            startDate = scalars.startDate,
+            endDate = scalars.endDate,
+            hexColor = scalars.hexColor,
+            percentDone = scalars.percentDone,
+            bucketId = scalars.bucketId,
+            isFavorite = scalars.isFavorite,
+            remindersJson = scalars.remindersJson,
+        )
+    }
+
+    /**
+     * Applies only a completion change onto this cached row. A done toggle patches `done` alone,
+     * so the optimistic row must not take any other field from the (possibly older) task the
+     * caller happened to hold.
+     */
+    fun TaskEntity.withDoneState(done: Boolean, doneAt: String): TaskEntity =
+        copy(done = done, doneAt = DateUtils.normalizeToUtc(dateOrNull(doneAt)))
+
     private val relatedTasksSerializer =
         MapSerializer(String.serializer(), ListSerializer(TaskDto.serializer()))
 
@@ -208,6 +249,7 @@ class TaskMapper(private val json: Json) {
     fun Task.toCreateDto(): CreateTaskDto = CreateTaskDto(
         title = title,
         description = description,
+        done = done,
         dueDate = dateOrNullable(dueDate),
         startDate = dateOrNullable(startDate),
         priority = priority,

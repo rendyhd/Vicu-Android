@@ -34,5 +34,10 @@ class WidgetPrefsStore(
             prefs[KEY_CONTEXT_NAV] = enabled
         }
     }
+
+    /** Back to the defaults. */
+    suspend fun clear() {
+        dataStore.edit { it.clear() }
+    }
 }
 

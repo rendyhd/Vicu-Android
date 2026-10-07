@@ -43,13 +43,13 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.rendyhd.vicu.MainActivity
+import com.rendyhd.vicu.putViewTarget
+import com.rendyhd.vicu.ui.navigation.ViewTarget
 import com.rendyhd.vicu.R
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.repository.RoutineRepository
+import com.rendyhd.vicu.util.DayClock
 import kotlinx.coroutines.flow.first
-import kotlinx.datetime.Clock
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.todayIn
 import org.koin.core.context.GlobalContext
 
 class RoutineWidget : GlanceAppWidget() {
@@ -78,7 +78,10 @@ class RoutineWidget : GlanceAppWidget() {
 
     suspend fun updateAllWidgets(context: Context) {
         val repository = GlobalContext.get().get<RoutineRepository>()
-        val today = Clock.System.todayIn(TimeZone.currentSystemDefault()).toString()
+        // The day is re-read first: this can run long after the clock last ticked.
+        val dayClock = GlobalContext.get().get<DayClock>()
+        dayClock.refresh()
+        val today = dayClock.day.value.date.toString()
         val state = RoutineWidgetState.from(repository.observeDay(today).first())
         val manager = GlanceAppWidgetManager(context)
         manager.getGlanceIds(RoutineWidget::class.java).forEach { glanceId ->
@@ -104,7 +107,7 @@ class RoutineWidget : GlanceAppWidget() {
 class OpenRoutinesWidgetAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         context.startActivity(Intent(context, MainActivity::class.java).apply {
-            putExtra("navigate_to_view_type", "ROUTINES")
+            putViewTarget(ViewTarget.Routines)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         })
     }

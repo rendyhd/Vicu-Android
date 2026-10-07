@@ -4,21 +4,31 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.ReviewPrefs
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.ReviewMetadata
 import com.rendyhd.vicu.util.ReviewState
 import com.rendyhd.vicu.util.ReviewStatus
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 
 enum class ReviewTab { DUE, ALL }
 
@@ -54,11 +64,21 @@ data class ReviewUiState(
     val error: String? = null,
 )
 
+/** What the review lists are built from. */
+private data class ReviewInputs(
+    val projects: List<Project>,
+    val prefs: ReviewPrefs,
+    val inbox: Long?,
+    val reviewed: Set<Long>,
+    val today: LocalDate,
+)
+
 class ReviewViewModel(
     private val projectRepository: ProjectRepository,
     private val taskRepository: TaskRepository,
     private val reviewPrefsStore: ReviewPrefsStore,
     private val authManager: AuthManager,
+    private val dayClock: DayClock,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReviewUiState())
@@ -71,18 +91,26 @@ class ReviewViewModel(
     private val reviewedThisSession = MutableStateFlow<Set<Long>>(emptySet())
 
     init {
-        viewModelScope.launch { inboxId.value = authManager.getInboxProjectId() }
+        viewModelScope.launch { authManager.inboxProjectId.collect { inboxId.value = it } }
         viewModelScope.launch {
             combine(
                 projectRepository.getAll(),
                 reviewPrefsStore.getPrefs(),
                 inboxId,
                 reviewedThisSession,
-            ) { projects, prefs, inbox, reviewed ->
-                buildState(projects, prefs, inbox, reviewed, _uiState.value)
-            }.collect { built -> _uiState.value = built }
+                // A review that falls due at midnight shows up without leaving the screen.
+                dayClock.today,
+            ) { projects, prefs, inbox, reviewed, today ->
+                ReviewInputs(projects, prefs, inbox, reviewed, today)
+            }.collect { inputs ->
+                // Built from the state as it is when this runs, so an action or a refresh that set
+                // the error or the undo in the meantime is not overwritten.
+                _uiState.update { current ->
+                    buildState(inputs.projects, inputs.prefs, inputs.inbox, inputs.reviewed, inputs.today, current)
+                }
+            }
         }
-        refresh()
+        refresh(manual = false)
     }
 
     private fun buildState(
@@ -90,6 +118,7 @@ class ReviewViewModel(
         prefs: ReviewPrefs,
         inbox: Long?,
         reviewed: Set<Long>,
+        today: LocalDate,
         state: ReviewUiState,
     ): ReviewUiState {
         val tracked = projects
@@ -99,7 +128,7 @@ class ReviewViewModel(
             .map {
                 ReviewItem(
                     it,
-                    ReviewMetadata.computeStatus(ReviewMetadata.parse(it.description), prefs.defaultCadenceDays),
+                    ReviewMetadata.computeStatus(ReviewMetadata.parse(it.description), prefs.defaultCadenceDays, today),
                 )
             }
             .filter { it.status.metadata.state != ReviewState.EXCLUDED }
@@ -117,60 +146,90 @@ class ReviewViewModel(
 
     fun setTab(tab: ReviewTab) = _uiState.update { it.copy(tab = tab) }
 
+    /** The jobs that keep the content of the expanded rows up to date, by project. */
+    private val contentJobs = HashMap<Long, Job>()
+
     fun toggleExpanded(projectId: Long) {
         val expanding = projectId !in _uiState.value.expanded
         _uiState.update {
             it.copy(expanded = if (expanding) it.expanded + projectId else it.expanded - projectId)
         }
-        // Load lazily the first time a project is expanded; keep the result cached afterwards.
-        if (expanding && _uiState.value.content[projectId] == null) {
-            loadContent(projectId)
+        if (expanding) {
+            observeContent(projectId)
+        } else {
+            // A closed row is not followed; what it showed last stays until it is opened again.
+            contentJobs.remove(projectId)?.cancel()
         }
     }
 
-    private fun loadContent(projectId: Long) {
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(content = it.content + (projectId to ReviewProjectContent(isLoading = true)))
-            }
-            val loaded = try {
-                val parentTasks = taskRepository.getByProjectId(projectId).first().filter { !it.done }
-                val subProjects = projectRepository.getChildren(projectId).first().map { child ->
-                    ReviewSubProject(
-                        project = child,
-                        tasks = taskRepository.getByProjectId(child.id).first().filter { !it.done },
-                    )
+    /**
+     * Follows the open tasks of the project and of its subprojects while its row is expanded, so a
+     * task completed or added elsewhere (or by a sync) shows up without closing and opening it.
+     */
+    private fun observeContent(projectId: Long) {
+        contentJobs.remove(projectId)?.cancel()
+        contentJobs[projectId] = viewModelScope.launch {
+            if (_uiState.value.content[projectId] == null) {
+                _uiState.update {
+                    it.copy(content = it.content + (projectId to ReviewProjectContent(isLoading = true)))
                 }
-                ReviewProjectContent(parentTasks, subProjects, isLoading = false)
-            } catch (e: Exception) {
-                ReviewProjectContent(isLoading = false)
             }
-            _uiState.update { it.copy(content = it.content + (projectId to loaded)) }
+            try {
+                contentFlow(projectId).collect { loaded ->
+                    _uiState.update { it.copy(content = it.content + (projectId to loaded)) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update { it.copy(content = it.content + (projectId to ReviewProjectContent(isLoading = false))) }
+            }
         }
     }
 
-    fun refresh() {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun contentFlow(projectId: Long): Flow<ReviewProjectContent> {
+        val subProjects: Flow<List<ReviewSubProject>> = projectRepository.getChildren(projectId)
+            .flatMapLatest { children ->
+                if (children.isEmpty()) {
+                    flowOf(emptyList())
+                } else {
+                    combine(
+                        children.map { child ->
+                            taskRepository.getByProjectId(child.id)
+                                .map { tasks -> ReviewSubProject(child, tasks.filter { !it.done }) }
+                        },
+                    ) { it.toList() }
+                }
+            }
+        return combine(taskRepository.getByProjectId(projectId), subProjects) { tasks, subs ->
+            ReviewProjectContent(tasks.filter { !it.done }, subs, isLoading = false)
+        }
+    }
+
+    /** Refreshes the projects. Opening the screen refreshes quietly when offline; pulling does not. */
+    fun refresh(manual: Boolean = true) {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true, error = null) }
-            try {
-                projectRepository.refreshAll()
-            } catch (e: Exception) {
-                _uiState.update { it.copy(error = e.message) }
-            } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
-            }
+            val result = projectRepository.refreshAll()
+            _uiState.update { it.copy(isRefreshing = false, error = result.refreshErrorToShow(manual) ?: it.error) }
         }
     }
+
+    fun clearError() = _uiState.update { it.copy(error = null) }
 
     fun markReviewed(project: Project) {
         viewModelScope.launch {
-            val prev = project
             val meta = ReviewMetadata.parse(project.description)
-                .let { ReviewMetadata(ReviewState.REVIEWED, ReviewMetadata.todayLocalIsoDate(), it.cadenceDaysOverride) }
+                .let { ReviewMetadata(ReviewState.REVIEWED, dayClock.day.value.date.toString(), it.cadenceDaysOverride) }
             val updated = project.copy(description = ReviewMetadata.upsert(project.description, meta))
             reviewedThisSession.value = reviewedThisSession.value + project.id
-            _uiState.update { it.copy(undo = prev) }
-            projectRepository.update(updated)
+            _uiState.update { it.copy(undo = project) }
+            val result = projectRepository.update(updated)
+            if (result is NetworkResult.Error) {
+                // The review was not recorded: it must not look done, and there is nothing to undo.
+                reviewedThisSession.value = reviewedThisSession.value - project.id
+                _uiState.update { it.copy(undo = null, error = result.message) }
+            }
         }
     }
 
@@ -179,7 +238,7 @@ class ReviewViewModel(
             val meta = ReviewMetadata.parse(project.description)
                 .let { ReviewMetadata(it.state, it.lastReviewedAt, if (days != null && days > 0) days else null) }
             val updated = project.copy(description = ReviewMetadata.upsert(project.description, meta))
-            projectRepository.update(updated)
+            reportFailure(projectRepository.update(updated))
         }
     }
 
@@ -192,7 +251,7 @@ class ReviewViewModel(
                 ReviewMetadata(ReviewState.NEVER, null, current.cadenceDaysOverride)
             }
             val updated = project.copy(description = ReviewMetadata.upsert(project.description, meta))
-            projectRepository.update(updated)
+            reportFailure(projectRepository.update(updated))
         }
     }
 
@@ -201,8 +260,17 @@ class ReviewViewModel(
         viewModelScope.launch {
             reviewedThisSession.value = reviewedThisSession.value - prev.id
             _uiState.update { it.copy(undo = null) }
-            projectRepository.update(prev)
+            val result = projectRepository.update(prev)
+            if (result is NetworkResult.Error) {
+                // The undo did not happen: the project is still reviewed.
+                reviewedThisSession.value = reviewedThisSession.value + prev.id
+                _uiState.update { it.copy(error = result.message) }
+            }
         }
+    }
+
+    private fun reportFailure(result: NetworkResult<*>) {
+        if (result is NetworkResult.Error) _uiState.update { it.copy(error = result.message) }
     }
 
     fun dismissUndo() = _uiState.update { it.copy(undo = null) }

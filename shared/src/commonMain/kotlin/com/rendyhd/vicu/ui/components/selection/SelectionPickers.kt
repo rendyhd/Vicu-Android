@@ -4,7 +4,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import com.rendyhd.vicu.ui.components.picker.LabelPickerDialog
 import com.rendyhd.vicu.ui.components.picker.PriorityPickerDialog
@@ -27,7 +27,10 @@ fun SelectionPickers(
     selectedCount: Int,
     onDismiss: () -> Unit,
 ) {
-    val pendingCompletionCount by selectionVm.pendingCompletionDescendantCount.collectAsState()
+    // Both collectors are read before the early return below: a state read after a conditional
+    // return only exists on some compositions.
+    val pendingCompletionCount by selectionVm.pendingCompletionDescendantCount.collectAsStateWithLifecycle()
+    val selectedDescendantCount by selectionVm.selectedDescendantCount.collectAsStateWithLifecycle()
     if (pendingCompletionCount != null) {
         val count = pendingCompletionCount ?: 0
         AlertDialog(
@@ -46,7 +49,6 @@ fun SelectionPickers(
         return
     }
 
-    val selectedDescendantCount by selectionVm.selectedDescendantCount.collectAsState()
     when (action) {
         SelectionAction.SCHEDULE -> VicuDatePickerDialog(
             currentDate = null,
@@ -62,7 +64,7 @@ fun SelectionPickers(
         )
 
         SelectionAction.MOVE_PROJECT -> {
-            val projects by selectionVm.projects.collectAsState()
+            val projects by selectionVm.projects.collectAsStateWithLifecycle()
             ProjectPickerDialog(
                 projects = projects,
                 selectedProjectId = null,
@@ -72,7 +74,7 @@ fun SelectionPickers(
         }
 
         SelectionAction.APPLY_LABEL -> {
-            val labels by selectionVm.labels.collectAsState()
+            val labels by selectionVm.labels.collectAsStateWithLifecycle()
             LabelPickerDialog(
                 allLabels = labels,
                 selectedLabelIds = emptySet(),
@@ -80,7 +82,10 @@ fun SelectionPickers(
                     selectionVm.bulkApplyLabel(it)
                     onDismiss()
                 },
-                onCreateLabel = { _, _ -> },
+                onCreateLabel = { name, hexColor ->
+                    selectionVm.createLabelAndApply(name, hexColor)
+                    onDismiss()
+                },
                 onDismiss = onDismiss,
             )
         }

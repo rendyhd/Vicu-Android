@@ -31,6 +31,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -64,17 +65,27 @@ fun SwipeableTaskItem(
     onLongClick: (() -> Unit)? = null,
     onSubtaskToggleDone: (Task) -> Unit = {},
     onSubtaskClick: (Task) -> Unit = {},
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
 ) {
     val haptic = LocalHapticFeedback.current
     var showCompletionConfirmation by remember { mutableStateOf(false) }
-    val unfinishedSubtaskCount = task.unfinishedDescendants().size
-    val requestToggleDone = {
-        if (!task.done && unfinishedSubtaskCount > 0) {
+
+    // rememberSwipeToDismissBoxState keeps the state object (and the confirmValueChange it was
+    // created with) for the row's whole lifetime, but the row stays composed while its task is
+    // edited elsewhere. Everything the swipe handler touches is therefore read through State, so
+    // a swipe always acts on the current task, subtask count and callbacks.
+    val currentTask by rememberUpdatedState(task)
+    val currentOnToggleDone by rememberUpdatedState(onToggleDone)
+    val currentOnSchedule by rememberUpdatedState(onSchedule)
+    val requestToggleDone: () -> Unit = {
+        if (completionNeedsSubtaskConfirmation(currentTask)) {
             showCompletionConfirmation = true
         } else {
-            onToggleDone()
+            currentOnToggleDone()
         }
     }
+    val currentRequestToggleDone by rememberUpdatedState(requestToggleDone)
 
     // SwipeToDismissBox commits on fling velocity regardless of positionalThreshold, so a
     // quick flick could still trigger below the 50% mark. Track the live offset (Ref dance:
@@ -82,20 +93,27 @@ fun SwipeableTaskItem(
     // actually dragged at least half way. If the offset or row width is unavailable (cannot
     // happen in practice once a real drag has occurred), the action is suppressed rather
     // than fired.
-    var rowWidthPx by remember { mutableStateOf(0f) }
-    var dismissStateRef by remember { mutableStateOf<SwipeToDismissBoxState?>(null) }
+    // The row width and the state are only read from the callback, never drawn: plain fields, so a
+    // layout pass does not write observable state once per row.
+    val rowRefs = remember { SwipeRowRefs() }
     var gestureFromEdge by remember { mutableStateOf(false) }
+    // confirmValueChange is deprecated "without replacement", but nothing replaces what it does
+    // here: the newer onDismiss callback runs after the row has settled on the dismissed side,
+    // so the half-way check below (a flick must not commit early) and the spring-back would
+    // both be lost. Moving to dynamic anchors is a rewrite of the gesture that needs checking
+    // on a device, so the deprecated overload stays until then.
+    @Suppress("DEPRECATION")
     val dismissState = rememberSwipeToDismissBoxState(
         positionalThreshold = { totalDistance -> totalDistance * 0.5f },
         confirmValueChange = { value ->
-            val draggedFraction = dismissStateRef
+            val draggedFraction = rowRefs.dismissState
                 ?.let { state -> runCatching { abs(state.requireOffset()) }.getOrNull() }
-                ?.let { offset -> if (rowWidthPx > 0f) offset / rowWidthPx else 0f }
+                ?.let { offset -> if (rowRefs.widthPx > 0f) offset / rowRefs.widthPx else 0f }
                 ?: 0f
             if (draggedFraction >= 0.5f) {
                 when (value) {
-                    SwipeToDismissBoxValue.StartToEnd -> requestToggleDone()
-                    SwipeToDismissBoxValue.EndToStart -> onSchedule()
+                    SwipeToDismissBoxValue.StartToEnd -> currentRequestToggleDone()
+                    SwipeToDismissBoxValue.EndToStart -> currentOnSchedule()
                     SwipeToDismissBoxValue.Settled -> {}
                 }
             }
@@ -103,7 +121,7 @@ fun SwipeableTaskItem(
             false
         },
     )
-    SideEffect { dismissStateRef = dismissState }
+    SideEffect { rowRefs.dismissState = dismissState }
 
     // One haptic per threshold crossing (edge-triggered via targetValue).
     LaunchedEffect(dismissState) {
@@ -129,13 +147,15 @@ fun SwipeableTaskItem(
             onSubtaskToggleDone = onSubtaskToggleDone,
             onSubtaskClick = onSubtaskClick,
             confirmRootCompletion = false,
+            onMoveUp = onMoveUp,
+            onMoveDown = onMoveDown,
         )
         if (showCompletionConfirmation) {
             CompletionConfirmationDialog(
-                unfinishedSubtaskCount = unfinishedSubtaskCount,
+                unfinishedSubtaskCount = currentTask.unfinishedDescendants().size,
                 onConfirm = {
                     showCompletionConfirmation = false
-                    onToggleDone()
+                    currentOnToggleDone()
                 },
                 onDismiss = { showCompletionConfirmation = false },
             )
@@ -155,7 +175,7 @@ fun SwipeableTaskItem(
     SwipeToDismissBox(
         state = dismissState,
         modifier = modifier
-            .onSizeChanged { rowWidthPx = it.width.toFloat() }
+            .onSizeChanged { rowRefs.widthPx = it.width.toFloat() }
             .pointerInput(leftDeadZone, rightDeadZone) {
                 val leftPx = leftDeadZone.toPx()
                 val rightPx = rightDeadZone.toPx()
@@ -186,20 +206,35 @@ fun SwipeableTaskItem(
             onSubtaskToggleDone = onSubtaskToggleDone,
             onSubtaskClick = onSubtaskClick,
             confirmRootCompletion = false,
+            onMoveUp = onMoveUp,
+            onMoveDown = onMoveDown,
         )
     }
 
     if (showCompletionConfirmation) {
         CompletionConfirmationDialog(
-            unfinishedSubtaskCount = unfinishedSubtaskCount,
+            unfinishedSubtaskCount = currentTask.unfinishedDescendants().size,
             onConfirm = {
                 showCompletionConfirmation = false
-                onToggleDone()
+                currentOnToggleDone()
             },
             onDismiss = { showCompletionConfirmation = false },
         )
     }
 }
+
+/** The row's width and swipe state, read by the swipe callback only. Not observable on purpose. */
+private class SwipeRowRefs {
+    var widthPx: Float = 0f
+    var dismissState: SwipeToDismissBoxState? = null
+}
+
+/**
+ * Completing an open task that still has unfinished subtasks asks first, because completing the
+ * parent completes them too. Decided on the task as it is now, never on a remembered copy.
+ */
+internal fun completionNeedsSubtaskConfirmation(task: Task): Boolean =
+    !task.done && task.unfinishedDescendants().isNotEmpty()
 
 @Composable
 private fun CompletionConfirmationDialog(

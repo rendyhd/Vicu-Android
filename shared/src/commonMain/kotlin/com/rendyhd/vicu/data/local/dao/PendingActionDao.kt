@@ -16,11 +16,30 @@ interface PendingActionDao {
     @Query("SELECT COUNT(*) FROM pending_actions WHERE status = 'pending'")
     fun getPendingCount(): Flow<Int>
 
-    @Query("SELECT * FROM pending_actions WHERE status = 'pending' AND retryCount < maxRetries ORDER BY createdAt ASC, id ASC")
+    /**
+     * Every waiting action, oldest first. There is no retry limit: an action that failed for a reason
+     * worth retrying (offline, timeout, 5xx, 429) waits for the server however long it is away, and
+     * one the server refuses is marked failed instead (see SyncEngine). [PendingActionEntity.retryCount]
+     * only counts the attempts.
+     */
+    @Query("SELECT * FROM pending_actions WHERE status = 'pending' ORDER BY createdAt ASC, id ASC")
     suspend fun getRetryable(): List<PendingActionEntity>
 
     @Insert
     suspend fun insert(action: PendingActionEntity): Long
+
+    @Query("SELECT * FROM pending_actions WHERE id = :id")
+    suspend fun getById(id: Long): PendingActionEntity?
+
+    @Query("DELETE FROM pending_actions WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    /**
+     * Marks a waiting action as being sent and returns 1, or returns 0 when it is no longer waiting
+     * (merged into a newer action, discarded, or taken by another run since the list was read).
+     */
+    @Query("UPDATE pending_actions SET status = 'processing' WHERE id = :id AND status = 'pending'")
+    suspend fun claim(id: Long): Int
 
     @Query("UPDATE pending_actions SET status = :status WHERE id = :id")
     suspend fun updateStatusOnly(id: Long, status: String)
@@ -35,6 +54,14 @@ interface PendingActionDao {
             updateStatusOnly(id, status)
         }
     }
+
+    /** Marks an action failed for good; [failedAt] starts the clock for [deleteFailedBefore]. */
+    @Query("UPDATE pending_actions SET status = 'failed', updatedAt = :failedAt WHERE id = :id")
+    suspend fun markFailed(id: Long, failedAt: String)
+
+    /** Drops failed actions that failed before [cutoff] (an ISO-8601 UTC timestamp); returns how many. */
+    @Query("DELETE FROM pending_actions WHERE status = 'failed' AND updatedAt < :cutoff")
+    suspend fun deleteFailedBefore(cutoff: String): Int
 
     @Query("DELETE FROM pending_actions WHERE status = 'completed'")
     suspend fun deleteCompleted()
@@ -57,8 +84,26 @@ interface PendingActionDao {
     @Query("UPDATE pending_actions SET status = 'pending' WHERE status = 'processing'")
     suspend fun resetProcessingToPending()
 
+    /**
+     * Ids of the tasks whose local row holds a change the server has not accepted yet. A refresh
+     * must not overwrite these rows.
+     *
+     * Failed actions count too, on purpose: the row is the only copy of the user's change until
+     * they retry or discard it from the failed-changes banner. They do not protect it for ever:
+     * the sync engine drops failed actions older than its failed-action retention (14 days) at the
+     * start of each run, and discarding deletes them at once, so the server version wins after
+     * the next refresh in both cases.
+     */
     @Query("SELECT entityId FROM pending_actions WHERE entityType IN ('task', 'routine') AND status IN ('pending', 'failed', 'processing')")
     suspend fun getTaskIdsWithPendingActions(): List<Long>
+
+    /** Ids of the labels with a change the server has not accepted yet; a refresh must not overwrite or delete them. */
+    @Query("SELECT entityId FROM pending_actions WHERE entityType = 'label' AND status IN ('pending', 'failed', 'processing')")
+    suspend fun getLabelIdsWithPendingActions(): List<Long>
+
+    /** Ids of the projects with a change the server has not accepted yet; a refresh must not overwrite or delete them. */
+    @Query("SELECT entityId FROM pending_actions WHERE entityType = 'project' AND status IN ('pending', 'failed', 'processing')")
+    suspend fun getProjectIdsWithPendingActions(): List<Long>
 
     @Query("SELECT * FROM pending_actions WHERE status IN ('pending', 'failed')")
     suspend fun getRemappable(): List<PendingActionEntity>
@@ -74,6 +119,24 @@ interface PendingActionDao {
 
     @Query("SELECT * FROM pending_actions WHERE entityType = :entityType AND entityId = :entityId AND status IN ('pending', 'failed', 'processing')")
     suspend fun getActiveByEntity(entityType: String, entityId: Long): List<PendingActionEntity>
+
+    /**
+     * How many changes for task [taskId] are waiting to be sent or being sent: its own actions and
+     * the label changes on it. Failed ones do not count; the user retries or discards them.
+     */
+    @Query(
+        "SELECT COUNT(*) FROM pending_actions WHERE status IN ('pending', 'processing') AND (" +
+            "(entityType = 'task' AND entityId = :taskId) OR " +
+            "(entityType = 'label' AND actionType IN ('add_label', 'remove_label') AND payload LIKE :labelPayloadPattern))",
+    )
+    suspend fun countWaitingForTask(taskId: Long, labelPayloadPattern: String): Int
+
+    /**
+     * True while the queue holds a change for task [taskId] that has not been sent yet. A new change
+     * to the task must then join the queue: sent directly, it would be overwritten when the older
+     * queued one is replayed. Label changes are queued as "taskId:labelId".
+     */
+    suspend fun hasWaitingForTask(taskId: Long): Boolean = countWaitingForTask(taskId, "$taskId:%") > 0
 
     @Transaction
     suspend fun queueTaskActionMerging(action: PendingActionEntity) {
@@ -97,6 +160,20 @@ interface PendingActionDao {
             }
             is QueueMergeOp.UpdateCreatePayload -> remapEntity(op.createActionId, action.entityId, op.newPayload, "pending")
             QueueMergeOp.DropAll -> deleteByEntity(action.entityType, action.entityId)
+            is QueueMergeOp.QueueBehindCreate -> {
+                val others = existing.filter { it.id != op.createActionId }
+                val mergedPayload = if (action.actionType == "update" || action.actionType == "toggle_done") {
+                    others
+                        .filter { it.actionType == "update" || it.actionType == "toggle_done" }
+                        .fold(action.payload) { combined, old ->
+                            mergePatchPayloads(old.payload, combined, action.entityType)
+                        }
+                } else {
+                    action.payload
+                }
+                others.forEach { deleteById(it.id) }
+                insert(action.copy(payload = mergedPayload))
+            }
         }
     }
 

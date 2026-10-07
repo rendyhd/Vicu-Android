@@ -43,16 +43,28 @@ interface ProjectDao {
     @Query("DELETE FROM projects")
     suspend fun deleteAll()
 
-    @Query("DELETE FROM projects WHERE id NOT IN (:serverIds)")
-    suspend fun deleteNotIn(serverIds: List<Long>)
+    @Query("SELECT id FROM projects")
+    suspend fun getAllIds(): List<Long>
 
+    /** At most [MAX_SQL_ID_PARAMS] ids; callers use [deleteByIds]. */
+    @Query("DELETE FROM projects WHERE id IN (:ids)")
+    suspend fun deleteByIdsChunk(ids: List<Long>)
+
+    /** Any number of ids; runs one statement per [MAX_SQL_ID_PARAMS]. */
     @Transaction
-    suspend fun replaceAll(projects: List<ProjectEntity>) {
-        if (projects.isEmpty()) {
-            deleteAll()
-        } else {
-            upsertAll(projects)
-            deleteNotIn(projects.map { it.id })
-        }
+    suspend fun deleteByIds(ids: List<Long>) {
+        ids.sqlIdChunks().forEach { deleteByIdsChunk(it) }
+    }
+
+    /**
+     * Makes the table match the server's [projects]. Projects in [keepIds] (a queued edit that has
+     * not reached the server) are neither overwritten nor deleted.
+     */
+    @Transaction
+    suspend fun replaceAll(projects: List<ProjectEntity>, keepIds: Set<Long> = emptySet()) {
+        val incoming = projects.filter { it.id !in keepIds }
+        if (incoming.isNotEmpty()) upsertAll(incoming)
+        val serverIds = projects.mapTo(HashSet()) { it.id }
+        deleteByIds(getAllIds().filter { it !in serverIds && it !in keepIds })
     }
 }

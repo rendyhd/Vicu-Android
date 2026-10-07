@@ -16,6 +16,14 @@ sealed class QueueMergeOp {
 
     /** A pending create exists and the entity was deleted — the server never needs to know. */
     object DropAll : QueueMergeOp()
+
+    /**
+     * The create is being sent right now, so its payload can no longer change what reaches the
+     * server. The new action is queued on its own (merged with any other waiting action of the
+     * entity, never with the create); the sync engine moves it to the real id once the create
+     * has succeeded.
+     */
+    data class QueueBehindCreate(val createActionId: Long) : QueueMergeOp()
 }
 
 /**
@@ -31,6 +39,9 @@ fun resolveTaskQueueMerge(
 ): QueueMergeOp {
     val create = existing.firstOrNull { it.actionType == "create" }
         ?: return QueueMergeOp.ReplaceForEntity
+    if (create.status == "processing" && actionType in setOf("update", "toggle_done", "delete")) {
+        return QueueMergeOp.QueueBehindCreate(create.id)
+    }
     return when (actionType) {
         "update", "toggle_done" -> QueueMergeOp.UpdateCreatePayload(create.id, payload)
         "delete" -> QueueMergeOp.DropAll

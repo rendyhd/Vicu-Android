@@ -9,12 +9,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
 /**
- * Plus-only FAB for creating a new task. Minimal and consistent across all list screens.
+ * Plus-only FAB for creating something new (a task unless [contentDescription] says otherwise).
+ * Minimal and consistent across all list screens.
  */
 @Composable
 fun VicuFab(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    contentDescription: String = "Add task",
 ) {
     FloatingActionButton(
         onClick = onClick,
@@ -22,6 +24,6 @@ fun VicuFab(
         containerColor = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
     ) {
-        Icon(Icons.Default.Add, contentDescription = "Add task")
+        Icon(Icons.Default.Add, contentDescription = contentDescription)
     }
 }

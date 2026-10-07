@@ -1,21 +1,26 @@
 package com.rendyhd.vicu.auth
 
 import com.rendyhd.vicu.data.remote.api.ApiTokenRequestDto
+import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.util.Base64Decoder
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.util.getDeviceTokenTitle
+import com.rendyhd.vicu.util.isNetworkFailure
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -25,6 +30,7 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.plus
 import kotlin.concurrent.Volatile
+import kotlin.coroutines.cancellation.CancellationException
 
 enum class AuthState {
     Loading,
@@ -60,17 +66,26 @@ internal object RefreshBackoffPolicy {
     }
 }
 
+/**
+ * Failures thrown while talking to the refresh endpoint (no HTTP status to look at): transport
+ * problems are [RefreshFailure.NetworkError], anything else is [RefreshFailure.ServerError].
+ */
+fun classifyRefreshException(e: Exception): RefreshFailure =
+    if (isNetworkFailure(e)) RefreshFailure.NetworkError else RefreshFailure.ServerError
+
 class AuthManager(
     private val platformAuthHooks: PlatformAuthHooks,
     private val tokenStorage: TokenStorage,
     private val apiServiceProvider: () -> VikunjaApiService,
     private val appScope: CoroutineScope,
     private val networkMonitor: NetworkMonitor,
+    private val deviceTokenTitle: () -> String = { getDeviceTokenTitle() },
 ) {
     companion object {
         private const val TAG = "AuthManager"
         private const val JWT_EXPIRY_BUFFER_SECS = 60L
         private const val PROACTIVE_REFRESH_AHEAD_SECS = 120L
+        private const val TOKEN_REVOKE_TIMEOUT_MS = 5_000L
     }
 
     private val _authState = MutableStateFlow(AuthState.Loading)
@@ -174,11 +189,13 @@ class AuthManager(
                     _authState.value = AuthState.Authenticated
                     scheduleProactiveRefresh()
                     ensureBackupApiToken()
+                    ensureUserIdStored()
                 }
                 apiToken != null -> {
                     Logger.d(TAG, "initialize: JWT missing/expired, using API token → Authenticated")
                     cachedToken = apiToken
                     _authState.value = AuthState.Authenticated
+                    ensureUserIdStored()
                 }
                 jwt != null -> {
                     Logger.d(TAG, "initialize: JWT expired, no API token — attempting V2 refresh")
@@ -200,11 +217,13 @@ class AuthManager(
                         _authState.value = AuthState.Authenticated
                         scheduleProactiveRefresh()
                         ensureBackupApiToken()
+                        ensureUserIdStored()
                     } else if (cachedToken != null && !isExpired(cachedJwtExpiry)) {
                         Logger.i(TAG, "initialize: V2 refresh returned false but cached JWT is valid → Authenticated")
                         _authState.value = AuthState.Authenticated
                         scheduleProactiveRefresh()
                         ensureBackupApiToken()
+                        ensureUserIdStored()
                     } else {
                         Logger.w(TAG, "initialize: V2 refresh failed, no API token → NeedsReAuth")
                         cachedToken = null
@@ -279,10 +298,6 @@ class AuthManager(
         _authState.value = AuthState.Authenticated
     }
 
-    suspend fun onApiTokenSaved(token: String, expiry: Long) {
-        tokenStorage.storeApiToken(token, expiry)
-    }
-
     suspend fun onJwtRenewed(newJwt: String, newRefreshToken: String? = null) {
         val expiry = parseJwtExpiry(newJwt)
         Logger.d("JWT_RENEWED", "newRefreshToken=${newRefreshToken != null}")
@@ -293,6 +308,9 @@ class AuthManager(
         cachedToken = newJwt
         cachedJwtExpiry = expiry
 
+        // A renewed JWT means refresh works again. Clear the backoff first so the new schedule
+        // is not pushed out by the floor left behind by earlier failures.
+        resetBackoff()
         scheduleProactiveRefresh()
     }
 
@@ -309,6 +327,12 @@ class AuthManager(
 
     suspend fun getInboxProjectId(): Long? = tokenStorage.getInboxProjectId()
 
+    /**
+     * The Inbox project id as it changes. Screens collect this instead of reading it once, so
+     * choosing another Inbox in Settings, or finishing setup after sign-in, reaches them at once.
+     */
+    val inboxProjectId: Flow<Long?> = tokenStorage.inboxProjectIdFlow.distinctUntilChanged()
+
     suspend fun getRefreshToken(): String? = tokenStorage.getRefreshToken()
 
     suspend fun logout() {
@@ -316,6 +340,8 @@ class AuthManager(
         proactiveRefreshJob?.cancel()
         proactiveRefreshJob = null
         platformAuthHooks.cancelRefreshScheduler()
+        // Revoke while the session is still valid: the token endpoints need the JWT.
+        revokeBackupApiToken()
         try {
             apiServiceProvider().serverLogout()
         } catch (e: Exception) {
@@ -387,7 +413,6 @@ class AuthManager(
                         val newRefreshToken = RefreshCookieExtractor.extractRefreshToken(response)
                         onJwtRenewed(newJwt, newRefreshToken)
                         Logger.d(TAG, "V2 refresh succeeded")
-                        resetBackoff()
                         RefreshResult.Success
                     } else {
                         Logger.w(TAG, "V2 refresh returned empty token")
@@ -412,15 +437,22 @@ class AuthManager(
                     RefreshResult.Failure(RefreshFailure.ServerError)
                 }
             }
+        } catch (e: CancellationException) {
+            // The caller gave up (for example the proactive refresh job was replaced). That is
+            // not a server failure and must not start a backoff window.
+            throw e
         } catch (e: Exception) {
-            Logger.w(TAG, "V2 refresh exception: ${e.message}")
-            applyBackoff(RefreshFailure.ServerError)
-            RefreshResult.Failure(RefreshFailure.ServerError)
+            val failure = classifyRefreshException(e)
+            Logger.w(TAG, "V2 refresh exception (${failure::class.simpleName}): ${e.message}")
+            applyBackoff(failure)
+            RefreshResult.Failure(failure)
         }
     }
 
-    suspend fun createBackupApiToken(title: String = defaultTokenTitle()): Boolean {
+    suspend fun createBackupApiToken(): Boolean {
         return try {
+            val installId = tokenStorage.getInstallId()
+            val title = ApiTokenTitle.build(deviceTokenTitle(), installId)
             Logger.d(TAG, "fetching /routes for permissions map")
             val routes = apiServiceProvider().getApiTokenRoutes()
             val permissions: Map<String, List<String>> = routes.mapValues { (_, routeMap) ->
@@ -441,52 +473,124 @@ class AuthManager(
             val response = apiServiceProvider().createApiToken(request)
             if (response.token.isNotBlank()) {
                 val newTokenId = response.id
-                tokenStorage.storeApiToken(response.token, expiry.epochSeconds)
+                tokenStorage.storeBackupApiToken(response.token, expiry.epochSeconds, newTokenId)
                 Logger.i(TAG, "Backup API token created successfully (${permissions.size} groups)")
-                cleanupSiblingTokens(title, newTokenId)
+                cleanupSiblingTokens(installId, newTokenId)
                 true
             } else {
                 Logger.w(TAG, "Backup API token creation returned empty token")
                 false
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Logger.w(TAG, "Backup API token creation failed: ${e.message}")
             false
         }
     }
 
-    private fun defaultTokenTitle(): String {
-        return getDeviceTokenTitle()
-    }
-
-    private fun cleanupSiblingTokens(title: String, newTokenId: Long) {
+    /**
+     * Deletes older backup tokens left behind by this install (for example after a keystore
+     * reset made the stored token unreadable). Only tokens carrying this install's id are
+     * touched; see [ApiTokenTitle] for how pre-suffix tokens are treated.
+     */
+    private fun cleanupSiblingTokens(installId: String, newTokenId: Long) {
         appScope.launch {
             try {
                 val api = apiServiceProvider()
-                val allTokens = api.listApiTokens()
-                val siblings = allTokens.filter { it.title == title && it.id != newTokenId }
-                for (sibling in siblings) {
+                val siblings = ApiTokenTitle.siblingIds(api.listApiTokens(), installId, newTokenId)
+                for (siblingId in siblings) {
                     try {
-                        api.deleteApiToken(sibling.id)
-                        Logger.d("TOKEN_CLEANUP", "deleted sibling id=${sibling.id}")
+                        api.deleteApiToken(siblingId)
+                        Logger.d("TOKEN_CLEANUP", "deleted sibling id=$siblingId")
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
-                        Logger.w(TAG, "Failed to delete sibling token ${sibling.id}: ${e.message}")
+                        Logger.w(TAG, "Failed to delete sibling token $siblingId: ${e.message}")
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Logger.w(TAG, "Token list/cleanup failed (non-fatal): ${e.message}")
             }
         }
     }
 
+    /**
+     * Best-effort revocation of the backup token this app created, so a signed-out device does
+     * not leave a year-long, full-access credential behind on the server. Never throws for
+     * network or server problems and gives up after [TOKEN_REVOKE_TIMEOUT_MS] so logout is not
+     * held up. A token the user entered manually has no stored id and is never touched.
+     */
+    private suspend fun revokeBackupApiToken() {
+        val tokenId = try {
+            tokenStorage.getBackupApiTokenId()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Logger.w(TAG, "Could not read backup token id: ${e.message}")
+            null
+        } ?: return
+
+        try {
+            val finished = withTimeoutOrNull(TOKEN_REVOKE_TIMEOUT_MS) {
+                apiServiceProvider().deleteApiToken(tokenId)
+                true
+            }
+            if (finished == null) {
+                Logger.w(TAG, "Backup token revocation timed out; the token stays on the server until it expires")
+            } else {
+                Logger.d("TOKEN_REVOKE", "deleted backup token id=$tokenId")
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: VikunjaApiException) {
+            if (e.httpStatus == 404) {
+                Logger.d("TOKEN_REVOKE", "backup token id=$tokenId was already gone")
+            } else {
+                Logger.w(TAG, "Backup token revocation failed (HTTP ${e.httpStatus}); it stays valid until it expires")
+            }
+        } catch (e: Exception) {
+            Logger.w(TAG, "Backup token revocation failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Records who the signed-in account is for sessions that predate the stored user id, so a
+     * later re-login can tell "same account again" (keep the offline queue) from "someone else"
+     * (wipe). Does nothing once an id is stored.
+     */
+    private fun ensureUserIdStored() {
+        appScope.launch {
+            try {
+                if (tokenStorage.getUserId() != null) return@launch
+                val user = apiServiceProvider().getCurrentUser()
+                if (user.id > 0L) tokenStorage.storeUserId(user.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Logger.w(TAG, "Could not record the user id (non-fatal): ${e.message}")
+            }
+        }
+    }
+
     private fun ensureBackupApiToken() {
         appScope.launch {
-            if (tokenStorage.hasApiToken()) {
-                Logger.d("BACKUP_API_TOKEN", "already exists, skipping")
-                return@launch
+            try {
+                // hasApiToken() is false for a token that can no longer be decrypted, so a
+                // keystore reset leads to a fresh backup token here.
+                if (tokenStorage.hasApiToken()) {
+                    Logger.d("BACKUP_API_TOKEN", "already exists, skipping")
+                    return@launch
+                }
+                Logger.w(TAG, "No usable backup API token found — attempting to create one")
+                createBackupApiToken()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Logger.w(TAG, "Backup API token check failed: ${e.message}")
             }
-            Logger.w(TAG, "No backup API token found — attempting to create one")
-            createBackupApiToken()
         }
     }
 

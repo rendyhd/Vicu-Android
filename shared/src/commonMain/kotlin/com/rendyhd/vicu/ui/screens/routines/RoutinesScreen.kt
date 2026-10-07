@@ -42,7 +42,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FabPosition
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,7 +57,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,8 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -83,10 +82,11 @@ import com.rendyhd.vicu.domain.model.RoutineOccurrenceRecord
 import com.rendyhd.vicu.domain.model.RoutinePeriod
 import com.rendyhd.vicu.domain.model.RoutineSchedule
 import com.rendyhd.vicu.domain.model.RoutineSlot
+import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
+import com.rendyhd.vicu.ui.components.shared.copyPlainText
+import com.rendyhd.vicu.ui.components.shared.LocalToday
+import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
-import kotlinx.datetime.Clock
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.todayIn
 import org.koin.compose.viewmodel.koinViewModel
 import kotlinx.coroutines.launch
 
@@ -99,10 +99,10 @@ fun RoutinesScreen(
     onNavigateToSearch: () -> Unit = {},
     viewModel: RoutinesViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
-    val remindersEnabled by viewModel.remindersEnabled.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val remindersEnabled by viewModel.remindersEnabled.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     var pageMenuOpen by remember { mutableStateOf(false) }
     var editorRoutine by remember { mutableStateOf<Routine?>(null) }
@@ -139,9 +139,17 @@ fun RoutinesScreen(
                                 text = { Text("Copy history as CSV") },
                                 onClick = {
                                     pageMenuOpen = false
-                                    viewModel.exportCsv { csv ->
-                                        clipboard.setText(AnnotatedString(csv))
-                                        scope.launch { snackbar.showSnackbar("Routine history copied") }
+                                    viewModel.exportCsv { export ->
+                                        scope.launch {
+                                            clipboard.copyPlainText("Routine history", export.csv)
+                                            snackbar.showSnackbar(
+                                                if (export.complete) {
+                                                    "Routine history copied"
+                                                } else {
+                                                    "Routine history copied, without older history that could not be loaded"
+                                                },
+                                            )
+                                        }
                                     }
                                 },
                             )
@@ -151,20 +159,22 @@ fun RoutinesScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                editorRoutine = null
-                showEditor = true
-            }) {
-                Text("+", style = MaterialTheme.typography.headlineSmall)
-            }
+            VicuFab(
+                onClick = {
+                    editorRoutine = null
+                    showEditor = true
+                },
+                contentDescription = "Add routine",
+            )
         },
+        floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item(key = "summary") {
+            item(key = "summary", contentType = "summary") {
                 RoutineDaySummary(
                     day = state.day,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -172,7 +182,7 @@ fun RoutinesScreen(
             }
 
             if (state.day.occurrences.isEmpty()) {
-                item(key = "empty_today") {
+                item(key = "empty_today", contentType = "empty") {
                     Text(
                         text = if (state.active.isEmpty()) {
                             "Add a supplement, medication, or household rhythm."
@@ -185,7 +195,7 @@ fun RoutinesScreen(
                     )
                 }
             } else {
-                items(state.day.occurrences, key = { it.key }) { occurrence ->
+                items(state.day.occurrences, key = { it.key }, contentType = { "occurrence" }) { occurrence ->
                     RoutineOccurrenceRow(
                         occurrence = occurrence,
                         onToggle = { viewModel.toggle(occurrence) },
@@ -195,8 +205,8 @@ fun RoutinesScreen(
                 }
             }
 
-            item(key = "all_header") { SectionLabel("ALL ROUTINES") }
-            items(state.active, key = { it.definition.id }) { routine ->
+            item(key = "all_header", contentType = "header") { SectionLabel("ALL ROUTINES") }
+            items(state.active, key = { it.definition.id }, contentType = { "routine" }) { routine ->
                 RoutineDefinitionCard(
                     routine = routine,
                     onEdit = {
@@ -211,8 +221,8 @@ fun RoutinesScreen(
             }
 
             if (state.archived.isNotEmpty()) {
-                item(key = "archived_header") { SectionLabel("ARCHIVED") }
-                items(state.archived, key = { "archived_${it.definition.id}" }) { routine ->
+                item(key = "archived_header", contentType = "header") { SectionLabel("ARCHIVED") }
+                items(state.archived, key = { "archived_${it.definition.id}" }, contentType = { "routine" }) { routine ->
                     RoutineDefinitionCard(
                         routine = routine,
                         onEdit = {},
@@ -226,9 +236,19 @@ fun RoutinesScreen(
             }
 
             if (state.issues.isNotEmpty()) {
-                item(key = "issues") {
+                item(key = "issues", contentType = "notice") {
                     Text(
                         text = "${state.issues.size} routine ${if (state.issues.size == 1) "record needs" else "records need"} repair",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
+            }
+            state.archiveWarning?.let { warning ->
+                item(key = "archive-warning", contentType = "notice") {
+                    Text(
+                        text = warning,
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(16.dp),
@@ -268,7 +288,10 @@ fun RoutinesScreen(
     }
 
     historyRoutine?.let { routine ->
-        val history by viewModel.observeHistory(routine.definition.id).collectAsState(emptyList())
+        // One flow per routine, not one per recomposition: a new instance would restart the
+        // collection and flash the dialog empty.
+        val historyFlow = remember(routine.definition.id) { viewModel.observeHistory(routine.definition.id) }
+        val history by historyFlow.collectAsStateWithLifecycle(emptyList())
         RoutineHistoryDialog(
             routine = routine,
             history = history,
@@ -440,7 +463,7 @@ private fun RoutineHistoryDialog(
                     Text("Daily activity will appear here as you complete or skip it.")
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
-                        items(logged.take(30), key = { it.key }) { record ->
+                        items(logged.take(30), key = { it.key }, contentType = { "record" }) { record ->
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -496,7 +519,7 @@ private fun RoutineEditorDialog(
     var interval by remember(routine) {
         mutableStateOf((definition?.schedule as? RoutineSchedule.AfterCompletion)?.intervalDays?.toString() ?: "14")
     }
-    val todayDate = Clock.System.todayIn(TimeZone.currentSystemDefault())
+    val todayDate = LocalToday.current
     val today = todayDate.toString()
     val existingCalendar = definition?.schedule as? RoutineSchedule.Calendar
     var weekInterval by remember(routine) { mutableStateOf(existingCalendar?.weekInterval?.coerceAtLeast(1) ?: 1) }

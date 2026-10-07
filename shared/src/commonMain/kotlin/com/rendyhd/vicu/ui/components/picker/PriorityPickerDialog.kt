@@ -48,7 +48,7 @@ fun PriorityPickerDialog(
         title = { Text("Priority") },
         text = {
             LazyColumn {
-                items(options, key = { it.value }) { option ->
+                items(options, key = { it.value }, contentType = { "priority" }) { option ->
                     val isSelected = option.value == current
                     Row(
                         modifier = Modifier

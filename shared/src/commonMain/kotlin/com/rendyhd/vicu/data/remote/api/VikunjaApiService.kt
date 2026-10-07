@@ -3,6 +3,7 @@ package com.rendyhd.vicu.data.remote.api
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
+import io.ktor.client.request.forms.ChannelProvider
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
@@ -10,15 +11,20 @@ import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.prepareGet
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import com.rendyhd.vicu.util.Constants
+import com.rendyhd.vicu.util.contentDispositionFileParameter
+import io.ktor.utils.io.ByteReadChannel
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
@@ -43,14 +49,27 @@ class VikunjaApiService(
         private val MERGE_PATCH = ContentType.parse("application/merge-patch+json")
     }
 
-    suspend fun getTasksPage(filters: Map<String, String> = emptyMap()): PaginatedResponse<TaskDto> =
+    /**
+     * One page of tasks. With [expandSubtasks] (the default) Vikunja returns the tasks that are not
+     * subtasks and then adds the subtasks of those, so a filter that a subtask matches but its
+     * parent does not never reaches the subtask. Pass false for any request that must return
+     * exactly the tasks the filter matches (incremental refresh, completed tasks): every task
+     * still carries its `related_tasks`, which are not part of the expansion.
+     */
+    suspend fun getTasksPage(
+        filters: Map<String, String> = emptyMap(),
+        expandSubtasks: Boolean = true,
+    ): PaginatedResponse<TaskDto> =
         client.get("tasks") {
-            parameter("expand", SUBTASK_EXPANSION)
+            if (expandSubtasks) parameter("expand", SUBTASK_EXPANSION)
             filters.forEach { (key, value) -> parameter(key, value) }
         }.bodyOrThrow()
 
-    suspend fun getAllTasks(filters: Map<String, String> = emptyMap()): List<TaskDto> =
-        fetchAllPages(filters, ::getTasksPage)
+    suspend fun getAllTasks(
+        filters: Map<String, String> = emptyMap(),
+        expandSubtasks: Boolean = true,
+    ): List<TaskDto> =
+        fetchAllPages(filters) { params -> getTasksPage(params, expandSubtasks) }
 
     suspend fun getTask(id: Long): TaskDto =
         client.get("tasks/$id") {
@@ -63,11 +82,10 @@ class VikunjaApiService(
             setBody(task)
         }.bodyOrThrow(HttpStatusCode.Created)
 
-    suspend fun updateTask(id: Long, patch: JsonObject): TaskDto =
-        client.patch("tasks/$id") {
-            contentType(MERGE_PATCH)
-            setBody(patch)
-        }.bodyOrThrow()
+    suspend fun updateTask(id: Long, patch: JsonObject): TaskDto {
+        val response = sendMergePatch("tasks/$id", patch)
+        return if (response.isUnchanged()) getTask(id) else response.bodyOrThrow()
+    }
 
     suspend fun deleteTask(id: Long) {
         client.delete("tasks/$id").requireNoContent()
@@ -93,11 +111,10 @@ class VikunjaApiService(
             setBody(project)
         }.bodyOrThrow(HttpStatusCode.Created)
 
-    suspend fun updateProject(id: Long, patch: JsonObject): ProjectDto =
-        client.patch("projects/$id") {
-            contentType(MERGE_PATCH)
-            setBody(patch)
-        }.bodyOrThrow()
+    suspend fun updateProject(id: Long, patch: JsonObject): ProjectDto {
+        val response = sendMergePatch("projects/$id", patch)
+        return if (response.isUnchanged()) getProject(id) else response.bodyOrThrow()
+    }
 
     suspend fun deleteProject(id: Long) {
         client.delete("projects/$id").requireNoContent()
@@ -119,11 +136,10 @@ class VikunjaApiService(
             setBody(label)
         }.bodyOrThrow(HttpStatusCode.Created)
 
-    suspend fun updateLabel(id: Long, patch: JsonObject): LabelDto =
-        client.patch("labels/$id") {
-            contentType(MERGE_PATCH)
-            setBody(patch)
-        }.bodyOrThrow()
+    suspend fun updateLabel(id: Long, patch: JsonObject): LabelDto {
+        val response = sendMergePatch("labels/$id", patch)
+        return if (response.isUnchanged()) getLabel(id) else response.bodyOrThrow()
+    }
 
     suspend fun deleteLabel(id: Long) {
         client.delete("labels/$id").requireNoContent()
@@ -154,17 +170,22 @@ class VikunjaApiService(
             }.bodyOrThrow()
         }
 
-    suspend fun uploadAttachment(taskId: Long, fileName: String, content: ByteArray) {
+    /**
+     * Uploads a file by streaming it: [content] is asked for the bytes when the request is sent
+     * (and again if it has to be sent again), so the file is never held in memory. [size] lets
+     * the request state its length up front.
+     */
+    suspend fun uploadAttachment(taskId: Long, fileName: String, size: Long?, content: () -> ByteReadChannel) {
         client.post("tasks/$taskId/attachments") {
             setBody(
                 MultiPartFormDataContent(
                     formData {
                         append(
                             "files",
-                            content,
+                            ChannelProvider(size, content),
                             Headers.build {
                                 append(HttpHeaders.ContentType, "application/octet-stream")
-                                append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
+                                append(HttpHeaders.ContentDisposition, contentDispositionFileParameter(fileName))
                             },
                         )
                     },
@@ -173,8 +194,15 @@ class VikunjaApiService(
         }.requireStatus(HttpStatusCode.Created)
     }
 
-    suspend fun downloadAttachment(taskId: Long, attachmentId: Long): ByteArray =
-        client.get("tasks/$taskId/attachments/$attachmentId").bodyOrThrow()
+    /** Streams an attachment to [consume] as it arrives; the body is never collected in memory. */
+    suspend fun <T> downloadAttachment(
+        taskId: Long,
+        attachmentId: Long,
+        consume: suspend (ByteReadChannel) -> T,
+    ): T = client.prepareGet("tasks/$taskId/attachments/$attachmentId").execute { response ->
+        response.ensureSuccess()
+        consume(response.bodyAsChannel())
+    }
 
     suspend fun deleteAttachment(taskId: Long, attachmentId: Long) {
         client.delete("tasks/$taskId/attachments/$attachmentId").requireNoContent()
@@ -202,9 +230,10 @@ class VikunjaApiService(
         projectId: Long,
         viewId: Long,
         filters: Map<String, String> = emptyMap(),
+        expandSubtasks: Boolean = true,
     ): PaginatedResponse<TaskDto> =
         client.get("projects/$projectId/views/$viewId/tasks") {
-            parameter("expand", SUBTASK_EXPANSION)
+            if (expandSubtasks) parameter("expand", SUBTASK_EXPANSION)
             filters.forEach { (key, value) -> parameter(key, value) }
         }.bodyOrThrow()
 
@@ -212,8 +241,9 @@ class VikunjaApiService(
         projectId: Long,
         viewId: Long,
         filters: Map<String, String> = emptyMap(),
+        expandSubtasks: Boolean = true,
     ): List<TaskDto> =
-        fetchAllPages(filters) { params -> getViewTasksPage(projectId, viewId, params) }
+        fetchAllPages(filters) { params -> getViewTasksPage(projectId, viewId, params, expandSubtasks) }
 
     suspend fun updateTaskPosition(taskId: Long, body: TaskPositionDto) {
         client.put("tasks/$taskId/position") {
@@ -233,6 +263,23 @@ class VikunjaApiService(
 
     suspend fun getCurrentUser(): UserDto =
         client.get("user").bodyOrThrow()
+
+    /**
+     * Asks the server at [baseUrl] who [token] belongs to, without using or changing the app's
+     * session. The request goes through a bare copy of the client (same engine and JSON setup,
+     * none of the base-URL redirection, Authorization injection or 401 refresh handling), so a
+     * wrong token cannot trigger a refresh, flip the auth state or leave anything stored behind.
+     */
+    suspend fun getCurrentUserWithToken(baseUrl: String, token: String): UserDto {
+        val bare = client.config { }
+        try {
+            return bare.get("${baseUrl.trim().trimEnd('/')}${Constants.API_BASE_PATH}/user") {
+                header(HttpHeaders.Authorization, "Bearer $token")
+            }.bodyOrThrow()
+        } finally {
+            bare.close()
+        }
+    }
 
     suspend fun exchangeOidcToken(
         providerKey: String,
@@ -295,6 +342,21 @@ class VikunjaApiService(
         } while (page <= totalPages)
         return all
     }
+
+    private suspend fun sendMergePatch(path: String, patch: JsonObject): HttpResponse =
+        client.patch(path) {
+            contentType(MERGE_PATCH)
+            setBody(patch)
+        }
+
+    /**
+     * Vikunja answers a merge patch that changes nothing (the server already has every value in
+     * it) with 304 Not Modified and no body. The change is on the server, so it is done: the
+     * update functions read the current state back instead of failing. This happens when a queued
+     * change is folded into one the server already has (completed offline, reopened before the
+     * sync), or when a change is sent again after an attempt whose answer was lost.
+     */
+    private fun HttpResponse.isUnchanged(): Boolean = status == HttpStatusCode.NotModified
 
     private suspend inline fun <reified T> HttpResponse.bodyOrThrow(
         expectedStatus: HttpStatusCode? = null,

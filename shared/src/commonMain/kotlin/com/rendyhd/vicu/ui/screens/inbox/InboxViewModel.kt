@@ -8,11 +8,19 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
+import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.data.sync.ScreenRefresher
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.moveTaskInList
+import com.rendyhd.vicu.util.neighbourForMove
+import com.rendyhd.vicu.util.planDrop
+import com.rendyhd.vicu.util.sortProjectTasks
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -21,7 +29,16 @@ data class InboxUiState(
     val tasks: List<Task> = emptyList(),
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
+    /**
+     * A failure to tell the user about once (a snackbar): a refresh, a completion or a reorder the
+     * server refused. The Inbox is still usable, so it never takes the add button away.
+     */
     val error: String? = null,
+    /**
+     * A standing reason there is no usable Inbox (none chosen, or the chosen one archived). It
+     * stays until the Inbox is usable again; it replaces the list and hides the add button.
+     */
+    val notice: String? = null,
     val completedTaskIds: Set<Long> = emptySet(),
     val inboxProjectId: Long? = null,
 )
@@ -31,84 +48,155 @@ class InboxViewModel(
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
     private val authManager: AuthManager,
-    private val syncStaleness: SyncStaleness,
+    private val refresher: ScreenRefresher,
+    navigationTicker: NavigationTicker = NavigationTicker(),
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "InboxViewModel"
+        private const val ARCHIVED_MESSAGE =
+            "Your Inbox project is archived. Select an active Inbox project in Settings."
+        private const val NO_INBOX_MESSAGE =
+            "No Inbox project is selected. Choose one in Settings."
     }
 
     private val _uiState = MutableStateFlow(InboxUiState())
     val uiState: StateFlow<InboxUiState> = _uiState.asStateFlow()
+    /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
 
     init {
+        viewModelScope.launch {
+            completions.heldIds.collect { ids -> _uiState.update { it.copy(completedTaskIds = ids) } }
+        }
         Log.d(TAG, "init: InboxViewModel created")
         viewModelScope.launch {
-            val inboxId = authManager.getInboxProjectId()
-            Log.d(TAG, "init: inboxProjectId=$inboxId")
-            _uiState.update { it.copy(inboxProjectId = inboxId) }
-            if (inboxId == null) {
-                Log.e(TAG, "init: inboxProjectId is NULL — Flow collection skipped!")
-                _uiState.update { it.copy(isLoading = false) }
-                return@launch
-            }
-            if (syncStaleness.isStale()) refresh()
-            combine(
-                taskRepository.getInboxTasks(inboxId),
-                projectRepository.getAll(),
-            ) { tasks, activeProjects ->
-                tasks to activeProjects.any { it.id == inboxId }
-            }.collect { (tasks, inboxIsActive) ->
-                Log.d(TAG, "Flow emission: ${tasks.size} tasks for inboxId=$inboxId, active=$inboxIsActive")
-                _uiState.update {
-                    it.copy(
-                        tasks = if (inboxIsActive) tasks else emptyList(),
-                        isLoading = false,
-                        error = if (inboxIsActive) {
-                            null
-                        } else {
-                            "Your Inbox project is archived. Select an active Inbox project in Settings."
-                        },
-                    )
+            // The Inbox project can change while this screen is open (picked in Settings, or set
+            // by the setup that follows a sign-in), so it is observed, not read once.
+            authManager.inboxProjectId.collectLatest { inboxId ->
+                Log.d(TAG, "inboxProjectId=$inboxId")
+                _uiState.update { it.copy(inboxProjectId = inboxId) }
+                if (inboxId == null) {
+                    // Signed in but not set up (the app was closed between sign-in and choosing the
+                    // Inbox): say so, and carry on when the choice is made.
+                    _uiState.update { it.copy(tasks = emptyList(), isLoading = false, notice = NO_INBOX_MESSAGE) }
+                    return@collectLatest
                 }
+                combine(
+                    taskRepository.getInboxTasks(inboxId),
+                    projectRepository.getAll(),
+                    completions.state,
+                ) { tasks, activeProjects, _ ->
+                    // Dated tasks first (by date), then the rest in the order of the list view: the
+                    // same order the desktop app shows. Held rows go back where they were.
+                    completions.merge(sortProjectTasks(tasks)) to activeProjects.any { it.id == inboxId }
+                }.collect { (tasks, inboxIsActive) ->
+                    Log.d(TAG, "Flow emission: ${tasks.size} tasks for inboxId=$inboxId, active=$inboxIsActive")
+                    askForUnknownPositions(inboxId, tasks)
+                    _uiState.update {
+                        it.copy(
+                            tasks = if (inboxIsActive) tasks else emptyList(),
+                            isLoading = false,
+                            // The notice follows the Inbox; a refresh error that is waiting to be
+                            // shown is a separate message and stays.
+                            notice = if (inboxIsActive) null else ARCHIVED_MESSAGE,
+                        )
+                    }
+                }
+            }
+        }
+        if (refresher.isStale()) refresh()
+    }
+
+    /** Tasks whose position the server has been asked for (or is being asked for). */
+    private val askedForPosition = HashSet<Long>()
+
+    /**
+     * The task lists do not carry positions (the server states them only for a list view), so a
+     * task the cache knows no position for (0) means the order is not known yet: a first look at
+     * the Inbox, or a task another device added. The Inbox's list view is read once for each such
+     * task; a pull to refresh reads it again whatever is known.
+     */
+    private fun askForUnknownPositions(inboxId: Long, tasks: List<Task>) {
+        val unknown = tasks.filter { it.position == 0.0 && it.id > 0L && askedForPosition.add(it.id) }
+        if (unknown.isEmpty()) return
+        viewModelScope.launch { taskRepository.refreshListPositions(inboxId) }
+    }
+
+    /** What Retry does: the operation that failed last, or a refresh when none is waiting. */
+    private var retryAction: (() -> Unit)? = null
+
+    fun refresh(showSpinner: Boolean = false) {
+        retryAction = null
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
+            val result = refresher.refresh(manual = showSpinner)
+            // A failed refresh is shown (an offline one only when the user asked for it) and
+            // leaves the app stale, so the next screen tries again.
+            _uiState.update { it.copy(isRefreshing = false, error = result.refreshErrorToShow(showSpinner) ?: it.error) }
+            if (showSpinner) {
+                // Another device may have reordered the Inbox.
+                _uiState.value.inboxProjectId?.let { taskRepository.refreshListPositions(it) }
             }
         }
     }
 
-    fun refresh(showSpinner: Boolean = false) {
+    /**
+     * Live reorder while dragging: move [fromId] into the slot of [toId]. A dated task is not
+     * movable (it is listed by its date), and neither is a slot among them. Returns true when a
+     * move was applied; the explicit compare-and-set ties the answer to the attempt that landed.
+     */
+    fun onTaskMoved(fromId: Long, toId: Long): Boolean {
+        while (true) {
+            val current = _uiState.value
+            val reordered = moveTaskInList(current.tasks, fromId, toId) ?: return false
+            if (_uiState.compareAndSet(current, current.copy(tasks = reordered))) return true
+        }
+    }
+
+    /**
+     * The screen reader's "Move up" / "Move down": the task takes the slot of the one [offset]
+     * places away and is stored as the drop of a drag to that slot is. Returns false when there is
+     * no such slot (an end of the list, a dated task).
+     */
+    fun moveTaskBy(taskId: Long, offset: Int): Boolean {
+        val toId = neighbourForMove(_uiState.value.tasks, taskId, offset) ?: return false
+        if (!onTaskMoved(taskId, toId)) return false
+        onTaskDropped(taskId)
+        return true
+    }
+
+    /**
+     * The drag was released: store and send the dropped task's new position (and, when its
+     * neighbours left no room, the others'). When the server refuses, say so and read its order
+     * back, which puts the list as the server has it.
+     */
+    fun onTaskDropped(taskId: Long) {
+        val state = _uiState.value
+        val inboxId = state.inboxProjectId ?: return
+        val plan = planDrop(state.tasks, taskId) ?: return
         viewModelScope.launch {
-            Log.d(TAG, "refresh() starting")
-            val completedIds = _uiState.value.completedTaskIds
-            _uiState.update { it.copy(isRefreshing = showSpinner, error = null, completedTaskIds = emptySet()) }
-            try {
-                if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
-                taskRepository.refreshAll()
-                projectRepository.refreshAll()
-                labelRepository.refreshAll()
-                syncStaleness.markSynced()
-            } catch (e: Exception) {
-                Log.e(TAG, "refresh() failed: ${e.message}", e)
-            } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
+            val result = taskRepository.applyPositions(inboxId, plan.updates)
+            if (result is NetworkResult.Error) {
+                // A drag cannot be replayed: the list is read back as the server has it instead.
+                retryAction = null
+                _uiState.update { it.copy(error = result.message) }
+                taskRepository.refreshListPositions(inboxId)
             }
         }
     }
 
     fun toggleDone(task: Task) {
         viewModelScope.launch {
-            if (!task.done) {
-                _uiState.update { it.copy(completedTaskIds = it.completedTaskIds + task.id) }
-            }
+            // The stored task changes at once; the hold keeps the row on screen, struck through.
+            if (!task.done) completions.hold(task)
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {
-                    // Hard failure: revert the optimistic strikethrough along with surfacing
-                    // the error, otherwise the row stays visually completed.
-                    _uiState.update {
-                        it.copy(
-                            error = result.message,
-                            completedTaskIds = it.completedTaskIds - task.id,
-                        )
-                    }
+                    // Hard failure: put the row back to normal along with surfacing the error,
+                    // otherwise it stays struck through.
+                    completions.release(task.id)
+                    retryAction = { toggleDone(task) }
+                    _uiState.update { it.copy(error = result.message) }
                 }
                 else -> {}
             }
@@ -117,30 +205,35 @@ class InboxViewModel(
 
     fun undoComplete(task: Task) {
         viewModelScope.launch {
-            _uiState.update { it.copy(completedTaskIds = it.completedTaskIds - task.id) }
-            // The row still renders done=false (Room is never flipped on complete — the
-            // strikethrough is driven by completedTaskIds), and toggleDone flips whatever
-            // it's handed. Pass done=true so it reverts to done=false remotely; passing the
-            // raw task would re-send done=true and the completion would survive a refresh.
-            taskRepository.toggleDone(task.copy(done = true))
+            // Draw the row as open at once but keep it in place until the task is stored as
+            // open again. setDone is idempotent: it reopens the task whatever state it is in now.
+            completions.undoing(task.id)
+            val result = taskRepository.setDone(task.id, false)
+            completions.release(task.id)
+            if (result is NetworkResult.Error) {
+                retryAction = { undoComplete(task) }
+                _uiState.update { it.copy(error = result.message) }
+            }
         }
     }
 
     /** Swipe-schedule: applies the configured Today/Urgent action via the repository. */
-    fun scheduleTask(task: Task) {
+    fun scheduleTask(taskId: Long) {
         viewModelScope.launch {
-            taskRepository.applyScheduleAction(task)
+            taskRepository.applyScheduleAction(taskId)
         }
     }
 
-    fun rescheduleTask(task: Task, newDueDate: String) {
-        viewModelScope.launch {
-            val updated = task.copy(dueDate = newDueDate)
-            taskRepository.update(updated)
-        }
+    /** The Retry of the failure message: repeats the failed completion, or refreshes. */
+    fun retry() {
+        val action = retryAction
+        retryAction = null
+        _uiState.update { it.copy(error = null) }
+        if (action != null) action() else refresh(showSpinner = true)
     }
 
     fun clearError() {
+        retryAction = null
         _uiState.update { it.copy(error = null) }
     }
 }

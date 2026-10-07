@@ -1,0 +1,465 @@
+package com.rendyhd.vicu.data.repository
+
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
+import com.rendyhd.vicu.data.local.dao.PendingActionDao
+import com.rendyhd.vicu.data.local.dao.ProjectDao
+import com.rendyhd.vicu.data.local.dao.StoredPosition
+import com.rendyhd.vicu.data.local.dao.TaskDao
+import com.rendyhd.vicu.data.local.entity.PendingActionEntity
+import com.rendyhd.vicu.data.local.entity.ProjectEntity
+import com.rendyhd.vicu.data.local.entity.TaskEntity
+import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/** In-memory [DataStore] so the preference stores can run in plain unit tests. */
+class InMemoryPreferencesDataStore : DataStore<Preferences> {
+    private val state = MutableStateFlow(emptyPreferences())
+    private val writeLock = Mutex()
+    override val data: Flow<Preferences> = state
+
+    /** One writer at a time, like the real DataStore, so concurrent edits do not lose updates. */
+    override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences =
+        writeLock.withLock {
+            val updated = transform(state.value)
+            state.value = updated
+            updated
+        }
+}
+
+/**
+ * In-memory [TaskDao]. Only the queries the repository and sync code under test use are
+ * implemented; the list queries return empty flows. Every call to a method that binds an id
+ * list records the list size, so tests can check the SQLite variable limit is respected.
+ */
+class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
+    private val rows = LinkedHashMap<Long, TaskEntity>().apply { initial.forEach { put(it.id, it) } }
+    private val lock = Mutex()
+
+    /** Sizes of every id list handed to a query that binds one parameter per id. */
+    val boundIdListSizes = mutableListOf<Int>()
+
+    /** The same, for the delete statements only. */
+    val deletedIdListSizes = mutableListOf<Int>()
+
+    /** Ids of every row written, in order, so tests can tell which rows a refresh touched. */
+    val upsertedIds = mutableListOf<Long>()
+
+    suspend fun snapshot(): List<TaskEntity> = lock.withLock { rows.values.toList() }
+    suspend fun entity(id: Long): TaskEntity? = lock.withLock { rows[id] }
+
+    override fun getInboxTasks(inboxProjectId: Long, includeDated: Boolean): Flow<List<TaskEntity>> = flowOf(emptyList())
+    /** The day boundaries the Today and Upcoming queries were started with, in order. */
+    val todayBoundaries = mutableListOf<String>()
+    val upcomingBoundaries = mutableListOf<String>()
+
+    override fun getTodayTasks(startOfTomorrow: String): Flow<List<TaskEntity>> {
+        todayBoundaries += startOfTomorrow
+        return flowOf(emptyList())
+    }
+
+    override fun getUpcomingTasks(startOfTomorrow: String): Flow<List<TaskEntity>> {
+        upcomingBoundaries += startOfTomorrow
+        return flowOf(emptyList())
+    }
+    override fun getAnytimeTasks(inboxProjectId: Long): Flow<List<TaskEntity>> = flowOf(emptyList())
+    override fun getLogbookTasks(cutoff: String): Flow<List<TaskEntity>> = flowOf(emptyList())
+    override fun getByProjectId(projectId: Long): Flow<List<TaskEntity>> = flowOf(emptyList())
+    override fun getById(id: Long): Flow<TaskEntity?> = flowOf(null)
+    /** The LIKE patterns the search was started with, in order. */
+    val searchPatterns = mutableListOf<String>()
+
+    /** Title or description matches, open first: the same rows and order as the real query. */
+    override fun search(pattern: String): Flow<List<TaskEntity>> {
+        searchPatterns += pattern
+        return flow {
+            emit(
+                lock.withLock {
+                    rows.values
+                        .filter { !it.isMetadata && (sqlLike(pattern, it.title) || sqlLike(pattern, it.description)) }
+                        .sortedWith(compareBy<TaskEntity> { it.done }.thenByDescending { it.updated }.thenByDescending { it.id })
+                },
+            )
+        }
+    }
+    override fun getAllOpenTasks(): Flow<List<TaskEntity>> =
+        flow { emit(lock.withLock { rows.values.filter { !it.done } }) }
+    override fun getAllTasksFlow(): Flow<List<TaskEntity>> = flow { emit(lock.withLock { rows.values.toList() }) }
+    /** The SQL is `description LIKE '%<!-- vicu-routine:%'`: main carriers and archive parts alike. */
+    private fun List<TaskEntity>.routineMetadata() = filter { it.description.contains("<!-- vicu-routine:") }
+
+    override fun getRoutineCarriersFlow(): Flow<List<TaskEntity>> =
+        flow { emit(lock.withLock { rows.values.toList() }.routineMetadata()) }
+
+    override suspend fun getByIdsChunk(ids: List<Long>): List<TaskEntity> = lock.withLock {
+        boundIdListSizes += ids.size
+        ids.mapNotNull { rows[it] }
+    }
+
+    override suspend fun getByIdSync(id: Long): TaskEntity? = lock.withLock { rows[id] }
+
+    /** Open tasks with a due date, as the summary queries select them (same string comparisons). */
+    private fun openDated(): List<TaskEntity> = rows.values.filter {
+        !it.done && it.dueDate.isNotEmpty() && it.dueDate != "0001-01-01T00:00:00Z"
+    }
+
+    override suspend fun countOverdue(startOfToday: String): Int =
+        lock.withLock { openDated().count { it.dueDate < startOfToday } }
+
+    override suspend fun countDueToday(startOfToday: String, startOfTomorrow: String): Int =
+        lock.withLock { openDated().count { it.dueDate >= startOfToday && it.dueDate < startOfTomorrow } }
+
+    override suspend fun countDueTomorrow(startOfTomorrow: String, startOfDayAfterTomorrow: String): Int =
+        lock.withLock { openDated().count { it.dueDate >= startOfTomorrow && it.dueDate < startOfDayAfterTomorrow } }
+
+    override suspend fun getTodayTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity> = emptyList()
+    override suspend fun getDueTodaySync(startOfToday: String, startOfTomorrow: String, limit: Int): List<TaskEntity> =
+        lock.withLock {
+            openDated()
+                .filter { it.dueDate >= startOfToday && it.dueDate < startOfTomorrow }
+                .sortedBy { it.dueDate }
+                .take(limit)
+        }
+    override suspend fun getInboxTasksSync(inboxProjectId: Long, limit: Int, includeDated: Boolean): List<TaskEntity> = emptyList()
+    override suspend fun getUpcomingTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity> = emptyList()
+    override suspend fun getAnytimeTasksSync(inboxProjectId: Long, limit: Int): List<TaskEntity> = emptyList()
+    override suspend fun getByProjectIdSync(projectId: Long, limit: Int): List<TaskEntity> = emptyList()
+    override suspend fun getAllWithReminders(): List<TaskEntity> = lock.withLock {
+        rows.values.filter { it.remindersJson != "[]" && !it.done }
+    }
+
+    // upsert and upsertAll are the interface's own, so the position rule runs here as it does in Room.
+    override suspend fun upsertRows(tasks: List<TaskEntity>) {
+        lock.withLock {
+            tasks.forEach {
+                rows[it.id] = it
+                upsertedIds += it.id
+            }
+        }
+    }
+
+    override suspend fun getStoredPositionsChunk(ids: List<Long>): List<StoredPosition> = lock.withLock {
+        boundIdListSizes += ids.size
+        ids.mapNotNull { id -> rows[id]?.takeIf { it.position != 0.0 }?.let { StoredPosition(id, it.position) } }
+    }
+
+    override suspend fun getOpenOrLocalOnlyIds(): List<Long> =
+        lock.withLock { rows.values.filter { !it.done || it.id < 0 }.map { it.id } }
+
+    override suspend fun getCompletedAfter(doneAt: String): List<TaskEntity> = lock.withLock {
+        rows.values.filter { it.done && it.id > 0 && it.doneAt != "" && it.doneAt != "0001-01-01T00:00:00Z" && it.doneAt > doneAt }
+    }
+
+    override suspend fun getByLabelsJsonLike(pattern: String): List<TaskEntity> = lock.withLock {
+        // LIKE '%x%' with the wildcards stripped is a plain contains.
+        val needle = pattern.trim('%')
+        rows.values.filter { it.labelsJson.contains(needle) }
+    }
+
+    override suspend fun getAllSync(): List<TaskEntity> = lock.withLock { rows.values.toList() }
+    override suspend fun getRoutineCarriersSync(): List<TaskEntity> =
+        lock.withLock { rows.values.toList() }.routineMetadata()
+
+    override suspend fun deleteById(id: Long) {
+        lock.withLock { rows.remove(id) }
+    }
+
+    override suspend fun deleteByIdsChunk(ids: List<Long>) {
+        lock.withLock {
+            boundIdListSizes += ids.size
+            deletedIdListSizes += ids.size
+            ids.forEach { rows.remove(it) }
+        }
+    }
+
+    /** Ids passed to [updatePosition], in order, so a test can tell which rows a position refresh wrote. */
+    val updatedPositionIds = mutableListOf<Long>()
+
+    override suspend fun updatePosition(taskId: Long, position: Double) {
+        lock.withLock {
+            updatedPositionIds += taskId
+            rows[taskId]?.let { rows[taskId] = it.copy(position = position) }
+        }
+    }
+
+    override suspend fun deleteAll() {
+        lock.withLock { rows.clear() }
+    }
+}
+
+/**
+ * In-memory [PendingActionDao]. The default (transactional) methods of the interface, including
+ * the queue-merging logic, run unchanged on top of these primitives.
+ */
+class FakePendingActionDao : PendingActionDao {
+    private val rows = LinkedHashMap<Long, PendingActionEntity>()
+    private val lock = Mutex()
+    private var nextId = 1L
+
+    /** Bumped after every write so the count flows below can re-read the rows. */
+    private val version = MutableStateFlow(0)
+
+    suspend fun snapshot(): List<PendingActionEntity> = lock.withLock { rows.values.toList() }
+
+    private suspend fun countWithStatus(status: String): Int =
+        lock.withLock { rows.values.count { it.status == status } }
+
+    override fun getPending(): Flow<List<PendingActionEntity>> = flowOf(emptyList())
+    override fun getPendingCount(): Flow<Int> = version.map { countWithStatus("pending") }
+
+    override suspend fun getRetryable(): List<PendingActionEntity> = lock.withLock {
+        rows.values.filter { it.status == "pending" }
+            .sortedWith(compareBy({ it.createdAt }, { it.id }))
+    }
+
+    override suspend fun insert(action: PendingActionEntity): Long = lock.withLock {
+        val id = nextId++
+        rows[id] = action.copy(id = id)
+        version.value++
+        id
+    }
+
+    override suspend fun getById(id: Long): PendingActionEntity? = lock.withLock { rows[id] }
+
+    override suspend fun deleteById(id: Long) {
+        lock.withLock { rows.remove(id) }
+        version.value++
+    }
+
+    override suspend fun claim(id: Long): Int {
+        val claimed = lock.withLock {
+            val row = rows[id]
+            if (row != null && row.status == "pending") {
+                rows[id] = row.copy(status = "processing")
+                1
+            } else {
+                0
+            }
+        }
+        version.value++
+        return claimed
+    }
+
+    /** `payload LIKE 'taskId:%'` on the label rows, as the SQL does. */
+    override suspend fun countWaitingForTask(taskId: Long, labelPayloadPattern: String): Int = lock.withLock {
+        rows.values.count {
+            it.status in setOf("pending", "processing") && (
+                (it.entityType == "task" && it.entityId == taskId) ||
+                    (it.entityType == "label" && it.actionType in setOf("add_label", "remove_label") &&
+                        sqlLike(labelPayloadPattern, it.payload))
+                )
+        }
+    }
+
+    override suspend fun updateStatusOnly(id: Long, status: String) {
+        lock.withLock { rows[id]?.let { rows[id] = it.copy(status = status) } }
+        version.value++
+    }
+
+    override suspend fun updateStatusAndRetry(id: Long, status: String, retryCount: Int) {
+        lock.withLock { rows[id]?.let { rows[id] = it.copy(status = status, retryCount = retryCount) } }
+        version.value++
+    }
+
+    override suspend fun markFailed(id: Long, failedAt: String) {
+        lock.withLock { rows[id]?.let { rows[id] = it.copy(status = "failed", updatedAt = failedAt) } }
+        version.value++
+    }
+
+    override suspend fun deleteFailedBefore(cutoff: String): Int {
+        val removed = lock.withLock {
+            val before = rows.size
+            rows.values.removeAll { it.status == "failed" && it.updatedAt < cutoff }
+            before - rows.size
+        }
+        version.value++
+        return removed
+    }
+
+    override suspend fun deleteCompleted() {
+        lock.withLock { rows.values.removeAll { it.status == "completed" } }
+    }
+
+    override suspend fun deleteByEntity(entityType: String, entityId: Long) {
+        lock.withLock { rows.values.removeAll { it.entityType == entityType && it.entityId == entityId } }
+    }
+
+    override fun getFailed(): Flow<List<PendingActionEntity>> = flowOf(emptyList())
+    override fun getFailedCount(): Flow<Int> = version.map { countWithStatus("failed") }
+
+    override suspend fun deleteFailed() {
+        lock.withLock { rows.values.removeAll { it.status == "failed" } }
+        version.value++
+    }
+
+    override suspend fun retryAllFailed() {
+        lock.withLock {
+            rows.keys.toList().forEach { id ->
+                val row = rows.getValue(id)
+                if (row.status == "failed") rows[id] = row.copy(status = "pending", retryCount = 0)
+            }
+        }
+        version.value++
+    }
+
+    override suspend fun resetProcessingToPending() {
+        lock.withLock {
+            rows.keys.toList().forEach { id ->
+                val row = rows.getValue(id)
+                if (row.status == "processing") rows[id] = row.copy(status = "pending")
+            }
+        }
+    }
+
+    override suspend fun getTaskIdsWithPendingActions(): List<Long> = lock.withLock {
+        rows.values
+            .filter { it.entityType in setOf("task", "routine") && it.status in setOf("pending", "failed", "processing") }
+            .map { it.entityId }
+    }
+
+    private val active = setOf("pending", "failed", "processing")
+
+    override suspend fun getLabelIdsWithPendingActions(): List<Long> = lock.withLock {
+        rows.values.filter { it.entityType == "label" && it.status in active }.map { it.entityId }
+    }
+
+    override suspend fun getProjectIdsWithPendingActions(): List<Long> = lock.withLock {
+        rows.values.filter { it.entityType == "project" && it.status in active }.map { it.entityId }
+    }
+
+    override suspend fun getRemappable(): List<PendingActionEntity> = lock.withLock {
+        rows.values.filter { it.status == "pending" || it.status == "failed" }
+    }
+
+    override suspend fun remapEntity(id: Long, entityId: Long, payload: String, status: String) {
+        lock.withLock {
+            rows[id]?.let { rows[id] = it.copy(entityId = entityId, payload = payload, status = status, retryCount = 0) }
+        }
+    }
+
+    override suspend fun getActiveByEntity(entityType: String, entityId: Long): List<PendingActionEntity> =
+        lock.withLock {
+            rows.values.filter {
+                it.entityType == entityType && it.entityId == entityId &&
+                    it.status in setOf("pending", "failed", "processing")
+            }
+        }
+}
+
+class FakeProjectDao(initial: List<ProjectEntity> = emptyList()) : ProjectDao {
+    private val rows = LinkedHashMap<Long, ProjectEntity>().apply { initial.forEach { put(it.id, it) } }
+    val boundIdListSizes = mutableListOf<Int>()
+
+    fun snapshot(): List<ProjectEntity> = rows.values.toList()
+
+    override fun getAll(): Flow<List<ProjectEntity>> = flowOf(emptyList())
+    override fun getAllIncludingArchived(): Flow<List<ProjectEntity>> = flowOf(emptyList())
+    override fun getById(id: Long): Flow<ProjectEntity?> = flowOf(null)
+    override fun getChildren(parentId: Long): Flow<List<ProjectEntity>> = flowOf(emptyList())
+    override suspend fun getAllSync(): List<ProjectEntity> = rows.values.filter { !it.isArchived }
+    override suspend fun getAllIncludingArchivedSync(): List<ProjectEntity> = rows.values.toList()
+    override suspend fun getByIdSync(id: Long): ProjectEntity? = rows[id]
+
+    override suspend fun upsert(project: ProjectEntity) {
+        rows[project.id] = project
+    }
+
+    override suspend fun upsertAll(projects: List<ProjectEntity>) {
+        projects.forEach { rows[it.id] = it }
+    }
+
+    override suspend fun deleteById(id: Long) {
+        rows.remove(id)
+    }
+
+    override suspend fun getAllIds(): List<Long> = rows.keys.toList()
+
+    override suspend fun deleteByIdsChunk(ids: List<Long>) {
+        boundIdListSizes += ids.size
+        ids.forEach { rows.remove(it) }
+    }
+
+    override suspend fun deleteAll() {
+        rows.clear()
+    }
+}
+
+/** Records the platform side effects (alarms, widgets, sync triggers) a repository asks for. */
+class RecordingRepositoryHooks : PlatformRepositoryHooks {
+    val scheduled = mutableListOf<Long>()
+    val cancelled = mutableListOf<Long>()
+    var syncTriggers = 0
+        private set
+    var widgetUpdates = 0
+        private set
+    var rescheduleAllCalls = 0
+        private set
+    var cancelAllAlarmsCalls = 0
+        private set
+    var cancelAccountBackgroundWorkCalls = 0
+        private set
+    var clearWidgetConfigurationsCalls = 0
+        private set
+
+    override fun triggerSync() {
+        syncTriggers++
+    }
+
+    override fun updateWidgets() {
+        widgetUpdates++
+    }
+
+    override fun playCompletionSound() = Unit
+
+    override suspend fun scheduleAlarm(task: Task) {
+        scheduled += task.id
+    }
+
+    override suspend fun cancelAlarm(taskId: Long) {
+        cancelled += taskId
+    }
+
+    override suspend fun rescheduleAlarms() {
+        rescheduleAllCalls++
+    }
+
+    override suspend fun cancelAllAlarms() {
+        cancelAllAlarmsCalls++
+    }
+
+    override suspend fun cancelAccountBackgroundWork() {
+        cancelAccountBackgroundWorkCalls++
+    }
+
+    override suspend fun clearWidgetConfigurations() {
+        clearWidgetConfigurationsCalls++
+    }
+}
+
+/** `text LIKE pattern ESCAPE '\'` the way SQLite evaluates it: case-insensitive, `%` and `_` wild, `\` escapes. */
+fun sqlLike(pattern: String, text: String): Boolean {
+    val regex = StringBuilder()
+    var i = 0
+    while (i < pattern.length) {
+        val c = pattern[i]
+        when {
+            c == '\\' && i + 1 < pattern.length -> {
+                regex.append(Regex.escape(pattern[i + 1].toString()))
+                i++
+            }
+            c == '%' -> regex.append("[\\s\\S]*")
+            c == '_' -> regex.append("[\\s\\S]")
+            else -> regex.append(Regex.escape(c.toString()))
+        }
+        i++
+    }
+    return Regex(regex.toString(), RegexOption.IGNORE_CASE).matches(text)
+}

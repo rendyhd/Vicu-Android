@@ -13,20 +13,58 @@ import io.ktor.client.request.HttpRequestPipeline
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Url
 import io.ktor.http.takeFrom
 import io.ktor.http.encodedPath
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
 object KtorClientFactory {
-    private val SKIP_AUTH_PATHS = listOf("/login", "/info", "/auth/openid", "/user/token/refresh")
+    /** Endpoints (relative to the API root) that are called without a token. */
+    private val AUTH_EXEMPT_ENDPOINTS = setOf("login", "info", "user/token/refresh")
+
+    /** OIDC sign-in: `auth/openid/{provider}/callback`. */
+    private const val OPENID_ENDPOINT = "auth/openid"
+    private const val TOKEN_REFRESH_ENDPOINT = "user/token/refresh"
+
+    /**
+     * [encodedPath] relative to the API root, without slashes at either end. [apiBasePath] is the
+     * path of the API root (`/api/v2/`, or `/prefix/api/v2/` for a server in a sub-path); when it
+     * is not known yet the path is taken to be the endpoint itself.
+     */
+    private fun endpointOf(encodedPath: String, apiBasePath: String): String {
+        val base = if (apiBasePath.isEmpty()) "" else apiBasePath.trimEnd('/') + "/"
+        return encodedPath.removePrefix(base).trim('/')
+    }
+
+    /**
+     * True for the endpoints called before there is a token. A path only counts when the whole
+     * endpoint matches: `/projects/3/info` or `/information` are ordinary requests that need the
+     * token, which a substring test would have left without it.
+     */
+    internal fun isAuthExemptPath(encodedPath: String, apiBasePath: String): Boolean {
+        val endpoint = endpointOf(encodedPath, apiBasePath)
+        return endpoint in AUTH_EXEMPT_ENDPOINTS ||
+            endpoint == OPENID_ENDPOINT ||
+            endpoint.startsWith("$OPENID_ENDPOINT/")
+    }
+
+    internal fun isTokenRefreshPath(encodedPath: String, apiBasePath: String): Boolean =
+        endpointOf(encodedPath, apiBasePath) == TOKEN_REFRESH_ENDPOINT
+
+    private fun apiBasePathOf(baseUrlHolder: BaseUrlHolder): String {
+        val fullBaseUrl = baseUrlHolder.getFullBaseUrl()
+        return if (fullBaseUrl.isEmpty()) "" else Url(fullBaseUrl).encodedPath
+    }
 
     fun create(
         engine: HttpClientEngine,
         json: Json,
         baseUrlHolder: BaseUrlHolder,
         authManager: AuthManager,
-        enableLogging: Boolean = true
+        // Request logging puts every URL (server host, search terms, filters) into logcat, so it
+        // is opt-in and only the debug build turns it on (see KoinModules).
+        enableLogging: Boolean = false
     ): HttpClient {
         val client = HttpClient(engine) {
             install(ContentNegotiation) {
@@ -68,7 +106,7 @@ object KtorClientFactory {
         // 2. Authorization Header Injection Interceptor
         client.requestPipeline.intercept(HttpRequestPipeline.State) {
             val path = context.url.encodedPath
-            if (SKIP_AUTH_PATHS.any { path.contains(it) }) {
+            if (isAuthExemptPath(path, apiBasePathOf(baseUrlHolder))) {
                 return@intercept
             }
 
@@ -87,7 +125,9 @@ object KtorClientFactory {
             val path = request.url.encodedPath
             var response = execute(request)
 
-            if (response.response.status == HttpStatusCode.Unauthorized && !path.contains("/user/token/refresh")) {
+            if (response.response.status == HttpStatusCode.Unauthorized &&
+                !isTokenRefreshPath(path, apiBasePathOf(baseUrlHolder))
+            ) {
                 val refreshedRequest = authManager.withRefreshLock {
                     val currentToken = authManager.getBestTokenSync()
                     val failedToken = request.headers[HttpHeaders.Authorization]?.removePrefix("Bearer ")

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -28,7 +29,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -37,6 +38,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
+import com.rendyhd.vicu.ui.components.section.SectionHeader
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.task.TaskItem
 
@@ -47,7 +49,9 @@ fun SearchScreen(
     onNavigateBack: () -> Unit = {},
     viewModel: SearchViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val focusRequester = remember { FocusRequester() }
 
@@ -94,6 +98,11 @@ fun SearchScreen(
 
         SnackbarHost(snackbarHostState)
 
+        // The server is being asked in the background; the cached matches are already on screen.
+        if (state.isRefreshing) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -105,11 +114,13 @@ fun SearchScreen(
                     EmptyState(
                         icon = Icons.Outlined.Search,
                         title = "Search tasks",
-                        subtitle = "Type to search by title",
+                        subtitle = "Type to search titles and notes",
                     )
                 }
-            } else if (state.results.isEmpty() && !state.isSearching) {
-                item {
+            } else if (state.results.isEmpty() && state.completedResults.isEmpty()) {
+                // Nothing is said about "no results" until the cached matches were read and the
+                // server had its say; an empty list next to a progress bar is not an answer yet.
+                if (state.resultsReady && !state.isRefreshing) item {
                     EmptyState(
                         icon = Icons.Outlined.SearchOff,
                         title = "No results",
@@ -117,7 +128,7 @@ fun SearchScreen(
                     )
                 }
             } else {
-                items(state.results, key = { it.id }) { task ->
+                items(state.results, key = { it.id }, contentType = { "task" }) { task ->
                     TaskItem(
                         task = if (task.id in state.completedTaskIds) task.copy(done = true) else task,
                         onToggleDone = {
@@ -131,6 +142,20 @@ fun SearchScreen(
                         onSubtaskToggleDone = viewModel::toggleDone,
                         onSubtaskClick = { child -> onTaskClick(child.id) },
                     )
+                }
+                if (state.completedResults.isNotEmpty()) {
+                    item(key = "completed_header", contentType = "header") {
+                        SectionHeader(title = "Completed")
+                    }
+                    items(state.completedResults, key = { it.id }, contentType = { "task" }) { task ->
+                        TaskItem(
+                            task = task,
+                            onToggleDone = { viewModel.toggleDone(task) },
+                            onClick = { onTaskClick(task.id) },
+                            onSubtaskToggleDone = viewModel::toggleDone,
+                            onSubtaskClick = { child -> onTaskClick(child.id) },
+                        )
+                    }
                 }
             }
         }

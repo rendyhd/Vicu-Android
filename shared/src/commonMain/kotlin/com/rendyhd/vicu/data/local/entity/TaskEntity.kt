@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.rendyhd.vicu.util.CustomListEnvelope
 
 @Entity(
     tableName = "tasks",
@@ -11,6 +12,7 @@ import androidx.room.PrimaryKey
         Index(value = ["projectId"]),
         Index(value = ["done"]),
         Index(value = ["dueDate"]),
+        Index(value = ["isMetadata"]),
     ]
 )
 data class TaskEntity(
@@ -41,4 +43,16 @@ data class TaskEntity(
     val attachmentsJson: String = "[]",
     val relatedTasksJson: String = "{}",
     val isFavorite: Boolean = false,
+    /**
+     * True for a hidden sync-metadata task (a routine carrier or archive part, a custom-list
+     * carrier): the description holds one of the markers. It is worked out once, when the row is
+     * written, so the list queries leave these rows out in SQL instead of every emission of every
+     * live list scanning every description on the main thread (A-UI-19).
+     *
+     * A copy that changes [description] must carry the new value along (see
+     * [com.rendyhd.vicu.data.mapper.TaskMapper]); the migration to version 3 filled the column in
+     * with a looser SQL `LIKE`, and the next write of such a row corrects any false positive.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val isMetadata: Boolean = CustomListEnvelope.isAnyMetadataTask(description),
 )

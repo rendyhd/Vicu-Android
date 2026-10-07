@@ -2,14 +2,17 @@ package com.rendyhd.vicu.widget
 
 import android.content.Context
 import android.content.Intent
+import android.text.format.DateFormat
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
+import androidx.glance.LocalContext
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
@@ -44,6 +47,8 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.rendyhd.vicu.MainActivity
+import com.rendyhd.vicu.putViewTarget
+import com.rendyhd.vicu.ui.navigation.ViewTarget
 import com.rendyhd.vicu.util.DateUtils
 
 class TaskListWidget : GlanceAppWidget() {
@@ -115,8 +120,8 @@ class OpenWidgetViewAction : ActionCallback {
     }
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val intent = Intent(context, MainActivity::class.java).apply {
-            putExtra("navigate_to_view_type", parameters[ViewTypeKey] ?: "")
-            putExtra("navigate_to_view_id", parameters[ViewIdKey] ?: "")
+            // The action parameters can only carry strings; the intent carries the typed target.
+            ViewTarget.parse(parameters[ViewTypeKey], parameters[ViewIdKey])?.let { putViewTarget(it) }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         context.startActivity(intent)
@@ -158,17 +163,19 @@ private fun resolveAddProjectId(state: TaskWidgetState): Long {
  * Otherwise, just opens the app.
  */
 @Composable
-private fun titleClickAction(state: TaskWidgetState) =
-    if (state.contextNav) {
+private fun titleClickAction(state: TaskWidgetState): Action {
+    val target = if (state.contextNav) state.viewType.toViewTarget(state.viewId) else null
+    return if (target != null) {
         actionRunCallback<OpenWidgetViewAction>(
             actionParametersOf(
-                OpenWidgetViewAction.ViewTypeKey to state.viewType.name,
-                OpenWidgetViewAction.ViewIdKey to state.viewId,
+                OpenWidgetViewAction.ViewTypeKey to target.typeName,
+                OpenWidgetViewAction.ViewIdKey to target.idOrEmpty,
             )
         )
     } else {
         actionStartActivity<MainActivity>()
     }
+}
 
 @Composable
 private fun CompactWidget(state: TaskWidgetState) {
@@ -334,7 +341,11 @@ private fun WidgetTaskRow(task: WidgetTaskItem) {
                 ),
                 maxLines = 1,
             )
-            val dateLabel = DateUtils.formatRelativeDate(task.dueDate)
+            // The time shows only when the due date has an explicit one, in the device's 12/24 hour style.
+            val dateLabel = DateUtils.formatDueDate(
+                task.dueDate,
+                is24Hour = DateFormat.is24HourFormat(LocalContext.current),
+            )
             if (dateLabel.isNotEmpty()) {
                 Text(
                     text = dateLabel,

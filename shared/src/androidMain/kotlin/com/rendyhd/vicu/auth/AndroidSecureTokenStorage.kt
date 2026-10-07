@@ -12,12 +12,13 @@ import android.security.keystore.KeyProperties
 import android.util.Log
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.KeyTemplates
+import com.google.crypto.tink.RegistryConfiguration
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import androidx.datastore.preferences.preferencesDataStore
 import java.security.KeyStore
 import java.util.Base64
 
@@ -37,6 +38,9 @@ class AndroidSecureTokenStorage(
         val PROVIDER_KEY = stringPreferencesKey("provider_key")
         val VIKUNJA_URL = stringPreferencesKey("vikunja_url")
         val INBOX_PROJECT_ID = longPreferencesKey("inbox_project_id")
+        val USER_ID = longPreferencesKey("user_id")
+        val BACKUP_TOKEN_ID = longPreferencesKey("backup_api_token_id")
+        val INSTALL_ID = stringPreferencesKey("install_id")
     }
 
     companion object {
@@ -68,7 +72,7 @@ class AndroidSecureTokenStorage(
             .withMasterKeyUri("android-keystore://$MASTER_KEY_ALIAS")
             .build()
             .keysetHandle
-        return keysetHandle.getPrimitive(Aead::class.java)
+        return keysetHandle.getPrimitive(RegistryConfiguration.get(), Aead::class.java)
     }
 
     private fun resetKeystore() {
@@ -138,7 +142,22 @@ class AndroidSecureTokenStorage(
         context.authDataStore.edit { prefs ->
             prefs[Keys.API_TOKEN] = encrypt(token)
             prefs[Keys.API_TOKEN_EXPIRY] = expiry
+            // A user-supplied token is not ours to revoke.
+            prefs.remove(Keys.BACKUP_TOKEN_ID)
         }
+    }
+
+    override suspend fun storeBackupApiToken(token: String, expiry: Long, tokenId: Long) {
+        context.authDataStore.edit { prefs ->
+            prefs[Keys.API_TOKEN] = encrypt(token)
+            prefs[Keys.API_TOKEN_EXPIRY] = expiry
+            prefs[Keys.BACKUP_TOKEN_ID] = tokenId
+        }
+    }
+
+    override suspend fun getBackupApiTokenId(): Long? {
+        val prefs = context.authDataStore.data.first()
+        return prefs[Keys.BACKUP_TOKEN_ID]
     }
 
     override suspend fun getApiToken(): String? {
@@ -152,12 +171,22 @@ class AndroidSecureTokenStorage(
     }
 
     /**
-     * Quick check whether an API token is stored (without decrypting).
-     * Used by AuthManager to decide whether to attempt backup token creation.
+     * Whether a usable API token is stored. Ciphertext that can no longer be decrypted (the
+     * keystore was reset, or the app was restored onto another device) does not count, so
+     * AuthManager recreates the backup token instead of keeping a token it cannot read.
      */
-    override suspend fun hasApiToken(): Boolean {
-        val prefs = context.authDataStore.data.first()
-        return prefs[Keys.API_TOKEN] != null
+    override suspend fun hasApiToken(): Boolean = getApiToken() != null
+
+    override suspend fun getInstallId(): String {
+        val existing = context.authDataStore.data.first()[Keys.INSTALL_ID]
+        if (existing != null && ApiTokenTitle.isValidInstallId(existing)) return existing
+
+        var installId = ""
+        context.authDataStore.edit { prefs ->
+            val current = prefs[Keys.INSTALL_ID]?.takeIf { ApiTokenTitle.isValidInstallId(it) }
+            installId = current ?: ApiTokenTitle.newInstallId().also { prefs[Keys.INSTALL_ID] = it }
+        }
+        return installId
     }
 
     // Refresh Token (Vikunja 2.0 session cookie)
@@ -236,8 +265,33 @@ class AndroidSecureTokenStorage(
         return prefs[Keys.INBOX_PROJECT_ID]
     }
 
-    // Clear all
+    override val inboxProjectIdFlow: Flow<Long?> =
+        context.authDataStore.data.map { it[Keys.INBOX_PROJECT_ID] }.distinctUntilChanged()
+
+    override suspend fun clearInboxProjectId() {
+        context.authDataStore.edit { prefs -> prefs.remove(Keys.INBOX_PROJECT_ID) }
+    }
+
+    // User id (identity of the signed-in account)
+    override suspend fun storeUserId(id: Long) {
+        context.authDataStore.edit { prefs ->
+            prefs[Keys.USER_ID] = id
+        }
+    }
+
+    override suspend fun getUserId(): Long? {
+        val prefs = context.authDataStore.data.first()
+        return prefs[Keys.USER_ID]
+    }
+
+    // Clear all credentials and settings. The install id identifies this install rather than a
+    // session, so it is kept: a token left behind on the server by an offline logout can then
+    // still be recognised and cleaned up after the next login.
     override suspend fun clear() {
-        context.authDataStore.edit { it.clear() }
+        context.authDataStore.edit { prefs ->
+            val installId = prefs[Keys.INSTALL_ID]
+            prefs.clear()
+            if (installId != null) prefs[Keys.INSTALL_ID] = installId
+        }
     }
 }

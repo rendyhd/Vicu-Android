@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <!--
+        Self-hosted Vikunja servers are often reached over plain http on a home network or a VPN,
+        so cleartext has to stay allowed for whatever address the user enters. The setup screen
+        warns when an http address points outside the local network (see ServerUrlSecurity).
+    -->
+    <base-config
+        cleartextTrafficPermitted="true"
+        tools:ignore="InsecureBaseConfiguration" />
 </network-security-config>

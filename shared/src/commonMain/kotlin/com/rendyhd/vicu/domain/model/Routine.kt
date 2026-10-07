@@ -105,6 +105,20 @@ data class RoutinePayload(
     val prunedBefore: String = "",
 )
 
+/**
+ * One archive part: older occurrences of one routine, held by a hidden done task on the server
+ * (docs/cross-app-semantics-v1.md, section 6.4). A routine can have any number of parts; reading
+ * its history merges the main carrier with every part by key.
+ */
+@Serializable
+data class RoutineArchivePart(
+    val version: Int = 1,
+    val routineId: String,
+    /** 1-based; duplicates of a number are allowed and merge like any other part. */
+    val part: Int,
+    val occurrences: Map<String, RoutineOccurrenceRecord> = emptyMap(),
+)
+
 data class Routine(
     val taskId: Long,
     val payload: RoutinePayload,

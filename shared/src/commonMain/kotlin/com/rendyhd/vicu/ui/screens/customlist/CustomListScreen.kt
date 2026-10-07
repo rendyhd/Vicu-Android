@@ -26,7 +26,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,16 +55,18 @@ fun CustomListScreen(
     onListDeleted: () -> Unit = {},
     viewModel: CustomListViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
-    val projects by viewModel.projects.collectAsState()
-    val labels by viewModel.labels.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Rows kept on screen after completing them are let go when the screen is left.
+    val projects by viewModel.projects.collectAsStateWithLifecycle()
+    val labels by viewModel.labels.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     val selectionVm: SelectionViewModel = koinViewModel()
-    val selectedIds by selectionVm.selectedIds.collectAsState()
+    val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
     val selectionActive = selectedIds.isNotEmpty()
     var selectionAction by remember { mutableStateOf<SelectionAction?>(null) }
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
@@ -76,7 +78,7 @@ fun CustomListScreen(
                     count = selectedIds.size,
                     onClose = { selectionVm.clear() },
                     onToday = { selectionVm.bulkToday() },
-                    onComplete = { selectionVm.bulkComplete() },
+                    onComplete = { selectionVm.bulkComplete(viewModel.completions) },
                     onSchedule = { selectionAction = SelectionAction.SCHEDULE },
                     onSetPriority = { selectionAction = SelectionAction.SET_PRIORITY },
                     onMove = { selectionAction = SelectionAction.MOVE_PROJECT },
@@ -134,7 +136,7 @@ fun CustomListScreen(
                         )
                     }
                 } else {
-                    items(state.tasks, key = { it.id }) { task ->
+                    items(state.tasks, key = { it.id }, contentType = { "task" }) { task ->
                         val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
                         SwipeableTaskItem(
                             task = displayTask,
@@ -150,7 +152,7 @@ fun CustomListScreen(
                             },
                             onSubtaskToggleDone = viewModel::toggleDone,
                             onSubtaskClick = { child -> onTaskClick(child.id) },
-                            onSchedule = { viewModel.scheduleTask(task) },
+                            onSchedule = { viewModel.scheduleTask(task.id) },
                             selectionActive = selectionActive,
                             selected = task.id in selectedIds,
                             onLongClick = { selectionVm.toggle(task.id) },

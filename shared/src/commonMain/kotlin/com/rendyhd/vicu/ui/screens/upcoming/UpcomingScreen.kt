@@ -20,7 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,12 +48,14 @@ fun UpcomingScreen(
     onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     viewModel: UpcomingViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
 
     val selectionVm: SelectionViewModel = koinViewModel()
-    val selectedIds by selectionVm.selectedIds.collectAsState()
+    val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
     val selectionActive = selectedIds.isNotEmpty()
     var selectionAction by remember { mutableStateOf<SelectionAction?>(null) }
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
@@ -65,7 +67,7 @@ fun UpcomingScreen(
                     count = selectedIds.size,
                     onClose = { selectionVm.clear() },
                     onToday = { selectionVm.bulkToday() },
-                    onComplete = { selectionVm.bulkComplete() },
+                    onComplete = { selectionVm.bulkComplete(viewModel.completions) },
                     onSchedule = { selectionAction = SelectionAction.SCHEDULE },
                     onSetPriority = { selectionAction = SelectionAction.SET_PRIORITY },
                     onMove = { selectionAction = SelectionAction.MOVE_PROJECT },
@@ -106,7 +108,7 @@ fun UpcomingScreen(
                     }
                 } else {
                     state.projectGroups.forEach { group ->
-                        item(key = "header_${group.projectId}") {
+                        item(key = "header_${group.projectId}", contentType = "header") {
                             CollapsibleSection(
                                 title = group.title,
                                 color = parseHexColor(group.hexColor)
@@ -117,7 +119,7 @@ fun UpcomingScreen(
                             )
                         }
                         if (group.isExpanded) {
-                            items(group.tasks, key = { it.id }) { task ->
+                            items(group.tasks, key = { it.id }, contentType = { "task" }) { task ->
                                 val displayTask =
                                     if (task.id in state.completedTaskIds) task.copy(done = true) else task
                                 SwipeableTaskItem(
@@ -138,7 +140,7 @@ fun UpcomingScreen(
                                     },
                                     onSubtaskToggleDone = viewModel::toggleDone,
                                     onSubtaskClick = { child -> onTaskClick(child.id) },
-                                    onSchedule = { viewModel.scheduleTask(task) },
+                                    onSchedule = { viewModel.scheduleTask(task.id) },
                                     selectionActive = selectionActive,
                                     selected = task.id in selectedIds,
                                     onLongClick = { selectionVm.toggle(task.id) },

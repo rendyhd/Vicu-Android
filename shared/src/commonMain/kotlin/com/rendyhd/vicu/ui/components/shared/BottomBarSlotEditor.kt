@@ -23,11 +23,11 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -96,7 +96,7 @@ fun BottomBarSlotEditor(
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(typeDropdownExpanded) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
                     )
                     ExposedDropdownMenu(
                         expanded = typeDropdownExpanded,
@@ -137,7 +137,7 @@ fun BottomBarSlotEditor(
                                 RoundedCornerShape(8.dp),
                             ),
                     ) {
-                        items(projects, key = { it.id }) { project ->
+                        items(projects, key = { it.id }, contentType = { "project" }) { project ->
                             val isSelected = selectedReferenceId == project.id.toString()
                             Row(
                                 modifier = Modifier
@@ -182,7 +182,7 @@ fun BottomBarSlotEditor(
                                 RoundedCornerShape(8.dp),
                             ),
                     ) {
-                        items(customLists, key = { it.id }) { list ->
+                        items(customLists, key = { it.id }, contentType = { "list" }) { list ->
                             val isSelected = selectedReferenceId == list.id
                             Row(
                                 modifier = Modifier

@@ -37,7 +37,10 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Sell
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -55,7 +58,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,12 +67,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import com.rendyhd.vicu.domain.model.Attachment
 import com.rendyhd.vicu.ui.components.picker.LabelPickerDialog
 import com.rendyhd.vicu.ui.components.picker.PriorityPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
@@ -77,6 +87,9 @@ import com.rendyhd.vicu.ui.components.picker.RelationTaskPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.RecurrencePickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
+import com.rendyhd.vicu.ui.components.task.AnimatedCheckbox
 import com.rendyhd.vicu.ui.components.task.DescriptionField
 import com.rendyhd.vicu.ui.components.task.clearDescriptionEditorFocusOnHostTap
 import com.rendyhd.vicu.ui.components.task.rememberDescriptionEditorController
@@ -86,6 +99,7 @@ import com.rendyhd.vicu.ui.components.task.ParseChipRow
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.descendantsDepthFirst
+import com.rendyhd.vicu.util.unfinishedDescendants
 import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.ReminderFormat
 import com.rendyhd.vicu.util.parseHexColor
@@ -97,8 +111,10 @@ fun TaskDetailScreen(
     taskId: Long,
     onDismiss: () -> Unit,
     viewModel: TaskDetailViewModel,
+    /** Opens another task (a subtask) in this screen; edits made here are saved first. */
+    onOpenTask: (Long) -> Unit = {},
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showDatePicker by remember { mutableStateOf(false) }
     var showProjectPicker by remember { mutableStateOf(false) }
     var showLabelPicker by remember { mutableStateOf(false) }
@@ -108,12 +124,19 @@ fun TaskDetailScreen(
     var subtaskInput by remember { mutableStateOf("") }
     var showSubtaskInput by remember { mutableStateOf(false) }
     var showRelationPicker by remember { mutableStateOf(false) }
-    val relationSearchResults by viewModel.relationSearchResults.collectAsState()
+    val relationSearchResults by viewModel.relationSearchResults.collectAsStateWithLifecycle()
     val isDarkTheme = isSystemInDarkTheme()
     var titleFieldValue by remember(taskId) {
         mutableStateOf(TextFieldValue(state.task?.title.orEmpty()))
     }
     val descriptionEditorController = rememberDescriptionEditorController()
+    val focusManager = LocalFocusManager.current
+    val openSubtask: (Long) -> Unit = { subtaskId ->
+        // The description is typed into the editor, not yet into the view model: hand it over so
+        // opening the subtask saves it with the rest.
+        descriptionEditorController.flush()
+        onOpenTask(subtaskId)
+    }
     val dismissEditor = {
         descriptionEditorController.flush()
         if (state.descriptionConflict == null) {
@@ -122,6 +145,8 @@ fun TaskDetailScreen(
             viewModel.requireDescriptionConflictResolution()
         }
     }
+
+    var attachmentPendingDelete by remember { mutableStateOf<Attachment?>(null) }
 
     val filePickerLauncher = rememberFilePicker(viewModel::uploadAttachment)
     val imagePickerLauncher = rememberImagePicker(viewModel::addImageAttachment)
@@ -137,8 +162,16 @@ fun TaskDetailScreen(
         if (state.isDeleted) onDismiss()
     }
 
-    // Auto-save once, on dispose. Closing the screen (back, the close icon, or state.isDeleted)
-    // leaves composition and fires this exactly once.
+    // The view model also saves on its own shortly after the last edit. These two are the final
+    // saves: going to the background (the process can be killed there without the screen ever
+    // leaving composition) and closing the screen.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        descriptionEditorController.flush()
+        viewModel.saveIfChanged()
+    }
+
+    // Closing the screen (back, the close icon, or state.isDeleted) leaves composition and fires
+    // this exactly once.
     DisposableEffect(Unit) {
         onDispose {
             descriptionEditorController.flush()
@@ -189,7 +222,9 @@ fun TaskDetailScreen(
                     .map { it.attachmentId }
                     .toSet()
             }
-            val visibleAttachments = state.attachments.filter { it.id !in imageTokenIds }
+            val visibleAttachments = state.attachments.filter {
+                it.id !in imageTokenIds && it.id !in state.deletingAttachmentIds
+            }
 
             LazyColumn(
                 modifier = Modifier
@@ -203,45 +238,69 @@ fun TaskDetailScreen(
             item(key = "title") {
                 var fieldSize by remember { mutableStateOf(IntSize.Zero) }
                 Column {
-                    Box {
-                        OutlinedTextField(
-                            value = titleFieldValue,
-                            onValueChange = { newValue ->
-                                titleFieldValue = newValue
-                                viewModel.updateTitle(newValue.text)
-                            },
-                            placeholder = { Text("Task title") },
-                            maxLines = 3,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .onSizeChanged { fieldSize = it },
-                            textStyle = MaterialTheme.typography.titleMedium,
-                            shape = RoundedCornerShape(12.dp),
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.Sentences,
-                            ),
-                            visualTransformation = NlpVisualTransformation(
-                                tokens = state.parseResult?.tokens ?: emptyList(),
-                                isDarkTheme = isDarkTheme,
-                            ),
+                    Row(verticalAlignment = Alignment.Top) {
+                        // Completes or reopens the task itself (not only its subtasks); the 4 dp
+                        // centres the circle on the first line of the title field.
+                        AnimatedCheckbox(
+                            done = task.done,
+                            onToggle = viewModel::requestToggleDone,
+                            contentDescription = "Done",
+                            modifier = Modifier.padding(top = 4.dp),
                         )
+                        Box(modifier = Modifier.weight(1f)) {
+                            OutlinedTextField(
+                                value = titleFieldValue,
+                                onValueChange = { newValue ->
+                                    // One line: Enter must not insert a break, and pasted text loses its.
+                                    val clean = newValue.text.withoutLineBreaks()
+                                    titleFieldValue = if (clean == newValue.text) {
+                                        newValue
+                                    } else {
+                                        newValue.copy(
+                                            text = clean,
+                                            selection = TextRange(
+                                                newValue.selection.start.coerceAtMost(clean.length),
+                                                newValue.selection.end.coerceAtMost(clean.length),
+                                            ),
+                                        )
+                                    }
+                                    viewModel.updateTitle(clean)
+                                },
+                                placeholder = { Text("Task title") },
+                                maxLines = 3,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onSizeChanged { fieldSize = it },
+                                textStyle = MaterialTheme.typography.titleMedium,
+                                shape = RoundedCornerShape(12.dp),
+                                keyboardOptions = KeyboardOptions(
+                                    capitalization = KeyboardCapitalization.Sentences,
+                                    imeAction = ImeAction.Done,
+                                ),
+                                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                                visualTransformation = NlpVisualTransformation(
+                                    tokens = state.parseResult?.tokens ?: emptyList(),
+                                    isDarkTheme = isDarkTheme,
+                                ),
+                            )
 
-                        NlpAutocompleteDropdown(
-                            inputValue = titleFieldValue.text,
-                            cursorPosition = titleFieldValue.selection.start,
-                            prefixes = getPrefixes(state.parserConfig.syntaxMode),
-                            projects = state.allProjects,
-                            labels = state.allLabels,
-                            enabled = state.parserConfig.enabled,
-                            onSelect = { newText, newCursor ->
-                                titleFieldValue = TextFieldValue(
-                                    text = newText,
-                                    selection = TextRange(newCursor),
-                                )
-                                viewModel.updateTitle(newText)
-                            },
-                            anchorSize = fieldSize,
-                        )
+                            NlpAutocompleteDropdown(
+                                inputValue = titleFieldValue.text,
+                                cursorPosition = titleFieldValue.selection.start,
+                                prefixes = getPrefixes(state.parserConfig.syntaxMode),
+                                projects = state.allProjects,
+                                labels = state.allLabels,
+                                enabled = state.parserConfig.enabled,
+                                onSelect = { newText, newCursor ->
+                                    titleFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursor),
+                                    )
+                                    viewModel.updateTitle(newText)
+                                },
+                                anchorSize = fieldSize,
+                            )
+                        }
                     }
 
                     val parseResult = state.parseResult
@@ -306,15 +365,16 @@ fun TaskDetailScreen(
             // Compact edit actions
             item(key = "task_actions") {
                 val hasDueDate = task.dueDate.isNotBlank() && !DateUtils.isNullDate(task.dueDate)
-                val dueDateLabel = if (hasDueDate) DateUtils.formatRelativeDate(task.dueDate) else null
-                val projectName = state.allProjects.find { it.id == task.projectId }?.title ?: "No project"
-                val priorityLabel = when (task.priority) {
-                    1 -> "Low"
-                    2 -> "Medium"
-                    3 -> "High"
-                    4 -> "Urgent"
-                    else -> null
+                val clockDay = LocalClockDay.current
+                val is24Hour = LocalIs24Hour.current
+                val dueDateLabel = if (hasDueDate) {
+                    DateUtils.formatDueDate(task.dueDate, clockDay.date, is24Hour, clockDay.zone)
+                } else {
+                    null
                 }
+                val knownProjectName = state.allProjects.find { it.id == task.projectId }?.title
+                val projectName = knownProjectName ?: "No project"
+                val priorityLabel = priorityName(task.priority)
                 val recurrenceLabel = DateUtils.formatRecurrence(task.repeatAfter, task.repeatMode)
 
                 Row(
@@ -381,6 +441,48 @@ fun TaskDetailScreen(
                         onClick = filePickerLauncher,
                     )
                 }
+                // The icons only say what can be set; these say what is set, as text.
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    val values = taskDetailValues(
+                        dueText = dueDateLabel,
+                        dueOverdue = hasDueDate && DateUtils.isOverdue(task.dueDate, clockDay.date, clockDay.zone),
+                        projectName = knownProjectName,
+                        priority = task.priority,
+                        recurrence = recurrenceLabel,
+                        reminders = if (task.reminders.isEmpty()) "" else ReminderFormat.summary(task.reminders),
+                    )
+                    values.forEach { value ->
+                        val tint = if (value.emphasis) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        AssistChip(
+                            onClick = {
+                                when (value.field) {
+                                    DetailField.DUE_DATE -> showDatePicker = true
+                                    DetailField.PROJECT -> showProjectPicker = true
+                                    DetailField.PRIORITY -> showPriorityPicker = true
+                                    DetailField.RECURRENCE -> showRecurrencePicker = true
+                                    DetailField.REMINDERS -> showReminderPicker = true
+                                }
+                            },
+                            label = { Text(value.text, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            leadingIcon = {
+                                Icon(value.field.icon(), contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            colors = AssistChipDefaults.assistChipColors(
+                                labelColor = tint,
+                                leadingIconContentColor = tint,
+                            ),
+                            modifier = Modifier.semantics { contentDescription = value.description },
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
@@ -420,16 +522,18 @@ fun TaskDetailScreen(
             }
 
             // Subtasks
-            items(state.subtasks, key = { "subtask_${it.id}" }) { subtask ->
+            items(state.subtasks, key = { "subtask_${it.id}" }, contentType = { "subtask" }) { subtask ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clickable(onClickLabel = "Open subtask") { openSubtask(subtask.id) }
                         .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(
                         checked = subtask.done,
                         onCheckedChange = { viewModel.requestToggleSubtaskDone(subtask) },
+                        modifier = Modifier.semantics { contentDescription = subtask.title },
                     )
                     Text(
                         text = subtask.title,
@@ -502,7 +606,7 @@ fun TaskDetailScreen(
                             modifier = Modifier.padding(top = 8.dp),
                         )
                     }
-                    items(tasks, key = { "relation_${kind}_${it.id}" }) { related ->
+                    items(tasks, key = { "relation_${kind}_${it.id}" }, contentType = { "relation" }) { related ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
@@ -547,10 +651,14 @@ fun TaskDetailScreen(
 
                 // Image-token-referenced attachments are hidden here — they render
                 // as thumbnails inside DescriptionField instead.
-                items(visibleAttachments, key = { "att_${it.id}" }) { attachment ->
+                items(visibleAttachments, key = { "att_${it.id}" }, contentType = { "attachment" }) { attachment ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clickable(
+                                enabled = attachment.id !in state.downloadingAttachmentIds,
+                                onClickLabel = "Open ${attachment.fileName}",
+                            ) { viewModel.openAttachment(attachment) }
                             .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -576,7 +684,18 @@ fun TaskDetailScreen(
                                 )
                             }
                         }
-                        IconButton(onClick = { viewModel.deleteAttachment(attachment.id) }) {
+                        if (attachment.id in state.downloadingAttachmentIds) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            IconButton(onClick = { viewModel.shareAttachment(attachment) }) {
+                                Icon(
+                                    Icons.Default.Share,
+                                    contentDescription = "Share ${attachment.fileName}",
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                        IconButton(onClick = { attachmentPendingDelete = attachment }) {
                             Icon(
                                 Icons.Default.Delete,
                                 contentDescription = "Delete",
@@ -634,6 +753,23 @@ fun TaskDetailScreen(
         }
     }
 
+    attachmentPendingDelete?.let { attachment ->
+        AlertDialog(
+            onDismissRequest = { attachmentPendingDelete = null },
+            title = { Text("Delete attachment?") },
+            text = { Text("\"${attachment.fileName}\" will be removed from this task. This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        attachmentPendingDelete = null
+                        viewModel.deleteAttachment(attachment.id)
+                    },
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { attachmentPendingDelete = null }) { Text("Cancel") } },
+        )
+    }
+
     // Delete confirmation dialog
     if (state.showDeleteConfirmation) {
         val descendantCount = state.task?.descendantsDepthFirst()?.size
@@ -669,6 +805,23 @@ fun TaskDetailScreen(
                 TextButton(onClick = viewModel::dismissDeleteConfirmation) {
                     Text("Cancel")
                 }
+            },
+        )
+    }
+
+    if (state.showCompleteConfirmation) {
+        val count = state.task?.unfinishedDescendants()?.size ?: 0
+        AlertDialog(
+            onDismissRequest = viewModel::dismissCompletion,
+            title = { Text("Complete task and subtasks?") },
+            text = {
+                Text("This will also complete $count unfinished ${if (count == 1) "subtask" else "subtasks"}.")
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmCompletion) { Text("Complete all") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissCompletion) { Text("Cancel") }
             },
         )
     }
@@ -756,8 +909,10 @@ fun TaskDetailScreen(
     }
 
     if (showRelationPicker) {
+        val projectTitles = remember(state.allProjects) { state.allProjects.associate { it.id to it.title } }
         RelationTaskPickerDialog(
             searchResults = relationSearchResults.filter { it.id != state.task?.id },
+            projectTitleOf = projectTitles::get,
             onQueryChange = { viewModel.setRelationSearchQuery(it) },
             onConfirm = { otherId, kind ->
                 viewModel.addRelation(otherId, kind)
@@ -766,6 +921,15 @@ fun TaskDetailScreen(
             onDismiss = { showRelationPicker = false },
         )
     }
+}
+
+/** The icon the action row uses for the same part of the task. */
+private fun DetailField.icon(): ImageVector = when (this) {
+    DetailField.DUE_DATE -> Icons.Default.CalendarToday
+    DetailField.PROJECT -> Icons.Default.Folder
+    DetailField.PRIORITY -> Icons.Default.Flag
+    DetailField.RECURRENCE -> Icons.Default.Repeat
+    DetailField.REMINDERS -> Icons.Default.Notifications
 }
 
 @Composable

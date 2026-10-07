@@ -45,10 +45,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +63,9 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
@@ -73,6 +77,9 @@ import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.RecurrencePickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
+import com.rendyhd.vicu.ui.screens.taskentry.resolveEntryDueDate
 import com.rendyhd.vicu.ui.components.shared.VicuDragHandle
 import com.rendyhd.vicu.ui.screens.taskentry.TaskEntryViewModel
 import com.rendyhd.vicu.ui.screens.taskentry.resolveTaskEntryRecurrence
@@ -89,7 +96,7 @@ fun TaskEntrySheet(
     sharedContent: SharedContent? = null,
     viewModel: TaskEntryViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val focusRequester = remember { FocusRequester() }
     val descriptionEditorController = rememberDescriptionEditorController()
@@ -112,12 +119,22 @@ fun TaskEntrySheet(
         }
     }
 
+    // A rotation recreates this sheet around the same view model: the draft is already there, so
+    // it is kept instead of being reset to the defaults (or the shared text) again. The flag is
+    // saved with the instance state; a new view model (process death) is initialised as usual.
+    var initializedBeforeRecreation by rememberSaveable { mutableStateOf(false) }
+    var firstRun by remember { mutableStateOf(true) }
     LaunchedEffect(defaultProjectId, defaultDueDate, sharedContent) {
-        if (sharedContent != null) {
-            viewModel.initWithSharedContent(defaultProjectId, sharedContent)
-        } else {
-            viewModel.initWithDefaults(defaultProjectId, defaultDueDate)
+        val recreated = firstRun && initializedBeforeRecreation && viewModel.isInitialized
+        firstRun = false
+        if (!recreated) {
+            if (sharedContent != null) {
+                viewModel.initWithSharedContent(defaultProjectId, sharedContent)
+            } else {
+                viewModel.initWithDefaults(defaultProjectId, defaultDueDate)
+            }
         }
+        initializedBeforeRecreation = true
     }
 
     // Defer focus until the sheet has fully expanded, so the keyboard-show animation doesn't
@@ -241,14 +258,38 @@ fun TaskEntrySheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                // Date chip
-                val hasDate = state.dueDate.isNotBlank() && !DateUtils.isNullDate(state.dueDate)
+                // Date chip. Shows the date that will be saved: picked by hand, else typed in the
+                // title, else the one the screen seeded (same resolution as save()).
+                val day = LocalClockDay.current
+                val is24Hour = LocalIs24Hour.current
+                val effectiveDueDate = resolveEntryDueDate(
+                    dueDate = state.dueDate,
+                    dueDateIsManual = state.dueDateIsManual,
+                    parserEnabled = state.parserConfig.enabled,
+                    parsed = state.parseResult,
+                    zone = day.zone,
+                )
+                val hasDate = effectiveDueDate.isNotBlank() && !DateUtils.isNullDate(effectiveDueDate)
                 val dateLabel = if (hasDate) {
-                    DateUtils.formatRelativeDate(state.dueDate)
+                    DateUtils.formatDueDate(effectiveDueDate, day.date, is24Hour, day.zone)
                 } else "Date"
 
                 AssistChip(
                     onClick = { showDatePicker = true },
+                    // The clear button is as tall as the chip lets it be (32 dp); a screen reader
+                    // gets the same thing from the chip's actions without having to find it.
+                    modifier = if (hasDate) {
+                        Modifier.semantics {
+                            customActions = listOf(
+                                CustomAccessibilityAction("Clear date") {
+                                    viewModel.clearDueDate()
+                                    true
+                                },
+                            )
+                        }
+                    } else {
+                        Modifier
+                    },
                     label = { Text(dateLabel) },
                     leadingIcon = {
                         Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -257,12 +298,12 @@ fun TaskEntrySheet(
                         {
                             IconButton(
                                 onClick = { viewModel.clearDueDate() },
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier.size(32.dp),
                             ) {
                                 Icon(
                                     Icons.Default.Close,
                                     contentDescription = "Clear date",
-                                    modifier = Modifier.size(12.dp),
+                                    modifier = Modifier.size(16.dp),
                                 )
                             }
                         }
@@ -494,7 +535,7 @@ private fun AttachmentPreviewRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = onRemove) {
             Icon(
                 Icons.Default.Close,
                 contentDescription = "Remove attachment",

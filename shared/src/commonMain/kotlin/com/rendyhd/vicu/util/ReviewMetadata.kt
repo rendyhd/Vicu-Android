@@ -1,11 +1,8 @@
 package com.rendyhd.vicu.util
 
-import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
-import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
-import kotlinx.datetime.todayIn
 import kotlinx.datetime.daysUntil
 
 enum class ReviewState { NEVER, REVIEWED, EXCLUDED }
@@ -77,10 +74,14 @@ data class ReviewMetadata(
             return if (body.isEmpty()) footer else "$body\n\n$footer"
         }
 
+        /**
+         * Review status from local calendar dates only (docs/cross-app-semantics-v1.md, section 4).
+         * [today] is the device's local date from DayClock, so the status follows midnight.
+         */
         fun computeStatus(
             meta: ReviewMetadata,
             globalCadenceDays: Int,
-            today: LocalDate = Clock.System.todayIn(TimeZone.currentSystemDefault()),
+            today: LocalDate,
         ): ReviewStatus {
             val cadence = meta.cadenceDaysOverride ?: globalCadenceDays
             if (meta.state == ReviewState.EXCLUDED) {
@@ -95,9 +96,6 @@ data class ReviewMetadata(
             val daysUntil = today.daysUntil(next).toLong()
             return ReviewStatus(meta, cadence, next, daysUntil < 0, daysSince, daysUntil)
         }
-
-        /** Local-calendar today as YYYY-MM-DD, used when marking reviewed. */
-        fun todayLocalIsoDate(): String = Clock.System.todayIn(TimeZone.currentSystemDefault()).toString()
     }
 }
 

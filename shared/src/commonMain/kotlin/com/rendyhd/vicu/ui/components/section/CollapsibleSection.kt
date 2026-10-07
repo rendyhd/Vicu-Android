@@ -9,6 +9,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,6 +24,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,13 +50,25 @@ fun CollapsibleSection(
 
     Row(
         modifier = modifier
-            .clickable(onClick = onToggle)
+            .clickable(
+                onClickLabel = if (isExpanded) "Collapse" else "Expand",
+                role = Role.Button,
+                onClick = onToggle,
+            )
+            .semantics {
+                // The name and the hidden-task count in one phrase (the visible title is upper
+                // case, which a screen reader may spell out), and the state as its own announcement.
+                contentDescription = sectionDescription(title, taskCount, isExpanded)
+                stateDescription = sectionStateDescription(isExpanded)
+            }
+            .heightIn(min = 48.dp)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             imageVector = Icons.Default.ChevronRight,
-            contentDescription = if (isExpanded) "Collapse" else "Expand",
+            // Decorative: the row announces Expanded or Collapsed itself.
+            contentDescription = null,
             modifier = Modifier
                 .size(18.dp)
                 .rotate(rotation),
@@ -85,3 +102,14 @@ fun CollapsibleSection(
         }
     }
 }
+
+/** What a screen reader says for a collapsible section: its name, and how many tasks hide in it. */
+internal fun sectionDescription(title: String, taskCount: Int, isExpanded: Boolean): String =
+    if (!isExpanded && taskCount > 0) {
+        "$title, ${if (taskCount == 1) "1 task" else "$taskCount tasks"}"
+    } else {
+        title
+    }
+
+/** The state a screen reader announces for a collapsible section. */
+internal fun sectionStateDescription(isExpanded: Boolean): String = if (isExpanded) "Expanded" else "Collapsed"

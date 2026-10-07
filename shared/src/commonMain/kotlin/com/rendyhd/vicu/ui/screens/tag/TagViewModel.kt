@@ -9,8 +9,12 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
+import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.data.sync.ScreenRefresher
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.withoutNestedSubtasks
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,7 +36,8 @@ class TagViewModel(
     private val taskRepository: TaskRepository,
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
-    private val syncStaleness: SyncStaleness,
+    private val refresher: ScreenRefresher,
+    navigationTicker: NavigationTicker = NavigationTicker(),
 ) : ViewModel() {
 
     private val labelId: Long = savedStateHandle["labelId"]!!
@@ -40,64 +45,63 @@ class TagViewModel(
     private val _uiState = MutableStateFlow(TagUiState())
     val uiState: StateFlow<TagUiState> = _uiState.asStateFlow()
 
+    /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
+
     init {
+        viewModelScope.launch {
+            completions.heldIds.collect { ids -> _uiState.update { it.copy(completedTaskIds = ids) } }
+        }
         viewModelScope.launch {
             val label = labelRepository.getById(labelId)
             _uiState.update { it.copy(label = label) }
         }
         viewModelScope.launch {
             combine(
-                taskRepository.getAllOpenTasks(),
+                taskRepository.getAllOpenTasksFlat(),
                 projectRepository.getAll(),
-            ) { tasks, projects ->
+                completions.state,
+            ) { tasks, projects, _ ->
                 val activeIds = projects.mapTo(mutableSetOf()) { it.id }
-                val filtered = tasks.filter { task ->
-                    task.projectId in activeIds && task.labels.any { it.id == labelId }
-                }
-                filtered
+                // Filter first, then hide nested subtasks among the matches: a labeled subtask
+                // shows even when its parent does not carry the label (X-16).
+                val filtered = tasks
+                    .filter { task -> task.projectId in activeIds && task.labels.any { it.id == labelId } }
+                    .withoutNestedSubtasks(hideChildrenOfCompletedParents = false)
+                completions.merge(filtered)
             }.collect { filtered ->
                 _uiState.update { it.copy(tasks = filtered, isLoading = false) }
             }
         }
-        if (syncStaleness.isStale()) refresh()
+        if (refresher.isStale()) refresh()
     }
 
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
-            val completedIds = _uiState.value.completedTaskIds
-            _uiState.update { it.copy(isRefreshing = showSpinner, error = null, completedTaskIds = emptySet()) }
-            try {
-                if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
-                taskRepository.refreshAll()
-                projectRepository.refreshAll()
-                labelRepository.refreshAll()
-                syncStaleness.markSynced()
-                // Re-fetch label in case it was updated
-                val label = labelRepository.getById(labelId)
-                _uiState.update { it.copy(label = label) }
-            } catch (e: Exception) {
-                Log.e("TagViewModel", "refresh() failed: ${e.message}", e)
-            } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
+            _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
+            val result = refresher.refresh(manual = showSpinner)
+            // Re-fetch the label in case it was updated
+            val label = labelRepository.getById(labelId)
+            _uiState.update {
+                it.copy(
+                    label = label,
+                    isRefreshing = false,
+                    error = result.refreshErrorToShow(showSpinner) ?: it.error,
+                )
             }
         }
     }
 
     fun toggleDone(task: Task) {
         viewModelScope.launch {
-            if (!task.done) {
-                _uiState.update { it.copy(completedTaskIds = it.completedTaskIds + task.id) }
-            }
+            // The stored task changes at once; the hold keeps the row on screen, struck through.
+            if (!task.done) completions.hold(task)
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {
-                    // Hard failure: revert the optimistic strikethrough along with surfacing
-                    // the error, otherwise the row stays visually completed.
-                    _uiState.update {
-                        it.copy(
-                            error = result.message,
-                            completedTaskIds = it.completedTaskIds - task.id,
-                        )
-                    }
+                    // Hard failure: put the row back to normal along with surfacing the error,
+                    // otherwise it stays struck through.
+                    completions.release(task.id)
+                    _uiState.update { it.copy(error = result.message) }
                 }
                 else -> {}
             }
@@ -106,26 +110,19 @@ class TagViewModel(
 
     fun undoComplete(task: Task) {
         viewModelScope.launch {
-            _uiState.update { it.copy(completedTaskIds = it.completedTaskIds - task.id) }
-            // The row still renders done=false (Room is never flipped on complete — the
-            // strikethrough is driven by completedTaskIds), and toggleDone flips whatever
-            // it's handed. Pass done=true so it reverts to done=false remotely; passing the
-            // raw task would re-send done=true and the completion would survive a refresh.
-            taskRepository.toggleDone(task.copy(done = true))
+            // Draw the row as open at once but keep it in place until the task is stored as
+            // open again. setDone is idempotent: it reopens the task whatever state it is in now.
+            completions.undoing(task.id)
+            val result = taskRepository.setDone(task.id, false)
+            completions.release(task.id)
+            if (result is NetworkResult.Error) _uiState.update { it.copy(error = result.message) }
         }
     }
 
     /** Swipe-schedule: applies the configured Today/Urgent action via the repository. */
-    fun scheduleTask(task: Task) {
+    fun scheduleTask(taskId: Long) {
         viewModelScope.launch {
-            taskRepository.applyScheduleAction(task)
-        }
-    }
-
-    fun rescheduleTask(task: Task, newDueDate: String) {
-        viewModelScope.launch {
-            val updated = task.copy(dueDate = newDueDate)
-            taskRepository.update(updated)
+            taskRepository.applyScheduleAction(taskId)
         }
     }
 

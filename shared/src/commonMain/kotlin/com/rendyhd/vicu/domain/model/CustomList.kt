@@ -22,4 +22,13 @@ data class CustomListFilter(
     val labelIds: List<Long> = emptyList(),
     val includeDone: Boolean = false,
     val includeTodayAllProjects: Boolean = false,
-)
+    /**
+     * Whether the today / this week / this month windows also include overdue tasks. Null is the
+     * synced key being absent, which means true; the editor only writes false when the user turned
+     * it off (docs/cross-app-semantics-v1.md, section 3).
+     */
+    val includeOverdue: Boolean? = null,
+) {
+    /** The effective value of [includeOverdue]: absent means true. */
+    val includesOverdue: Boolean get() = includeOverdue != false
+}

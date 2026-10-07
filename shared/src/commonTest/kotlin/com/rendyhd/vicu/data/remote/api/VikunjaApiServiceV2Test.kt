@@ -91,6 +91,47 @@ class VikunjaApiServiceV2Test {
     }
 
     @Test
+    fun `a merge patch that changes nothing reads the task back instead of failing`() = runTest {
+        val engine = MockEngine { request ->
+            assertEquals("/tasks/9", request.url.encodedPath)
+            when (request.method) {
+                // Vikunja's answer when the task already has every value in the patch.
+                HttpMethod.Patch -> respond(content = "", status = HttpStatusCode.NotModified)
+                HttpMethod.Get -> respond(
+                    content = """{"id":9,"title":"Unchanged","project_id":7,"done":false}""",
+                    status = HttpStatusCode.OK,
+                    headers = jsonHeaders,
+                )
+                else -> error("Unexpected ${request.method.value}")
+            }
+        }
+
+        val task = service(engine).updateTask(9, buildJsonObject { put("done", false) })
+
+        assertEquals(9, task.id)
+        assertEquals("Unchanged", task.title)
+    }
+
+    @Test
+    fun `project and label merge patches that change nothing are read back too`() = runTest {
+        val engine = MockEngine { request ->
+            when (request.method) {
+                HttpMethod.Patch -> respond(content = "", status = HttpStatusCode.NotModified)
+                HttpMethod.Get -> when (request.url.encodedPath) {
+                    "/projects/3" -> respond("""{"id":3,"title":"Work"}""", HttpStatusCode.OK, jsonHeaders)
+                    "/labels/4" -> respond("""{"id":4,"title":"Home"}""", HttpStatusCode.OK, jsonHeaders)
+                    else -> error("Unexpected GET ${request.url.encodedPath}")
+                }
+                else -> error("Unexpected ${request.method.value}")
+            }
+        }
+        val api = service(engine)
+
+        assertEquals("Work", api.updateProject(3, buildJsonObject { put("title", "Work") }).title)
+        assertEquals("Home", api.updateLabel(4, buildJsonObject { put("title", "Home") }).title)
+    }
+
+    @Test
     fun `task search uses q and follows total_pages even for short pages`() = runTest {
         val seenPages = mutableListOf<Int>()
         val engine = MockEngine { request ->

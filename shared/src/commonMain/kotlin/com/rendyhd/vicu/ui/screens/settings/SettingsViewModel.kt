@@ -1,8 +1,11 @@
 package com.rendyhd.vicu.ui.screens.settings
 
+import com.rendyhd.vicu.util.countOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.auth.SessionCleanup
+import com.rendyhd.vicu.auth.SignOutResult
 import com.rendyhd.vicu.auth.TokenStorage
 import com.rendyhd.vicu.data.local.BehaviorPrefs
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
@@ -14,6 +17,7 @@ import com.rendyhd.vicu.data.local.NotificationPrefs
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.ReviewPrefs
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
+import com.rendyhd.vicu.data.local.SyncCursorStore
 import com.rendyhd.vicu.data.local.SubprojectDisplayMode
 import com.rendyhd.vicu.data.local.SubtaskDisplayMode
 import com.rendyhd.vicu.data.local.ThemeMode
@@ -21,7 +25,6 @@ import com.rendyhd.vicu.data.local.ThemePrefsStore
 import com.rendyhd.vicu.data.local.WidgetPrefsStore
 import com.rendyhd.vicu.util.parser.ParserConfig
 import com.rendyhd.vicu.util.parser.SyntaxMode
-import com.rendyhd.vicu.data.local.VikunjaDatabase
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.domain.model.BottomBarSlot
@@ -81,6 +84,45 @@ data class SettingsUiState(
     val successMessage: String? = null,
 )
 
+private data class UserInfo(
+    val username: String = "",
+    val email: String = "",
+    val authMethod: String = "",
+)
+
+private data class ContentGroup(
+    val labels: List<Label>,
+    val customLists: List<CustomList>,
+    val customListSync: CustomListSyncStatus,
+    val projects: List<Project>,
+    val notificationPrefs: NotificationPrefs,
+)
+
+private data class SyncGroup(
+    val pendingCount: Int,
+    val failedCount: Int,
+    val isOnline: Boolean,
+    val themeMode: ThemeMode,
+    val nlpConfig: ParserConfig,
+)
+
+private data class AccountGroup(
+    val userInfo: UserInfo,
+    val vikunjaUrl: String,
+    val inboxProjectId: Long?,
+    val bottomBarSlots: List<BottomBarSlot>,
+    /** (error, success) */
+    val messages: Pair<String?, String?>,
+)
+
+private data class PrefsGroup(
+    val smartAdd: Boolean,
+    val contextNav: Boolean,
+    val behaviorPrefs: BehaviorPrefs,
+    val reviewPrefs: ReviewPrefs,
+    val logbookPrefs: LogbookPrefs,
+)
+
 class SettingsViewModel(
     private val authManager: AuthManager,
     private val tokenStorage: TokenStorage,
@@ -97,18 +139,20 @@ class SettingsViewModel(
     private val logbookPrefsStore: LogbookPrefsStore,
     private val pendingActionDao: PendingActionDao,
     private val networkMonitor: NetworkMonitor,
-    private val database: VikunjaDatabase,
+    private val sessionCleanup: SessionCleanup,
     private val apiService: VikunjaApiService,
     private val platformSettingsHooks: PlatformSettingsHooks,
+    private val syncCursor: SyncCursorStore,
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<Pair<String?, String?>>(null to null)
-    private val _userInfo = MutableStateFlow(Triple("", "", "")) // username, email, authMethod
+    private val _userInfo = MutableStateFlow(UserInfo())
     private val _vikunjaUrl = MutableStateFlow("")
     private val _inboxProjectId = MutableStateFlow<Long?>(null)
 
     init {
         loadAccountInfo()
+        viewModelScope.launch { authManager.inboxProjectId.collect { _inboxProjectId.value = it } }
         viewModelScope.launch {
             // Settings is the management surface for archived projects, so refresh its
             // complete snapshot when opened to pick up changes made in Vikunja or desktop.
@@ -117,92 +161,75 @@ class SettingsViewModel(
         viewModelScope.launch { customListRepository.sync() }
     }
 
-    val uiState: StateFlow<SettingsUiState> = combine(
-        combine(
-            labelRepository.getAll(),
-            combine(customListRepository.lists, customListRepository.syncStatus) { lists, status ->
-                lists to status
-            },
-            projectRepository.getAllIncludingArchived(),
-            notificationPrefsStore.getPrefs(),
-            _messages,
-        ) { labels, customLists, projects, notifPrefs, messages ->
-            listOf(labels, customLists, projects, notifPrefs, messages)
-        },
-        combine(
-            pendingActionDao.getPendingCount(),
-            pendingActionDao.getFailedCount(),
-            networkMonitor.isOnline,
-            themePrefsStore.themeMode,
-            nlpPrefsStore.config,
-        ) { pendingCount, failedCount, isOnline, themeMode, nlpConfig ->
-            listOf(pendingCount, failedCount, isOnline, themeMode, nlpConfig)
-        },
-        combine(
-            _userInfo,
-            _vikunjaUrl,
-            _inboxProjectId,
-            bottomBarPrefsStore.slots,
-        ) { userInfo, url, inboxId, bbSlots ->
-            listOf(userInfo, url, inboxId, bbSlots)
-        },
-        combine(
-            widgetPrefsStore.smartAdd,
-            widgetPrefsStore.contextNav,
-            behaviorPrefsStore.getPrefs(),
-            reviewPrefsStore.getPrefs(),
-            logbookPrefsStore.getPrefs(),
-        ) { smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs ->
-            listOf(smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs)
-        },
-    ) { base, syncTheme, userEtc, widgetPrefs ->
-        @Suppress("UNCHECKED_CAST")
-        val labels = base[0] as List<Label>
-        val customListBundle = base[1] as Pair<List<CustomList>, CustomListSyncStatus>
-        val customLists = customListBundle.first
-        val projects = base[2] as List<Project>
-        val notifPrefs = base[3] as NotificationPrefs
-        val messages = base[4] as Pair<String?, String?>
-        val pendingCount = syncTheme[0] as Int
-        val failedCount = syncTheme[1] as Int
-        val isOnline = syncTheme[2] as Boolean
-        val themeMode = syncTheme[3] as ThemeMode
-        val nlpConfig = syncTheme[4] as ParserConfig
-        val userInfo = userEtc[0] as Triple<String, String, String>
-        val url = userEtc[1] as String
-        val inboxId = userEtc[2] as Long?
-        val bbSlots = userEtc[3] as List<BottomBarSlot>
-        val smartAdd = widgetPrefs[0] as Boolean
-        val contextNav = widgetPrefs[1] as Boolean
-        val behaviorPrefs = widgetPrefs[2] as BehaviorPrefs
-        val reviewPrefs = widgetPrefs[3] as ReviewPrefs
-        val logbookPrefs = widgetPrefs[4] as LogbookPrefs
+    // The sources are combined in typed groups of at most five flows each, then the groups are
+    // combined: no positional lists and no casts, so a mismatch is a compile error.
+    private val content = combine(
+        labelRepository.getAll(),
+        customListRepository.lists,
+        customListRepository.syncStatus,
+        projectRepository.getAllIncludingArchived(),
+        notificationPrefsStore.getPrefs(),
+    ) { labels, customLists, customListSync, projects, notificationPrefs ->
+        ContentGroup(labels, customLists, customListSync, projects, notificationPrefs)
+    }
+
+    private val sync = combine(
+        pendingActionDao.getPendingCount(),
+        pendingActionDao.getFailedCount(),
+        networkMonitor.isOnline,
+        themePrefsStore.themeMode,
+        nlpPrefsStore.config,
+    ) { pendingCount, failedCount, isOnline, themeMode, nlpConfig ->
+        SyncGroup(pendingCount, failedCount, isOnline, themeMode, nlpConfig)
+    }
+
+    private val account = combine(
+        _userInfo,
+        _vikunjaUrl,
+        _inboxProjectId,
+        bottomBarPrefsStore.slots,
+        _messages,
+    ) { userInfo, url, inboxId, bottomBarSlots, messages ->
+        AccountGroup(userInfo, url, inboxId, bottomBarSlots, messages)
+    }
+
+    private val prefs = combine(
+        widgetPrefsStore.smartAdd,
+        widgetPrefsStore.contextNav,
+        behaviorPrefsStore.getPrefs(),
+        reviewPrefsStore.getPrefs(),
+        logbookPrefsStore.getPrefs(),
+    ) { smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs ->
+        PrefsGroup(smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs)
+    }
+
+    val uiState: StateFlow<SettingsUiState> = combine(content, sync, account, prefs) { c, s, a, p ->
         SettingsUiState(
-            username = userInfo.first,
-            email = userInfo.second,
-            authMethod = userInfo.third,
-            vikunjaUrl = url,
-            inboxProjectId = inboxId,
-            themeMode = themeMode,
-            nlpConfig = nlpConfig,
-            labels = labels.sortedBy { it.title.lowercase() },
-            customLists = customLists,
-            customListSyncStatus = customListBundle.second,
-            projects = projects.filter { !it.isArchived },
-            archivedProjects = projects.filter { it.isArchived },
-            notificationPrefs = notifPrefs,
+            username = a.userInfo.username,
+            email = a.userInfo.email,
+            authMethod = a.userInfo.authMethod,
+            vikunjaUrl = a.vikunjaUrl,
+            inboxProjectId = a.inboxProjectId,
+            themeMode = s.themeMode,
+            nlpConfig = s.nlpConfig,
+            labels = c.labels.sortedBy { it.title.lowercase() },
+            customLists = c.customLists,
+            customListSyncStatus = c.customListSync,
+            projects = c.projects.filter { !it.isArchived },
+            archivedProjects = c.projects.filter { it.isArchived },
+            notificationPrefs = c.notificationPrefs,
             supportsQuickAddTile = platformSettingsHooks.supportsQuickAddTile,
-            behaviorPrefs = behaviorPrefs,
-            pendingActionCount = pendingCount,
-            failedActionCount = failedCount,
-            isOnline = isOnline,
-            bottomBarSlots = bbSlots,
-            widgetSmartAdd = smartAdd,
-            widgetContextNav = contextNav,
-            reviewPrefs = reviewPrefs,
-            logbookPrefs = logbookPrefs,
-            error = messages.first,
-            successMessage = messages.second,
+            behaviorPrefs = p.behaviorPrefs,
+            pendingActionCount = s.pendingCount,
+            failedActionCount = s.failedCount,
+            isOnline = s.isOnline,
+            bottomBarSlots = a.bottomBarSlots,
+            widgetSmartAdd = p.smartAdd,
+            widgetContextNav = p.contextNav,
+            reviewPrefs = p.reviewPrefs,
+            logbookPrefs = p.logbookPrefs,
+            error = a.messages.first,
+            successMessage = a.messages.second,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())
 
@@ -210,19 +237,19 @@ class SettingsViewModel(
         viewModelScope.launch {
             val authMethod = tokenStorage.getAuthMethod() ?: ""
             val url = tokenStorage.getVikunjaUrl() ?: ""
-            val inboxId = tokenStorage.getInboxProjectId()
             _vikunjaUrl.value = url
-            _inboxProjectId.value = inboxId
-            _userInfo.update { it.copy(third = authMethod) }
+            _userInfo.update { it.copy(authMethod = authMethod) }
 
             // Fetch user info from API
             try {
                 val user = apiService.getCurrentUser()
-                _userInfo.value = Triple(
-                    user.username.ifBlank { user.name },
-                    user.email,
-                    authMethod,
+                _userInfo.value = UserInfo(
+                    username = user.username.ifBlank { user.name },
+                    email = user.email,
+                    authMethod = authMethod,
                 )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (_: Exception) {
                 // Offline or failed — keep empty
             }
@@ -285,21 +312,41 @@ class SettingsViewModel(
 
     // --- Logout ---
 
-    fun logout() {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            database.clearAllTables()
-            customListRepository.clearLocal()
-            bottomBarPrefsStore.clear()
-            authManager.logout() // calls POST /user/logout internally
-            platformSettingsHooks.updateWidgets()
+    /** Routine history not uploaded to the server yet (sign-out deletes it). */
+    val routineHistoryCount: StateFlow<Int> = sessionCleanup.routineHistoryCount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** Custom-list changes not on the server yet (sign-out deletes them). */
+    val customListChangesUnsynced: StateFlow<Boolean> = sessionCleanup.customListChangesUnsynced
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /**
+     * Signs out and deletes local data. Offline changes that never reached the server are lost
+     * with it, so with any queued the caller must pass [discardUnsynced] = true (the dialog makes
+     * the user choose that); without it nothing happens.
+     */
+    fun logout(discardUnsynced: Boolean) {
+        viewModelScope.launch {
+            when (val result = sessionCleanup.signOut(discardUnsynced)) {
+                is SignOutResult.NeedsDiscard ->
+                    _messages.update {
+                        "${countOf(result.unsyncedChanges, "unsynced change")} would be lost. " +
+                            "Discard ${if (result.unsyncedChanges == 1) "it" else "them"} to sign out." to null
+                    }
+                SignOutResult.Done -> platformSettingsHooks.updateWidgets()
+            }
         }
     }
 
     // --- Clear cache & re-sync ---
 
-    fun clearCacheAndResync() {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            database.clearAllTables()
+    /**
+     * Clears the cached tasks, projects and labels and syncs again. The offline queue (and the
+     * rows it refers to) and routine history stay unless [discardUnsynced] is set.
+     */
+    fun clearCacheAndResync(discardUnsynced: Boolean = false) {
+        viewModelScope.launch {
+            sessionCleanup.clearCaches(discardUnsynced)
             platformSettingsHooks.triggerImmediateSync()
             _messages.update { null to "Cache cleared, syncing..." }
         }
@@ -632,6 +679,9 @@ class SettingsViewModel(
     fun clearFailedActions() {
         viewModelScope.launch {
             pendingActionDao.deleteFailed()
+            // The rows those changes protected may differ from the server; refresh them fully.
+            syncCursor.requestFullReconcile()
+            platformSettingsHooks.triggerImmediateSync()
             _messages.update { null to "Failed actions cleared" }
         }
     }

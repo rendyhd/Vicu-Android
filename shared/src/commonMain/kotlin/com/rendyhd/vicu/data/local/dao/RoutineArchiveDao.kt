@@ -6,6 +6,7 @@ import androidx.room.Upsert
 import com.rendyhd.vicu.data.local.entity.RoutineOccurrenceArchiveEntity
 import kotlinx.coroutines.flow.Flow
 
+/** The phone-only history waiting to be uploaded; see [RoutineOccurrenceArchiveEntity]. */
 @Dao
 interface RoutineArchiveDao {
     @Query("SELECT * FROM routine_occurrence_archive WHERE routineId = :routineId ORDER BY scheduledDate DESC")

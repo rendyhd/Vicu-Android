@@ -37,10 +37,10 @@ class PasswordLoginHandler(
                 isTotpProblemCode(problemCode) && totpPasscode.isNullOrBlank() ->
                     PasswordLoginResult.NeedsTOTP
                 problemCode == ERROR_INVALID_CREDENTIALS ->
-                    PasswordLoginResult.Error(response.problem?.detail ?: "Invalid username or password")
+                    PasswordLoginResult.Error(response.problem.detail.ifBlank { "Invalid username or password" })
                 else ->
                     PasswordLoginResult.Error(
-                        response.problem?.detail ?: "Login failed: HTTP $status",
+                        response.problem?.detail?.takeIf { it.isNotBlank() } ?: "Login failed: HTTP $status",
                     )
             }
         } catch (e: Exception) {

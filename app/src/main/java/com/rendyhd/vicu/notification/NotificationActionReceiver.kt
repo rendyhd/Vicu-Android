@@ -5,13 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
-import com.rendyhd.vicu.auth.AuthManager
-import com.rendyhd.vicu.data.local.dao.TaskDao
-import com.rendyhd.vicu.data.mapper.TaskMapper
-import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
-import com.rendyhd.vicu.worker.SyncScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -26,12 +21,8 @@ class NotificationActionReceiver : BroadcastReceiver(), KoinComponent {
         const val ACTION_SNOOZE = "com.rendyhd.vicu.ACTION_SNOOZE"
     }
 
-    private val taskDao: TaskDao by inject()
-    private val taskMapper: TaskMapper by inject()
     private val alarmScheduler: AlarmScheduler by inject()
     private val taskRepository: TaskRepository by inject()
-    private val baseUrlHolder: BaseUrlHolder by inject()
-    private val authManager: AuthManager by inject()
 
     override fun onReceive(context: Context, intent: Intent) {
         val taskId = intent.getLongExtra(AlarmReceiver.EXTRA_TASK_ID, 0L)
@@ -51,14 +42,12 @@ class NotificationActionReceiver : BroadcastReceiver(), KoinComponent {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Ensure network layer is initialized (cold start after process death)
-                baseUrlHolder.ensureInitialized()
-                authManager.ensureInitializedAndGetToken()
-
-                val entity = taskDao.getByIdSync(taskId) ?: return@launch
-                val task = with(taskMapper) { entity.toDomain() }
-                taskRepository.toggleDone(task)
-                SyncScheduler.enqueueWhenOnline(context)
+                // Explicit completion, never a toggle: if sync already stored the task as done
+                // (completed on another device) this must leave it done, not reopen it. It is
+                // stored and queued here, not sent: a receiver may be stopped at any moment, and a
+                // completion still in flight then would be recorded nowhere. The queued change
+                // triggers a sync, which WorkManager runs even if this process is gone.
+                taskRepository.setDoneInBackground(taskId, true)
 
                 alarmScheduler.cancelForTask(taskId)
                 WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
@@ -72,12 +61,11 @@ class NotificationActionReceiver : BroadcastReceiver(), KoinComponent {
 
     private fun handleSnooze(context: Context, taskId: Long, intent: Intent) {
         val taskTitle = intent.getStringExtra(AlarmReceiver.EXTRA_TASK_TITLE) ?: "Task Reminder"
-        val triggerAt = System.currentTimeMillis() + 15 * 60 * 1000
         Log.d(TAG, "Snoozing task $taskId for 15 minutes")
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                alarmScheduler.scheduleSnooze(taskId, taskTitle, triggerAt)
+                alarmScheduler.snooze(taskId, taskTitle)
             } finally {
                 pendingResult.finish()
             }

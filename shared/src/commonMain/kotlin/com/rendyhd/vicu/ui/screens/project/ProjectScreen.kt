@@ -32,7 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,8 +57,11 @@ import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.AddTaskButton
+import com.rendyhd.vicu.ui.components.task.ReorderableTaskRow
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.util.isManuallyOrdered
+import com.rendyhd.vicu.util.moveOptions
+import com.rendyhd.vicu.util.parseHexColor
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableLazyListState
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -74,7 +77,9 @@ fun ProjectScreen(
     onProjectClick: (Long) -> Unit = {},
     viewModel: ProjectViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
 
@@ -95,7 +100,7 @@ fun ProjectScreen(
     }
 
     val selectionVm: SelectionViewModel = koinViewModel()
-    val selectedIds by selectionVm.selectedIds.collectAsState()
+    val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
     val selectionActive = selectedIds.isNotEmpty()
     var selectionAction by remember { mutableStateOf<SelectionAction?>(null) }
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
@@ -107,7 +112,7 @@ fun ProjectScreen(
                     count = selectedIds.size,
                     onClose = { selectionVm.clear() },
                     onToday = { selectionVm.bulkToday() },
-                    onComplete = { selectionVm.bulkComplete() },
+                    onComplete = { selectionVm.bulkComplete(viewModel.completions) },
                     onSchedule = { selectionAction = SelectionAction.SCHEDULE },
                     onSetPriority = { selectionAction = SelectionAction.SET_PRIORITY },
                     onMove = { selectionAction = SelectionAction.MOVE_PROJECT },
@@ -151,8 +156,10 @@ fun ProjectScreen(
                         )
                     }
                 } else {
-                    // Unsectioned tasks (directly in parent project)
-                    items(state.unsectionedTasks, key = { it.id }) { task ->
+                    // Unsectioned tasks (directly in parent project). Which rows can move a place
+                    // (for a screen reader, which cannot drag): one pass.
+                    val unsectionedMoves = moveOptions(state.unsectionedTasks)
+                    items(state.unsectionedTasks, key = { it.id }, contentType = { "task" }) { task ->
                         val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
                         val canDrag = !selectionActive &&
                             task.id !in state.completedTaskIds &&
@@ -184,10 +191,14 @@ fun ProjectScreen(
                             },
                             onSubtaskToggleDone = viewModel::toggleDone,
                             onSubtaskClick = { child -> onTaskClick(child.id) },
-                            onSchedule = { viewModel.scheduleTask(task) },
+                            onSchedule = { viewModel.scheduleTask(task.id) },
                             // Draggable rows enter selection via lift-without-move
                             // (onDragStopped above); the rest keep plain long-press.
                             onLongClick = if (canDrag) null else ({ selectionVm.toggle(task.id) }),
+                            onMoveUp = unsectionedMoves[task.id]?.takeIf { canDrag && it.up }
+                                ?.let { { viewModel.moveTaskBy(task.id, -1); Unit } },
+                            onMoveDown = unsectionedMoves[task.id]?.takeIf { canDrag && it.down }
+                                ?.let { { viewModel.moveTaskBy(task.id, 1); Unit } },
                         )
                     }
 
@@ -195,14 +206,14 @@ fun ProjectScreen(
                     // projects, so adding directly to the parent stays distinct from opening a
                     // child row or using a section's add action. With no children the FAB covers it.
                     if (state.sections.isNotEmpty() || state.childProjects.isNotEmpty()) {
-                        item(key = "add_task_parent") {
+                        item(key = "add_task_parent", contentType = "add_task") {
                             AddTaskButton(
                                 onClick = { onShowTaskEntry(projectId, null) },
                             )
                         }
                     }
 
-                    items(state.childProjects, key = { "subproject_${it.id}" }) { project ->
+                    items(state.childProjects, key = { "subproject_${it.id}" }, contentType = { "subproject" }) { project ->
                         SubprojectRow(
                             project = project,
                             enabled = !selectionActive,
@@ -229,8 +240,9 @@ fun ProjectScreen(
                         onRowClick = { task ->
                             if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id)
                         },
-                        onSchedule = { task -> viewModel.scheduleTask(task) },
+                        onSchedule = { task -> viewModel.scheduleTask(task.id) },
                         onLongClickToggle = { task -> selectionVm.toggle(task.id) },
+                        onMoveTask = { task, offset -> viewModel.moveTaskBy(task.id, offset) },
                         onAddTask = { pid -> onShowTaskEntry(pid, null) },
                     )
                 }
@@ -276,7 +288,7 @@ private fun SubprojectRow(
         Icon(
             imageVector = Icons.Outlined.Folder,
             contentDescription = null,
-            tint = parseSectionColor(project.hexColor)
+            tint = parseHexColor(project.hexColor)
                 ?: MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(24.dp),
         )
@@ -295,78 +307,6 @@ private fun SubprojectRow(
     }
 }
 
-@Composable
-private fun LazyItemScope.ReorderableTaskRow(
-    reorderableState: ReorderableLazyListState,
-    task: Task,
-    displayTask: Task,
-    canDrag: Boolean,
-    selectionActive: Boolean,
-    selected: Boolean,
-    onDragStarted: () -> Unit,
-    onDragStopped: () -> Unit,
-    onToggleDone: () -> Unit,
-    onClick: () -> Unit,
-    onSubtaskToggleDone: (Task) -> Unit,
-    onSubtaskClick: (Task) -> Unit,
-    onSchedule: () -> Unit,
-    onLongClick: (() -> Unit)?,
-    contentStartPadding: Dp = 0.dp,
-) {
-    val haptic = LocalHapticFeedback.current
-    ReorderableItem(reorderableState, key = task.id) { isDragging ->
-        val elevation by animateDpAsState(
-            if (isDragging) 4.dp else 0.dp,
-            label = "dragElevation",
-        )
-        // The Surface stays in the tree even when idle: swapping it in/out on isDragging
-        // would change the slot structure and reset the row's internal state mid-drag.
-        Surface(
-            shadowElevation = elevation,
-            color = if (isDragging) {
-                MaterialTheme.colorScheme.surfaceContainerHigh
-            } else {
-                Color.Transparent
-            },
-        ) {
-            SwipeableTaskItem(
-                task = displayTask,
-                onToggleDone = onToggleDone,
-                onClick = onClick,
-                onSubtaskToggleDone = onSubtaskToggleDone,
-                onSubtaskClick = onSubtaskClick,
-                onSchedule = onSchedule,
-                selectionActive = selectionActive,
-                selected = selected,
-                onLongClick = onLongClick,
-                contentStartPadding = contentStartPadding,
-                modifier = if (canDrag) {
-                    Modifier.longPressDraggableHandle(
-                        onDragStarted = {
-                            onDragStarted()
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
-                        onDragStopped = onDragStopped,
-                    )
-                } else {
-                    Modifier
-                },
-            )
-        }
-    }
-}
-
-private fun parseSectionColor(hex: String): Color? =
-    try {
-        if (hex.isNotBlank()) {
-            Color(android.graphics.Color.parseColor(if (hex.startsWith("#")) hex else "#$hex"))
-        } else {
-            null
-        }
-    } catch (_: Exception) {
-        null
-    }
-
 private fun LazyListScope.projectSectionItems(
     sections: List<ProjectSection>,
     depth: Int,
@@ -381,11 +321,12 @@ private fun LazyListScope.projectSectionItems(
     onRowClick: (Task) -> Unit,
     onSchedule: (Task) -> Unit,
     onLongClickToggle: (Task) -> Unit,
+    onMoveTask: (Task, Int) -> Unit,
     onAddTask: (Long) -> Unit,
 ) {
     sections.forEach { section ->
-        item(key = "section_${section.project.id}") {
-            val sectionColor = parseSectionColor(section.project.hexColor)
+        item(key = "section_${section.project.id}", contentType = "header") {
+            val sectionColor = parseHexColor(section.project.hexColor)
             CollapsibleSection(
                 title = section.project.title,
                 color = sectionColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
@@ -397,7 +338,8 @@ private fun LazyListScope.projectSectionItems(
         }
 
         if (section.isExpanded) {
-            items(section.tasks, key = { it.id }) { task ->
+            val moves = moveOptions(section.tasks)
+            items(section.tasks, key = { it.id }, contentType = { "task" }) { task ->
                 val displayTask = if (task.id in completedTaskIds) task.copy(done = true) else task
                 val canDrag = !selectionActive &&
                     task.id !in completedTaskIds &&
@@ -418,10 +360,14 @@ private fun LazyListScope.projectSectionItems(
                     onSchedule = { onSchedule(task) },
                     onLongClick = if (canDrag) null else ({ onLongClickToggle(task) }),
                     contentStartPadding = ((depth + 1) * 16).dp,
+                    onMoveUp = moves[task.id]?.takeIf { canDrag && it.up }
+                        ?.let { { onMoveTask(task, -1) } },
+                    onMoveDown = moves[task.id]?.takeIf { canDrag && it.down }
+                        ?.let { { onMoveTask(task, 1) } },
                 )
             }
 
-            item(key = "add_task_section_${section.project.id}") {
+            item(key = "add_task_section_${section.project.id}", contentType = "add_task") {
                 AddTaskButton(
                     onClick = { onAddTask(section.project.id) },
                     modifier = Modifier.padding(start = ((depth + 1) * 16).dp),
@@ -442,6 +388,7 @@ private fun LazyListScope.projectSectionItems(
                 onRowClick = onRowClick,
                 onSchedule = onSchedule,
                 onLongClickToggle = onLongClickToggle,
+                onMoveTask = onMoveTask,
                 onAddTask = onAddTask,
             )
         }

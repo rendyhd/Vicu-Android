@@ -21,6 +21,7 @@ import com.rendyhd.vicu.data.remote.VikunjaImageInterceptor
 import com.rendyhd.vicu.data.repository.AndroidRepositoryHooks
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.notification.AlarmScheduler
+import com.rendyhd.vicu.data.local.DailySummaryReader
 import com.rendyhd.vicu.notification.DailySummaryScheduler
 import com.rendyhd.vicu.notification.NotificationChannelManager
 import com.rendyhd.vicu.notification.RoutineAlarmScheduler
@@ -36,6 +37,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import org.koin.androidx.workmanager.dsl.workerOf
 import com.rendyhd.vicu.worker.SyncWorker
 import com.rendyhd.vicu.worker.DailySummaryWorker
+import com.rendyhd.vicu.worker.PeriodicSyncWorker
 import com.rendyhd.vicu.worker.TokenRefreshWorker
 import com.rendyhd.vicu.worker.RoutineMaintenanceWorker
 import com.rendyhd.vicu.widget.RoutineWidgetActionWorker
@@ -75,6 +77,7 @@ val appModule = module {
             routineAlarmSchedulerProvider = { get() },
             completionSoundPlayer = get(),
             appScope = get(),
+            dailySummaryScheduler = get(),
         )
     }
     single<NetworkMonitor> { AndroidNetworkMonitor(androidContext()) }
@@ -82,9 +85,10 @@ val appModule = module {
     single<PlatformFiles> { AndroidPlatformFiles(get()) }
     single<PlatformSettingsHooks> { AndroidSettingsHooks(androidContext(), get()) }
 
-    single { AlarmScheduler(androidContext(), get(), get(), get()) }
-    single { RoutineAlarmScheduler(androidContext(), get(), get()) }
-    single { DailySummaryScheduler(androidContext()) }
+    single { AlarmScheduler(androidContext(), get(), get(), get(), get(), get()) }
+    single { RoutineAlarmScheduler(androidContext(), get(), get(), get()) }
+    single { DailySummaryScheduler(androidContext(), get()) }
+    single { DailySummaryReader(get()) }
     single { CompletionSoundPlayer(androidContext(), get()) }
     single { NotificationChannelManager(androidContext()) }
 
@@ -161,6 +165,7 @@ val viewModelModule = module {
 
 val workerModule = module {
     workerOf(::SyncWorker)
+    workerOf(::PeriodicSyncWorker)
     workerOf(::DailySummaryWorker)
     workerOf(::TokenRefreshWorker)
     workerOf(::TaskWidgetWorker)

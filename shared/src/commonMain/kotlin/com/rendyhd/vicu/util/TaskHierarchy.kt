@@ -7,13 +7,17 @@ import com.rendyhd.vicu.domain.model.Task
  * same result or is completed. Active parents omitted by a search/date filter
  * still allow a contextual child-only match; completing a parent never promotes
  * unfinished children into unrelated root tasks.
+ *
+ * A view that applies its own conditions (Tag, custom lists) filters first and calls this on
+ * what is left with [hideChildrenOfCompletedParents] false: a subtask that matches then shows
+ * whenever its parent is not among the matches, whether the parent is open or completed.
  */
-fun List<Task>.withoutNestedSubtasks(): List<Task> {
+fun List<Task>.withoutNestedSubtasks(hideChildrenOfCompletedParents: Boolean = true): List<Task> {
     val visibleIds = mapTo(HashSet(size)) { it.id }
     return filter { task ->
         task.relatedTasks[RelationKind.PARENTTASK]
             .orEmpty()
-            .none { parent -> parent.id in visibleIds || parent.done }
+            .none { parent -> parent.id in visibleIds || (hideChildrenOfCompletedParents && parent.done) }
     }
 }
 

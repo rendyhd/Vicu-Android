@@ -12,11 +12,15 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
+import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.dropPositionFor
 import com.rendyhd.vicu.util.moveTaskInList
+import com.rendyhd.vicu.util.neighbourForMove
 import com.rendyhd.vicu.util.sortProjectTasks
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.data.sync.ScreenRefresher
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,9 +49,10 @@ class ProjectViewModel(
     private val taskRepository: TaskRepository,
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
-    private val syncStaleness: SyncStaleness,
+    private val refresher: ScreenRefresher,
     private val behaviorPrefsStore: BehaviorPrefsStore,
     private val projectSectionPrefsStore: ProjectSectionPrefsStore,
+    navigationTicker: NavigationTicker = NavigationTicker(),
 ) : ViewModel() {
 
     private val projectId: Long = savedStateHandle["projectId"]!!
@@ -55,7 +60,16 @@ class ProjectViewModel(
     private val _uiState = MutableStateFlow(ProjectUiState())
     val uiState: StateFlow<ProjectUiState> = _uiState.asStateFlow()
 
+    /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
+
+    /** The "not found" or "archived" message of the last project state, told apart from action errors. */
+    private var projectError: String? = null
+
     init {
+        viewModelScope.launch {
+            completions.heldIds.collect { ids -> _uiState.update { it.copy(completedTaskIds = ids) } }
+        }
         viewModelScope.launch {
             combine(
                 projectRepository.getById(projectId),
@@ -132,17 +146,46 @@ class ProjectViewModel(
                         }
                     }
                 }
+            }.let { upstream ->
+                // Merge the held rows back in whenever they change, not only when the stored
+                // lists do.
+                combine(upstream, completions.state) { state, _ -> withHeldRows(state) }
             }.collect { newState ->
+                val previousProjectError = projectError
+                projectError = newState.error
                 _uiState.update { current ->
                     newState.copy(
                         sections = preserveExpansion(newState.sections, current.sections),
                         completedTaskIds = current.completedTaskIds,
+                        // The lists emit whenever a task changes; that must not wipe the spinner
+                        // or an error that is still waiting to be shown. The "not found" and
+                        // "archived" messages describe the project, not an action: they go when
+                        // the project does.
+                        isRefreshing = current.isRefreshing,
+                        error = newState.error ?: current.error?.takeUnless { it == previousProjectError },
                     )
                 }
             }
         }
-        if (syncStaleness.isStale()) refresh()
+        if (refresher.isStale()) refresh()
     }
+
+    /** [state] with the held rows back in the lists they were completed from. */
+    private fun withHeldRows(state: ProjectUiState): ProjectUiState {
+        if (state.project == null || state.project.isArchived) return state
+        return state.copy(
+            unsectionedTasks = completions.merge(state.unsectionedTasks, listScope = projectId),
+            sections = withHeldRows(state.sections),
+        )
+    }
+
+    private fun withHeldRows(sections: List<ProjectSection>): List<ProjectSection> =
+        sections.map { section ->
+            section.copy(
+                tasks = completions.merge(section.tasks, listScope = section.project.id),
+                children = withHeldRows(section.children),
+            )
+        }
 
     /**
      * Live reorder while dragging: move [fromId] into the slot of [toId] within its group
@@ -166,6 +209,24 @@ class ProjectViewModel(
         }
         val movedSections = moveTaskInSections(state.sections, fromId, toId) ?: return null
         return state.copy(sections = movedSections)
+    }
+
+    /**
+     * The screen reader's "Move up" / "Move down": the task takes the slot of the one [offset]
+     * places away within its group and is stored as the drop of a drag to that slot is. Returns
+     * false when there is no such slot (an end of the group, a dated task).
+     */
+    fun moveTaskBy(taskId: Long, offset: Int): Boolean {
+        val state = _uiState.value
+        val group = if (state.unsectionedTasks.any { it.id == taskId }) {
+            state.unsectionedTasks
+        } else {
+            findTaskGroup(state.sections, taskId)?.tasks ?: return false
+        }
+        val toId = neighbourForMove(group, taskId, offset) ?: return false
+        if (!onTaskMoved(taskId, toId)) return false
+        onTaskDropped(taskId)
+        return true
     }
 
     /** Drag released: persist the dropped task's new position from its current neighbors. */
@@ -201,37 +262,24 @@ class ProjectViewModel(
 
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
-            val completedIds = _uiState.value.completedTaskIds
-            _uiState.update { it.copy(isRefreshing = showSpinner, error = null, completedTaskIds = emptySet()) }
-            try {
-                if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
-                taskRepository.refreshAll()
-                projectRepository.refreshAll()
-                labelRepository.refreshAll()
-                syncStaleness.markSynced()
-            } catch (e: Exception) {
-                Log.e("ProjectViewModel", "refresh() failed: ${e.message}", e)
-            } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
-            }
+            _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
+            val result = refresher.refresh(manual = showSpinner)
+            // A failed refresh is shown (an offline one only when the user asked for it) and
+            // leaves the app stale, so the next screen tries again.
+            _uiState.update { it.copy(isRefreshing = false, error = result.refreshErrorToShow(showSpinner) ?: it.error) }
         }
     }
 
     fun toggleDone(task: Task) {
         viewModelScope.launch {
-            if (!task.done) {
-                _uiState.update { it.copy(completedTaskIds = it.completedTaskIds + task.id) }
-            }
+            // The stored task changes at once; the hold keeps the row on screen, struck through.
+            if (!task.done) completions.hold(task)
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {
-                    // Hard failure: revert the optimistic strikethrough along with surfacing
-                    // the error, otherwise the row stays visually completed.
-                    _uiState.update {
-                        it.copy(
-                            error = result.message,
-                            completedTaskIds = it.completedTaskIds - task.id,
-                        )
-                    }
+                    // Hard failure: put the row back to normal along with surfacing the error,
+                    // otherwise it stays struck through.
+                    completions.release(task.id)
+                    _uiState.update { it.copy(error = result.message) }
                 }
                 else -> {}
             }
@@ -240,26 +288,19 @@ class ProjectViewModel(
 
     fun undoComplete(task: Task) {
         viewModelScope.launch {
-            _uiState.update { it.copy(completedTaskIds = it.completedTaskIds - task.id) }
-            // The row still renders done=false (Room is never flipped on complete — the
-            // strikethrough is driven by completedTaskIds), and toggleDone flips whatever
-            // it's handed. Pass done=true so it reverts to done=false remotely; passing the
-            // raw task would re-send done=true and the completion would survive a refresh.
-            taskRepository.toggleDone(task.copy(done = true))
+            // Draw the row as open at once but keep it in place until the task is stored as
+            // open again. setDone is idempotent: it reopens the task whatever state it is in now.
+            completions.undoing(task.id)
+            val result = taskRepository.setDone(task.id, false)
+            completions.release(task.id)
+            if (result is NetworkResult.Error) _uiState.update { it.copy(error = result.message) }
         }
     }
 
     /** Swipe-schedule: applies the configured Today/Urgent action via the repository. */
-    fun scheduleTask(task: Task) {
+    fun scheduleTask(taskId: Long) {
         viewModelScope.launch {
-            taskRepository.applyScheduleAction(task)
-        }
-    }
-
-    fun rescheduleTask(task: Task, newDueDate: String) {
-        viewModelScope.launch {
-            val updated = task.copy(dueDate = newDueDate)
-            taskRepository.update(updated)
+            taskRepository.applyScheduleAction(taskId)
         }
     }
 

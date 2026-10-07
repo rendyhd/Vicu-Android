@@ -6,25 +6,27 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import androidx.core.content.edit
 import com.rendyhd.vicu.data.local.RoutinePrefsStore
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.util.RoutineScheduleEngine
+import com.rendyhd.vicu.util.TimeSource
 import kotlinx.coroutines.flow.first
-import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atTime
 import kotlinx.datetime.plus
-import kotlinx.datetime.todayIn
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.toInstant
 
 class RoutineAlarmScheduler(
     private val context: Context,
     private val repository: RoutineRepository,
     private val prefsStore: RoutinePrefsStore,
+    private val time: TimeSource,
 ) {
     companion object {
         private const val TAG = "RoutineAlarmScheduler"
@@ -39,9 +41,10 @@ class RoutineAlarmScheduler(
         cancelAll()
         if (!prefsStore.remindersEnabled.first()) return
 
-        val timeZone = TimeZone.currentSystemDefault()
-        val today = Clock.System.todayIn(timeZone)
-        val now = Clock.System.now().toEpochMilliseconds()
+        val timeZone = time.zone()
+        val nowInstant = time.now()
+        val today = nowInstant.toLocalDateTime(timeZone).date
+        val now = nowInstant.toEpochMilliseconds()
         val requestCodes = mutableSetOf<String>()
         val routines = repository.observeActive().first()
 
@@ -66,7 +69,7 @@ class RoutineAlarmScheduler(
                     }
             }
         }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putStringSet(KEY_IDS, requestCodes).apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putStringSet(KEY_IDS, requestCodes) }
         Log.d(TAG, "Scheduled ${requestCodes.size} routine alarms")
     }
 
@@ -99,7 +102,8 @@ class RoutineAlarmScheduler(
         }
     }
 
-    private fun cancelAll() {
+    /** Cancels every routine alarm that is registered (sign-out, account switch). */
+    fun cancelAll() {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs.getStringSet(KEY_IDS, emptySet()).orEmpty().forEach { raw ->
             val requestCode = raw.toIntOrNull() ?: return@forEach
@@ -114,7 +118,7 @@ class RoutineAlarmScheduler(
                 pending.cancel()
             }
         }
-        prefs.edit().remove(KEY_IDS).apply()
+        prefs.edit { remove(KEY_IDS) }
     }
 
     private fun requestCode(occurrenceKey: String, followUp: Boolean): Int =

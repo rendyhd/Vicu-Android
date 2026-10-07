@@ -1,11 +1,15 @@
 package com.rendyhd.vicu.ui.screens.logbook
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -13,13 +17,16 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
@@ -33,7 +40,9 @@ fun LogbookScreen(
     onNavigateToSearch: () -> Unit = {},
     viewModel: LogbookViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
 
     Scaffold(
@@ -63,7 +72,7 @@ fun LogbookScreen(
                         )
                     }
                 } else {
-                    items(state.tasks, key = { it.id }) { task ->
+                    items(state.tasks, key = { it.id }, contentType = { "task" }) { task ->
                         TaskItem(
                             task = if (task.id in state.uncompletedTaskIds) task.copy(done = false) else task,
                             onToggleDone = {
@@ -78,6 +87,23 @@ fun LogbookScreen(
                         onSubtaskClick = { child -> onTaskClick(child.id) },
                         modifier = Modifier.animateItem(),
                         )
+                    }
+                    if (state.hasMore) {
+                        item(key = "logbook-more", contentType = "more") {
+                            // Reaching the end of what is loaded asks for the next older page; the
+                            // button is the way to try again when that fetch failed.
+                            LaunchedEffect(state.pagesLoaded) { viewModel.loadMore() }
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (state.isLoadingMore) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                                } else {
+                                    TextButton(onClick = viewModel::loadMore) { Text("Load older tasks") }
+                                }
+                            }
+                        }
                     }
                 }
             }

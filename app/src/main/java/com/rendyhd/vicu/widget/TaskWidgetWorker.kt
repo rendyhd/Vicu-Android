@@ -13,9 +13,12 @@ import com.rendyhd.vicu.data.local.WidgetPrefsStore
 import com.rendyhd.vicu.data.local.dao.ProjectDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.TaskEntity
-import com.rendyhd.vicu.data.mapper.TaskMapper
-import com.rendyhd.vicu.util.CustomListFilterBuilder
-import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.domain.repository.customListTasks
+import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.DueDates
+import com.rendyhd.vicu.util.TimeSource
 import kotlinx.coroutines.flow.first
 
 class TaskWidgetWorker(
@@ -23,11 +26,13 @@ class TaskWidgetWorker(
     workerParams: WorkerParameters,
     private val taskDao: TaskDao,
     private val projectDao: ProjectDao,
-    private val taskMapper: TaskMapper,
+    private val taskRepository: TaskRepository,
     private val secureTokenStorage: TokenStorage,
     private val customListStore: CustomListStore,
     private val widgetPrefsStore: WidgetPrefsStore,
     private val behaviorPrefsStore: BehaviorPrefsStore,
+    private val dayClock: DayClock,
+    private val time: TimeSource,
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -55,7 +60,7 @@ class TaskWidgetWorker(
                     val state = TaskWidgetState(
                         tasks = emptyList(),
                         totalCount = 0,
-                        lastUpdated = DateUtils.nowIso(),
+                        lastUpdated = time.now().toString(),
                         error = "Log in to see your tasks",
                     )
                     updateAppWidgetState(
@@ -101,18 +106,18 @@ class TaskWidgetWorker(
 
                 val projectUnavailable = resolvedConfig.viewType == WidgetViewType.PROJECT &&
                     resolvedConfig.viewId.toLongOrNull() !in activeProjectIds
-                val entities = queryTasks(resolvedConfig).filter { it.projectId in activeProjectIds }
-                Log.d(TAG, "Widget $appWidgetId query returned ${entities.size} tasks (viewType=${resolvedConfig.viewType})")
+                val rows = queryTasks(resolvedConfig, activeProjectIds).filter { it.projectId in activeProjectIds }
+                Log.d(TAG, "Widget $appWidgetId query returned ${rows.size} tasks (viewType=${resolvedConfig.viewType})")
 
-                val totalCount = entities.size
-                val widgetTasks = entities.take(MAX_WIDGET_TASKS).map { entity ->
+                val totalCount = rows.size
+                val widgetTasks = rows.take(MAX_WIDGET_TASKS).map { row ->
                     WidgetTaskItem(
-                        id = entity.id,
-                        title = entity.title,
-                        projectName = projectNameMap[entity.projectId] ?: "",
-                        dueDate = entity.dueDate,
-                        priority = entity.priority,
-                        done = entity.done,
+                        id = row.id,
+                        title = row.title,
+                        projectName = projectNameMap[row.projectId] ?: "",
+                        dueDate = row.dueDate,
+                        priority = row.priority,
+                        done = row.done,
                     )
                 }
 
@@ -130,7 +135,7 @@ class TaskWidgetWorker(
                     viewName = resolvedConfig.viewName,
                     tasks = widgetTasks,
                     totalCount = totalCount,
-                    lastUpdated = DateUtils.nowIso(),
+                    lastUpdated = time.now().toString(),
                     smartAdd = smartAddEnabled,
                     contextNav = contextNavEnabled,
                     addToProjectId = addToProjectId,
@@ -159,46 +164,59 @@ class TaskWidgetWorker(
         }
     }
 
-    private suspend fun queryTasks(config: WidgetConfig): List<TaskEntity> {
-        val endOfToday = DateUtils.getEndOfToday()
+    /** What the widget needs of a task, whichever query it came from. */
+    private class WidgetRow(
+        val id: Long,
+        val title: String,
+        val projectId: Long,
+        val dueDate: String,
+        val priority: Int,
+        val done: Boolean,
+    )
+
+    private fun TaskEntity.toRow() = WidgetRow(id, title, projectId, dueDate, priority, done)
+
+    private fun Task.toRow() = WidgetRow(id, title, projectId, dueDate, priority, done)
+
+    private suspend fun queryTasks(config: WidgetConfig, activeProjectIds: Set<Long>): List<WidgetRow> {
+        // The same boundary as the Today and Upcoming screens: the start of the local tomorrow. The
+        // day is re-read first, because this runs from a worker that may wake long after the
+        // clock last ticked.
+        dayClock.refresh()
+        val day = dayClock.day.value
+        val startOfTomorrow = DueDates.startOfTomorrow(day.date, day.zone).toString()
         val inboxId = secureTokenStorage.getInboxProjectId() ?: 0L
-        Log.d(TAG, "queryTasks: viewType=${config.viewType}, endOfToday=$endOfToday, inboxId=$inboxId")
+        Log.d(TAG, "queryTasks: viewType=${config.viewType}, startOfTomorrow=$startOfTomorrow, inboxId=$inboxId")
 
         return when (config.viewType) {
             WidgetViewType.TODAY ->
-                taskDao.getTodayTasksSync(endOfToday, MAX_WIDGET_TASKS)
+                taskDao.getTodayTasksSync(startOfTomorrow, MAX_WIDGET_TASKS).map { it.toRow() }
 
             WidgetViewType.INBOX ->
                 taskDao.getInboxTasksSync(
                     inboxId,
                     MAX_WIDGET_TASKS,
                     includeDated = !behaviorPrefsStore.getPrefs().first().inboxExcludeDated,
-                )
+                ).map { it.toRow() }
 
             WidgetViewType.UPCOMING ->
-                taskDao.getUpcomingTasksSync(endOfToday, MAX_WIDGET_TASKS)
+                taskDao.getUpcomingTasksSync(startOfTomorrow, MAX_WIDGET_TASKS).map { it.toRow() }
 
             WidgetViewType.ANYTIME ->
-                taskDao.getAnytimeTasksSync(inboxId, MAX_WIDGET_TASKS)
+                taskDao.getAnytimeTasksSync(inboxId, MAX_WIDGET_TASKS).map { it.toRow() }
 
             WidgetViewType.PROJECT -> {
                 val projectId = config.viewId.toLongOrNull() ?: 0L
-                taskDao.getByProjectIdSync(projectId, MAX_WIDGET_TASKS)
+                taskDao.getByProjectIdSync(projectId, MAX_WIDGET_TASKS).map { it.toRow() }
             }
 
             WidgetViewType.CUSTOM_LIST -> {
                 val customList = customListStore.getById(config.viewId).first()
                 if (customList != null) {
-                    val allTasks = taskDao.getAllOpenTasksSync(200)
-                    val domainTasks = allTasks.map { with(taskMapper) { it.toDomain() } }
-                    val filtered = CustomListFilterBuilder.sortTasks(
-                        CustomListFilterBuilder.applyClientSideFilters(domainTasks, customList.filter),
-                        customList.filter.sortBy,
-                        customList.filter.orderBy,
-                    )
-                    // Convert back to entities for uniform handling, preserving the sorted order.
-                    val entitiesById = allTasks.associateBy { it.id }
-                    filtered.mapNotNull { entitiesById[it.id] }.take(MAX_WIDGET_TASKS)
+                    // The same source and evaluator as the list screen: every task (done ones when
+                    // the list includes them), not a capped sample, filtered and sorted the same.
+                    taskRepository.customListTasks(customList.filter, day.date, day.zone, activeProjectIds)
+                        .map { it.toRow() }
                 } else {
                     emptyList()
                 }
