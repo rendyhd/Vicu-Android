@@ -104,12 +104,14 @@ class InboxProjectFlowViewModelsTest {
         assertNull(vm.uiState.value.inboxProjectId)
         assertFalse(vm.uiState.value.isLoading, "no Inbox yet is not an endless spinner")
         assertTrue(vm.uiState.value.tasks.isEmpty())
+        assertEquals("No Inbox project is selected. Choose one in Settings.", vm.uiState.value.error)
 
         auth.manager.onInboxProjectSelected(5)
         runCurrent()
 
         assertEquals(5L, vm.uiState.value.inboxProjectId)
         assertEquals(listOf(1L), vm.uiState.value.tasks.map { it.id })
+        assertNull(vm.uiState.value.error, "the notice goes away once an Inbox is chosen")
         auth.scope.cancel()
     }
 

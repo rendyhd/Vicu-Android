@@ -41,6 +41,8 @@ class InboxViewModel(
         private const val TAG = "InboxViewModel"
         private const val ARCHIVED_MESSAGE =
             "Your Inbox project is archived. Select an active Inbox project in Settings."
+        private const val NO_INBOX_MESSAGE =
+            "No Inbox project is selected. Choose one in Settings."
     }
 
     private val _uiState = MutableStateFlow(InboxUiState())
@@ -60,7 +62,9 @@ class InboxViewModel(
                 Log.d(TAG, "inboxProjectId=$inboxId")
                 _uiState.update { it.copy(inboxProjectId = inboxId) }
                 if (inboxId == null) {
-                    _uiState.update { it.copy(tasks = emptyList(), isLoading = false) }
+                    // Signed in but not set up (the app was closed between sign-in and choosing the
+                    // Inbox): say so, and carry on when the choice is made.
+                    _uiState.update { it.copy(tasks = emptyList(), isLoading = false, error = NO_INBOX_MESSAGE) }
                     return@collectLatest
                 }
                 combine(
@@ -77,9 +81,9 @@ class InboxViewModel(
                             isLoading = false,
                             error = when {
                                 !inboxIsActive -> ARCHIVED_MESSAGE
-                                // Only the archived notice goes away once the project is active again;
-                                // a refresh error that is waiting to be shown stays.
-                                it.error == ARCHIVED_MESSAGE -> null
+                                // Only these notices go away once the Inbox is usable again; a refresh
+                                // error that is waiting to be shown stays.
+                                it.error == ARCHIVED_MESSAGE || it.error == NO_INBOX_MESSAGE -> null
                                 else -> it.error
                             },
                         )
