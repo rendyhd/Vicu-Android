@@ -94,7 +94,10 @@ fun TaskItem(
     confirmRootCompletion: Boolean = true,
 ) {
     val directSubtasks = task.relatedTasks[RelationKind.SUBTASK].orEmpty()
-    val (completedSubtasks, subtaskCount) = task.subtaskProgress()
+    // Walking the subtask tree and parsing the description are per-row work: done again only when
+    // the thing they read changes, not on every recomposition while the list scrolls.
+    val (completedSubtasks, subtaskCount) = remember(task.relatedTasks) { task.subtaskProgress() }
+    val hasNotes = remember(task.description) { TaskLinkParser.hasNotesContent(task.description) }
     val displayMode = LocalSubtaskDisplayMode.current
     var subtasksExpanded by rememberSaveable(task.id) { mutableStateOf(false) }
     var pendingCompletion by remember { mutableStateOf<Task?>(null) }
@@ -184,7 +187,7 @@ fun TaskItem(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 TaskLinkIcons(description = task.description)
-                if (TaskLinkParser.hasNotesContent(task.description)) {
+                if (hasNotes) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Outlined.Notes,
                         contentDescription = "Has notes",
@@ -311,7 +314,7 @@ private fun InlineSubtaskTree(
     Column {
         subtasks.forEach { child ->
             val nested = child.relatedTasks[RelationKind.SUBTASK].orEmpty()
-            val (completed, total) = child.subtaskProgress()
+            val (completed, total) = remember(child.relatedTasks) { child.subtaskProgress() }
             var expanded by rememberSaveable(child.id) { mutableStateOf(false) }
             Row(
                 modifier = Modifier
@@ -402,8 +405,13 @@ fun AnimatedCheckbox(
     val checkProgress = remember { Animatable(if (done) 1f else 0f) }
     // Scale bounce: 1f = normal
     val scaleAnim = remember { Animatable(1f) }
+    // The state the checkbox was drawn in. A row that is composed already done (scrolling into
+    // view, opening a screen) starts in its final state and must not play the completion bounce.
+    var shownDone by remember { mutableStateOf(done) }
 
     LaunchedEffect(done) {
+        if (done == shownDone) return@LaunchedEffect
+        shownDone = done
         if (done) {
             // Animate in: fill → checkmark → bounce
             fillProgress.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
@@ -516,9 +524,14 @@ fun TaskDueBadge(
     // Reading LocalClockDay makes the badge recompose when the day or the time zone changes.
     val day = LocalClockDay.current
     val is24Hour = LocalIs24Hour.current
-    val isOverdue = DateUtils.isOverdue(dueDate, day.date, day.zone)
-    val isToday = DateUtils.isToday(dueDate, day.date, day.zone)
-    val label = DateUtils.formatDueDate(dueDate, day.date, is24Hour, day.zone)
+    val badge = remember(dueDate, day, is24Hour) {
+        DueBadge(
+            isOverdue = DateUtils.isOverdue(dueDate, day.date, day.zone),
+            isToday = DateUtils.isToday(dueDate, day.date, day.zone),
+            label = DateUtils.formatDueDate(dueDate, day.date, is24Hour, day.zone),
+        )
+    }
+    val (isOverdue, isToday, label) = badge
 
     val bgColor = when {
         isOverdue -> Color(0xFFEF4444).copy(alpha = 0.12f)
@@ -541,6 +554,9 @@ fun TaskDueBadge(
         maxLines = 1,
     )
 }
+
+/** What a due badge shows, worked out once per (date, day, clock style). */
+private data class DueBadge(val isOverdue: Boolean, val isToday: Boolean, val label: String)
 
 @Composable
 private fun PriorityDot(
@@ -575,7 +591,8 @@ fun LabelChip(
     hexColor: String,
     modifier: Modifier = Modifier,
 ) {
-    val chipColor = parseHexColor(hexColor) ?: MaterialTheme.colorScheme.primary
+    val primary = MaterialTheme.colorScheme.primary
+    val chipColor = remember(hexColor, primary) { parseHexColor(hexColor) ?: primary }
 
     Text(
         text = title,

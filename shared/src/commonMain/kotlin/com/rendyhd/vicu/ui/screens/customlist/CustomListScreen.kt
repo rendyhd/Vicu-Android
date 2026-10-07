@@ -138,7 +138,7 @@ fun CustomListScreen(
                         )
                     }
                 } else {
-                    items(state.tasks, key = { it.id }) { task ->
+                    items(state.tasks, key = { it.id }, contentType = { "task" }) { task ->
                         val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
                         SwipeableTaskItem(
                             task = displayTask,

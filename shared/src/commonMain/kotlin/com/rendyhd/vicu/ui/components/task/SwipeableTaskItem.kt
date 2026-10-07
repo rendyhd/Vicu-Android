@@ -68,7 +68,6 @@ fun SwipeableTaskItem(
 ) {
     val haptic = LocalHapticFeedback.current
     var showCompletionConfirmation by remember { mutableStateOf(false) }
-    val unfinishedSubtaskCount = task.unfinishedDescendants().size
 
     // rememberSwipeToDismissBoxState keeps the state object (and the confirmValueChange it was
     // created with) for the row's whole lifetime, but the row stays composed while its task is
@@ -92,15 +91,16 @@ fun SwipeableTaskItem(
     // actually dragged at least half way. If the offset or row width is unavailable (cannot
     // happen in practice once a real drag has occurred), the action is suppressed rather
     // than fired.
-    var rowWidthPx by remember { mutableStateOf(0f) }
-    var dismissStateRef by remember { mutableStateOf<SwipeToDismissBoxState?>(null) }
+    // The row width and the state are only read from the callback, never drawn: plain fields, so a
+    // layout pass does not write observable state once per row.
+    val rowRefs = remember { SwipeRowRefs() }
     var gestureFromEdge by remember { mutableStateOf(false) }
     val dismissState = rememberSwipeToDismissBoxState(
         positionalThreshold = { totalDistance -> totalDistance * 0.5f },
         confirmValueChange = { value ->
-            val draggedFraction = dismissStateRef
+            val draggedFraction = rowRefs.dismissState
                 ?.let { state -> runCatching { abs(state.requireOffset()) }.getOrNull() }
-                ?.let { offset -> if (rowWidthPx > 0f) offset / rowWidthPx else 0f }
+                ?.let { offset -> if (rowRefs.widthPx > 0f) offset / rowRefs.widthPx else 0f }
                 ?: 0f
             if (draggedFraction >= 0.5f) {
                 when (value) {
@@ -113,7 +113,7 @@ fun SwipeableTaskItem(
             false
         },
     )
-    SideEffect { dismissStateRef = dismissState }
+    SideEffect { rowRefs.dismissState = dismissState }
 
     // One haptic per threshold crossing (edge-triggered via targetValue).
     LaunchedEffect(dismissState) {
@@ -142,7 +142,7 @@ fun SwipeableTaskItem(
         )
         if (showCompletionConfirmation) {
             CompletionConfirmationDialog(
-                unfinishedSubtaskCount = unfinishedSubtaskCount,
+                unfinishedSubtaskCount = currentTask.unfinishedDescendants().size,
                 onConfirm = {
                     showCompletionConfirmation = false
                     currentOnToggleDone()
@@ -165,7 +165,7 @@ fun SwipeableTaskItem(
     SwipeToDismissBox(
         state = dismissState,
         modifier = modifier
-            .onSizeChanged { rowWidthPx = it.width.toFloat() }
+            .onSizeChanged { rowRefs.widthPx = it.width.toFloat() }
             .pointerInput(leftDeadZone, rightDeadZone) {
                 val leftPx = leftDeadZone.toPx()
                 val rightPx = rightDeadZone.toPx()
@@ -201,7 +201,7 @@ fun SwipeableTaskItem(
 
     if (showCompletionConfirmation) {
         CompletionConfirmationDialog(
-            unfinishedSubtaskCount = unfinishedSubtaskCount,
+            unfinishedSubtaskCount = currentTask.unfinishedDescendants().size,
             onConfirm = {
                 showCompletionConfirmation = false
                 currentOnToggleDone()
@@ -209,6 +209,12 @@ fun SwipeableTaskItem(
             onDismiss = { showCompletionConfirmation = false },
         )
     }
+}
+
+/** The row's width and swipe state, read by the swipe callback only. Not observable on purpose. */
+private class SwipeRowRefs {
+    var widthPx: Float = 0f
+    var dismissState: SwipeToDismissBoxState? = null
 }
 
 /**

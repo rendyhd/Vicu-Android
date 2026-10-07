@@ -156,7 +156,7 @@ fun ProjectScreen(
                     }
                 } else {
                     // Unsectioned tasks (directly in parent project)
-                    items(state.unsectionedTasks, key = { it.id }) { task ->
+                    items(state.unsectionedTasks, key = { it.id }, contentType = { "task" }) { task ->
                         val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
                         val canDrag = !selectionActive &&
                             task.id !in state.completedTaskIds &&
@@ -401,7 +401,7 @@ private fun LazyListScope.projectSectionItems(
         }
 
         if (section.isExpanded) {
-            items(section.tasks, key = { it.id }) { task ->
+            items(section.tasks, key = { it.id }, contentType = { "task" }) { task ->
                 val displayTask = if (task.id in completedTaskIds) task.copy(done = true) else task
                 val canDrag = !selectionActive &&
                     task.id !in completedTaskIds &&

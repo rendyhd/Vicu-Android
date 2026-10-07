@@ -19,6 +19,7 @@ import com.rendyhd.vicu.ui.navigation.DrawerViewModel
 import com.rendyhd.vicu.ui.screens.anytime.AnytimeViewModel
 import com.rendyhd.vicu.ui.screens.inbox.InboxViewModel
 import com.rendyhd.vicu.ui.screens.review.ReviewViewModel
+import com.rendyhd.vicu.util.AppDispatchers
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.SchedulerTimeSource
 import com.rendyhd.vicu.worker.FakeCustomListRepository
@@ -195,6 +196,7 @@ class InboxProjectFlowViewModelsTest {
             labelOrderPrefsStore = LabelOrderPrefsStore(InMemoryPreferencesDataStore()),
             behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
             dayClock = DayClock(backgroundScope, time),
+            dispatchers = AppDispatchers(Dispatchers.Unconfined),
         )
     }
 

@@ -74,7 +74,7 @@ fun LogbookScreen(
                         )
                     }
                 } else {
-                    items(state.tasks, key = { it.id }) { task ->
+                    items(state.tasks, key = { it.id }, contentType = { "task" }) { task ->
                         TaskItem(
                             task = if (task.id in state.uncompletedTaskIds) task.copy(done = false) else task,
                             onToggleDone = {

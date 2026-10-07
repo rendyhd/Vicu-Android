@@ -144,7 +144,7 @@ fun AnytimeScreen(
 
                         if (group.isExpanded) {
                             // Unsectioned tasks (directly in parent project)
-                            items(group.unsectionedTasks, key = { it.id }) { task ->
+                            items(group.unsectionedTasks, key = { it.id }, contentType = { "task" }) { task ->
                                 val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
                                 SwipeableTaskItem(
                                     task = displayTask,
@@ -198,7 +198,7 @@ fun AnytimeScreen(
                                 }
 
                                 if (section.isExpanded) {
-                                    items(section.tasks, key = { it.id }) { task ->
+                                    items(section.tasks, key = { it.id }, contentType = { "task" }) { task ->
                                         val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
                                         SwipeableTaskItem(
                                             task = displayTask,

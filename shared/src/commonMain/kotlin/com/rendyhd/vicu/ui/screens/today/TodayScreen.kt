@@ -279,7 +279,7 @@ private fun LazyListScope.taskGroupItems(
             )
         }
         if (group.isExpanded) {
-            items(group.tasks, key = { it.id }) { task ->
+            items(group.tasks, key = { it.id }, contentType = { "task" }) { task ->
                 val displayTask =
                     if (task.id in state.completedTaskIds) task.copy(done = true) else task
                 SwipeableTaskItem(

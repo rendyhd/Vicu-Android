@@ -121,7 +121,7 @@ fun SearchScreen(
                     )
                 }
             } else {
-                items(state.results, key = { it.id }) { task ->
+                items(state.results, key = { it.id }, contentType = { "task" }) { task ->
                     TaskItem(
                         task = if (task.id in state.completedTaskIds) task.copy(done = true) else task,
                         onToggleDone = {
