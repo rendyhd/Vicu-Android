@@ -1,12 +1,10 @@
 import java.util.Properties
 
 plugins {
+    // Kotlin support is built into the Android application plugin since AGP 9.
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.room)
 }
 
 kotlin {
@@ -81,10 +79,6 @@ android {
     }
 }
 
-room {
-    schemaDirectory("$projectDir/schemas")
-}
-
 dependencies {
     implementation(project(":shared"))
     // AndroidX Core
@@ -108,10 +102,6 @@ dependencies {
     implementation(libs.koin.androidx.workmanager)
     implementation(libs.koin.compose)
     implementation(libs.koin.compose.viewmodel)
-
-    // Room
-    implementation(libs.room.runtime)
-    ksp(libs.room.compiler)
 
     // Networking
     implementation(libs.okhttp)
@@ -144,6 +134,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.koin.test)
     testImplementation(libs.kotlinx.coroutines.test)
+    // KoinGraphTest builds the generated Room database class, whose supertype lives here.
+    testImplementation(libs.room.runtime)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
