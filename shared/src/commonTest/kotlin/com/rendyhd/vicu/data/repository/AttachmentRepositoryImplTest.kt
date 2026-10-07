@@ -51,6 +51,10 @@ class FakeAttachmentDao : AttachmentDao {
     override suspend fun deleteById(id: Long) {
         rows.value = rows.value.filter { it.id != id }
     }
+
+    override suspend fun deleteByTaskId(taskId: Long) {
+        rows.value = rows.value.filter { it.taskId != taskId }
+    }
 }
 
 /** What the mock server saw: method, path, and the body as text when there was one. */
@@ -115,6 +119,31 @@ class AttachmentRepositoryImplTest {
                 else -> error("Unexpected ${request.method.value} ${request.url.encodedPath}")
             }
         }
+    }
+
+    // ---- refresh -----------------------------------------------------------------------------
+
+    @Test
+    fun `a refresh drops attachments deleted elsewhere and keeps other tasks' ones`() = runTest {
+        val h = Harness { request, _ ->
+            when {
+                request.method == HttpMethod.Get && request.url.encodedPath == "/tasks/5/attachments" ->
+                    json(page(attachmentJson(9)))
+                else -> error("Unexpected ${request.method.value} ${request.url.encodedPath}")
+            }
+        }
+        h.dao.upsertAll(
+            listOf(
+                AttachmentEntity(id = 8, taskId = 5, fileName = "deleted elsewhere.txt"),
+                AttachmentEntity(id = 9, taskId = 5, fileName = "a.txt"),
+                AttachmentEntity(id = 20, taskId = 6, fileName = "other task.txt"),
+            ),
+        )
+
+        assertTrue(h.repository.refreshForTask(5) is NetworkResult.Success)
+
+        assertEquals(listOf(9L), h.dao.getByTaskId(5).first().map { it.id })
+        assertEquals(listOf(20L), h.dao.getByTaskId(6).first().map { it.id })
     }
 
     // ---- upload ------------------------------------------------------------------------------

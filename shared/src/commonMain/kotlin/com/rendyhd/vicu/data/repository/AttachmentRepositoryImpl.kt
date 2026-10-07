@@ -81,7 +81,7 @@ class AttachmentRepositoryImpl(
                 ?: return NetworkResult.Error("Upload succeeded but new attachment not found")
 
             val afterEntities = afterDtos.map { with(attachmentMapper) { it.toEntity(taskId) } }
-            attachmentDao.upsertAll(afterEntities)
+            attachmentDao.replaceForTask(taskId, afterEntities)
 
             val newEntity = with(attachmentMapper) { newDto.toEntity(taskId) }
             NetworkResult.Success(with(attachmentMapper) { newEntity.toDomain() })
@@ -128,8 +128,12 @@ class AttachmentRepositoryImpl(
         return try {
             val dtos = api.getAttachments(taskId)
             val entities = dtos.map { with(attachmentMapper) { it.toEntity(taskId) } }
-            attachmentDao.upsertAll(entities)
+            // The server's list is the whole list: an attachment deleted on another device goes.
+            // Uploads are never kept only here (they go straight to the server), so nothing local is lost.
+            attachmentDao.replaceForTask(taskId, entities)
             NetworkResult.Success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             NetworkResult.Error(e.message ?: "Failed to refresh attachments")
         }
