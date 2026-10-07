@@ -26,6 +26,8 @@ import kotlin.time.Duration.Companion.minutes
  * - a date-only phrase is judged against the reference *day*, never against the clock, so
  *   "tuesday" typed on a Tuesday evening is today and not next week;
  * - three-letter weekday abbreviations only count after on/next/this/by/due or before a time;
+ * - a weekday directly followed by another date is a word of the title ("call Ana about Saturday
+ *   tomorrow"), and "friday next week" is "next friday";
  * - the connectors on/by/due (and `at` before a time) go with the date they introduce;
  * - slash dates follow the locale's day/month order;
  * - "now" is never a date.
@@ -191,6 +193,8 @@ private class Atom(
      * already passed today goes with it (then it means next week).
      */
     val movesWhenTimePassed: Boolean = false,
+    /** A DATE atom named by a weekday ("friday", "next friday", "friday next week"). */
+    val weekday: Boolean = false,
 )
 
 /** One or two atoms next to each other: a date, a time, or a date and a time. */
@@ -304,15 +308,18 @@ private fun findAtoms(working: String, consumed: List<IntRange>, options: DateOp
     }
 
     for (m in WEEKDAY_RE.findAll(working)) {
-        val modifier = m.groupValues[1].lowercase()
+        val prefix = m.groupValues[1].lowercase()
         val name = m.groupValues[2].lowercase()
+        val postfix = m.groupValues[3]
         // An abbreviation is a plain word ("sun cream", "we sat on") unless something marks it.
-        if (name !in FULL_WEEKDAY_NAMES && modifier.isEmpty()) {
+        if (name !in FULL_WEEKDAY_NAMES && prefix.isEmpty()) {
             val before = working.substring(0, m.range.first)
-            val after = working.substring(m.range.last + 1)
+            val after = working.substring(m.range.last + 1 - postfix.length)
             if (!ABBREVIATION_PREFIX_RE.containsMatchIn(before) && !TIME_AFTER_RE.containsMatchIn(after)) continue
         }
         val target = WEEKDAY_BY_PREFIX[name.take(3)] ?: continue
+        // "friday next week" is "next friday", "friday this week" is "this friday".
+        val modifier = prefix.ifEmpty { if (NEXT_WEEK_POSTFIX_RE.containsMatchIn(postfix)) "next" else "" }
         val date = if (modifier == "next") {
             DueDates.nextWeekStart(today).plusDays(target.isoDayNumber - 1)
         } else {
@@ -320,7 +327,7 @@ private fun findAtoms(working: String, consumed: List<IntRange>, options: DateOp
         }
         atoms += Atom(
             AtomKind.DATE, m.range.first, m.range.last + 1,
-            date = date, movesWhenTimePassed = modifier != "next",
+            date = date, movesWhenTimePassed = modifier != "next", weekday = true,
         )
     }
 
@@ -376,7 +383,18 @@ private fun findAtoms(working: String, consumed: List<IntRange>, options: DateOp
             lastEnd = atom.end
         }
     }
-    return selected
+
+    // A weekday directly followed by another date is a word of the title, and the other date is
+    // used: "call Ana about Saturday tomorrow at 3pm" is due tomorrow at 15:00, titled "call Ana
+    // about Saturday". Only spaces or a comma may be between them (text another extractor took
+    // keeps them apart), and a time is not another date ("wed 3pm"); "in 2 hours" is.
+    return selected.filterIndexed { i, atom ->
+        val next = selected.getOrNull(i + 1)
+        val beforeAnotherDate = atom.weekday && next != null && next.kind != AtomKind.TIME &&
+            WEEKDAY_GAP_RE.matches(working.substring(atom.end, next.start)) &&
+            !overlapsConsumed(atom.end, next.start, consumed)
+        !beforeAnotherDate
+    }
 }
 
 private fun dateAtom(match: MatchResult, date: LocalDate): Atom =
@@ -463,7 +481,8 @@ private val RELATIVE_TIME_RE = Regex("""${WB}in\s+(\d+|an?)\s+(hours?|hrs?|minut
 private val RELATIVE_DATE_RE = Regex("""${WB}in\s+(\d+|an?)\s+(days?|weeks?|months?|years?)$WE""", IC)
 private val TODAY_TOMORROW_RE = Regex("""${WB}(today|tomorrow)$WE""", IC)
 private val NEXT_PERIOD_RE = Regex("""${WB}next\s+(week|month)$WE""", IC)
-private val WEEKDAY_RE = Regex("""${WB}(?:(this|next)\s+)?($WEEKDAY_NAMES)$WE""", IC)
+private val WEEKDAY_RE = Regex("""${WB}(?:(this|next)\s+)?($WEEKDAY_NAMES)(\s+(?:this|next)\s+week)?$WE""", IC)
+private val NEXT_WEEK_POSTFIX_RE = Regex("""^\s+next\s""", IC)
 private val MONTH_DAY_RE =
     Regex("""${WB}($MONTH_NAMES)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?$WE""", IC)
 private val DAY_MONTH_RE =
@@ -481,4 +500,5 @@ private val TIME_AFTER_RE =
     Regex("""^\s*(?:at\s+)?(?:\d{1,2}:\d{2}|\d{1,2}(?::\d{2})?\s*[ap]m\b)""", IC)
 
 private val GAP_DATE_THEN_TIME_RE = Regex("""[\s,]*""")
+private val WEEKDAY_GAP_RE = Regex("""[\s,]*""")
 private val GAP_TIME_THEN_DATE_RE = Regex("""[\s,]*(?:on[\s,]+)?""", IC)

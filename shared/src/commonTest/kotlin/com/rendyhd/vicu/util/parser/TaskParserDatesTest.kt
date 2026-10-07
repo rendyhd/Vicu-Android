@@ -149,6 +149,63 @@ class TaskParserDatesTest {
         assertEquals("2027-01-15T21:00:00", dueAt("Party 15 jan at 9pm"))
     }
 
+    // --- A weekday next to another date --------------------------------------------------------
+
+    private fun dateRaw(result: ParseResult): List<String> =
+        result.tokens.filter { it.type == TokenType.DATE }.map { it.raw }
+
+    @Test
+    fun `a weekday directly followed by another date stays in the title`() {
+        val r = parseAt("Call Ana about Saturday tomorrow at 3pm")
+        assertEquals("Call Ana about Saturday", r.title)
+        assertEquals("2026-10-07T15:00:00", dueOf(r))
+        assertEquals(listOf("tomorrow at 3pm"), dateRaw(r))
+
+        val cases = listOf(
+            Triple("Party saturday 10/17", "Party saturday", "2026-10-17T23:59:59"),
+            Triple("Call mom Monday in 3 days", "Call mom Monday", "2026-10-09T23:59:59"),
+            Triple("Plan Monday next month", "Plan Monday", "2026-11-06T23:59:59"),
+            Triple("Call Ana about Saturday in 2 hours", "Call Ana about Saturday", "2026-10-06T12:00:00"),
+            // The abbreviation counts because of "on", and then gives way all the same.
+            Triple("Pay rent on sat tomorrow", "Pay rent on sat", "2026-10-07T23:59:59"),
+        )
+        for ((input, title, due) in cases) {
+            val parsed = parseAt(input)
+            assertEquals(title, parsed.title, input)
+            assertEquals(due, dueOf(parsed), input)
+        }
+
+        // A comma between them still counts as directly.
+        val comma = parseAt("Call Ana about Saturday, tomorrow")
+        assertEquals("2026-10-07T23:59:59", dueOf(comma))
+        assertEquals(listOf("tomorrow"), dateRaw(comma))
+    }
+
+    @Test
+    fun `a weekday keeps its time and stays the date when a word comes between`() {
+        assertEquals("2026-10-07T15:00:00", dueAt("Call wed 3pm"))
+        assertEquals("2026-10-10T15:00:00", dueAt("Call saturday at 3pm"))
+
+        val apart = parseAt("Meeting about Friday on Monday")
+        assertEquals("2026-10-09T23:59:59", dueOf(apart))
+        assertEquals(listOf("Friday"), dateRaw(apart))
+    }
+
+    @Test
+    fun `this week and next week after a weekday belong to it`() {
+        val next = parseAt("Meet friday next week")
+        assertEquals("Meet", next.title)
+        assertEquals("2026-10-16T23:59:59", dueOf(next))
+        assertEquals("2026-10-09T23:59:59", dueAt("Meet friday this week"))
+        assertEquals("2026-10-09T23:59:59", dueAt("Meet friday next week", SUNDAY))
+        assertEquals("2026-10-16T15:00:00", dueAt("Meet friday next week at 3pm"))
+
+        // An abbreviation still needs its marker: "fri next week" is only "next week".
+        val abbreviated = parseAt("Meet fri next week")
+        assertEquals("Meet fri", abbreviated.title)
+        assertEquals("2026-10-12T23:59:59", dueOf(abbreviated))
+    }
+
     // --- Slash dates and years -----------------------------------------------------------------
 
     @Test

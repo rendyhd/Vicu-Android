@@ -105,7 +105,7 @@ class NlpCorpusTest {
     @Test
     fun `the corpus is the contract version this parser implements`() {
         assertEquals(1, NlpCorpusFixture.corpus.contractVersion)
-        assertTrue(NlpCorpusFixture.corpus.cases.size >= 74, "the corpus was cut down")
+        assertTrue(NlpCorpusFixture.corpus.cases.size >= 81, "the corpus was cut down")
     }
 
     @Test
