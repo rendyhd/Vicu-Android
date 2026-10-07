@@ -65,6 +65,8 @@ class TaskRepositoryImpl(
     private val refresher: TaskRefresher,
     /** Puts new tasks at the end of their list, after the create has returned, and remembers what it asked. */
     private val positioner: ListPositioner,
+    /** Sends a change to an existing task or queues it; shared with the label repository. */
+    private val writeGate: TaskWriteGate = TaskWriteGate(pendingActionDao),
     /**
      * Where the Room rows of the live lists are mapped to domain tasks (JSON decoding, nesting).
      * Without it that work ran on the collector's dispatcher, the main thread, for every emission
@@ -352,49 +354,56 @@ class TaskRepositoryImpl(
         }
         if (patch.isEmpty()) return NetworkResult.Success(task)
 
-        return try {
-            val requestPatch = if (RoutineEnvelope.hasMarker(task.description)) {
-                val localParsed = RoutineEnvelope.parse(task.description, json)
-                val remoteTask = with(taskMapper) { api.getTask(task.id).toEntity().toDomain() }
-                val remoteParsed = RoutineEnvelope.parse(remoteTask.description, json)
-                val localPayload = localParsed.payload
-                val remotePayload = remoteParsed.payload
-                if (localPayload != null && remotePayload != null) {
-                    val mergedPayload = RoutineEnvelope.mergePayload(localPayload, remotePayload)
-                    val mergedTask = remoteTask.copy(
-                        title = mergedPayload.definition.name,
-                        description = RoutineEnvelope.upsert(remoteParsed.body, mergedPayload, json),
-                        done = true,
-                        dueDate = "",
-                        repeatAfter = 0,
-                        repeatMode = 0,
-                        reminders = emptyList(),
-                    )
-                    MergePatches.task(previous = null, current = mergedTask)
-                } else {
-                    patch
-                }
+        return writeGate.sendOrQueue(
+            taskId = task.id,
+            send = { sendUpdate(task, patch) },
+            queue = {
+                queueTaskAction(task.id, "update", queuedUpdatePayload(task, patch))
+                // The reminders may have changed with this edit; the alarms follow the local row.
+                platformHooks.scheduleAlarm(task)
+                platformHooks.updateWidgets()
+                NetworkResult.Success(task)
+            },
+            refused = { e ->
+                previous?.let { taskDao.upsert(it) }
+                NetworkResult.Error(e.message ?: "Failed to update task")
+            },
+        )
+    }
+
+    private suspend fun sendUpdate(task: Task, patch: JsonObject): NetworkResult<Task> {
+        val requestPatch = if (RoutineEnvelope.hasMarker(task.description)) {
+            val localParsed = RoutineEnvelope.parse(task.description, json)
+            val remoteTask = with(taskMapper) { api.getTask(task.id).toEntity().toDomain() }
+            val remoteParsed = RoutineEnvelope.parse(remoteTask.description, json)
+            val localPayload = localParsed.payload
+            val remotePayload = remoteParsed.payload
+            if (localPayload != null && remotePayload != null) {
+                val mergedPayload = RoutineEnvelope.mergePayload(localPayload, remotePayload)
+                val mergedTask = remoteTask.copy(
+                    title = mergedPayload.definition.name,
+                    description = RoutineEnvelope.upsert(remoteParsed.body, mergedPayload, json),
+                    done = true,
+                    dueDate = "",
+                    repeatAfter = 0,
+                    repeatMode = 0,
+                    reminders = emptyList(),
+                )
+                MergePatches.task(previous = null, current = mergedTask)
             } else {
                 patch
             }
-            val responseDto = api.updateTask(task.id, requestPatch)
-            val responseEntity = with(taskMapper) { responseDto.toEntity() }
-            taskDao.upsert(responseEntity)
-
-            val updated = with(taskMapper) { responseEntity.toDomain() }
-            platformHooks.scheduleAlarm(updated)
-            platformHooks.updateWidgets()
-            NetworkResult.Success(updated)
-        } catch (e: Exception) {
-            if (isRetriableNetworkError(e)) {
-                queueTaskAction(task.id, "update", queuedUpdatePayload(task, patch))
-                platformHooks.updateWidgets()
-                NetworkResult.Success(task)
-            } else {
-                previous?.let { taskDao.upsert(it) }
-                NetworkResult.Error(e.message ?: "Failed to update task")
-            }
+        } else {
+            patch
         }
+        val responseDto = api.updateTask(task.id, requestPatch)
+        val responseEntity = with(taskMapper) { responseDto.toEntity() }
+        taskDao.upsert(responseEntity)
+
+        val updated = with(taskMapper) { responseEntity.toDomain() }
+        platformHooks.scheduleAlarm(updated)
+        platformHooks.updateWidgets()
+        return NetworkResult.Success(updated)
     }
 
     override suspend fun getByIds(ids: Set<Long>): List<Task> =
@@ -492,21 +501,22 @@ class TaskRepositoryImpl(
             platformHooks.updateWidgets()
             return NetworkResult.Success(Unit)
         }
-        return try {
-            platformHooks.cancelAlarm(taskId)
-            taskDao.deleteById(taskId)
-            api.deleteTask(taskId)
-            platformHooks.updateWidgets()
-            NetworkResult.Success(Unit)
-        } catch (e: Exception) {
-            if (isRetriableNetworkError(e)) {
+        platformHooks.cancelAlarm(taskId)
+        taskDao.deleteById(taskId)
+        return writeGate.sendOrQueue(
+            taskId = taskId,
+            send = {
+                api.deleteTask(taskId)
+                platformHooks.updateWidgets()
+                NetworkResult.Success(Unit)
+            },
+            queue = {
                 queueTaskAction(taskId, "delete", "")
                 platformHooks.updateWidgets()
                 NetworkResult.Success(Unit)
-            } else {
-                NetworkResult.Error(e.message ?: "Failed to delete task")
-            }
-        }
+            },
+            refused = { e -> NetworkResult.Error(e.message ?: "Failed to delete task") },
+        )
     }
 
     override suspend fun createSubtask(parentTaskId: Long, subtask: Task): NetworkResult<Task> {
@@ -700,17 +710,19 @@ class TaskRepositoryImpl(
             platformHooks.updateWidgets()
             return NetworkResult.Success(toggled)
         }
-        return try {
-            val responseDto = api.updateTask(subtask.id, patch)
-            val responseEntity = with(taskMapper) { responseDto.toEntity() }
-            taskDao.upsert(responseEntity)
-            val result = with(taskMapper) { responseEntity.toDomain() }
-            updateParentDoneReferences(result, responseDto.done, parentTaskId)
-            if (result.done) platformHooks.cancelAlarm(subtask.id) else platformHooks.scheduleAlarm(result)
-            platformHooks.updateWidgets()
-            NetworkResult.Success(result)
-        } catch (e: Exception) {
-            if (isRetriableNetworkError(e)) {
+        return writeGate.sendOrQueue(
+            taskId = subtask.id,
+            send = {
+                val responseDto = api.updateTask(subtask.id, patch)
+                val responseEntity = with(taskMapper) { responseDto.toEntity() }
+                taskDao.upsert(responseEntity)
+                val result = with(taskMapper) { responseEntity.toDomain() }
+                updateParentDoneReferences(result, responseDto.done, parentTaskId)
+                if (result.done) platformHooks.cancelAlarm(subtask.id) else platformHooks.scheduleAlarm(result)
+                platformHooks.updateWidgets()
+                NetworkResult.Success(result)
+            },
+            queue = {
                 queueTaskAction(
                     subtask.id,
                     "toggle_done",
@@ -719,12 +731,13 @@ class TaskRepositoryImpl(
                 if (toggled.done) platformHooks.cancelAlarm(subtask.id)
                 platformHooks.updateWidgets()
                 NetworkResult.Success(toggled)
-            } else {
+            },
+            refused = { e ->
                 cached?.let { taskDao.upsert(it) }
                 updateParentDoneReferences(current, current.done, parentTaskId)
                 NetworkResult.Error(e.message ?: "Failed to update subtask")
-            }
-        }
+            },
+        )
     }
 
     private suspend fun updateParentDoneReferences(
@@ -847,24 +860,26 @@ class TaskRepositoryImpl(
             platformHooks.updateWidgets()
             return NetworkResult.Success(toggled)
         }
-        return try {
-            val responseDto = api.updateTask(task.id, patch)
-            val responseEntity = with(taskMapper) { responseDto.toEntity() }
-            // Store what the server answered: the task as it is now, with its relations and
-            // attachments. A repeating task comes back still open with its next due date.
-            // Lists keep the row on screen themselves for a moment (CompletionHold).
-            taskDao.upsert(responseEntity)
-            val result = with(taskMapper) { responseEntity.toDomain() }
-            updateParentDoneReferences(toggled, responseDto.done)
-            if (result.done) {
-                platformHooks.cancelAlarm(task.id)
-            } else {
-                platformHooks.scheduleAlarm(result)
-            }
-            platformHooks.updateWidgets()
-            NetworkResult.Success(result)
-        } catch (e: Exception) {
-            if (isRetriableNetworkError(e)) {
+        return writeGate.sendOrQueue(
+            taskId = task.id,
+            send = {
+                val responseDto = api.updateTask(task.id, patch)
+                val responseEntity = with(taskMapper) { responseDto.toEntity() }
+                // Store what the server answered: the task as it is now, with its relations and
+                // attachments. A repeating task comes back still open with its next due date.
+                // Lists keep the row on screen themselves for a moment (CompletionHold).
+                taskDao.upsert(responseEntity)
+                val result = with(taskMapper) { responseEntity.toDomain() }
+                updateParentDoneReferences(toggled, responseDto.done)
+                if (result.done) {
+                    platformHooks.cancelAlarm(task.id)
+                } else {
+                    platformHooks.scheduleAlarm(result)
+                }
+                platformHooks.updateWidgets()
+                NetworkResult.Success(result)
+            },
+            queue = {
                 taskDao.upsert(optimisticDoneEntity(cachedEntity, toggled))
                 queueTaskAction(
                     task.id,
@@ -877,10 +892,9 @@ class TaskRepositoryImpl(
                 }
                 platformHooks.updateWidgets()
                 NetworkResult.Success(toggled)
-            } else {
-                NetworkResult.Error(e.message ?: "Failed to toggle task")
-            }
-        }
+            },
+            refused = { e -> NetworkResult.Error(e.message ?: "Failed to toggle task") },
+        )
     }
 
     override suspend fun deleteLocalByIds(ids: Set<Long>) {

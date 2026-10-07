@@ -106,6 +106,7 @@ val repositoryModule = module {
             storePosition = { taskId, position -> taskDao.updatePosition(taskId, position) },
         )
     }
+    single { TaskWriteGate(pendingActionDao = get()) }
     single<TaskRepository> {
         TaskRepositoryImpl(
             taskDao = get(),
@@ -120,6 +121,7 @@ val repositoryModule = module {
             tempIds = get(),
             refresher = get(),
             positioner = get(),
+            writeGate = get(),
         )
     }
     single<ProjectRepository> {
@@ -144,6 +146,7 @@ val repositoryModule = module {
             json = get(),
             tempIds = get(),
             labelRefresher = get(),
+            writeGate = get(),
         )
     }
     single<AttachmentRepository> {

@@ -227,6 +227,38 @@ class FakePendingActionDao : PendingActionDao {
         id
     }
 
+    override suspend fun getById(id: Long): PendingActionEntity? = lock.withLock { rows[id] }
+
+    override suspend fun deleteById(id: Long) {
+        lock.withLock { rows.remove(id) }
+        version.value++
+    }
+
+    override suspend fun claim(id: Long): Int {
+        val claimed = lock.withLock {
+            val row = rows[id]
+            if (row != null && row.status == "pending") {
+                rows[id] = row.copy(status = "processing")
+                1
+            } else {
+                0
+            }
+        }
+        version.value++
+        return claimed
+    }
+
+    /** `payload LIKE 'taskId:%'` on the label rows, as the SQL does. */
+    override suspend fun countWaitingForTask(taskId: Long, labelPayloadPattern: String): Int = lock.withLock {
+        rows.values.count {
+            it.status in setOf("pending", "processing") && (
+                (it.entityType == "task" && it.entityId == taskId) ||
+                    (it.entityType == "label" && it.actionType in setOf("add_label", "remove_label") &&
+                        sqlLike(labelPayloadPattern, it.payload))
+                )
+        }
+    }
+
     override suspend fun updateStatusOnly(id: Long, status: String) {
         lock.withLock { rows[id]?.let { rows[id] = it.copy(status = status) } }
         version.value++

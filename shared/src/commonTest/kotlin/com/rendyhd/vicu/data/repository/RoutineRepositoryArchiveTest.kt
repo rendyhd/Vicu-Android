@@ -152,11 +152,16 @@ class RoutineRepositoryArchiveTest {
         assertTrue(old1.key in cached.occurrences)
         assertEquals("", cached.prunedBefore)
 
-        // Back online: the next write archives.
+        // Back online: the next write archives. The old history goes to a part on the server at
+        // once; the carrier change joins the one still queued (sent on its own it would be
+        // overwritten when the older one is replayed) and the sync sends both, merged.
         rig.server.failure = { null }
         rig.repository.setOccurrenceStatus("r1", "2026-10-06", "s1", OccurrenceStatus.PENDING)
-        assertEquals("2025-09-01", rig.serverPayload(100).prunedBefore)
         assertTrue(old1.key in rig.serverPart(rig.server.archiveRows().single().id).occurrences)
+        assertEquals(1, rig.pendingActionDao.snapshot().size, "one carrier update waits, merged")
+        val local = checkNotNull(RoutineEnvelope.parse(rig.taskDao.entity(100)!!.description, rig.json).payload)
+        assertEquals("2025-09-01", local.prunedBefore)
+        assertFalse(old1.key in local.occurrences)
     }
 
     @Test

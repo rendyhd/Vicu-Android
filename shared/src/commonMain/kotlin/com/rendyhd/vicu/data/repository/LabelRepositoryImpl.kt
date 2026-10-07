@@ -38,6 +38,8 @@ class LabelRepositoryImpl(
     private val json: Json,
     private val tempIds: TempIdGenerator,
     private val labelRefresher: LabelRefresher,
+    /** Sends a change to an existing task or queues it; shared with the task repository. */
+    private val writeGate: TaskWriteGate = TaskWriteGate(pendingActionDao),
     /** Where Room rows are mapped to domain models: off the main thread; tests pass an unconfined one. */
     private val mappingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : LabelRepository {
@@ -167,39 +169,40 @@ class LabelRepositoryImpl(
         }
     }
 
-    override suspend fun addToTask(taskId: Long, labelId: Long): NetworkResult<Unit> {
-        val result = try {
-            api.addLabelToTask(taskId, LabelTaskDto(labelId = labelId))
-            NetworkResult.Success(Unit)
-        } catch (e: Exception) {
-            if (isRetriableNetworkError(e)) {
-                queueLabelAction(labelId, "add_label", "$taskId:$labelId")
-                patchTaskLabelLocally(taskId, labelId, add = true)
-                return NetworkResult.Success(Unit)
-            } else {
-                NetworkResult.Error(e.message ?: "Failed to add label to task")
-            }
-        }
-        if (result is NetworkResult.Success) refreshCachedTask(taskId)
-        return result
-    }
+    override suspend fun addToTask(taskId: Long, labelId: Long): NetworkResult<Unit> =
+        changeTaskLabel(taskId, labelId, add = true)
 
-    override suspend fun removeFromTask(taskId: Long, labelId: Long): NetworkResult<Unit> {
-        val result = try {
-            api.removeLabelFromTask(taskId, labelId)
-            NetworkResult.Success(Unit)
-        } catch (e: Exception) {
-            if (isRetriableNetworkError(e)) {
-                queueLabelAction(labelId, "remove_label", "$taskId:$labelId")
-                patchTaskLabelLocally(taskId, labelId, add = false)
-                return NetworkResult.Success(Unit)
-            } else {
-                NetworkResult.Error(e.message ?: "Failed to remove label from task")
-            }
-        }
-        if (result is NetworkResult.Success) refreshCachedTask(taskId)
-        return result
-    }
+    override suspend fun removeFromTask(taskId: Long, labelId: Long): NetworkResult<Unit> =
+        changeTaskLabel(taskId, labelId, add = false)
+
+    /**
+     * Adds or removes a label on a task, through the same gate as the task's own changes: queued
+     * while a change for the task waits (it must not overtake a queued add or remove of the same
+     * label, nor a queued create or edit of the task), sent otherwise.
+     */
+    private suspend fun changeTaskLabel(taskId: Long, labelId: Long, add: Boolean): NetworkResult<Unit> =
+        writeGate.sendOrQueue(
+            taskId = taskId,
+            send = {
+                if (add) {
+                    api.addLabelToTask(taskId, LabelTaskDto(labelId = labelId))
+                } else {
+                    api.removeLabelFromTask(taskId, labelId)
+                }
+                refreshCachedTask(taskId)
+                NetworkResult.Success(Unit)
+            },
+            queue = {
+                queueLabelAction(labelId, if (add) "add_label" else "remove_label", "$taskId:$labelId")
+                patchTaskLabelLocally(taskId, labelId, add)
+                NetworkResult.Success(Unit)
+            },
+            refused = { e ->
+                NetworkResult.Error(
+                    e.message ?: if (add) "Failed to add label to task" else "Failed to remove label from task",
+                )
+            },
+        )
 
     override suspend fun refreshAll(): NetworkResult<Unit> {
         return try {

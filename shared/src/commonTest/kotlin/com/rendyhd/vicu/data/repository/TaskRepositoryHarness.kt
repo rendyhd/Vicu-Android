@@ -62,6 +62,8 @@ class TaskRepositoryHarness(
     mappingDispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
     /** The clock the position cache expires by. */
     positionerTime: TimeSource = SystemTimeSource,
+    /** Shared with a label repository when a test needs both behind one gate. */
+    val writeGate: TaskWriteGate = TaskWriteGate(pendingActionDao),
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ) {
     val json: Json = authTestJson
@@ -120,6 +122,7 @@ class TaskRepositoryHarness(
             cursorStore = cursorStore,
         ),
         positioner = positioner,
+        writeGate = writeGate,
         mappingDispatcher = mappingDispatcher,
     )
 

@@ -28,6 +28,19 @@ interface PendingActionDao {
     @Insert
     suspend fun insert(action: PendingActionEntity): Long
 
+    @Query("SELECT * FROM pending_actions WHERE id = :id")
+    suspend fun getById(id: Long): PendingActionEntity?
+
+    @Query("DELETE FROM pending_actions WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    /**
+     * Marks a waiting action as being sent and returns 1, or returns 0 when it is no longer waiting
+     * (merged into a newer action, discarded, or taken by another run since the list was read).
+     */
+    @Query("UPDATE pending_actions SET status = 'processing' WHERE id = :id AND status = 'pending'")
+    suspend fun claim(id: Long): Int
+
     @Query("UPDATE pending_actions SET status = :status WHERE id = :id")
     suspend fun updateStatusOnly(id: Long, status: String)
 
@@ -107,6 +120,24 @@ interface PendingActionDao {
     @Query("SELECT * FROM pending_actions WHERE entityType = :entityType AND entityId = :entityId AND status IN ('pending', 'failed', 'processing')")
     suspend fun getActiveByEntity(entityType: String, entityId: Long): List<PendingActionEntity>
 
+    /**
+     * How many changes for task [taskId] are waiting to be sent or being sent: its own actions and
+     * the label changes on it. Failed ones do not count; the user retries or discards them.
+     */
+    @Query(
+        "SELECT COUNT(*) FROM pending_actions WHERE status IN ('pending', 'processing') AND (" +
+            "(entityType = 'task' AND entityId = :taskId) OR " +
+            "(entityType = 'label' AND actionType IN ('add_label', 'remove_label') AND payload LIKE :labelPayloadPattern))",
+    )
+    suspend fun countWaitingForTask(taskId: Long, labelPayloadPattern: String): Int
+
+    /**
+     * True while the queue holds a change for task [taskId] that has not been sent yet. A new change
+     * to the task must then join the queue: sent directly, it would be overwritten when the older
+     * queued one is replayed. Label changes are queued as "taskId:labelId".
+     */
+    suspend fun hasWaitingForTask(taskId: Long): Boolean = countWaitingForTask(taskId, "$taskId:%") > 0
+
     @Transaction
     suspend fun queueTaskActionMerging(action: PendingActionEntity) {
         val existing = getActiveByEntity(action.entityType, action.entityId)
@@ -129,6 +160,20 @@ interface PendingActionDao {
             }
             is QueueMergeOp.UpdateCreatePayload -> remapEntity(op.createActionId, action.entityId, op.newPayload, "pending")
             QueueMergeOp.DropAll -> deleteByEntity(action.entityType, action.entityId)
+            is QueueMergeOp.QueueBehindCreate -> {
+                val others = existing.filter { it.id != op.createActionId }
+                val mergedPayload = if (action.actionType == "update" || action.actionType == "toggle_done") {
+                    others
+                        .filter { it.actionType == "update" || it.actionType == "toggle_done" }
+                        .fold(action.payload) { combined, old ->
+                            mergePatchPayloads(old.payload, combined, action.entityType)
+                        }
+                } else {
+                    action.payload
+                }
+                others.forEach { deleteById(it.id) }
+                insert(action.copy(payload = mergedPayload))
+            }
         }
     }
 

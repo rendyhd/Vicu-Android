@@ -93,6 +93,10 @@ class SyncEngine(
 
         private val TASK_DEPENDENT_ACTIONS = setOf("update", "toggle_done", "delete")
         private val LABEL_TASK_ACTIONS = setOf("add_label", "remove_label")
+        private val LABEL_DEPENDENT_ACTIONS = setOf("update", "delete")
+
+        /** Passes over the queue per replay; each pass only takes actions queued after the last one. */
+        private const val MAX_REPLAY_PASSES = 5
 
         /**
          * One sync at a time for the whole process. The queue has two unique works ("when online"
@@ -135,63 +139,12 @@ class SyncEngine(
         // The rows those actions protected may differ from the server now; a delta cannot show it.
         if (expired > 0) taskRefresher.requestFullReconcile()
 
-        var hasRetriableFailures = false
-        var pausedForAuth = false
+        val run = RunState()
 
         try {
-            val actions = pendingActionDao.getRetryable()
-                .sortedBy { if (it.entityType == "task" && it.actionType == "create") 0 else 1 }
-            Logger.d(TAG, "Processing ${actions.size} pending actions")
-            val tempIdMap = mutableMapOf<Long, Long>()
+            replayQueue(run)
 
-            for (action in actions) {
-                pendingActionDao.updateStatus(action.id, "processing")
-                try {
-                    processAction(action, tempIdMap)
-                    pendingActionDao.updateStatus(action.id, "completed")
-                    Logger.d(TAG, "Action ${action.id} (${action.entityType}/${action.actionType}) completed")
-                } catch (e: Exception) {
-                    if (e is CancellationException && !currentCoroutineContext().isActive) {
-                        // The run itself was cancelled (for example replaced by an immediate
-                        // sync). That says nothing about the action: put it back untouched and
-                        // stop. A CancellationException from a nested timeout in a still-active
-                        // run is an ordinary failure and falls through.
-                        withContext(NonCancellable) { pendingActionDao.updateStatus(action.id, "pending") }
-                        throw e
-                    }
-                    Logger.e(TAG, "Action ${action.id} failed: ${e.message}", e)
-                    when {
-                        isUnauthorized(e) -> {
-                            // The HTTP client already tried to refresh the token, so the session
-                            // is gone, not this action: keep it untouched and stop, because every
-                            // later action would be refused the same way.
-                            pendingActionDao.updateStatus(action.id, "pending")
-                            pausedForAuth = true
-                        }
-                        resolveMissingResource(action, e, tempIdMap) -> {
-                            // What the change was about no longer exists on the server (or the
-                            // change already happened there), so retrying can never work and
-                            // "failed" would only nag. The local rows were cleaned up.
-                            pendingActionDao.updateStatus(action.id, "completed")
-                        }
-                        isRetriableNetworkError(e) -> {
-                            // Offline, a timeout, a 5xx or a 429: the change is fine, the server is
-                            // not. It stays queued however often that happens (the count is only
-                            // kept for the record); WorkManager's backoff spaces the attempts.
-                            pendingActionDao.updateStatus(action.id, "pending", action.retryCount + 1)
-                            hasRetriableFailures = true
-                        }
-                        // The server refused the change: retrying cannot help. It is shown as a
-                        // failed change the user can retry or discard.
-                        else -> pendingActionDao.markFailed(action.id, DateUtils.nowIso())
-                    }
-                    if (pausedForAuth) break
-                }
-            }
-
-            pendingActionDao.deleteCompleted()
-
-            if (pausedForAuth) {
+            if (run.pausedForAuth) {
                 // The token refresh flags NeedsReAuth; signing in again starts a new run, so no
                 // retry is needed. A 401 without that flag is unexpected: try again later.
                 return authManager.authState.value == AuthState.NeedsReAuth
@@ -199,11 +152,15 @@ class SyncEngine(
 
             when (customListRepository.sync()) {
                 CustomListSyncStatus.Pending,
-                is CustomListSyncStatus.Offline -> hasRetriableFailures = true
+                is CustomListSyncStatus.Offline -> run.hasRetriableFailures = true
                 else -> Unit
             }
             val outcome = refreshAllFromServer()
             uploadLocalRoutineHistory(carriersAuthoritative = outcome?.carriersAuthoritative == true)
+
+            // Changes made while the refresh ran: a trigger during this run did not start another.
+            replayQueue(run)
+            if (run.pausedForAuth) return authManager.authState.value == AuthState.NeedsReAuth
         } catch (e: Exception) {
             Logger.e(TAG, "SyncEngine failed: ${e.message}", e)
             throw e
@@ -211,7 +168,144 @@ class SyncEngine(
             platformHooks.updateWidgets()
         }
 
-        return !hasRetriableFailures
+        return !run.hasRetriableFailures
+    }
+
+    /** What one sync run has done so far. */
+    private class RunState {
+        /** Temporary ids of creates replayed in this run, to the server's ids. */
+        val tempIdMap = mutableMapOf<Long, Long>()
+
+        /** Actions this run has already tried; each is sent at most once per run. */
+        val attempted = HashSet<Long>()
+        var hasRetriableFailures = false
+        var pausedForAuth = false
+    }
+
+    /**
+     * Sends what waits in the queue, creates first. Changes queued while a pass runs (the user kept
+     * editing, or a change joined the queue behind one that was being sent) are sent by a further
+     * pass of the same run instead of waiting for the next one.
+     */
+    private suspend fun replayQueue(run: RunState) {
+        repeat(MAX_REPLAY_PASSES) {
+            val actions = pendingActionDao.getRetryable()
+                .filter { it.id !in run.attempted }
+                .sortedBy { if (it.entityType == "task" && it.actionType == "create") 0 else 1 }
+            if (actions.isEmpty()) return
+            Logger.d(TAG, "Processing ${actions.size} pending actions")
+            for (listed in actions) {
+                run.attempted += listed.id
+                // Merged into a newer action, discarded, or sent by another path since the list was
+                // read: nothing to do. Otherwise it is read again, because a change made meanwhile
+                // may have been folded into it (a queued create takes later edits of its task).
+                if (pendingActionDao.claim(listed.id) == 0) continue
+                val action = pendingActionDao.getById(listed.id) ?: continue
+                replayAction(action, run)
+                if (run.pausedForAuth) break
+            }
+            pendingActionDao.deleteCompleted()
+            if (run.pausedForAuth) return
+        }
+    }
+
+    private suspend fun replayAction(action: PendingActionEntity, run: RunState) {
+        val waitingFor = unresolvedTempId(action, run.tempIdMap)
+        if (waitingFor != null) {
+            holdForCreate(action, waitingFor, run)
+            return
+        }
+        try {
+            processAction(action, run.tempIdMap)
+            pendingActionDao.updateStatus(action.id, "completed")
+            Logger.d(TAG, "Action ${action.id} (${action.entityType}/${action.actionType}) completed")
+        } catch (e: Exception) {
+            if (e is CancellationException && !currentCoroutineContext().isActive) {
+                // The run itself was cancelled (for example replaced by an immediate
+                // sync). That says nothing about the action: put it back untouched and
+                // stop. A CancellationException from a nested timeout in a still-active
+                // run is an ordinary failure and falls through.
+                withContext(NonCancellable) { pendingActionDao.updateStatus(action.id, "pending") }
+                throw e
+            }
+            Logger.e(TAG, "Action ${action.id} failed: ${e.message}", e)
+            when {
+                isUnauthorized(e) -> {
+                    // The HTTP client already tried to refresh the token, so the session
+                    // is gone, not this action: keep it untouched and stop, because every
+                    // later action would be refused the same way.
+                    pendingActionDao.updateStatus(action.id, "pending")
+                    run.pausedForAuth = true
+                }
+                resolveMissingResource(action, e, run.tempIdMap) -> {
+                    // What the change was about no longer exists on the server (or the
+                    // change already happened there), so retrying can never work and
+                    // "failed" would only nag. The local rows were cleaned up.
+                    pendingActionDao.updateStatus(action.id, "completed")
+                }
+                isRetriableNetworkError(e) -> {
+                    // Offline, a timeout, a 5xx or a 429: the change is fine, the server is
+                    // not. It stays queued however often that happens (the count is only
+                    // kept for the record); WorkManager's backoff spaces the attempts.
+                    pendingActionDao.updateStatus(action.id, "pending", action.retryCount + 1)
+                    run.hasRetriableFailures = true
+                }
+                // The server refused the change: retrying cannot help. It is shown as a
+                // failed change the user can retry or discard.
+                else -> pendingActionDao.markFailed(action.id, DateUtils.nowIso())
+            }
+        }
+    }
+
+    /** A task or label created on this device, by the entity type of its create and its temporary id. */
+    private data class TempRef(val entityType: String, val tempId: Long)
+
+    /**
+     * The offline-created task or label [action] is about whose create has not reached the server
+     * yet, or null when every id it names is known to the server.
+     */
+    private fun unresolvedTempId(action: PendingActionEntity, tempIdMap: Map<Long, Long>): TempRef? {
+        fun unresolved(id: Long) = (tempIdMap[id] ?: id) < 0L
+        return when {
+            action.entityType == "task" && action.actionType in TASK_DEPENDENT_ACTIONS ->
+                action.entityId.takeIf(::unresolved)?.let { TempRef("task", it) }
+            action.entityType == "label" && action.actionType in LABEL_TASK_ACTIONS -> {
+                val parts = action.payload.split(":")
+                val taskId = parts.getOrNull(0)?.toLongOrNull() ?: return null
+                val labelId = parts.getOrNull(1)?.toLongOrNull() ?: return null
+                when {
+                    unresolved(taskId) -> TempRef("task", taskId)
+                    unresolved(labelId) -> TempRef("label", labelId)
+                    else -> null
+                }
+            }
+            action.entityType == "label" && action.actionType in LABEL_DEPENDENT_ACTIONS ->
+                action.entityId.takeIf(::unresolved)?.let { TempRef("label", it) }
+            else -> null
+        }
+    }
+
+    /**
+     * [action] needs a task or label that only exists on this device: its create failed in this run
+     * or earlier. Sent with the temporary id it would be refused, or read as "that task is gone"
+     * and drop the local row. It waits for the create instead: pending while the create is retried,
+     * failed beside a create that failed for good (Retry and Discard then cover both), and dropped
+     * when the create is gone (discarded), since there is nothing left to apply it to.
+     */
+    private suspend fun holdForCreate(action: PendingActionEntity, ref: TempRef, run: RunState) {
+        val create = pendingActionDao.getActiveByEntity(ref.entityType, ref.tempId)
+            .firstOrNull { it.actionType == "create" }
+        when (create?.status) {
+            null -> {
+                Logger.w(TAG, "Dropped ${action.entityType}/${action.actionType} ${action.id}: the create of ${ref.tempId} is gone")
+                pendingActionDao.updateStatus(action.id, "completed")
+            }
+            "failed" -> pendingActionDao.markFailed(action.id, DateUtils.nowIso())
+            else -> {
+                pendingActionDao.updateStatus(action.id, "pending")
+                run.hasRetriableFailures = true
+            }
+        }
     }
 
     private fun isUnauthorized(e: Exception): Boolean = when (e) {
@@ -504,12 +598,12 @@ class SyncEngine(
                     JsonObject.serializer(),
                     normalizeQueuedPatchPayload("label", action.payload),
                 )
-                val responseDto = api.updateLabel(action.entityId, patch)
+                val responseDto = api.updateLabel(tempIdMap[action.entityId] ?: action.entityId, patch)
                 val entity = with(labelMapper) { responseDto.toEntity() }
                 labelDao.upsert(entity)
             }
             "delete" -> {
-                api.deleteLabel(action.entityId)
+                api.deleteLabel(tempIdMap[action.entityId] ?: action.entityId)
             }
             "add_label" -> {
                 val parts = action.payload.split(":")
@@ -540,6 +634,9 @@ class SyncEngine(
                         pendingActionDao.remapEntity(a.id, a.entityId, newPayload, "pending")
                     }
                 }
+                // A label edit or delete queued behind its create while that create was being sent.
+                a.entityType == "label" && a.entityId == tempId && a.actionType in LABEL_DEPENDENT_ACTIONS ->
+                    pendingActionDao.remapEntity(a.id, realId, a.payload, "pending")
             }
         }
     }
