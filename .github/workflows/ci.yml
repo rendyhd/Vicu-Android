@@ -1,0 +1,50 @@
+name: CI
+
+# Unit tests, lint and a debug build on every push and pull request. The signed release APK is
+# built separately by release.yml when a GitHub release is published.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+# A pull request branch triggers both a push run and a pull request run for the same commit;
+# they share a group, so only the newest one keeps running.
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # Caches the Gradle distribution, dependencies and build cache between runs.
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test, lint and build the debug APK
+        run: |
+          chmod +x gradlew
+          ./gradlew test lint assembleDebug
+
+      - name: Upload test and lint reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            **/build/reports/tests/
+            **/build/reports/lint-results-*.html
+          if-no-files-found: ignore
