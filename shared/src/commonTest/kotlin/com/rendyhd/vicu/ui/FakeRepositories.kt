@@ -250,9 +250,12 @@ class FakeProjectRepository(initial: List<Project> = emptyList()) : ProjectRepos
     /** Projects passed to [update], in call order. */
     val updates = mutableListOf<Project>()
 
+    /** What [update] answers; a test makes it fail to model a refused change. */
+    var updateResult: (Project) -> NetworkResult<Project> = { NetworkResult.Success(it) }
+
     override suspend fun update(project: Project): NetworkResult<Project> {
         updates += project
-        return NetworkResult.Success(project)
+        return updateResult(project)
     }
     override suspend fun delete(projectId: Long): NetworkResult<Unit> = NetworkResult.Success(Unit)
 

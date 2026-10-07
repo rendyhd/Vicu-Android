@@ -113,6 +113,8 @@ val repositoryModule = module {
             api = get(),
             projectMapper = get(),
             projectRefresher = get(),
+            pendingActionDao = get(),
+            platformHooks = get(),
         )
     }
     single<LabelRepository> {

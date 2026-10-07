@@ -78,6 +78,7 @@ fun ReviewScreen(
         val result = snackbarHostState.showSnackbar(
             message = "Marked \"${prev.title}\" reviewed",
             actionLabel = "Undo",
+            duration = SnackbarDuration.Long,
         )
         if (result == SnackbarResult.ActionPerformed) viewModel.undo() else viewModel.dismissUndo()
     }
@@ -200,7 +201,7 @@ private fun ReviewRow(
                 Icon(Icons.Default.MoreVert, contentDescription = "More")
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                listOf(7, 14, 30, 90).forEach { d ->
+                listOf(7, 14, 30, 60, 90).forEach { d ->
                     DropdownMenuItem(
                         text = { Text("Cadence: every $d days") },
                         onClick = {

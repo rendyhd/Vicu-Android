@@ -234,6 +234,14 @@ class SyncEngine(
                 true
             }
             "label" -> resolveMissingForLabelAction(action, e, tempIdMap)
+            "project" -> {
+                if (action.actionType != "update" || !missing.projectGone(action.entityId, e)) return false
+                projectDao.deleteById(action.entityId)
+                // Its tasks are still cached; the next full reconcile removes them.
+                taskRefresher.requestFullReconcile()
+                Logger.w(TAG, "Project ${action.entityId} no longer exists on the server; dropped ${action.actionType} and the local row")
+                true
+            }
             else -> false
         }
     }
@@ -317,6 +325,7 @@ class SyncEngine(
         when (action.entityType) {
             "task" -> processTaskAction(action, tempIdMap)
             "label" -> processLabelAction(action, tempIdMap)
+            "project" -> processProjectAction(action)
             else -> Logger.w(TAG, "Unknown entity type: ${action.entityType}")
         }
     }
@@ -445,6 +454,18 @@ class SyncEngine(
                 // 409: the pair is already linked (an earlier attempt got this far).
                 if (e.httpStatus != 409) throw e
             }
+        }
+    }
+
+    /** A queued project change is a merge patch: the fields that changed while the server was out of reach. */
+    private suspend fun processProjectAction(action: PendingActionEntity) {
+        when (action.actionType) {
+            "update" -> {
+                val patch = json.decodeFromString(JsonObject.serializer(), action.payload)
+                val responseDto = api.updateProject(action.entityId, patch)
+                projectDao.upsert(with(projectMapper) { responseDto.toEntity() })
+            }
+            else -> Logger.w(TAG, "Unknown project action: ${action.actionType}")
         }
     }
 

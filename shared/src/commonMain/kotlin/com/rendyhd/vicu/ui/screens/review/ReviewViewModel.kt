@@ -11,6 +11,7 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.ReviewMetadata
 import com.rendyhd.vicu.util.ReviewState
 import com.rendyhd.vicu.util.ReviewStatus
@@ -57,6 +58,15 @@ data class ReviewUiState(
     val error: String? = null,
 )
 
+/** What the review lists are built from. */
+private data class ReviewInputs(
+    val projects: List<Project>,
+    val prefs: ReviewPrefs,
+    val inbox: Long?,
+    val reviewed: Set<Long>,
+    val today: LocalDate,
+)
+
 class ReviewViewModel(
     private val projectRepository: ProjectRepository,
     private val taskRepository: TaskRepository,
@@ -85,8 +95,14 @@ class ReviewViewModel(
                 // A review that falls due at midnight shows up without leaving the screen.
                 dayClock.today,
             ) { projects, prefs, inbox, reviewed, today ->
-                buildState(projects, prefs, inbox, reviewed, today, _uiState.value)
-            }.collect { built -> _uiState.value = built }
+                ReviewInputs(projects, prefs, inbox, reviewed, today)
+            }.collect { inputs ->
+                // Built from the state as it is when this runs, so an action or a refresh that set
+                // the error or the undo in the meantime is not overwritten.
+                _uiState.update { current ->
+                    buildState(inputs.projects, inputs.prefs, inputs.inbox, inputs.reviewed, inputs.today, current)
+                }
+            }
         }
         refresh(manual = false)
     }
@@ -169,13 +185,17 @@ class ReviewViewModel(
 
     fun markReviewed(project: Project) {
         viewModelScope.launch {
-            val prev = project
             val meta = ReviewMetadata.parse(project.description)
                 .let { ReviewMetadata(ReviewState.REVIEWED, dayClock.day.value.date.toString(), it.cadenceDaysOverride) }
             val updated = project.copy(description = ReviewMetadata.upsert(project.description, meta))
             reviewedThisSession.value = reviewedThisSession.value + project.id
-            _uiState.update { it.copy(undo = prev) }
-            projectRepository.update(updated)
+            _uiState.update { it.copy(undo = project) }
+            val result = projectRepository.update(updated)
+            if (result is NetworkResult.Error) {
+                // The review was not recorded: it must not look done, and there is nothing to undo.
+                reviewedThisSession.value = reviewedThisSession.value - project.id
+                _uiState.update { it.copy(undo = null, error = result.message) }
+            }
         }
     }
 
@@ -184,7 +204,7 @@ class ReviewViewModel(
             val meta = ReviewMetadata.parse(project.description)
                 .let { ReviewMetadata(it.state, it.lastReviewedAt, if (days != null && days > 0) days else null) }
             val updated = project.copy(description = ReviewMetadata.upsert(project.description, meta))
-            projectRepository.update(updated)
+            reportFailure(projectRepository.update(updated))
         }
     }
 
@@ -197,7 +217,7 @@ class ReviewViewModel(
                 ReviewMetadata(ReviewState.NEVER, null, current.cadenceDaysOverride)
             }
             val updated = project.copy(description = ReviewMetadata.upsert(project.description, meta))
-            projectRepository.update(updated)
+            reportFailure(projectRepository.update(updated))
         }
     }
 
@@ -206,8 +226,17 @@ class ReviewViewModel(
         viewModelScope.launch {
             reviewedThisSession.value = reviewedThisSession.value - prev.id
             _uiState.update { it.copy(undo = null) }
-            projectRepository.update(prev)
+            val result = projectRepository.update(prev)
+            if (result is NetworkResult.Error) {
+                // The undo did not happen: the project is still reviewed.
+                reviewedThisSession.value = reviewedThisSession.value + prev.id
+                _uiState.update { it.copy(error = result.message) }
+            }
         }
+    }
+
+    private fun reportFailure(result: NetworkResult<*>) {
+        if (result is NetworkResult.Error) _uiState.update { it.copy(error = result.message) }
     }
 
     fun dismissUndo() = _uiState.update { it.copy(undo = null) }
