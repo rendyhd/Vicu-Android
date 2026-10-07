@@ -206,6 +206,92 @@ class TaskParserDatesTest {
         assertEquals("2026-10-12T23:59:59", dueOf(abbreviated))
     }
 
+    // --- Splits, ranges, whole words and the past -----------------------------------------------
+
+    private fun assertParses(cases: List<Triple<String, String, String?>>, config: ParserConfig = todoist) {
+        for ((input, title, due) in cases) {
+            val parsed = parseAt(input, config = config)
+            assertEquals(title, parsed.title, input)
+            assertEquals(due, dueOf(parsed), input)
+        }
+    }
+
+    @Test
+    fun `a label, project or priority splits a date phrase and the first part is the date`() {
+        assertParses(
+            listOf(
+                Triple("Call tomorrow @home 3pm", "Call 3pm", "2026-10-07T23:59:59"),
+                Triple("Call tomorrow p1 3pm", "Call 3pm", "2026-10-07T23:59:59"),
+                Triple("Dentist tomorrow #Health at 3pm", "Dentist at 3pm", "2026-10-07T23:59:59"),
+                Triple("Call 3pm @home tomorrow", "Call tomorrow", "2026-10-06T15:00:00"),
+                // A connector stays on its own side.
+                Triple("Pay rent by @money friday", "Pay rent by", "2026-10-09T23:59:59"),
+                Triple("Meet on @home friday", "Meet on", "2026-10-09T23:59:59"),
+                // The weekday is not directly before the other date, so it is the date.
+                Triple("Call Ana about Saturday @call tomorrow", "Call Ana about tomorrow", "2026-10-10T23:59:59"),
+            ),
+        )
+        assertParses(listOf(Triple("Call tomorrow *home 3pm", "Call 3pm", "2026-10-07T23:59:59")), vikunja)
+    }
+
+    @Test
+    fun `there are no ranges and a range written as one word is not a date`() {
+        assertParses(
+            listOf(
+                Triple("Trip friday to sunday", "Trip to sunday", "2026-10-09T23:59:59"),
+                Triple("Out monday through friday", "Out through friday", "2026-10-12T23:59:59"),
+                Triple("Trip oct 10 - oct 12", "Trip - oct 12", "2026-10-10T23:59:59"),
+                Triple("Meeting tomorrow 3pm to 5pm", "Meeting to 5pm", "2026-10-07T15:00:00"),
+                Triple("Meeting tomorrow 3-5pm", "Meeting 3-5pm", "2026-10-07T23:59:59"),
+                Triple("Meeting 3-5 pm", "Meeting 3-5 pm", null),
+                Triple("Ship friday-sunday", "Ship friday-sunday", null),
+            ),
+        )
+    }
+
+    @Test
+    fun `a date phrase is made of whole words`() {
+        for (input in listOf(
+            "Prep tomorrow's slides",
+            "Call Ana (tomorrow)",
+            "Ship it tomorrow-ish",
+            "Plan Friday/Saturday",
+            "Tomorrow: call Ana",
+            "Book \"friday\" table",
+        )) {
+            assertParses(listOf(Triple(input, input, null)))
+        }
+        assertParses(
+            listOf(
+                Triple("Send Monday's report tomorrow", "Send Monday's report", "2026-10-07T23:59:59"),
+                Triple("Meet (on friday)", "Meet (on )", "2026-10-09T23:59:59"),
+            ),
+        )
+    }
+
+    @Test
+    fun `a weekday in the past is a word of the title`() {
+        for (input in listOf(
+            "Review notes from last friday",
+            "Review notes from past friday",
+            "Friday last week recap",
+            "Finish by last friday",
+            "Notes from yesterday",
+            "Sent 2 days ago",
+        )) {
+            assertParses(listOf(Triple(input, input, null)))
+        }
+        assertParses(
+            listOf(
+                // A time after it is a time of its own.
+                Triple("Call last sat 3pm", "Call last sat", "2026-10-06T15:00:00"),
+                // "last weekend" is not "last week".
+                Triple("Plan friday last weekend", "Plan last weekend", "2026-10-09T23:59:59"),
+                Triple("Last day of school friday", "Last day of school", "2026-10-09T23:59:59"),
+            ),
+        )
+    }
+
     // --- Slash dates and years -----------------------------------------------------------------
 
     @Test

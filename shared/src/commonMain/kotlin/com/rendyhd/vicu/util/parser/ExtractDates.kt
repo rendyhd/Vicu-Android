@@ -28,6 +28,8 @@ import kotlin.time.Duration.Companion.minutes
  * - three-letter weekday abbreviations only count after on/next/this/by/due or before a time;
  * - a weekday directly followed by another date is a word of the title ("call Ana about Saturday
  *   tomorrow"), and "friday next week" is "next friday";
+ * - a weekday in the past ("last friday", "friday last week") is a word of the title; the other
+ *   phrases about the past ("yesterday", "2 days ago") have no pattern here, so they are words too;
  * - the connectors on/by/due (and `at` before a time) go with the date they introduce;
  * - slash dates follow the locale's day/month order;
  * - "now" is never a date.
@@ -317,6 +319,9 @@ private fun findAtoms(working: String, consumed: List<IntRange>, options: DateOp
             val after = working.substring(m.range.last + 1 - postfix.length)
             if (!ABBREVIATION_PREFIX_RE.containsMatchIn(before) && !TIME_AFTER_RE.containsMatchIn(after)) continue
         }
+        // "last friday" and "friday last week" are in the past: the weekday is a word of the title.
+        if (prefix.isEmpty() && PAST_BEFORE_RE.containsMatchIn(working.substring(0, m.range.first))) continue
+        if (postfix.isEmpty() && PAST_WEEK_AFTER_RE.containsMatchIn(working.substring(m.range.last + 1))) continue
         val target = WEEKDAY_BY_PREFIX[name.take(3)] ?: continue
         // "friday next week" is "next friday", "friday this week" is "this friday".
         val modifier = prefix.ifEmpty { if (NEXT_WEEK_POSTFIX_RE.containsMatchIn(postfix)) "next" else "" }
@@ -483,6 +488,8 @@ private val TODAY_TOMORROW_RE = Regex("""${WB}(today|tomorrow)$WE""", IC)
 private val NEXT_PERIOD_RE = Regex("""${WB}next\s+(week|month)$WE""", IC)
 private val WEEKDAY_RE = Regex("""${WB}(?:(this|next)\s+)?($WEEKDAY_NAMES)(\s+(?:this|next)\s+week)?$WE""", IC)
 private val NEXT_WEEK_POSTFIX_RE = Regex("""^\s+next\s""", IC)
+private val PAST_BEFORE_RE = Regex("""\b(?:last|past)\s+$""", IC)
+private val PAST_WEEK_AFTER_RE = Regex("""^\s+(?:last|past)\s*week\b""", IC)
 private val MONTH_DAY_RE =
     Regex("""${WB}($MONTH_NAMES)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?$WE""", IC)
 private val DAY_MONTH_RE =
