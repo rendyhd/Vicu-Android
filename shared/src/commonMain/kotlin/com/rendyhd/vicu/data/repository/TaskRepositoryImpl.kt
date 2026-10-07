@@ -780,7 +780,9 @@ class TaskRepositoryImpl(
                 ),
             )
             val otherDto = try {
-                api.getTask(otherTaskId).also { taskDao.upsert(with(taskMapper) { it.toEntity() }) }
+                api.getTask(otherTaskId).also { storeUnlessProtected(it) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 null
             }
@@ -788,8 +790,7 @@ class TaskRepositoryImpl(
             if (otherDto != null && baseEntity != null) {
                 taskDao.upsert(with(taskMapper) { baseEntity.withRelatedTaskAdded(relationKind, otherDto) })
             } else {
-                val dto = api.getTask(taskId)
-                taskDao.upsert(with(taskMapper) { dto.toEntity() })
+                storeUnlessProtected(api.getTask(taskId))
             }
             NetworkResult.Success(Unit)
         } catch (e: Exception) {
@@ -808,14 +809,25 @@ class TaskRepositoryImpl(
                 taskDao.upsert(with(taskMapper) { base.withRelatedTaskRemoved(relationKind, otherTaskId) })
             }
             try {
-                val otherDto = api.getTask(otherTaskId)
-                taskDao.upsert(with(taskMapper) { otherDto.toEntity() })
+                storeUnlessProtected(api.getTask(otherTaskId))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
             }
             NetworkResult.Success(Unit)
         } catch (e: Exception) {
             NetworkResult.Error(e.message ?: "Failed to delete relation")
         }
+    }
+
+    /**
+     * Stores a task read back from the server, unless its local row holds changes the server does
+     * not have yet (queued or failed): like the refreshers, the queued values stay on screen until
+     * they have been sent.
+     */
+    private suspend fun storeUnlessProtected(dto: com.rendyhd.vicu.data.remote.api.TaskDto) {
+        if (dto.id in pendingActionDao.getTaskIdsWithPendingActions()) return
+        taskDao.upsert(with(taskMapper) { dto.toEntity() })
     }
 
     override suspend fun toggleDone(task: Task): NetworkResult<Task> {

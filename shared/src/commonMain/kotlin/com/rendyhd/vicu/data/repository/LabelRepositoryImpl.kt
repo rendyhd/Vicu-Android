@@ -161,11 +161,24 @@ class LabelRepositoryImpl(
         }
     }
 
-    private suspend fun refreshCachedTask(taskId: Long) {
+    /**
+     * The cached task after a label change reached the server: the server's row, unless the local
+     * row holds changes the server does not have yet (queued or failed). Overwriting that row would
+     * show the old values until the queue drains (the refreshers leave such rows alone for the same
+     * reason), so only the label change is applied to it. Also when the task cannot be read back.
+     */
+    private suspend fun refreshCachedTask(taskId: Long, labelId: Long, add: Boolean) {
+        if (taskId in pendingActionDao.getTaskIdsWithPendingActions()) {
+            patchTaskLabelLocally(taskId, labelId, add)
+            return
+        }
         try {
             val taskDto = api.getTask(taskId)
             taskDao.upsert(with(taskMapper) { taskDto.toEntity() })
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
+            patchTaskLabelLocally(taskId, labelId, add)
         }
     }
 
@@ -180,8 +193,17 @@ class LabelRepositoryImpl(
      * while a change for the task waits (it must not overtake a queued add or remove of the same
      * label, nor a queued create or edit of the task), sent otherwise.
      */
-    private suspend fun changeTaskLabel(taskId: Long, labelId: Long, add: Boolean): NetworkResult<Unit> =
-        writeGate.sendOrQueue(
+    private suspend fun changeTaskLabel(taskId: Long, labelId: Long, add: Boolean): NetworkResult<Unit> {
+        val queue: suspend () -> NetworkResult<Unit> = {
+            queueLabelAction(labelId, if (add) "add_label" else "remove_label", "$taskId:$labelId")
+            patchTaskLabelLocally(taskId, labelId, add)
+            NetworkResult.Success(Unit)
+        }
+        // A task or label created offline has no id the server knows yet (sent as it is, the
+        // request is refused and the label is lost). The change waits in the queue for the create,
+        // and the sync moves it to the real ids.
+        if (taskId < 0L || labelId < 0L) return queue()
+        return writeGate.sendOrQueue(
             taskId = taskId,
             send = {
                 if (add) {
@@ -189,20 +211,17 @@ class LabelRepositoryImpl(
                 } else {
                     api.removeLabelFromTask(taskId, labelId)
                 }
-                refreshCachedTask(taskId)
+                refreshCachedTask(taskId, labelId, add)
                 NetworkResult.Success(Unit)
             },
-            queue = {
-                queueLabelAction(labelId, if (add) "add_label" else "remove_label", "$taskId:$labelId")
-                patchTaskLabelLocally(taskId, labelId, add)
-                NetworkResult.Success(Unit)
-            },
+            queue = queue,
             refused = { e ->
                 NetworkResult.Error(
                     e.message ?: if (add) "Failed to add label to task" else "Failed to remove label from task",
                 )
             },
         )
+    }
 
     override suspend fun refreshAll(): NetworkResult<Unit> {
         return try {

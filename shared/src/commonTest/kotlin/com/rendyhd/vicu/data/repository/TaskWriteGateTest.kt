@@ -43,83 +43,9 @@ import kotlin.test.assertTrue
  */
 class TaskWriteGateTest {
 
-    /** Task 42 on a fake server and in Room; task and label repositories and a sync engine share one queue. */
-    private class Rig {
-        val server = FakeTaskServer().apply { seed(42, "Original", "", done = false, projectId = 7) }
-
-        /** Every request as "METHOD /path", including those answered with an error. */
-        private val sentLog = MutableStateFlow<List<String>>(emptyList())
-        val sent: List<String> get() = sentLog.value
-
-        /** Label requests, which the fake server does not model. */
-        val labelRequests = mutableListOf<String>()
-
-        /** Every request answers 503 while set: the server is having trouble. */
-        @kotlin.concurrent.Volatile
-        var down = false
-
-        /** When set, a request completes [arrived] and then waits for this: it is in flight. */
-        @kotlin.concurrent.Volatile
-        var hold: CompletableDeferred<Unit>? = null
-        val arrived = CompletableDeferred<Unit>()
-
-        val taskDao = FakeTaskDao(listOf(TaskEntity(id = 42, title = "Original", projectId = 7)))
-        val pendingActionDao = FakePendingActionDao()
-        val labelDao = FakeLabelDao()
-        val mapper = TaskMapper(authTestJson)
-
-        private suspend fun MockRequestHandleScope.route(request: HttpRequestData): HttpResponseData {
-            sentLog.update { it + "${request.method.value} ${request.url.encodedPath}" }
-            hold?.let {
-                arrived.complete(Unit)
-                it.await()
-            }
-            if (down) return respond("", HttpStatusCode.ServiceUnavailable)
-            val method = request.method.value
-            val path = request.url.encodedPath
-            return when {
-                method == "POST" && Regex("^/tasks/\\d+/labels$").matches(path) -> {
-                    labelRequests += "$method $path"
-                    respond("", HttpStatusCode.Created)
-                }
-                method == "DELETE" && Regex("^/tasks/\\d+/labels/\\d+$").matches(path) -> {
-                    labelRequests += "$method $path"
-                    respond("", HttpStatusCode.NoContent)
-                }
-                else -> server.handle(this, request)
-            }
-        }
-
-        val tasks = TaskRepositoryHarness(taskDao = taskDao, pendingActionDao = pendingActionDao) { route(it) }
-        val labels = LabelRepositoryImpl(
-            labelDao = labelDao,
-            taskDao = taskDao,
-            pendingActionDao = pendingActionDao,
-            api = tasks.api,
-            labelMapper = LabelMapper(),
-            taskMapper = mapper,
-            platformHooks = tasks.hooks,
-            json = authTestJson,
-            tempIds = tasks.tempIds,
-            labelRefresher = LabelRefresher(labelDao, taskDao, pendingActionDao, tasks.api, LabelMapper(), mapper),
-            writeGate = tasks.writeGate,
-            mappingDispatcher = Dispatchers.Unconfined,
-        )
-        val sync = SyncEngineHarness(taskDao = taskDao, pendingActionDao = pendingActionDao, labelDao = labelDao) { route(it) }
-
-        suspend fun current(): Task = with(mapper) { checkNotNull(taskDao.entity(42)).toDomain() }
-
-        fun patchesTo42(): Int = sent.count { it == "PATCH /tasks/42" }
-
-        suspend fun queued(): List<PendingActionEntity> = pendingActionDao.snapshot()
-    }
-
-    private fun PendingActionEntity.field(name: String): String? =
-        (Json.parseToJsonElement(payload).jsonObject[name])?.jsonPrimitive?.content
-
     @Test
     fun `an edit made while an older one waits in the queue joins it, and the newer value wins`() = runTest {
-        val rig = Rig()
+        val rig = TaskWriteRig()
         rig.down = true
         rig.tasks.repository.update(rig.current().copy(title = "B"))
         assertEquals("B", rig.queued().single().field("title"), "the server was unreachable: queued")
@@ -143,7 +69,7 @@ class TaskWriteGateTest {
 
     @Test
     fun `undoing a completion that waits in the queue leaves the task open after the replay`() = runTest {
-        val rig = Rig()
+        val rig = TaskWriteRig()
         rig.down = true
         rig.tasks.repository.setDone(42, true)
         assertEquals("true", rig.queued().single().field("done"))
@@ -164,7 +90,7 @@ class TaskWriteGateTest {
 
     @Test
     fun `a change the server refused for good does not hold the next one back`() = runTest {
-        val rig = Rig()
+        val rig = TaskWriteRig()
         rig.pendingActionDao.insert(
             PendingActionEntity(
                 entityType = "task", entityId = 42, actionType = "update", payload = """{"priority":3}""",
@@ -181,7 +107,7 @@ class TaskWriteGateTest {
 
     @Test
     fun `completing and deleting a task with a queued change join the queue too`() = runTest {
-        val rig = Rig()
+        val rig = TaskWriteRig()
         rig.down = true
         rig.tasks.repository.update(rig.current().copy(title = "B"))
         rig.down = false
@@ -201,7 +127,7 @@ class TaskWriteGateTest {
 
     @Test
     fun `a label change waits behind a queued edit of its task`() = runTest {
-        val rig = Rig()
+        val rig = TaskWriteRig()
         rig.labelDao.upsert(LabelEntity(id = 5, title = "home"))
         rig.down = true
         rig.tasks.repository.update(rig.current().copy(title = "B"))
@@ -222,7 +148,7 @@ class TaskWriteGateTest {
 
     @Test
     fun `a label change is sent at once when nothing waits for the task`() = runTest {
-        val rig = Rig()
+        val rig = TaskWriteRig()
         rig.labelDao.upsert(LabelEntity(id = 5, title = "home"))
 
         rig.labels.addToTask(42, 5)
@@ -233,7 +159,7 @@ class TaskWriteGateTest {
 
     @Test
     fun `an edit made while the previous one is in flight waits for it and is queued when it fails`() = runTest {
-        val rig = Rig()
+        val rig = TaskWriteRig()
         val release = CompletableDeferred<Unit>()
         rig.hold = release
 
@@ -263,7 +189,7 @@ class TaskWriteGateTest {
 
     @Test
     fun `an edit cancelled while it waits for its turn is queued, not lost`() = runTest {
-        val rig = Rig()
+        val rig = TaskWriteRig()
         val release = CompletableDeferred<Unit>()
         rig.hold = release
 
@@ -287,7 +213,7 @@ class TaskWriteGateTest {
 
     @Test
     fun `an edit of an offline task whose create is being sent lands on the created task`() = runTest {
-        val rig = Rig()
+        val rig = TaskWriteRig()
         // Created offline: a local row with a temporary id and a queued create.
         rig.down = true
         val created = rig.tasks.repository.create(Task(id = 0, title = "Buy milk", projectId = 7))
