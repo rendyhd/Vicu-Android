@@ -2,24 +2,25 @@ package com.rendyhd.vicu.notification
 
 import android.content.Context
 import android.util.Log
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.rendyhd.vicu.data.local.NotificationPrefs
+import com.rendyhd.vicu.util.DailySummary
+import com.rendyhd.vicu.util.TimeSource
 import com.rendyhd.vicu.worker.DailySummaryWorker
-
-import kotlinx.datetime.Clock
-import kotlinx.datetime.DateTimeUnit
-import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.plus
-import kotlinx.datetime.toInstant
-import kotlinx.datetime.toLocalDateTime
+import kotlinx.datetime.Instant
 import java.util.concurrent.TimeUnit
 
+/**
+ * Schedules the daily summaries. Each summary is a one-time job for the next local occurrence of
+ * its configured time, and the job schedules the following day's when it has run. A repeating
+ * 24 hour job would drift by an hour across a daylight-saving change.
+ */
 class DailySummaryScheduler(
     private val context: Context,
+    private val time: TimeSource,
 ) {
     companion object {
         private const val TAG = "DailySummaryScheduler"
@@ -27,6 +28,11 @@ class DailySummaryScheduler(
         private const val WORK_NAME_AFTERNOON = "daily_summary_afternoon"
         const val SLOT_MORNING = "morning"
         const val SLOT_AFTERNOON = "afternoon"
+        const val KEY_SLOT = "slot"
+
+        /** The instant the job was scheduled to run at; absent on a run of the old repeating job. */
+        const val KEY_TARGET_MILLIS = "target_millis"
+
         private fun workName(slot: String) =
             if (slot == SLOT_AFTERNOON) WORK_NAME_AFTERNOON else WORK_NAME_MORNING
     }
@@ -47,38 +53,37 @@ class DailySummaryScheduler(
         schedule(slot, hour, minute)
     }
 
+    /** Replaces whatever is queued for [slot] with the next occurrence of [hour]:[minute] from now. */
     fun schedule(slot: String, hour: Int, minute: Int) {
-        // Compute the delay in the system zone so the FIRST fire lands on the correct wall-clock
-        // time across DST transitions. (The 24h periodic interval re-anchors on each schedule()
-        // call — boot, settings change — keeping drift bounded.)
-        val timeZone = TimeZone.currentSystemDefault()
-        val now = Clock.System.now()
-        val localNow = now.toLocalDateTime(timeZone)
+        enqueue(slot, hour, minute, after = time.now(), policy = ExistingWorkPolicy.REPLACE)
+    }
 
-        var targetLocal = LocalDateTime(
-            localNow.year, localNow.monthNumber, localNow.dayOfMonth,
-            hour, minute, 0, 0
+    /**
+     * Called by the job itself once it has run: queues the next occurrence after [after] (the later
+     * of now and the time this run was due, so an early start cannot pick the same time again).
+     * [replaceRunning] is for the last run of the old repeating job, which has to be replaced
+     * rather than appended to.
+     */
+    fun scheduleNext(slot: String, hour: Int, minute: Int, after: Instant, replaceRunning: Boolean) {
+        enqueue(
+            slot, hour, minute, after,
+            policy = if (replaceRunning) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.APPEND_OR_REPLACE,
         )
-        var targetInstant = targetLocal.toInstant(timeZone)
-        if (targetInstant <= now) {
-            val tomorrow = localNow.date.plus(1, DateTimeUnit.DAY)
-            targetInstant = LocalDateTime(
-                tomorrow.year, tomorrow.monthNumber, tomorrow.dayOfMonth,
-                hour, minute, 0, 0
-            ).toInstant(timeZone)
-        }
-        val initialDelayMillis = (targetInstant - now).inWholeMilliseconds
+    }
 
-        val request = PeriodicWorkRequestBuilder<DailySummaryWorker>(24, TimeUnit.HOURS)
+    private fun enqueue(slot: String, hour: Int, minute: Int, after: Instant, policy: ExistingWorkPolicy) {
+        val now = time.now()
+        // The local wall-clock time of the next day is computed from the calendar date in the
+        // current zone, so it lands on the configured time across daylight-saving changes.
+        val target = DailySummary.nextOccurrence(after, time.zone(), hour, minute)
+        val initialDelayMillis = (target - now).inWholeMilliseconds.coerceAtLeast(0L)
+
+        val request = OneTimeWorkRequestBuilder<DailySummaryWorker>()
             .setInitialDelay(initialDelayMillis, TimeUnit.MILLISECONDS)
-            .setInputData(workDataOf("slot" to slot))
+            .setInputData(workDataOf(KEY_SLOT to slot, KEY_TARGET_MILLIS to target.toEpochMilliseconds()))
             .build()
 
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            workName(slot),
-            ExistingPeriodicWorkPolicy.UPDATE,
-            request,
-        )
+        WorkManager.getInstance(context).enqueueUniqueWork(workName(slot), policy, request)
         Log.d(TAG, "Scheduled $slot daily summary at $hour:$minute (delay=${initialDelayMillis / 60000}min)")
     }
 

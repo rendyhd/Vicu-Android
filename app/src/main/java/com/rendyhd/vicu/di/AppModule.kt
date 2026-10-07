@@ -21,6 +21,7 @@ import com.rendyhd.vicu.data.remote.VikunjaImageInterceptor
 import com.rendyhd.vicu.data.repository.AndroidRepositoryHooks
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.notification.AlarmScheduler
+import com.rendyhd.vicu.data.local.DailySummaryReader
 import com.rendyhd.vicu.notification.DailySummaryScheduler
 import com.rendyhd.vicu.notification.NotificationChannelManager
 import com.rendyhd.vicu.notification.RoutineAlarmScheduler
@@ -86,7 +87,8 @@ val appModule = module {
 
     single { AlarmScheduler(androidContext(), get(), get(), get(), get(), get()) }
     single { RoutineAlarmScheduler(androidContext(), get(), get(), get()) }
-    single { DailySummaryScheduler(androidContext()) }
+    single { DailySummaryScheduler(androidContext(), get()) }
+    single { DailySummaryReader(get()) }
     single { CompletionSoundPlayer(androidContext(), get()) }
     single { NotificationChannelManager(androidContext()) }
 

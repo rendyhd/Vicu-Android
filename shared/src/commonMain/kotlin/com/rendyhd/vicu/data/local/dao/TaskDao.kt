@@ -112,16 +112,18 @@ interface TaskDao {
     )
     suspend fun countDueToday(startOfToday: String, startOfTomorrow: String): Int
 
+    /** Tomorrow only (not every later task): the third category of the daily summary. */
     @Query(
         """
         SELECT COUNT(*) FROM tasks
         WHERE done = 0
         AND dueDate >= :startOfTomorrow
+        AND dueDate < :startOfDayAfterTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
         """
     )
-    suspend fun countUpcoming(startOfTomorrow: String): Int
+    suspend fun countDueTomorrow(startOfTomorrow: String, startOfDayAfterTomorrow: String): Int
 
     @Query(
         """

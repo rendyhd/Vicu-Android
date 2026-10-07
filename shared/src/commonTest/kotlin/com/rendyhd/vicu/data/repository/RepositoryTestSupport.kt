@@ -90,11 +90,29 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     }
 
     override suspend fun getByIdSync(id: Long): TaskEntity? = lock.withLock { rows[id] }
-    override suspend fun countOverdue(startOfToday: String): Int = 0
-    override suspend fun countDueToday(startOfToday: String, startOfTomorrow: String): Int = 0
-    override suspend fun countUpcoming(startOfTomorrow: String): Int = 0
+
+    /** Open tasks with a due date, as the summary queries select them (same string comparisons). */
+    private fun openDated(): List<TaskEntity> = rows.values.filter {
+        !it.done && it.dueDate.isNotEmpty() && it.dueDate != "0001-01-01T00:00:00Z"
+    }
+
+    override suspend fun countOverdue(startOfToday: String): Int =
+        lock.withLock { openDated().count { it.dueDate < startOfToday } }
+
+    override suspend fun countDueToday(startOfToday: String, startOfTomorrow: String): Int =
+        lock.withLock { openDated().count { it.dueDate >= startOfToday && it.dueDate < startOfTomorrow } }
+
+    override suspend fun countDueTomorrow(startOfTomorrow: String, startOfDayAfterTomorrow: String): Int =
+        lock.withLock { openDated().count { it.dueDate >= startOfTomorrow && it.dueDate < startOfDayAfterTomorrow } }
+
     override suspend fun getTodayTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity> = emptyList()
-    override suspend fun getDueTodaySync(startOfToday: String, startOfTomorrow: String, limit: Int): List<TaskEntity> = emptyList()
+    override suspend fun getDueTodaySync(startOfToday: String, startOfTomorrow: String, limit: Int): List<TaskEntity> =
+        lock.withLock {
+            openDated()
+                .filter { it.dueDate >= startOfToday && it.dueDate < startOfTomorrow }
+                .sortedBy { it.dueDate }
+                .take(limit)
+        }
     override suspend fun getInboxTasksSync(inboxProjectId: Long, limit: Int, includeDated: Boolean): List<TaskEntity> = emptyList()
     override suspend fun getUpcomingTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity> = emptyList()
     override suspend fun getAnytimeTasksSync(inboxProjectId: Long, limit: Int): List<TaskEntity> = emptyList()
