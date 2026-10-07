@@ -10,6 +10,7 @@ import com.rendyhd.vicu.util.CompletionSoundPlayer
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
 import com.rendyhd.vicu.widget.RoutineWidget
 import com.rendyhd.vicu.widget.WidgetConfigStore
+import com.rendyhd.vicu.worker.PeriodicSyncScheduler
 import com.rendyhd.vicu.worker.RoutineMaintenanceScheduler
 import com.rendyhd.vicu.worker.SyncScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -65,6 +66,7 @@ class AndroidRepositoryHooks(
         dailySummaryScheduler.cancel(DailySummaryScheduler.SLOT_MORNING)
         dailySummaryScheduler.cancel(DailySummaryScheduler.SLOT_AFTERNOON)
         RoutineMaintenanceScheduler.cancel(context)
+        PeriodicSyncScheduler.cancel(context)
     }
 
     override suspend fun clearWidgetConfigurations() {

@@ -36,6 +36,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import org.koin.androidx.workmanager.dsl.workerOf
 import com.rendyhd.vicu.worker.SyncWorker
 import com.rendyhd.vicu.worker.DailySummaryWorker
+import com.rendyhd.vicu.worker.PeriodicSyncWorker
 import com.rendyhd.vicu.worker.TokenRefreshWorker
 import com.rendyhd.vicu.worker.RoutineMaintenanceWorker
 import com.rendyhd.vicu.widget.RoutineWidgetActionWorker
@@ -162,6 +163,7 @@ val viewModelModule = module {
 
 val workerModule = module {
     workerOf(::SyncWorker)
+    workerOf(::PeriodicSyncWorker)
     workerOf(::DailySummaryWorker)
     workerOf(::TokenRefreshWorker)
     workerOf(::TaskWidgetWorker)

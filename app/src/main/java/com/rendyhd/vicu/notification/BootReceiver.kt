@@ -7,6 +7,7 @@ import android.util.Log
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
 import com.rendyhd.vicu.widget.RoutineWidget
+import com.rendyhd.vicu.worker.PeriodicSyncScheduler
 import com.rendyhd.vicu.worker.RoutineMaintenanceScheduler
 import com.rendyhd.vicu.worker.SyncScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -53,6 +54,8 @@ class BootReceiver : BroadcastReceiver(), KoinComponent {
                 )
                 WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
                 SyncScheduler.enqueueWhenOnline(context)
+                // WorkManager keeps the schedule across a reboot; this only makes sure it exists.
+                PeriodicSyncScheduler.schedule(context)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to reschedule after boot", e)
             } finally {

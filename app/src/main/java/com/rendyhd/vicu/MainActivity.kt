@@ -23,6 +23,7 @@ import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.SharedContent
 import com.rendyhd.vicu.notification.DailySummaryScheduler
 import com.rendyhd.vicu.ui.VicuApp
+import com.rendyhd.vicu.worker.PeriodicSyncScheduler
 import com.rendyhd.vicu.worker.RoutineMaintenanceScheduler
 import com.rendyhd.vicu.worker.TokenRefreshScheduler
 import com.rendyhd.vicu.worker.SyncScheduler
@@ -75,6 +76,7 @@ class MainActivity : ComponentActivity() {
             if (authManager.authState.value == com.rendyhd.vicu.auth.AuthState.Authenticated) {
                 TokenRefreshScheduler.schedule(this@MainActivity)
                 SyncScheduler.enqueueWhenOnline(this@MainActivity)
+                PeriodicSyncScheduler.schedule(this@MainActivity)
             }
         }
 
@@ -88,8 +90,9 @@ class MainActivity : ComponentActivity() {
                     SyncScheduler.enqueueImmediate(this@MainActivity)
                 }
                 if (state == AuthState.Authenticated && signedOut) {
-                    // Sign-out cancelled the daily summaries and the routine maintenance.
+                    // Sign-out cancelled the daily summaries, the routine maintenance and the periodic sync.
                     RoutineMaintenanceScheduler.schedule(this@MainActivity)
+                    PeriodicSyncScheduler.schedule(this@MainActivity)
                     dailySummaryScheduler.scheduleFromPrefs(notificationPrefsStore.getPrefs().first())
                 }
                 neededReAuth = state == AuthState.NeedsReAuth
