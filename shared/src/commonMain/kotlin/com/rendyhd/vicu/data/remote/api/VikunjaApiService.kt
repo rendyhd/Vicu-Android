@@ -82,11 +82,10 @@ class VikunjaApiService(
             setBody(task)
         }.bodyOrThrow(HttpStatusCode.Created)
 
-    suspend fun updateTask(id: Long, patch: JsonObject): TaskDto =
-        client.patch("tasks/$id") {
-            contentType(MERGE_PATCH)
-            setBody(patch)
-        }.bodyOrThrow()
+    suspend fun updateTask(id: Long, patch: JsonObject): TaskDto {
+        val response = sendMergePatch("tasks/$id", patch)
+        return if (response.isUnchanged()) getTask(id) else response.bodyOrThrow()
+    }
 
     suspend fun deleteTask(id: Long) {
         client.delete("tasks/$id").requireNoContent()
@@ -112,11 +111,10 @@ class VikunjaApiService(
             setBody(project)
         }.bodyOrThrow(HttpStatusCode.Created)
 
-    suspend fun updateProject(id: Long, patch: JsonObject): ProjectDto =
-        client.patch("projects/$id") {
-            contentType(MERGE_PATCH)
-            setBody(patch)
-        }.bodyOrThrow()
+    suspend fun updateProject(id: Long, patch: JsonObject): ProjectDto {
+        val response = sendMergePatch("projects/$id", patch)
+        return if (response.isUnchanged()) getProject(id) else response.bodyOrThrow()
+    }
 
     suspend fun deleteProject(id: Long) {
         client.delete("projects/$id").requireNoContent()
@@ -138,11 +136,10 @@ class VikunjaApiService(
             setBody(label)
         }.bodyOrThrow(HttpStatusCode.Created)
 
-    suspend fun updateLabel(id: Long, patch: JsonObject): LabelDto =
-        client.patch("labels/$id") {
-            contentType(MERGE_PATCH)
-            setBody(patch)
-        }.bodyOrThrow()
+    suspend fun updateLabel(id: Long, patch: JsonObject): LabelDto {
+        val response = sendMergePatch("labels/$id", patch)
+        return if (response.isUnchanged()) getLabel(id) else response.bodyOrThrow()
+    }
 
     suspend fun deleteLabel(id: Long) {
         client.delete("labels/$id").requireNoContent()
@@ -345,6 +342,21 @@ class VikunjaApiService(
         } while (page <= totalPages)
         return all
     }
+
+    private suspend fun sendMergePatch(path: String, patch: JsonObject): HttpResponse =
+        client.patch(path) {
+            contentType(MERGE_PATCH)
+            setBody(patch)
+        }
+
+    /**
+     * Vikunja answers a merge patch that changes nothing (the server already has every value in
+     * it) with 304 Not Modified and no body. The change is on the server, so it is done: the
+     * update functions read the current state back instead of failing. This happens when a queued
+     * change is folded into one the server already has (completed offline, reopened before the
+     * sync), or when a change is sent again after an attempt whose answer was lost.
+     */
+    private fun HttpResponse.isUnchanged(): Boolean = status == HttpStatusCode.NotModified
 
     private suspend inline fun <reified T> HttpResponse.bodyOrThrow(
         expectedStatus: HttpStatusCode? = null,

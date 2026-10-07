@@ -244,6 +244,31 @@ class SyncEngineFailedActionsTest {
 
     // ---- failed actions ---------------------------------------------------------------------
 
+    // ---- nothing to change ------------------------------------------------------------------
+
+    @Test
+    fun `a change the server already has is done, not failed`() = runTest {
+        val h = SyncEngineHarness(taskDao = FakeTaskDao(listOf(localTask(11)))) { request ->
+            when {
+                // Vikunja's answer to a merge patch that changes nothing.
+                request.method == HttpMethod.Patch && request.url.encodedPath == "/tasks/11" ->
+                    respond("", HttpStatusCode.NotModified)
+                request.method == HttpMethod.Get && request.url.encodedPath == "/tasks/11" -> updatedTask(11)
+                request.method == HttpMethod.Get -> emptyPage()
+                else -> error("Unexpected ${request.method.value} ${request.url.encodedPath}")
+            }
+        }
+        // For example completed offline and reopened online behind it: the queue holds a change
+        // the server never needed.
+        h.pendingActionDao.insert(queuedTaskAction(11, "toggle_done"))
+
+        assertTrue(h.engine.performSync())
+
+        assertTrue(h.pendingActionDao.snapshot().isEmpty(), "nothing waits and nothing failed")
+        assertEquals(1, h.count(HttpMethod.Get, "/tasks/11"), "the task is read back")
+        h.close()
+    }
+
     @Test
     fun `an action that fails for good is stamped with the time it failed`() = runTest {
         val h = SyncEngineHarness(taskDao = FakeTaskDao(listOf(localTask(11)))) { request ->
