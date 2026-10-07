@@ -750,7 +750,8 @@ fun SettingsScreen(
         BottomBarSlotEditor(
             currentSlot = state.bottomBarSlots[editingSlotIndex],
             slotIndex = editingSlotIndex,
-            projects = state.projects,
+            // The bar already starts with the Inbox, so a slot for it would only be left out.
+            projects = state.projects.filter { it.id != state.inboxProjectId },
             customLists = state.customLists,
             onSave = { slot ->
                 viewModel.updateBottomBarSlot(editingSlotIndex, slot)

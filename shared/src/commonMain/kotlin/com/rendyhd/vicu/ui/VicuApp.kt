@@ -94,7 +94,7 @@ import com.rendyhd.vicu.util.DayClock
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-private data class BottomNavItem(
+internal data class BottomNavItem(
     val label: String,
     val icon: ImageVector,
     val route: Any,
@@ -105,10 +105,16 @@ private data class BottomNavItem(
 /** Carries the task editor's unsaved draft through process death (see [TaskDetailViewModel.currentDraftJson]). */
 private class TaskDetailDraftHolder(val restored: String?)
 
-private fun resolveBottomBarItems(
+/**
+ * The bottom bar: the Inbox first, always, then the slots the user chose. A slot for something
+ * that is gone (a deleted project or list) is left out, and so is a project slot for the Inbox
+ * ([inboxProjectId]): the bar already starts with it.
+ */
+internal fun resolveBottomBarItems(
     slots: List<BottomBarSlot>,
     allProjects: List<Project>,
     customLists: List<CustomList>,
+    inboxProjectId: Long,
 ): List<BottomNavItem> {
     val items = mutableListOf(
         BottomNavItem("Inbox", Icons.Outlined.MoveToInbox, InboxRoute, "InboxRoute"),
@@ -126,6 +132,7 @@ private fun resolveBottomBarItems(
             )
             BottomBarSlotType.PROJECT -> {
                 val projectId = slot.referenceId.toLongOrNull() ?: continue
+                if (projectId == inboxProjectId) continue
                 val project = allProjects.find { it.id == projectId } ?: continue
                 BottomNavItem(
                     project.title, IconRegistry.resolveIcon(slot),
@@ -399,8 +406,18 @@ fun VicuApp(
     val subtaskDisplayMode by drawerViewModel.subtaskDisplayMode.collectAsStateWithLifecycle()
 
     // Build dynamic bottom bar items from config
-    val bottomNavItems = remember(drawerUiState.bottomBarSlots, drawerUiState.allProjects, drawerUiState.customLists) {
-        resolveBottomBarItems(drawerUiState.bottomBarSlots, drawerUiState.allProjects, drawerUiState.customLists)
+    val bottomNavItems = remember(
+        drawerUiState.bottomBarSlots,
+        drawerUiState.allProjects,
+        drawerUiState.customLists,
+        drawerUiState.inboxProjectId,
+    ) {
+        resolveBottomBarItems(
+            drawerUiState.bottomBarSlots,
+            drawerUiState.allProjects,
+            drawerUiState.customLists,
+            drawerUiState.inboxProjectId,
+        )
     }
 
     // Sync state for offline banner
@@ -432,6 +449,7 @@ fun VicuApp(
                 onToggleProjects = drawerViewModel::toggleProjectsExpanded,
                 onToggleLists = drawerViewModel::toggleListsExpanded,
                 onToggleTags = drawerViewModel::toggleTagsExpanded,
+                onToggleProjectCollapsed = drawerViewModel::toggleProjectCollapsed,
                 onCreateNewList = {
                     scope.launch { drawerState.close() }
                     showNewListDialog = true

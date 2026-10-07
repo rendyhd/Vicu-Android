@@ -43,13 +43,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.CustomListFilter
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.util.CustomListFilterBuilder
+import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.util.randomUuid
 
 private val DUE_DATE_OPTIONS = listOf(
@@ -524,15 +524,5 @@ private fun AddToProjectSelector(
                 )
             }
         }
-    }
-}
-
-private fun parseHexColor(hex: String): Color? {
-    if (hex.isBlank()) return null
-    return try {
-        val normalized = if (hex.startsWith("#")) hex else "#$hex"
-        Color(android.graphics.Color.parseColor(normalized))
-    } catch (_: Exception) {
-        null
     }
 }

@@ -22,7 +22,7 @@ class ReorderPlanTest {
         val plan = planDrop(reordered, taskId = 2)!!
 
         assertEquals(200.0, plan.moved.position)
-        assertEquals(2L, plan.moved.taskId)
+        assertEquals(2L, plan.moved.id)
         assertTrue(plan.renumbered.isEmpty())
         assertEquals(listOf(plan.moved), plan.updates)
     }
@@ -68,7 +68,7 @@ class ReorderPlanTest {
         val plan = planDrop(reordered, taskId = 2)!!
 
         assertEquals(2 * step, plan.moved.position)
-        assertEquals(listOf(1L to step, 3L to 3 * step), plan.renumbered.map { it.taskId to it.position })
+        assertEquals(listOf(1L to step, 3L to 3 * step), plan.renumbered.map { it.id to it.position })
         assertEquals(plan.renumbered + plan.moved, plan.updates, "the others first, the dragged task last")
     }
 
@@ -80,7 +80,7 @@ class ReorderPlanTest {
 
         // 3 and 4 have no room between task 1 and 3: 2 -> 2 steps, 3 -> 3 steps, 4 -> 4 steps
         assertEquals(2 * step, plan.moved.position)
-        assertEquals(listOf(3L to 3 * step, 4L to 4 * step), plan.renumbered.map { it.taskId to it.position })
+        assertEquals(listOf(3L to 3 * step, 4L to 4 * step), plan.renumbered.map { it.id to it.position })
     }
 
     @Test
@@ -89,7 +89,7 @@ class ReorderPlanTest {
         val plan = planDrop(listOf(dated, task(1, 0.0), task(2, 0.0)), taskId = 1)!!
 
         assertEquals(step, plan.moved.position)
-        assertEquals(listOf(2L to 2 * step), plan.renumbered.map { it.taskId to it.position })
+        assertEquals(listOf(2L to 2 * step), plan.renumbered.map { it.id to it.position })
     }
 
     @Test
@@ -103,5 +103,45 @@ class ReorderPlanTest {
         val plan = planDrop(listOf(task(1, 0.0)), taskId = 1)!!
 
         assertEquals(step, plan.moved.position)
+    }
+
+    // --- the same plan for anything with a position (the drawer's projects) ---
+
+    private fun item(id: Long, position: Double) = PositionedId(id, position)
+
+    @Test
+    fun `any ordered items get the same plan as tasks`() {
+        val plan = planDropAmong(listOf(item(1, 100.0), item(2, 0.0), item(3, 300.0)), movedId = 2)!!
+
+        assertEquals(PositionUpdate(2, 200.0), plan.moved)
+        assertTrue(plan.renumbered.isEmpty())
+    }
+
+    @Test
+    fun `items at the top and at the end follow the same rules`() {
+        assertEquals(200.0, planDropAmong(listOf(item(2, 0.0), item(1, 400.0)), movedId = 2)!!.moved.position)
+        assertEquals(300.0 + step, planDropAmong(listOf(item(1, 300.0), item(2, 0.0)), movedId = 2)!!.moved.position)
+    }
+
+    @Test
+    fun `items that share a position are spread apart`() {
+        val plan = planDropAmong(listOf(item(1, 0.0), item(2, 0.0), item(3, 0.0)), movedId = 2)!!
+
+        assertEquals(2 * step, plan.moved.position)
+        assertEquals(listOf(1L to step, 3L to 3 * step), plan.renumbered.map { it.id to it.position })
+    }
+
+    @Test
+    fun `items less than a gap apart are renumbered too`() {
+        val plan = planDropAmong(listOf(item(1, 1.0), item(2, 0.0), item(3, 1.5)), movedId = 2)!!
+
+        assertEquals(2 * step, plan.moved.position)
+        assertEquals(listOf(1L to step, 3L to 3 * step), plan.renumbered.map { it.id to it.position })
+    }
+
+    @Test
+    fun `an item that is not in the list cannot be dropped`() {
+        assertNull(planDropAmong(listOf(item(1, 1.0)), movedId = 99))
+        assertNull(planDropAmong(emptyList(), movedId = 1))
     }
 }

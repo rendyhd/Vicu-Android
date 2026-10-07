@@ -54,70 +54,71 @@ fun dropPositionFor(tasks: List<Task>, taskId: Long): Double? {
 /** Neighbours closer than this have no room for another task between them. */
 const val MIN_POSITION_GAP = 1.0
 
-/** A task and the position it is to be given in its list view. */
-data class PositionUpdate(val taskId: Long, val position: Double)
+/** An item of an ordered list (a task, a project) and the position it is to be given. */
+data class PositionUpdate(val id: Long, val position: Double)
+
+/** An item of an ordered list and the position it holds now. */
+data class PositionedId(val id: Long, val position: Double)
 
 /**
- * What to send when a task is dropped: its own new position and, when the neighbours left no room
- * for it, fresh positions for the other manually ordered tasks of the list.
+ * What to send when an item is dropped: its own new position and, when the neighbours left no room
+ * for it, fresh positions for the other items of the list.
  */
 data class DropPlan(val moved: PositionUpdate, val renumbered: List<PositionUpdate>) {
-    /** The updates in the order to send them: the other tasks first, the dragged one last. */
+    /** The updates in the order to send them: the other items first, the dragged one last. */
     val updates: List<PositionUpdate> get() = renumbered + moved
 }
 
 /**
  * Where [taskId] belongs after a drag, given the list as it is now displayed ([tasks], the dragged
- * task already in its new place). The same plan the desktop app makes (`planMove`):
- *
- * - normally one position, halfway between the nearest manually ordered tasks above and below
- *   (half of the first one at the top, one step past the last one at the end), and nothing else
- *   changes;
- * - when those two are equal or closer than [MIN_POSITION_GAP] there is no room: the middle of two
- *   equal numbers is the same number, so the drag would change nothing. Every manually ordered task
- *   then gets a fresh position one [POSITION_STEP] apart in the displayed order, and only the ones
- *   whose position changes are listed.
- *
- * Dated tasks are skipped: they are listed by due date and their positions mean nothing. Null when
- * the task is not in the list or is dated (it cannot be dragged).
+ * task already in its new place). Dated tasks are skipped: they are listed by due date and their
+ * positions mean nothing. Null when the task is not in the list or is dated (it cannot be dragged).
+ * The plan itself is [planDropAmong].
  */
 fun planDrop(tasks: List<Task>, taskId: Long): DropPlan? {
     val index = tasks.indexOfFirst { it.id == taskId }
     if (index < 0 || !isManuallyOrdered(tasks[index])) return null
+    return planDropAmong(tasks.filter(::isManuallyOrdered).map { PositionedId(it.id, it.position) }, taskId)
+}
 
-    var above = 0.0
-    for (i in index - 1 downTo 0) {
-        if (isManuallyOrdered(tasks[i])) {
-            above = tasks[i].position
-            break
-        }
-    }
-    var below: Double? = null
-    for (i in index + 1 until tasks.size) {
-        if (isManuallyOrdered(tasks[i])) {
-            below = tasks[i].position
-            break
-        }
-    }
+/**
+ * Where [movedId] belongs after a drag, given the items in the order they are now displayed
+ * ([items], the dragged one already in its new place). The same plan the desktop app makes
+ * (`planMove`):
+ *
+ * - normally one position, halfway between the items above and below (half of the first one at the
+ *   top, one step past the last one at the end), and nothing else changes;
+ * - when those two are equal or closer than [MIN_POSITION_GAP] there is no room: the middle of two
+ *   equal numbers is the same number, so the drag would change nothing. Every item then gets a fresh
+ *   position one [POSITION_STEP] apart in the displayed order, and only the ones whose position
+ *   changes are listed.
+ *
+ * Null when [movedId] is not in [items].
+ */
+fun planDropAmong(items: List<PositionedId>, movedId: Long): DropPlan? {
+    val index = items.indexOfFirst { it.id == movedId }
+    if (index < 0) return null
 
-    // At the end there is always room: one step past the last task, as new tasks are placed.
-    if (below == null) return DropPlan(PositionUpdate(taskId, above + POSITION_STEP), emptyList())
+    val above = if (index > 0) items[index - 1].position else 0.0
+    val below = items.getOrNull(index + 1)?.position
+
+    // At the end there is always room: one step past the last item, as new tasks are placed.
+    if (below == null) return DropPlan(PositionUpdate(movedId, above + POSITION_STEP), emptyList())
     if (below - above >= MIN_POSITION_GAP) {
-        return DropPlan(PositionUpdate(taskId, (above + below) / 2.0), emptyList())
+        return DropPlan(PositionUpdate(movedId, (above + below) / 2.0), emptyList())
     }
 
     var next = POSITION_STEP
     var movedPosition = next
     val renumbered = mutableListOf<PositionUpdate>()
-    for (task in tasks) {
-        if (!isManuallyOrdered(task)) continue
+    for (item in items) {
         val position = next
         next += POSITION_STEP
-        if (task.id == taskId) {
+        if (item.id == movedId) {
             movedPosition = position
-        } else if (task.position != position) {
-            renumbered += PositionUpdate(task.id, position)
+        } else if (item.position != position) {
+            renumbered += PositionUpdate(item.id, position)
         }
     }
-    return DropPlan(PositionUpdate(taskId, movedPosition), renumbered)
+    return DropPlan(PositionUpdate(movedId, movedPosition), renumbered)
 }

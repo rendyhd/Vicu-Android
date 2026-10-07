@@ -113,9 +113,21 @@ class DrawerStateTest {
         )
 
         assertEquals(listOf(2L, 1L), state.projectTree.map { it.project.id })
-        assertEquals(listOf(4L, 3L), state.projectTree.last().children.map { it.id })
-        assertEquals(setOf(1L, 2L, 3L, 4L), state.allProjects.map { it.id }.toSet())
+        assertEquals(listOf(4L, 3L), state.projectTree.last().children.map { it.project.id })
         assertEquals(6L, state.inboxProjectId)
+    }
+
+    @Test
+    fun `the project pickers get every active project, the inbox included`() {
+        val state = build(
+            sources(
+                projects = listOf(project(1), project(5, archived = true), project(6)),
+                inboxProjectId = 6,
+            ),
+        )
+
+        assertEquals(setOf(1L, 6L), state.allProjects.map { it.id }.toSet())
+        assertEquals(listOf(1L), state.projectTree.map { it.project.id }, "but the tree does not list the inbox")
     }
 
     @Test
@@ -123,6 +135,37 @@ class DrawerStateTest {
         val state = build(sources(listOf(project(1, archived = true), project(2, parent = 1))))
 
         assertEquals(listOf(2L), state.projectTree.map { it.project.id })
+    }
+
+    @Test
+    fun `a project below the inbox is listed as a root`() {
+        val state = build(sources(listOf(project(6), project(7, parent = 6)), inboxProjectId = 6))
+
+        assertEquals(listOf(7L), state.projectTree.map { it.project.id })
+    }
+
+    @Test
+    fun `the tree goes as deep as the projects do`() {
+        val state = build(
+            sources(listOf(project(1), project(2, parent = 1), project(3, parent = 2), project(4, parent = 3))),
+        )
+
+        assertEquals(listOf(1L, 2L, 3L, 4L), state.projectRows.map { it.project.id })
+        assertEquals(listOf(0, 1, 2, 3), state.projectRows.map { it.depth })
+    }
+
+    @Test
+    fun `collapsed projects hide their children from the rows but not from the tree`() {
+        val state = build(
+            sources(
+                projects = listOf(project(1), project(2, parent = 1), project(3)),
+                expanded = DrawerSectionsExpanded(collapsedProjectIds = setOf(1L)),
+            ),
+        )
+
+        assertEquals(listOf(1L, 3L), state.projectRows.map { it.project.id })
+        assertEquals(setOf(1L), state.collapsedProjectIds)
+        assertEquals(listOf(2L), state.projectTree.first().children.map { it.project.id })
     }
 
     // --- everything else ---

@@ -119,11 +119,11 @@ class TaskRepositoryImpl(
     override suspend fun applyPositions(projectId: Long, updates: List<PositionUpdate>): NetworkResult<Unit> {
         if (updates.isEmpty()) return NetworkResult.Success(Unit)
         // The list is drawn from the cached rows, so the new order shows at once.
-        taskDao.updatePositions(updates.associate { it.taskId to it.position })
+        taskDao.updatePositions(updates.associate { it.id to it.position })
         for (update in updates) {
             // A task that only exists here has no position on the server yet; the sync gives it one.
-            if (update.taskId < 0L) continue
-            if (!positioner.setPosition(projectId, update.taskId, update.position)) {
+            if (update.id < 0L) continue
+            if (!positioner.setPosition(projectId, update.id, update.position)) {
                 return NetworkResult.Error("Could not save the new order")
             }
         }

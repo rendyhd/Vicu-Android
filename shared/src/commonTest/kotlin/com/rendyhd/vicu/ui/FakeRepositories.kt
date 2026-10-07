@@ -159,7 +159,7 @@ class FakeTaskRepository : TaskRepository {
     /** Like the real repository, a reorder is stored on the cached rows at once, whatever the server says. */
     override suspend fun applyPositions(projectId: Long, updates: List<PositionUpdate>): NetworkResult<Unit> {
         appliedPositions += projectId to updates
-        updates.forEach { update -> rowFor(update.taskId).value?.let { write(it.id, it.copy(position = update.position)) } }
+        updates.forEach { update -> rowFor(update.id).value?.let { write(it.id, it.copy(position = update.position)) } }
         return positionResult
     }
 
