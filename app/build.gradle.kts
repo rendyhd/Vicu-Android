@@ -75,6 +75,10 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        // The Koin graph test builds the Android-only classes against the stub android.jar.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 room {
@@ -138,6 +142,8 @@ dependencies {
 
     // Testing
     testImplementation(libs.junit)
+    testImplementation(libs.koin.test)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

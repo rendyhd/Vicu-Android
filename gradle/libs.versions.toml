@@ -103,6 +103,8 @@ koin-android = { group = "io.insert-koin", name = "koin-android", version.ref = 
 koin-androidx-workmanager = { group = "io.insert-koin", name = "koin-androidx-workmanager", version.ref = "koin" }
 koin-compose = { group = "io.insert-koin", name = "koin-compose", version.ref = "koin" }
 koin-compose-viewmodel = { group = "io.insert-koin", name = "koin-compose-viewmodel", version.ref = "koin" }
+# verify() and checkModules() for the dependency-graph unit test in :app.
+koin-test = { group = "io.insert-koin", name = "koin-test", version.ref = "koin" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
