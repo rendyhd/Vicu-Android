@@ -9,6 +9,7 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.refreshErrorToShow
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.util.NetworkResult
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,7 @@ class LogbookViewModel(
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
     private val refresher: ScreenRefresher,
+    navigationTicker: NavigationTicker = NavigationTicker(),
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LogbookUiState())
@@ -45,7 +47,7 @@ class LogbookViewModel(
      * Rows reopened on this screen. Reopening changes the stored task at once, which takes it
      * out of the Logbook; the hold keeps it in place, drawn as open, so it can be completed again.
      */
-    val completions = CompletionHold(viewModelScope)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
 
     init {
         viewModelScope.launch {

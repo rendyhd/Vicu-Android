@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui.screens.shared
 
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -25,8 +26,8 @@ data class HeldRow(val task: Task, val scope: Long, val index: Int, val changed:
  * screen. Completing a task changes the stored task at once, so a list that shows open tasks
  * would drop the row immediately; this holds a copy so the checkbox feels the same as it always
  * did: the row stays, struck through, and a second tap undoes it. The hold ends after
- * [holdMillis], when the user undoes the change or leaves the screen ([releaseAll]), or when the
- * change fails ([release]).
+ * [holdMillis], when the user undoes the change or goes to another destination (the
+ * [navigationTicker]; a rotation does not end it), or when the change fails ([release]).
  *
  * Use one instance per screen. A screen passes each list it shows through [merge]; lists that
  * are shown several times (a project and its sub-project sections) give each its own [merge]
@@ -35,8 +36,25 @@ data class HeldRow(val task: Task, val scope: Long, val index: Int, val changed:
 class CompletionHold(
     private val scope: CoroutineScope,
     private val holdMillis: Long = DEFAULT_HOLD_MILLIS,
+    navigationTicker: NavigationTicker? = null,
 ) {
     private val _state = MutableStateFlow<Map<Long, HeldRow>>(emptyMap())
+
+    init {
+        // The screen's view model outlives its composition, so a rotation leaves the hold alone;
+        // going to another destination ends it.
+        if (navigationTicker != null) {
+            var seen = navigationTicker.count.value
+            scope.launch {
+                navigationTicker.count.collect { count ->
+                    if (count != seen) {
+                        seen = count
+                        releaseAll()
+                    }
+                }
+            }
+        }
+    }
 
     /** The held rows; collect it next to the screen's task flows so a change re-merges them. */
     val state: StateFlow<Map<Long, HeldRow>> = _state.asStateFlow()

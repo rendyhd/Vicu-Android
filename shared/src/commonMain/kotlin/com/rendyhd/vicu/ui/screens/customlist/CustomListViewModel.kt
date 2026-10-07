@@ -14,6 +14,7 @@ import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.domain.repository.customListSource
@@ -55,6 +56,7 @@ class CustomListViewModel(
     private val authManager: AuthManager,
     private val dayClock: DayClock,
     private val refresher: ScreenRefresher,
+    navigationTicker: NavigationTicker = NavigationTicker(),
 ) : ViewModel() {
 
     private val listId: String = savedStateHandle["listId"]!!
@@ -63,7 +65,7 @@ class CustomListViewModel(
     val uiState: StateFlow<CustomListUiState> = _uiState.asStateFlow()
 
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
-    val completions = CompletionHold(viewModelScope)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
 
     val projects: StateFlow<List<Project>> = projectRepository.getAll()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())

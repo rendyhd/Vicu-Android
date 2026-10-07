@@ -8,6 +8,7 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.refreshErrorToShow
@@ -47,6 +48,7 @@ class InboxViewModel(
     private val labelRepository: LabelRepository,
     private val authManager: AuthManager,
     private val refresher: ScreenRefresher,
+    navigationTicker: NavigationTicker = NavigationTicker(),
 ) : ViewModel() {
 
     companion object {
@@ -60,7 +62,7 @@ class InboxViewModel(
     private val _uiState = MutableStateFlow(InboxUiState())
     val uiState: StateFlow<InboxUiState> = _uiState.asStateFlow()
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
-    val completions = CompletionHold(viewModelScope)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
 
     init {
         viewModelScope.launch {

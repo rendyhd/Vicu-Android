@@ -7,6 +7,7 @@ import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.ui.screens.shared.collectSearchRefresh
 import com.rendyhd.vicu.util.NetworkResult
@@ -50,13 +51,14 @@ class SearchViewModel(
     private val taskRepository: TaskRepository,
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
+    navigationTicker: NavigationTicker = NavigationTicker(),
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
-    val completions = CompletionHold(viewModelScope)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
 
     /** What was typed, as typed. */
     private val typed = MutableStateFlow("")

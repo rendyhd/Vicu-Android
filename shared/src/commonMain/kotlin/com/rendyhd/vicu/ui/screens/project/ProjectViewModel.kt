@@ -12,6 +12,7 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.dropPositionFor
@@ -50,6 +51,7 @@ class ProjectViewModel(
     private val refresher: ScreenRefresher,
     private val behaviorPrefsStore: BehaviorPrefsStore,
     private val projectSectionPrefsStore: ProjectSectionPrefsStore,
+    navigationTicker: NavigationTicker = NavigationTicker(),
 ) : ViewModel() {
 
     private val projectId: Long = savedStateHandle["projectId"]!!
@@ -58,7 +60,7 @@ class ProjectViewModel(
     val uiState: StateFlow<ProjectUiState> = _uiState.asStateFlow()
 
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
-    val completions = CompletionHold(viewModelScope)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
 
     /** The "not found" or "archived" message of the last project state, told apart from action errors. */
     private var projectError: String? = null

@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui.screens.shared
 
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
@@ -98,6 +99,48 @@ class CompletionHoldTest {
 
         assertTrue(hold.state.value.isEmpty())
         assertEquals(listOf(2L), ids(hold.merge(listOf(b))))
+    }
+
+    @Test
+    fun `going to another screen releases the held rows`() = runTest {
+        val ticker = NavigationTicker()
+        val hold = CompletionHold(backgroundScope, navigationTicker = ticker)
+        runCurrent()
+        hold.merge(listOf(a, b))
+        hold.hold(a)
+
+        ticker.navigated()
+        runCurrent()
+
+        assertTrue(hold.state.value.isEmpty())
+        assertEquals(listOf(2L), ids(hold.merge(listOf(b))))
+    }
+
+    @Test
+    fun `a rotation is not a navigation, so the held row stays`() = runTest {
+        // A rotation recreates the screen's composition and nothing else: no tick, no release.
+        val ticker = NavigationTicker()
+        val hold = CompletionHold(backgroundScope, navigationTicker = ticker)
+        runCurrent()
+        hold.merge(listOf(a, b))
+        hold.hold(a)
+
+        runCurrent()
+
+        assertEquals(setOf(1L), hold.state.value.keys)
+        assertEquals(listOf(1L, 2L), ids(hold.merge(listOf(b))))
+    }
+
+    @Test
+    fun `a navigation before the hold started listening is still seen`() = runTest {
+        val ticker = NavigationTicker()
+        val hold = CompletionHold(backgroundScope, navigationTicker = ticker)
+        ticker.navigated() // before the collector first ran
+        hold.merge(listOf(a))
+        hold.hold(a)
+        runCurrent()
+
+        assertTrue(hold.state.value.isEmpty())
     }
 
     @Test
