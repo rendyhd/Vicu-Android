@@ -27,7 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.domain.model.Task
@@ -41,6 +41,7 @@ import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
+import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,49 +103,34 @@ fun AnytimeScreen(
                 .padding(padding),
         ) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                if (state.projectGroups.isEmpty() && !state.isLoading) {
+                if (state.rows.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(
                             icon = Icons.Outlined.AllInclusive,
                             title = "No open tasks",
-                            subtitle = "All tasks are in your inbox",
+                            subtitle = "Open tasks from all your projects appear here",
                         )
                     }
                 } else {
-                    state.projectGroups.forEachIndexed { projectIndex, group ->
-                        val projectColor = try {
-                            val hex = group.project.hexColor
-                            if (hex.isNotBlank()) {
-                                Color(
-                                    android.graphics.Color.parseColor(
-                                        if (hex.startsWith("#")) hex else "#$hex"
-                                    )
+                    items(
+                        items = state.rows,
+                        key = { it.key },
+                        contentType = { if (it is AnytimeRow.Header) "header" else "task" },
+                    ) { row ->
+                        when (row) {
+                            is AnytimeRow.Header -> {
+                                val projectColor = remember(row.project.hexColor) { parseHexColor(row.project.hexColor) }
+                                CollapsibleSection(
+                                    title = row.project.title,
+                                    color = projectColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                                    taskCount = row.taskCount,
+                                    isExpanded = row.isExpanded,
+                                    onToggle = { viewModel.toggleProject(row.project.id) },
+                                    modifier = Modifier.padding(start = indentFor(row.depth)),
                                 )
-                            } else {
-                                null
                             }
-                        } catch (_: Exception) {
-                            null
-                        }
-
-                        val totalTasks = group.unsectionedTasks.size +
-                            group.sections.sumOf { it.tasks.size }
-
-                        // Project header (collapsible)
-                        item(key = "header_${group.project.id}") {
-                            CollapsibleSection(
-                                title = group.project.title,
-                                color = projectColor
-                                    ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                                taskCount = totalTasks,
-                                isExpanded = group.isExpanded,
-                                onToggle = { viewModel.toggleProject(projectIndex) },
-                            )
-                        }
-
-                        if (group.isExpanded) {
-                            // Unsectioned tasks (directly in parent project)
-                            items(group.unsectionedTasks, key = { it.id }, contentType = { "task" }) { task ->
+                            is AnytimeRow.TaskRow -> {
+                                val task = row.task
                                 val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
                                 SwipeableTaskItem(
                                     task = displayTask,
@@ -165,64 +151,8 @@ fun AnytimeScreen(
                                     selected = task.id in selectedIds,
                                     onLongClick = { selectionVm.toggle(task.id) },
                                     modifier = Modifier.animateItem(),
+                                    contentStartPadding = indentFor(row.depth),
                                 )
-                            }
-
-                            // Child project sections (collapsible, indented)
-                            group.sections.forEachIndexed { sectionIndex, section ->
-                                val sectionColor = try {
-                                    val hex = section.project.hexColor
-                                    if (hex.isNotBlank()) {
-                                        Color(
-                                            android.graphics.Color.parseColor(
-                                                if (hex.startsWith("#")) hex else "#$hex"
-                                            )
-                                        )
-                                    } else {
-                                        null
-                                    }
-                                } catch (_: Exception) {
-                                    null
-                                }
-
-                                item(key = "section_${section.project.id}") {
-                                    CollapsibleSection(
-                                        title = section.project.title,
-                                        color = sectionColor
-                                            ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                                        taskCount = section.tasks.size,
-                                        isExpanded = section.isExpanded,
-                                        onToggle = { viewModel.toggleSection(projectIndex, sectionIndex) },
-                                        modifier = Modifier.padding(start = 16.dp),
-                                    )
-                                }
-
-                                if (section.isExpanded) {
-                                    items(section.tasks, key = { it.id }, contentType = { "task" }) { task ->
-                                        val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
-                                        SwipeableTaskItem(
-                                            task = displayTask,
-                                            onToggleDone = {
-                                                if (task.id in state.completedTaskIds) {
-                                                    viewModel.undoComplete(task)
-                                                } else {
-                                                    viewModel.toggleDone(task)
-                                                }
-                                            },
-                                            onClick = {
-                                                if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id)
-                                            },
-                                            onSubtaskToggleDone = viewModel::toggleDone,
-                                            onSubtaskClick = { child -> onTaskClick(child.id) },
-                                            onSchedule = { viewModel.scheduleTask(task.id) },
-                                            selectionActive = selectionActive,
-                                            selected = task.id in selectedIds,
-                                            onLongClick = { selectionVm.toggle(task.id) },
-                                            modifier = Modifier.animateItem(),
-                                            contentStartPadding = 16.dp,
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
@@ -252,3 +182,8 @@ fun AnytimeScreen(
         onDismiss = { selectionAction = null },
     )
 }
+
+/** Indentation of a project header or its tasks; capped so a deep tree still fits a phone. */
+private fun indentFor(depth: Int): Dp = (depth.coerceAtMost(MAX_INDENT_LEVELS) * 16).dp
+
+private const val MAX_INDENT_LEVELS = 6

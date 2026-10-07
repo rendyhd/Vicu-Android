@@ -255,7 +255,7 @@ class FakeProjectRepository(initial: List<Project> = emptyList()) : ProjectRepos
 
     override fun getAll(): Flow<List<Project>> = projects
     override fun getAllIncludingArchived(): Flow<List<Project>> = projects
-    override fun getById(id: Long): Flow<Project?> = flowOf(projects.value.firstOrNull { it.id == id })
+    override fun getById(id: Long): Flow<Project?> = projects.map { list -> list.firstOrNull { it.id == id } }
     override fun getChildren(parentId: Long): Flow<List<Project>> =
         flowOf(projects.value.filter { it.parentProjectId == parentId })
 

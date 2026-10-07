@@ -60,6 +60,9 @@ class ProjectViewModel(
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
     val completions = CompletionHold(viewModelScope)
 
+    /** The "not found" or "archived" message of the last project state, told apart from action errors. */
+    private var projectError: String? = null
+
     init {
         viewModelScope.launch {
             completions.heldIds.collect { ids -> _uiState.update { it.copy(completedTaskIds = ids) } }
@@ -145,14 +148,18 @@ class ProjectViewModel(
                 // lists do.
                 combine(upstream, completions.state) { state, _ -> withHeldRows(state) }
             }.collect { newState ->
+                val previousProjectError = projectError
+                projectError = newState.error
                 _uiState.update { current ->
                     newState.copy(
                         sections = preserveExpansion(newState.sections, current.sections),
                         completedTaskIds = current.completedTaskIds,
                         // The lists emit whenever a task changes; that must not wipe the spinner
-                        // or an error that is still waiting to be shown.
+                        // or an error that is still waiting to be shown. The "not found" and
+                        // "archived" messages describe the project, not an action: they go when
+                        // the project does.
                         isRefreshing = current.isRefreshing,
-                        error = newState.error ?: current.error,
+                        error = newState.error ?: current.error?.takeUnless { it == previousProjectError },
                     )
                 }
             }
