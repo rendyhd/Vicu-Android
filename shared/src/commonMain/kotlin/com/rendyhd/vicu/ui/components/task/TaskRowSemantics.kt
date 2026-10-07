@@ -43,16 +43,38 @@ internal enum class TaskRowAction(val label: String) {
     REOPEN("Mark as not done"),
     DUE_TODAY("Due today"),
     DUE_TOMORROW("Due tomorrow"),
+    MOVE_UP("Move up"),
+    MOVE_DOWN("Move down"),
 }
 
 /** Complete or reopen always; scheduling only for an open task, and only when something can do it. */
-internal fun taskRowActions(done: Boolean, canSchedule: Boolean): List<TaskRowAction> = buildList {
+internal fun taskRowActions(
+    done: Boolean,
+    canSchedule: Boolean,
+    canMoveUp: Boolean = false,
+    canMoveDown: Boolean = false,
+): List<TaskRowAction> = buildList {
     add(if (done) TaskRowAction.REOPEN else TaskRowAction.COMPLETE)
     if (!done && canSchedule) {
         add(TaskRowAction.DUE_TODAY)
         add(TaskRowAction.DUE_TOMORROW)
     }
+    // The drag has no equivalent for a screen reader: these are the same move, one place at a time.
+    if (canMoveUp) add(TaskRowAction.MOVE_UP)
+    if (canMoveDown) add(TaskRowAction.MOVE_DOWN)
 }
+
+/**
+ * TalkBack "Move up" / "Move down" for a row that can be dragged to reorder (a drawer entry, say).
+ * A null callback means the move is not possible from there, and its action is not offered.
+ */
+internal fun Modifier.moveCustomActions(onMoveUp: (() -> Unit)?, onMoveDown: (() -> Unit)?): Modifier =
+    taskRowCustomActions(
+        listOfNotNull(
+            onMoveUp?.let { TaskRowAction.MOVE_UP to it },
+            onMoveDown?.let { TaskRowAction.MOVE_DOWN to it },
+        ),
+    )
 
 /** TalkBack custom actions for the row: each entry of [actions] runs its lambda. */
 internal fun Modifier.taskRowCustomActions(actions: List<Pair<TaskRowAction, () -> Unit>>): Modifier =

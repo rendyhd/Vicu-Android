@@ -25,6 +25,46 @@ fun moveTaskInList(tasks: List<Task>, fromId: Long, toId: Long): List<Task>? {
 }
 
 /**
+ * The task whose slot [taskId] takes when it is moved [offset] places (-1 up, 1 down) in [tasks],
+ * the list as displayed; the one-step move a screen reader makes in place of a drag. Null when
+ * there is no such slot or the move is vetoed (see [moveTaskInList]: dated tasks are not moved,
+ * and nothing is moved past them).
+ */
+fun neighbourForMove(tasks: List<Task>, taskId: Long, offset: Int): Long? {
+    val index = tasks.indexOfFirst { it.id == taskId }
+    if (index < 0) return null
+    val target = tasks.getOrNull(index + offset) ?: return null
+    return target.id.takeIf { moveTaskInList(tasks, taskId, target.id) != null }
+}
+
+/** Which one-step moves a task can make. */
+data class MoveOptions(val up: Boolean, val down: Boolean)
+
+/**
+ * The one-step moves each task of [tasks] (as displayed) can make, by id, in one pass: the same
+ * answer [neighbourForMove] gives task by task.
+ */
+fun moveOptions(tasks: List<Task>): Map<Long, MoveOptions> {
+    fun canSwap(a: Task, b: Task) = isManuallyOrdered(a) && isManuallyOrdered(b)
+    val options = HashMap<Long, MoveOptions>(tasks.size * 2)
+    tasks.forEachIndexed { index, task ->
+        options[task.id] = MoveOptions(
+            up = index > 0 && canSwap(task, tasks[index - 1]),
+            down = index < tasks.lastIndex && canSwap(task, tasks[index + 1]),
+        )
+    }
+    return options
+}
+
+/** [ids] with [id] moved [offset] places, or null when it is not listed or would leave the list. */
+fun <T> moveIdBy(ids: List<T>, id: T, offset: Int): List<T>? {
+    val index = ids.indexOf(id)
+    val target = index + offset
+    if (index < 0 || target < 0 || target > ids.lastIndex || offset == 0) return null
+    return ids.toMutableList().apply { add(target, removeAt(index)) }
+}
+
+/**
  * Position halfway between neighbors; half of next at the top; one step past prev at the end.
  *
  * Known limitation: when neighbors carry Vikunja's default position 0.0 (legacy lists that were

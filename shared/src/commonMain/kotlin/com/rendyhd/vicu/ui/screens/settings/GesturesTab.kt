@@ -43,6 +43,14 @@ internal fun swipeLeftDescription(action: ScheduleAction): String = when (action
 }
 
 /**
+ * What dragging does, and what a TalkBack user does instead: every row that can be dragged has
+ * "Move up" and "Move down" among its actions.
+ */
+internal const val DRAG_GESTURE_TEXT =
+    "Reorder tasks in the Inbox and in projects ordered by hand, and the projects, lists and " +
+        "labels in the menu. With TalkBack, use the Move up and Move down actions of the row instead."
+
+/**
  * A completed task stays in the list for a few seconds (struck through), whichever way it was
  * completed. No snackbar is shown for it, and none for the swipe actions.
  */
@@ -124,7 +132,7 @@ internal fun GesturesTab(
             GestureRow(
                 icon = Icons.Outlined.DragHandle,
                 gesture = "Long Press and Drag",
-                description = "Reorder tasks in the Inbox and in projects ordered by hand",
+                description = DRAG_GESTURE_TEXT,
                 color = MaterialTheme.colorScheme.secondary,
             )
         }

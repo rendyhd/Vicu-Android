@@ -60,6 +60,7 @@ import com.rendyhd.vicu.ui.components.task.AddTaskButton
 import com.rendyhd.vicu.ui.components.task.ReorderableTaskRow
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.util.isManuallyOrdered
+import com.rendyhd.vicu.util.moveOptions
 import com.rendyhd.vicu.util.parseHexColor
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableLazyListState
@@ -155,7 +156,9 @@ fun ProjectScreen(
                         )
                     }
                 } else {
-                    // Unsectioned tasks (directly in parent project)
+                    // Unsectioned tasks (directly in parent project). Which rows can move a place
+                    // (for a screen reader, which cannot drag): one pass.
+                    val unsectionedMoves = moveOptions(state.unsectionedTasks)
                     items(state.unsectionedTasks, key = { it.id }, contentType = { "task" }) { task ->
                         val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
                         val canDrag = !selectionActive &&
@@ -192,6 +195,10 @@ fun ProjectScreen(
                             // Draggable rows enter selection via lift-without-move
                             // (onDragStopped above); the rest keep plain long-press.
                             onLongClick = if (canDrag) null else ({ selectionVm.toggle(task.id) }),
+                            onMoveUp = unsectionedMoves[task.id]?.takeIf { canDrag && it.up }
+                                ?.let { { viewModel.moveTaskBy(task.id, -1); Unit } },
+                            onMoveDown = unsectionedMoves[task.id]?.takeIf { canDrag && it.down }
+                                ?.let { { viewModel.moveTaskBy(task.id, 1); Unit } },
                         )
                     }
 
@@ -235,6 +242,7 @@ fun ProjectScreen(
                         },
                         onSchedule = { task -> viewModel.scheduleTask(task.id) },
                         onLongClickToggle = { task -> selectionVm.toggle(task.id) },
+                        onMoveTask = { task, offset -> viewModel.moveTaskBy(task.id, offset) },
                         onAddTask = { pid -> onShowTaskEntry(pid, null) },
                     )
                 }
@@ -313,6 +321,7 @@ private fun LazyListScope.projectSectionItems(
     onRowClick: (Task) -> Unit,
     onSchedule: (Task) -> Unit,
     onLongClickToggle: (Task) -> Unit,
+    onMoveTask: (Task, Int) -> Unit,
     onAddTask: (Long) -> Unit,
 ) {
     sections.forEach { section ->
@@ -329,6 +338,7 @@ private fun LazyListScope.projectSectionItems(
         }
 
         if (section.isExpanded) {
+            val moves = moveOptions(section.tasks)
             items(section.tasks, key = { it.id }, contentType = { "task" }) { task ->
                 val displayTask = if (task.id in completedTaskIds) task.copy(done = true) else task
                 val canDrag = !selectionActive &&
@@ -350,6 +360,10 @@ private fun LazyListScope.projectSectionItems(
                     onSchedule = { onSchedule(task) },
                     onLongClick = if (canDrag) null else ({ onLongClickToggle(task) }),
                     contentStartPadding = ((depth + 1) * 16).dp,
+                    onMoveUp = moves[task.id]?.takeIf { canDrag && it.up }
+                        ?.let { { onMoveTask(task, -1) } },
+                    onMoveDown = moves[task.id]?.takeIf { canDrag && it.down }
+                        ?.let { { onMoveTask(task, 1) } },
                 )
             }
 
@@ -374,6 +388,7 @@ private fun LazyListScope.projectSectionItems(
                 onRowClick = onRowClick,
                 onSchedule = onSchedule,
                 onLongClickToggle = onLongClickToggle,
+                onMoveTask = onMoveTask,
                 onAddTask = onAddTask,
             )
         }

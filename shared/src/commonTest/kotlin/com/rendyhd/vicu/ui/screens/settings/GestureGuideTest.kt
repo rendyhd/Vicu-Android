@@ -20,6 +20,13 @@ class GestureGuideTest {
     }
 
     @Test
+    fun `the drag text tells a screen reader user about the move actions`() {
+        assertTrue("Move up" in DRAG_GESTURE_TEXT && "Move down" in DRAG_GESTURE_TEXT)
+        assertTrue("TalkBack" in DRAG_GESTURE_TEXT)
+        assertTrue("menu" in DRAG_GESTURE_TEXT, "the drawer rows can be moved too")
+    }
+
+    @Test
     fun `the undo tip describes the held row, not a snackbar`() {
         assertTrue("snackbar" !in UNDO_TIP.lowercase())
         assertTrue("checkbox" in UNDO_TIP.lowercase())

@@ -92,6 +92,8 @@ fun TaskItem(
     onSubtaskToggleDone: (Task) -> Unit = {},
     onSubtaskClick: (Task) -> Unit = {},
     confirmRootCompletion: Boolean = true,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
 ) {
     val directSubtasks = task.relatedTasks[RelationKind.SUBTASK].orEmpty()
     // Walking the subtask tree and parsing the description are per-row work: done again only when
@@ -121,12 +123,19 @@ fun TaskItem(
     val customActions = if (selectionActive) {
         emptyList()
     } else {
-        taskRowActions(done = task.done, canSchedule = rowActions != null).map { action ->
+        taskRowActions(
+            done = task.done,
+            canSchedule = rowActions != null,
+            canMoveUp = onMoveUp != null,
+            canMoveDown = onMoveDown != null,
+        ).map { action ->
             action to {
                 when (action) {
                     TaskRowAction.COMPLETE, TaskRowAction.REOPEN -> requestToggle(task)
                     TaskRowAction.DUE_TODAY -> rowActions?.scheduleDue(task.id, QuickDue.TODAY)
                     TaskRowAction.DUE_TOMORROW -> rowActions?.scheduleDue(task.id, QuickDue.TOMORROW)
+                    TaskRowAction.MOVE_UP -> onMoveUp?.invoke()
+                    TaskRowAction.MOVE_DOWN -> onMoveDown?.invoke()
                 }
                 Unit
             }

@@ -65,6 +65,8 @@ fun SwipeableTaskItem(
     onLongClick: (() -> Unit)? = null,
     onSubtaskToggleDone: (Task) -> Unit = {},
     onSubtaskClick: (Task) -> Unit = {},
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
 ) {
     val haptic = LocalHapticFeedback.current
     var showCompletionConfirmation by remember { mutableStateOf(false) }
@@ -139,6 +141,8 @@ fun SwipeableTaskItem(
             onSubtaskToggleDone = onSubtaskToggleDone,
             onSubtaskClick = onSubtaskClick,
             confirmRootCompletion = false,
+            onMoveUp = onMoveUp,
+            onMoveDown = onMoveDown,
         )
         if (showCompletionConfirmation) {
             CompletionConfirmationDialog(
@@ -196,6 +200,8 @@ fun SwipeableTaskItem(
             onSubtaskToggleDone = onSubtaskToggleDone,
             onSubtaskClick = onSubtaskClick,
             confirmRootCompletion = false,
+            onMoveUp = onMoveUp,
+            onMoveDown = onMoveDown,
         )
     }
 

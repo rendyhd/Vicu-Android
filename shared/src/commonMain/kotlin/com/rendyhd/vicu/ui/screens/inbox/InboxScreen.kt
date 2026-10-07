@@ -38,6 +38,7 @@ import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.ReorderableTaskRow
 import com.rendyhd.vicu.util.isManuallyOrdered
+import com.rendyhd.vicu.util.moveOptions
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -113,6 +114,8 @@ fun InboxScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            // Which rows can move a place (for a screen reader, which cannot drag): one pass.
+            val moves = remember(state.tasks) { moveOptions(state.tasks) }
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 if (state.tasks.isEmpty() && !state.isLoading) {
                     item {
@@ -159,6 +162,10 @@ fun InboxScreen(
                             onSubtaskClick = { child -> onTaskClick(child.id) },
                             onSchedule = { viewModel.scheduleTask(task.id) },
                             onLongClick = if (canDrag) null else ({ selectionVm.toggle(task.id) }),
+                            onMoveUp = moves[task.id]?.takeIf { canDrag && it.up }
+                                ?.let { { viewModel.moveTaskBy(task.id, -1); Unit } },
+                            onMoveDown = moves[task.id]?.takeIf { canDrag && it.down }
+                                ?.let { { viewModel.moveTaskBy(task.id, 1); Unit } },
                         )
                     }
                 }

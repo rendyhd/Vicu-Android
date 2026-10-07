@@ -147,6 +147,68 @@ class InboxViewModelOrderTest {
         rig.scope.cancel()
     }
 
+    // --- one step at a time (the screen reader's "Move up" and "Move down") ---
+
+    @Test
+    fun `moving a task down one place stores it as a drag to that slot would`() = runTest {
+        val rig = rig(task(1, 100.0), task(2, 200.0), task(3, 300.0))
+        val vm = rig.viewModel()
+        runCurrent()
+
+        assertTrue(vm.moveTaskBy(1, offset = 1))
+        runCurrent()
+
+        assertEquals(listOf(2L, 1L, 3L), vm.ids())
+        // Between 2 (200) and 3 (300): the same plan the drop of a drag makes.
+        assertEquals(listOf(5L to listOf(PositionUpdate(1, 250.0))), rig.tasks.appliedPositions)
+        rig.scope.cancel()
+    }
+
+    @Test
+    fun `moving a task up one place stores it between its new neighbours`() = runTest {
+        val rig = rig(task(1, 100.0), task(2, 200.0), task(3, 300.0))
+        val vm = rig.viewModel()
+        runCurrent()
+
+        assertTrue(vm.moveTaskBy(3, offset = -1))
+        runCurrent()
+
+        assertEquals(listOf(1L, 3L, 2L), vm.ids())
+        assertEquals(listOf(5L to listOf(PositionUpdate(3, 150.0))), rig.tasks.appliedPositions)
+        rig.scope.cancel()
+    }
+
+    @Test
+    fun `a move past the end or into the dated tasks does nothing`() = runTest {
+        val rig = rig(task(1, 100.0, due = "2026-10-08T21:59:59Z"), task(2, 200.0), task(3, 300.0))
+        val vm = rig.viewModel()
+        runCurrent()
+
+        assertFalse(vm.moveTaskBy(3, offset = 1), "last task down")
+        assertFalse(vm.moveTaskBy(2, offset = -1), "up into the dated one")
+        assertFalse(vm.moveTaskBy(1, offset = 1), "a dated task")
+        runCurrent()
+
+        assertEquals(listOf(1L, 2L, 3L), vm.ids())
+        assertTrue(rig.tasks.appliedPositions.isEmpty())
+        rig.scope.cancel()
+    }
+
+    @Test
+    fun `a move with no room between the neighbours renumbers like a drop does`() = runTest {
+        val rig = rig(task(1, 0.0), task(2, 0.0), task(3, 0.0))
+        val vm = rig.viewModel()
+        runCurrent()
+
+        assertTrue(vm.moveTaskBy(3, offset = -1))
+        runCurrent()
+
+        val (_, updates) = rig.tasks.appliedPositions.single()
+        assertEquals(PositionUpdate(3, 2 * POSITION_STEP), updates.last(), "the moved task last")
+        assertEquals(listOf(1L, 3L, 2L), vm.ids())
+        rig.scope.cancel()
+    }
+
     @Test
     fun `tasks that share a position are renumbered when one is dropped between them`() = runTest {
         val rig = rig(task(1, 0.0), task(2, 0.0), task(3, 0.0))

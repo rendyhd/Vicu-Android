@@ -20,7 +20,8 @@ import sh.calvin.reorderable.ReorderableLazyListState
  * A task row that can be dragged to a new place in a lazy list, shared by every screen that lets
  * the user order tasks by hand (a project, the Inbox). A long press that moves the row drags it
  * ([onDragStarted] / [onDragStopped]); the rows that [canDrag] is false for keep their plain
- * long-press ([onLongClick]).
+ * long-press ([onLongClick]). A screen reader cannot drag: [onMoveUp] and [onMoveDown] (null where
+ * the move is not possible) are offered as its "Move up" and "Move down" actions instead.
  */
 @Composable
 fun LazyItemScope.ReorderableTaskRow(
@@ -39,6 +40,8 @@ fun LazyItemScope.ReorderableTaskRow(
     onSchedule: () -> Unit,
     onLongClick: (() -> Unit)?,
     contentStartPadding: Dp = 0.dp,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
 ) {
     val haptic = LocalHapticFeedback.current
     ReorderableItem(reorderableState, key = task.id) { isDragging ->
@@ -67,6 +70,8 @@ fun LazyItemScope.ReorderableTaskRow(
                 selected = selected,
                 onLongClick = onLongClick,
                 contentStartPadding = contentStartPadding,
+                onMoveUp = onMoveUp,
+                onMoveDown = onMoveDown,
                 modifier = if (canDrag) {
                     Modifier.longPressDraggableHandle(
                         onDragStarted = {

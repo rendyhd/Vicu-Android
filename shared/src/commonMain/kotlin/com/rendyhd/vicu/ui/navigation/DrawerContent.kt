@@ -64,6 +64,8 @@ import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.ui.components.section.sectionStateDescription
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
+import com.rendyhd.vicu.ui.components.task.moveCustomActions
+import com.rendyhd.vicu.util.moveIdBy
 import com.rendyhd.vicu.util.parseHexColor
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableLazyListState
@@ -111,6 +113,11 @@ fun DrawerContent(
     val projectRows = liveProjects ?: state.projectRows
     val customLists = liveLists ?: state.customLists
     val labels = liveLabels ?: state.labels
+    // What a screen reader (which cannot drag) moves by: the ids of each group in display order, and
+    // for projects the ids of each level. A move is reported like the drop of a drag.
+    val projectSiblings = remember(projectRows) { projectRows.groupBy({ it.parentId }, { it.project.id }) }
+    val listIds = remember(customLists) { customLists.map { it.id } }
+    val labelIds = remember(labels) { labels.map { it.id } }
 
     val reorderState = rememberReorderableLazyListState(listState) { from, to ->
         val source = parseDrawerKey(from.key) ?: return@rememberReorderableLazyListState
@@ -247,6 +254,7 @@ fun DrawerContent(
                         contentType = { "project" },
                     ) { row ->
                         val projectId = row.project.id
+                        val siblings = projectSiblings[row.parentId].orEmpty()
                         DrawerReorderableRow(
                             reorderState = reorderState,
                             key = drawerKey(DrawerGroup.PROJECT, projectId),
@@ -260,6 +268,10 @@ fun DrawerContent(
                                 selected = currentRoute == "ProjectRoute/$projectId",
                                 onClick = { onNavigate(ProjectRoute(projectId)) },
                                 onToggleCollapsed = { onToggleProjectCollapsed(projectId) },
+                                onMoveUp = moveIdBy(siblings, projectId, -1)
+                                    ?.let { order -> { onReorderProject(projectId, order) } },
+                                onMoveDown = moveIdBy(siblings, projectId, 1)
+                                    ?.let { order -> { onReorderProject(projectId, order) } },
                             )
                         }
                     }
@@ -302,7 +314,14 @@ fun DrawerContent(
                                 },
                                 selected = currentRoute == "CustomListRoute/${list.id}",
                                 onClick = { onNavigate(CustomListRoute(list.id)) },
-                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                                modifier = Modifier
+                                    .padding(NavigationDrawerItemDefaults.ItemPadding)
+                                    .moveCustomActions(
+                                        onMoveUp = moveIdBy(listIds, list.id, -1)
+                                            ?.let { order -> { onReorderList(list.id, order) } },
+                                        onMoveDown = moveIdBy(listIds, list.id, 1)
+                                            ?.let { order -> { onReorderList(list.id, order) } },
+                                    ),
                             )
                         }
                     }
@@ -370,7 +389,14 @@ fun DrawerContent(
                                     },
                                     selected = currentRoute == "TagRoute/${label.id}",
                                     onClick = { onNavigate(TagRoute(label.id)) },
-                                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                                    modifier = Modifier
+                                        .padding(NavigationDrawerItemDefaults.ItemPadding)
+                                        .moveCustomActions(
+                                            onMoveUp = moveIdBy(labelIds, label.id, -1)
+                                                ?.let { order -> { onReorderLabel(label.id, order) } },
+                                            onMoveDown = moveIdBy(labelIds, label.id, 1)
+                                                ?.let { order -> { onReorderLabel(label.id, order) } },
+                                        ),
                                 )
                             }
                         }
@@ -449,6 +475,8 @@ private fun ProjectItem(
     selected: Boolean,
     onClick: () -> Unit,
     onToggleCollapsed: () -> Unit,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
 ) {
     val project = row.project
     // Only a project with children gets the button; the badge slot is the trailing end of the row.
@@ -478,7 +506,8 @@ private fun ProjectItem(
         onClick = onClick,
         modifier = Modifier
             .padding(NavigationDrawerItemDefaults.ItemPadding)
-            .padding(start = ProjectIndent * projectIndentLevel(row.depth)),
+            .padding(start = ProjectIndent * projectIndentLevel(row.depth))
+            .moveCustomActions(onMoveUp, onMoveDown),
     )
 }
 

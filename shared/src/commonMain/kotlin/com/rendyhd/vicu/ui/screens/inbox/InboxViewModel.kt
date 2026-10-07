@@ -14,6 +14,7 @@ import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.moveTaskInList
+import com.rendyhd.vicu.util.neighbourForMove
 import com.rendyhd.vicu.util.planDrop
 import com.rendyhd.vicu.util.sortProjectTasks
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -151,6 +152,18 @@ class InboxViewModel(
             val reordered = moveTaskInList(current.tasks, fromId, toId) ?: return false
             if (_uiState.compareAndSet(current, current.copy(tasks = reordered))) return true
         }
+    }
+
+    /**
+     * The screen reader's "Move up" / "Move down": the task takes the slot of the one [offset]
+     * places away and is stored as the drop of a drag to that slot is. Returns false when there is
+     * no such slot (an end of the list, a dated task).
+     */
+    fun moveTaskBy(taskId: Long, offset: Int): Boolean {
+        val toId = neighbourForMove(_uiState.value.tasks, taskId, offset) ?: return false
+        if (!onTaskMoved(taskId, toId)) return false
+        onTaskDropped(taskId)
+        return true
     }
 
     /**

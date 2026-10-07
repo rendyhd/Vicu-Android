@@ -11,6 +11,7 @@ import com.rendyhd.vicu.ui.FakeProjectRepository
 import com.rendyhd.vicu.ui.FakeTaskRepository
 import com.rendyhd.vicu.ui.fakeScreenRefresher
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.PositionUpdate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -22,8 +23,10 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * What the Project screen keeps and what it drops when its lists emit again: an error that is
@@ -56,6 +59,25 @@ class ProjectViewModelStateTest {
             behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
             projectSectionPrefsStore = ProjectSectionPrefsStore(InMemoryPreferencesDataStore()),
         )
+    }
+
+    @Test
+    fun `moving a task one place stores the position a drag to that slot would`() = runTest {
+        val rig = Rig(listOf(Project(id = 1, title = "Project")))
+        rig.tasks.put(Task(id = 5, title = "A", projectId = 1, position = 100.0))
+        rig.tasks.put(Task(id = 6, title = "B", projectId = 1, position = 200.0))
+        rig.tasks.put(Task(id = 7, title = "C", projectId = 1, position = 300.0))
+        val vm = rig.viewModel()
+        runCurrent()
+        assertEquals(listOf(5L, 6L, 7L), vm.uiState.value.unsectionedTasks.map { it.id })
+
+        assertTrue(vm.moveTaskBy(7, offset = -1))
+        runCurrent()
+
+        assertEquals(listOf(5L, 7L, 6L), vm.uiState.value.unsectionedTasks.map { it.id })
+        assertEquals(listOf(1L to listOf(PositionUpdate(7, 150.0))), rig.tasks.appliedPositions)
+        assertFalse(vm.moveTaskBy(5, offset = -1), "the first task cannot move up")
+        assertFalse(vm.moveTaskBy(99, offset = 1), "a task that is not on the screen")
     }
 
     @Test

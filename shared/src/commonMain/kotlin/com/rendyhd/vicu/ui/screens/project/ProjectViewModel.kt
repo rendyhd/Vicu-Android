@@ -17,6 +17,7 @@ import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.dropPositionFor
 import com.rendyhd.vicu.util.moveTaskInList
+import com.rendyhd.vicu.util.neighbourForMove
 import com.rendyhd.vicu.util.sortProjectTasks
 import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.refreshErrorToShow
@@ -208,6 +209,24 @@ class ProjectViewModel(
         }
         val movedSections = moveTaskInSections(state.sections, fromId, toId) ?: return null
         return state.copy(sections = movedSections)
+    }
+
+    /**
+     * The screen reader's "Move up" / "Move down": the task takes the slot of the one [offset]
+     * places away within its group and is stored as the drop of a drag to that slot is. Returns
+     * false when there is no such slot (an end of the group, a dated task).
+     */
+    fun moveTaskBy(taskId: Long, offset: Int): Boolean {
+        val state = _uiState.value
+        val group = if (state.unsectionedTasks.any { it.id == taskId }) {
+            state.unsectionedTasks
+        } else {
+            findTaskGroup(state.sections, taskId)?.tasks ?: return false
+        }
+        val toId = neighbourForMove(group, taskId, offset) ?: return false
+        if (!onTaskMoved(taskId, toId)) return false
+        onTaskDropped(taskId)
+        return true
     }
 
     /** Drag released: persist the dropped task's new position from its current neighbors. */

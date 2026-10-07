@@ -19,6 +19,30 @@ class TaskRowSemanticsTest {
     }
 
     @Test
+    fun `a row that can be moved offers Move up and Move down after the others`() {
+        assertEquals(
+            listOf(
+                TaskRowAction.COMPLETE, TaskRowAction.DUE_TODAY, TaskRowAction.DUE_TOMORROW,
+                TaskRowAction.MOVE_UP, TaskRowAction.MOVE_DOWN,
+            ),
+            taskRowActions(done = false, canSchedule = true, canMoveUp = true, canMoveDown = true),
+        )
+        assertEquals(
+            listOf(TaskRowAction.COMPLETE, TaskRowAction.MOVE_DOWN),
+            taskRowActions(done = false, canSchedule = false, canMoveDown = true),
+            "the first row of a list cannot move up",
+        )
+        assertEquals("Move up", TaskRowAction.MOVE_UP.label)
+        assertEquals("Move down", TaskRowAction.MOVE_DOWN.label)
+    }
+
+    @Test
+    fun `a row that cannot be moved offers no move`() {
+        val actions = taskRowActions(done = false, canSchedule = true)
+        assertTrue(TaskRowAction.MOVE_UP !in actions && TaskRowAction.MOVE_DOWN !in actions)
+    }
+
+    @Test
     fun `a done task can only be reopened`() {
         assertEquals(listOf(TaskRowAction.REOPEN), taskRowActions(done = true, canSchedule = true))
     }
