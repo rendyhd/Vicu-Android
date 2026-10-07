@@ -3,6 +3,7 @@ package com.rendyhd.vicu.notification
 import android.content.Context
 import android.util.Log
 import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -18,6 +19,9 @@ import java.util.concurrent.TimeUnit
  * its configured time, and the job schedules the following day's when it has run. A repeating
  * 24 hour job would drift by an hour across a daylight-saving change.
  */
+/** One summary as the preferences describe it. */
+internal data class SlotPlan(val slot: String, val enabled: Boolean, val hour: Int, val minute: Int)
+
 class DailySummaryScheduler(
     private val context: Context,
     private val time: TimeSource,
@@ -35,6 +39,31 @@ class DailySummaryScheduler(
 
         private fun workName(slot: String) =
             if (slot == SLOT_AFTERNOON) WORK_NAME_AFTERNOON else WORK_NAME_MORNING
+
+        /**
+         * What an app start does when a summary is already queued (or running): nothing. A
+         * replace would cancel a summary being posted at that moment.
+         */
+        internal val START_POLICY = ExistingWorkPolicy.KEEP
+
+        internal fun slotPlans(prefs: NotificationPrefs): List<SlotPlan> = listOf(
+            SlotPlan(SLOT_MORNING, prefs.dailySummaryEnabled, prefs.dailySummaryHour, prefs.dailySummaryMinute),
+            SlotPlan(
+                SLOT_AFTERNOON,
+                prefs.afternoonSummaryEnabled,
+                prefs.afternoonSummaryHour,
+                prefs.afternoonSummaryMinute,
+            ),
+        )
+
+        /** The one-time job for [slot] that runs at [target]; built without a Context. */
+        internal fun request(slot: String, target: Instant, now: Instant): OneTimeWorkRequest {
+            val initialDelayMillis = (target - now).inWholeMilliseconds.coerceAtLeast(0L)
+            return OneTimeWorkRequestBuilder<DailySummaryWorker>()
+                .setInitialDelay(initialDelayMillis, TimeUnit.MILLISECONDS)
+                .setInputData(workDataOf(KEY_SLOT to slot, KEY_TARGET_MILLIS to target.toEpochMilliseconds()))
+                .build()
+        }
     }
 
     // Backward-compatible morning overloads (keep existing callers compiling)
@@ -76,26 +105,30 @@ class DailySummaryScheduler(
         // The local wall-clock time of the next day is computed from the calendar date in the
         // current zone, so it lands on the configured time across daylight-saving changes.
         val target = DailySummary.nextOccurrence(after, time.zone(), hour, minute)
-        val initialDelayMillis = (target - now).inWholeMilliseconds.coerceAtLeast(0L)
-
-        val request = OneTimeWorkRequestBuilder<DailySummaryWorker>()
-            .setInitialDelay(initialDelayMillis, TimeUnit.MILLISECONDS)
-            .setInputData(workDataOf(KEY_SLOT to slot, KEY_TARGET_MILLIS to target.toEpochMilliseconds()))
-            .build()
+        val request = request(slot, target, now)
 
         WorkManager.getInstance(context).enqueueUniqueWork(workName(slot), policy, request)
-        Log.d(TAG, "Scheduled $slot daily summary at $hour:$minute (delay=${initialDelayMillis / 60000}min)")
+        Log.d(TAG, "Scheduled $slot daily summary at $hour:$minute (delay=${request.workSpec.initialDelay / 60000}min)")
     }
 
     /** Schedules, or cancels, both summaries as [prefs] says (used after signing in again). */
     fun scheduleFromPrefs(prefs: NotificationPrefs) {
-        scheduleIfEnabled(SLOT_MORNING, prefs.dailySummaryEnabled, prefs.dailySummaryHour, prefs.dailySummaryMinute)
-        scheduleIfEnabled(
-            SLOT_AFTERNOON,
-            prefs.afternoonSummaryEnabled,
-            prefs.afternoonSummaryHour,
-            prefs.afternoonSummaryMinute,
-        )
+        slotPlans(prefs).forEach { scheduleIfEnabled(it.slot, it.enabled, it.hour, it.minute) }
+    }
+
+    /**
+     * Run at app start: makes sure each enabled summary has a job queued, which covers a schedule
+     * lost to a data clear, an OS that cleared the queue, or a run that was killed before it queued
+     * the next day. A summary already queued or running is left as it is ([START_POLICY]).
+     */
+    fun ensureScheduled(prefs: NotificationPrefs) {
+        slotPlans(prefs).forEach { plan ->
+            if (plan.enabled) {
+                enqueue(plan.slot, plan.hour, plan.minute, after = time.now(), policy = START_POLICY)
+            } else {
+                cancel(plan.slot)
+            }
+        }
     }
 
     fun cancel(slot: String) {

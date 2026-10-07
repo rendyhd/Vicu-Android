@@ -89,7 +89,13 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             var neededReAuth = false
             var signedOut = false
+            var ensuredAtStart = false
             authManager.authState.collect { state ->
+                if (state == AuthState.Authenticated && !ensuredAtStart) {
+                    // A cheap check on every start: a summary queued already is left alone.
+                    ensuredAtStart = true
+                    dailySummaryScheduler.ensureScheduled(notificationPrefsStore.getPrefs().first())
+                }
                 if (state == AuthState.Authenticated && neededReAuth) {
                     SyncScheduler.enqueueImmediate(this@MainActivity)
                 }
