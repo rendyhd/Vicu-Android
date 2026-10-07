@@ -3,6 +3,8 @@ agp = "9.0.1"
 kotlin = "2.3.21"
 ksp = "2.3.9"
 compose-multiplatform = "1.11.1"
+# The material3 line of Compose Multiplatform releases separately (the plugin's own accessor resolved to this one).
+compose-material3 = "1.9.0"
 composeBom = "2026.01.01"
 
 room = "2.7.1"
@@ -45,6 +47,14 @@ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-te
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 cascade-editor = { group = "io.github.linreal", name = "cascade-editor", version.ref = "cascade" }
+
+# Compose Multiplatform (shared module). Direct coordinates: the plugin's compose.* accessors are deprecated.
+compose-runtime = { group = "org.jetbrains.compose.runtime", name = "runtime", version.ref = "compose-multiplatform" }
+compose-foundation = { group = "org.jetbrains.compose.foundation", name = "foundation", version.ref = "compose-multiplatform" }
+compose-material3 = { group = "org.jetbrains.compose.material3", name = "material3", version.ref = "compose-material3" }
+# The last release of the multiplatform icon set. JetBrains stopped publishing it, and the AndroidX
+# artifact (1.7.8) has no iOS variants, so the shared module cannot move to it.
+compose-material-icons-extended = { group = "org.jetbrains.compose.material", name = "material-icons-extended", version = "1.7.3" }
 
 # Navigation
 androidx-navigation-compose = { group = "org.jetbrains.androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
@@ -116,4 +126,3 @@ ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 
 room = { id = "androidx.room", version.ref = "room" }
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
-jetbrains-compose = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }

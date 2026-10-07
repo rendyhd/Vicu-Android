@@ -1,7 +1,6 @@
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.library)
-    alias(libs.plugins.jetbrains.compose)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
@@ -32,11 +31,10 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation(compose.runtime)
-            implementation(compose.foundation)
-            implementation(compose.material3)
-            implementation(compose.components.resources)
-            implementation(compose.components.uiToolingPreview)
+            implementation(libs.compose.runtime)
+            implementation(libs.compose.foundation)
+            implementation(libs.compose.material3)
+            implementation(libs.compose.material.icons.extended)
             implementation(libs.cascade.editor)
 
             implementation(libs.kotlinx.datetime)
@@ -58,7 +56,6 @@ kotlin {
             implementation(libs.androidx.navigation.compose)
             implementation(libs.reorderable)
             implementation(libs.coil.compose)
-            implementation(compose.materialIconsExtended)
         }
 
         androidMain.dependencies {
