@@ -96,16 +96,19 @@ object DateUtils {
         zone: TimeZone = localZone,
     ): String {
         val date = DueDates.localDateOf(dateStr, zone) ?: return ""
-        return when {
-            date == today -> "Today"
-            date == today.plus(1, DateTimeUnit.DAY) -> "Tomorrow"
-            date == today.minus(1, DateTimeUnit.DAY) -> "Yesterday"
-            date > today && date < today.plus(7, DateTimeUnit.DAY) ->
-                date.toJavaLocalDate().dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-            date.year != today.year ->
-                date.toJavaLocalDate().format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.getDefault()))
-            else -> date.toJavaLocalDate().format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()))
-        }
+        return formatRelativeDate(date, today)
+    }
+
+    /** The same label for a local date, such as a date parsed from quick-add text. */
+    fun formatRelativeDate(date: LocalDate, today: LocalDate): String = when {
+        date == today -> "Today"
+        date == today.plus(1, DateTimeUnit.DAY) -> "Tomorrow"
+        date == today.minus(1, DateTimeUnit.DAY) -> "Yesterday"
+        date > today && date < today.plus(7, DateTimeUnit.DAY) ->
+            date.toJavaLocalDate().dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+        date.year != today.year ->
+            date.toJavaLocalDate().format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.getDefault()))
+        else -> date.toJavaLocalDate().format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()))
     }
 
     /**

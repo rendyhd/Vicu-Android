@@ -20,10 +20,8 @@ import com.rendyhd.vicu.util.parser.ParseResult
 import com.rendyhd.vicu.util.parser.ParsedRecurrence
 import com.rendyhd.vicu.util.parser.RecurrenceUnit
 import com.rendyhd.vicu.util.parser.TokenType
-import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.plus
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -101,14 +99,12 @@ internal fun chipDismissDescription(type: TokenType, label: String): String = wh
     TokenType.RECURRENCE -> "Remove repeat"
 }
 
-/** The date, plus the time of day only when the text named one (date-only values show no time). */
+/**
+ * The date as the task list names it (Today, Tomorrow, "Sat", "Oct 20", with the year when it is
+ * not this one), plus the time of day only when the text named one (date-only values show no time).
+ */
 internal fun formatDateChip(date: LocalDateTime, hasTime: Boolean, today: LocalDate, is24Hour: Boolean): String {
-    val dateOnly = date.date
-    val day = when (dateOnly) {
-        today -> "Today"
-        today.plus(1, DateTimeUnit.DAY) -> "Tomorrow"
-        else -> dateOnly.toString()
-    }
+    val day = DateUtils.formatRelativeDate(date.date, today)
     return if (hasTime) "$day ${DateUtils.formatClockTime(date.time, is24Hour)}" else day
 }
 
