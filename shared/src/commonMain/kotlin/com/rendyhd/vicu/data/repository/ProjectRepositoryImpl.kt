@@ -17,7 +17,10 @@ import com.rendyhd.vicu.util.isNetworkFailure
 import com.rendyhd.vicu.util.isRetriableNetworkError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -29,6 +32,8 @@ class ProjectRepositoryImpl(
     private val projectRefresher: ProjectRefresher,
     private val pendingActionDao: PendingActionDao,
     private val platformHooks: PlatformRepositoryHooks,
+    /** Where Room rows are mapped to domain models: off the main thread; tests pass an unconfined one. */
+    private val mappingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ProjectRepository {
 
     private companion object {
@@ -38,22 +43,22 @@ class ProjectRepositoryImpl(
     override fun getAll(): Flow<List<Project>> =
         projectDao.getAll().map { entities ->
             entities.map { with(projectMapper) { it.toDomain() } }
-        }
+        }.flowOn(mappingDispatcher)
 
     override fun getAllIncludingArchived(): Flow<List<Project>> =
         projectDao.getAllIncludingArchived().map { entities ->
             entities.map { with(projectMapper) { it.toDomain() } }
-        }
+        }.flowOn(mappingDispatcher)
 
     override fun getById(id: Long): Flow<Project?> =
         projectDao.getById(id).map { entity ->
             entity?.let { with(projectMapper) { it.toDomain() } }
-        }
+        }.flowOn(mappingDispatcher)
 
     override fun getChildren(parentId: Long): Flow<List<Project>> =
         projectDao.getChildren(parentId).map { entities ->
             entities.map { with(projectMapper) { it.toDomain() } }
-        }
+        }.flowOn(mappingDispatcher)
 
     override suspend fun create(project: Project): NetworkResult<Project> {
         return try {

@@ -20,7 +20,10 @@ import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.isNetworkFailure
 import com.rendyhd.vicu.util.isRetriableNetworkError
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 
@@ -35,6 +38,8 @@ class LabelRepositoryImpl(
     private val json: Json,
     private val tempIds: TempIdGenerator,
     private val labelRefresher: LabelRefresher,
+    /** Where Room rows are mapped to domain models: off the main thread; tests pass an unconfined one. */
+    private val mappingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : LabelRepository {
 
     private suspend fun queueLabelAction(entityId: Long, actionType: String, payload: String) {
@@ -69,7 +74,7 @@ class LabelRepositoryImpl(
     override fun getAll(): Flow<List<Label>> =
         labelDao.getAll().map { entities ->
             entities.map { with(labelMapper) { it.toDomain() } }
-        }
+        }.flowOn(mappingDispatcher)
 
     override suspend fun getById(id: Long): Label? =
         labelDao.getById(id)?.let { with(labelMapper) { it.toDomain() } }

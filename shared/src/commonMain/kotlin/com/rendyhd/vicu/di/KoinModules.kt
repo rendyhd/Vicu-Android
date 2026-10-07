@@ -30,7 +30,7 @@ import com.rendyhd.vicu.worker.SyncEngine
 
 val databaseModule = module {
     single {
-        getDatabaseBuilder(get()).addMigrations(MIGRATION_1_2).build()
+        getDatabaseBuilder(get()).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
     }
     single { get<VikunjaDatabase>().taskDao() }
     single { get<VikunjaDatabase>().projectDao() }

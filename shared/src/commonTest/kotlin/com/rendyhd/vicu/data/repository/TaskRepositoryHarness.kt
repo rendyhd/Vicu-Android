@@ -23,7 +23,9 @@ import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
@@ -51,6 +53,8 @@ class TaskRepositoryHarness(
     val tempIds: TempIdGenerator = TempIdGenerator(InMemoryPreferencesDataStore()),
     val logbookPrefsStore: LogbookPrefsStore = LogbookPrefsStore(InMemoryPreferencesDataStore()),
     val cursorStore: SyncCursorStore = SyncCursorStore(InMemoryPreferencesDataStore()),
+    /** Unconfined, so list flows deliver in the collector's own steps; a test can pass a recording one. */
+    mappingDispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ) {
     val json: Json = authTestJson
@@ -91,6 +95,7 @@ class TaskRepositoryHarness(
             platformHooks = hooks,
             cursorStore = cursorStore,
         ),
+        mappingDispatcher = mappingDispatcher,
     )
 
     suspend fun initScheduleAction() {

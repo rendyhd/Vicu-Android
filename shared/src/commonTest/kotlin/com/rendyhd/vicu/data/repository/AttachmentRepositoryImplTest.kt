@@ -21,6 +21,7 @@ import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -82,6 +83,7 @@ class AttachmentRepositoryImplTest {
             api = VikunjaApiService(client, authTestJson),
             attachmentMapper = AttachmentMapper(),
             platformFiles = files,
+            mappingDispatcher = Dispatchers.Unconfined,
         )
 
         fun count(method: HttpMethod, path: String) = seen.count { it.method == method && it.path == path }

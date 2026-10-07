@@ -117,7 +117,6 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     override suspend fun getUpcomingTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity> = emptyList()
     override suspend fun getAnytimeTasksSync(inboxProjectId: Long, limit: Int): List<TaskEntity> = emptyList()
     override suspend fun getByProjectIdSync(projectId: Long, limit: Int): List<TaskEntity> = emptyList()
-    override suspend fun getAllOpenTasksSync(limit: Int): List<TaskEntity> = emptyList()
     override suspend fun getAllWithReminders(): List<TaskEntity> = lock.withLock {
         rows.values.filter { it.remindersJson != "[]" && !it.done }
     }

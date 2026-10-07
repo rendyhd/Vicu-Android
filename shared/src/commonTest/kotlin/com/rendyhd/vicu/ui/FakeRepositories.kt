@@ -13,7 +13,6 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.DEFAULT_MAX_UPLOAD_BYTES
 import com.rendyhd.vicu.util.NetworkResult
-import com.rendyhd.vicu.util.withoutNestedSubtasks
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -97,10 +96,6 @@ class FakeTaskRepository : TaskRepository {
     override suspend fun getByIds(ids: Set<Long>): List<Task> = ids.mapNotNull { rowFor(it).value }
     override fun searchByTitle(query: String): Flow<List<Task>> = flowOf(emptyList())
     override fun searchByTitleIncludingDone(query: String): Flow<List<Task>> = flowOf(emptyList())
-    // Like the real repository: the plain queries hide nested subtasks, the flat ones do not.
-    override fun getAllOpenTasks(): Flow<List<Task>> =
-        all.map { tasks -> tasks.filter { !it.done }.withoutNestedSubtasks() }
-    override fun getAllTasks(): Flow<List<Task>> = all.map { tasks -> tasks.withoutNestedSubtasks() }
     override fun getAllOpenTasksFlat(): Flow<List<Task>> = all.map { tasks -> tasks.filter { !it.done } }
     override fun getAllTasksFlat(): Flow<List<Task>> = all
 

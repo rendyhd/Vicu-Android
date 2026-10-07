@@ -34,6 +34,8 @@ import com.rendyhd.vicu.util.isNetworkFailure
 import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.randomUuid
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +43,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -76,6 +79,8 @@ class RoutineRepositoryImpl(
     private val json: Json,
     private val archiveStore: RoutineArchiveStore,
     private val time: TimeSource = SystemTimeSource,
+    /** Where carrier descriptions are parsed and a day is laid out: off the main thread. */
+    private val mappingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : RoutineRepository {
     private companion object {
         const val TAG = "RoutineRepository"
@@ -116,7 +121,7 @@ class RoutineRepositoryImpl(
             routines = routines.sortedBy { it.definition.createdAt },
             issues = issues,
         )
-    }
+    }.flowOn(mappingDispatcher)
 
     override fun observeActive(): Flow<List<Routine>> =
         parsedFlow.map { parsed -> parsed.routines.filterNot { it.definition.archived } }
@@ -147,7 +152,7 @@ class RoutineRepositoryImpl(
             )
             .toList()
         RoutineDay(date, occurrences)
-    }
+    }.flowOn(mappingDispatcher)
 
     /**
      * The whole history of a routine: its main carrier, the archive parts on the server and any
@@ -184,7 +189,7 @@ class RoutineRepositoryImpl(
                 compareByDescending<RoutineOccurrenceRecord> { it.scheduledDate }
                     .thenByDescending { it.scheduledMinutes },
             )
-        }
+        }.flowOn(mappingDispatcher)
     }
 
     override suspend fun create(draft: RoutineDraft): NetworkResult<Routine> {

@@ -13,7 +13,7 @@ interface TaskDao {
     @Query(
         """
         SELECT * FROM tasks
-        WHERE done = 0 AND projectId = :inboxProjectId
+        WHERE done = 0 AND isMetadata = 0 AND projectId = :inboxProjectId
         AND (:includeDated = 1 OR dueDate = '' OR dueDate = '0001-01-01T00:00:00Z')
         ORDER BY created DESC
         """
@@ -24,6 +24,7 @@ interface TaskDao {
         """
         SELECT * FROM tasks
         WHERE done = 0
+        AND isMetadata = 0
         AND dueDate < :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
@@ -36,6 +37,7 @@ interface TaskDao {
         """
         SELECT * FROM tasks
         WHERE done = 0
+        AND isMetadata = 0
         AND dueDate >= :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
@@ -44,20 +46,21 @@ interface TaskDao {
     )
     fun getUpcomingTasks(startOfTomorrow: String): Flow<List<TaskEntity>>
 
-    @Query("SELECT * FROM tasks WHERE done = 0 AND projectId != :inboxProjectId ORDER BY updated DESC")
+    @Query("SELECT * FROM tasks WHERE done = 0 AND isMetadata = 0 AND projectId != :inboxProjectId ORDER BY updated DESC")
     fun getAnytimeTasks(inboxProjectId: Long): Flow<List<TaskEntity>>
 
     @Query(
         """
         SELECT * FROM tasks
         WHERE done = 1
+        AND isMetadata = 0
         AND (:cutoff = '' OR doneAt = '' OR doneAt = '0001-01-01T00:00:00Z' OR doneAt >= :cutoff)
         ORDER BY doneAt DESC
         """
     )
     fun getLogbookTasks(cutoff: String): Flow<List<TaskEntity>>
 
-    @Query("SELECT * FROM tasks WHERE projectId = :projectId ORDER BY position ASC")
+    @Query("SELECT * FROM tasks WHERE isMetadata = 0 AND projectId = :projectId ORDER BY position ASC")
     fun getByProjectId(projectId: Long): Flow<List<TaskEntity>>
 
     @Query("SELECT * FROM tasks WHERE id = :id")
@@ -69,10 +72,10 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE title LIKE '%' || :query || '%'")
     fun searchByTitleIncludingDone(query: String): Flow<List<TaskEntity>>
 
-    @Query("SELECT * FROM tasks WHERE done = 0 ORDER BY updated DESC")
+    @Query("SELECT * FROM tasks WHERE done = 0 AND isMetadata = 0 ORDER BY updated DESC")
     fun getAllOpenTasks(): Flow<List<TaskEntity>>
 
-    @Query("SELECT * FROM tasks")
+    @Query("SELECT * FROM tasks WHERE isMetadata = 0")
     fun getAllTasksFlow(): Flow<List<TaskEntity>>
 
     @Query("SELECT * FROM tasks WHERE description LIKE '%<!-- vicu-routine:%'")
@@ -93,6 +96,7 @@ interface TaskDao {
         """
         SELECT COUNT(*) FROM tasks
         WHERE done = 0
+        AND isMetadata = 0
         AND dueDate < :startOfToday
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
@@ -104,6 +108,7 @@ interface TaskDao {
         """
         SELECT COUNT(*) FROM tasks
         WHERE done = 0
+        AND isMetadata = 0
         AND dueDate >= :startOfToday
         AND dueDate < :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
@@ -117,6 +122,7 @@ interface TaskDao {
         """
         SELECT COUNT(*) FROM tasks
         WHERE done = 0
+        AND isMetadata = 0
         AND dueDate >= :startOfTomorrow
         AND dueDate < :startOfDayAfterTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
@@ -129,6 +135,7 @@ interface TaskDao {
         """
         SELECT * FROM tasks
         WHERE done = 0
+        AND isMetadata = 0
         AND dueDate < :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
@@ -143,6 +150,7 @@ interface TaskDao {
         """
         SELECT * FROM tasks
         WHERE done = 0
+        AND isMetadata = 0
         AND dueDate >= :startOfToday
         AND dueDate < :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
@@ -156,7 +164,7 @@ interface TaskDao {
     @Query(
         """
         SELECT * FROM tasks
-        WHERE done = 0 AND projectId = :inboxProjectId
+        WHERE done = 0 AND isMetadata = 0 AND projectId = :inboxProjectId
         AND (:includeDated = 1 OR dueDate = '' OR dueDate = '0001-01-01T00:00:00Z')
         ORDER BY created DESC LIMIT :limit
         """
@@ -167,6 +175,7 @@ interface TaskDao {
         """
         SELECT * FROM tasks
         WHERE done = 0
+        AND isMetadata = 0
         AND dueDate >= :startOfTomorrow
         AND dueDate != '0001-01-01T00:00:00Z'
         AND dueDate != ''
@@ -176,14 +185,11 @@ interface TaskDao {
     )
     suspend fun getUpcomingTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity>
 
-    @Query("SELECT * FROM tasks WHERE done = 0 AND projectId != :inboxProjectId ORDER BY updated DESC LIMIT :limit")
+    @Query("SELECT * FROM tasks WHERE done = 0 AND isMetadata = 0 AND projectId != :inboxProjectId ORDER BY updated DESC LIMIT :limit")
     suspend fun getAnytimeTasksSync(inboxProjectId: Long, limit: Int): List<TaskEntity>
 
-    @Query("SELECT * FROM tasks WHERE done = 0 AND projectId = :projectId ORDER BY position ASC LIMIT :limit")
+    @Query("SELECT * FROM tasks WHERE done = 0 AND isMetadata = 0 AND projectId = :projectId ORDER BY position ASC LIMIT :limit")
     suspend fun getByProjectIdSync(projectId: Long, limit: Int): List<TaskEntity>
-
-    @Query("SELECT * FROM tasks WHERE done = 0 ORDER BY updated DESC LIMIT :limit")
-    suspend fun getAllOpenTasksSync(limit: Int): List<TaskEntity>
 
     @Query("SELECT * FROM tasks WHERE remindersJson != '[]' AND done = 0")
     suspend fun getAllWithReminders(): List<TaskEntity>

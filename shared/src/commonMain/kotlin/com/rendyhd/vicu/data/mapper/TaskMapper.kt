@@ -156,6 +156,7 @@ class TaskMapper(private val json: Json) {
         return copy(
             title = scalars.title,
             description = scalars.description,
+            isMetadata = scalars.isMetadata,
             done = scalars.done,
             doneAt = scalars.doneAt,
             dueDate = scalars.dueDate,

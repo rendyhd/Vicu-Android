@@ -92,6 +92,8 @@ kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime",
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+# Runs the Room migrations against a real SQLite in the JVM unit tests (already in the Gradle cache through Room).
+sqlite-jdbc = { group = "org.xerial", name = "sqlite-jdbc", version = "3.41.2.2" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 

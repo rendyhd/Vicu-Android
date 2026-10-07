@@ -29,12 +29,15 @@ import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.RoutineEnvelope
 import com.rendyhd.vicu.util.withoutNestedSubtasks
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import com.rendyhd.vicu.data.local.ScheduleAction
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
@@ -57,6 +60,12 @@ class TaskRepositoryImpl(
     private val dayClock: DayClock,
     private val tempIds: TempIdGenerator,
     private val refresher: TaskRefresher,
+    /**
+     * Where the Room rows of the live lists are mapped to domain tasks (JSON decoding, nesting).
+     * Without it that work ran on the collector's dispatcher, the main thread, for every emission
+     * of every live list (A-UI-19). Tests pass an unconfined dispatcher to stay deterministic.
+     */
+    private val mappingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : TaskRepository {
 
     companion object {
@@ -172,10 +181,12 @@ class TaskRepositoryImpl(
             json.encodeToString(JsonObject.serializer(), patch)
         }
 
-    /** Every task, nested subtasks included; sync metadata tasks are never user tasks. */
+    /**
+     * Every task, nested subtasks included; sync metadata tasks are never user tasks. The list
+     * queries already leave them out in SQL; the check is a stored flag, not a description scan.
+     */
     private fun List<TaskEntity>.toTasks(): List<Task> =
-        filterNot { CustomListEnvelope.isAnyMetadataTask(it.description) }
-            .map { with(taskMapper) { it.toDomain() } }
+        filterNot { it.isMetadata }.map { with(taskMapper) { it.toDomain() } }
 
     private fun List<TaskEntity>.toTopLevelTasks(): List<Task> = toTasks().withoutNestedSubtasks()
 
@@ -188,6 +199,7 @@ class TaskRepositoryImpl(
                     entities.toTopLevelTasks()
                 }
             }
+            .flowOn(mappingDispatcher)
 
     /**
      * The start of the local day after today: the exclusive end of today. Today is
@@ -205,6 +217,7 @@ class TaskRepositoryImpl(
                     entities.toTopLevelTasks()
                 }
             }
+            .flowOn(mappingDispatcher)
 
     override fun getUpcomingTasks(): Flow<List<Task>> =
         startOfTomorrowFlow()
@@ -214,11 +227,12 @@ class TaskRepositoryImpl(
                     entities.toTopLevelTasks()
                 }
             }
+            .flowOn(mappingDispatcher)
 
     override fun getAnytimeTasks(inboxProjectId: Long): Flow<List<Task>> =
         taskDao.getAnytimeTasks(inboxProjectId).distinctUntilChanged().map { entities ->
             entities.toTopLevelTasks()
-        }
+        }.flowOn(mappingDispatcher)
 
     override fun getLogbookTasks(): Flow<List<Task>> =
         logbookPrefsStore.getPrefs()
@@ -229,18 +243,19 @@ class TaskRepositoryImpl(
                     entities.toTopLevelTasks()
                 }
             }
+            .flowOn(mappingDispatcher)
 
     override fun getByProjectId(projectId: Long): Flow<List<Task>> =
         taskDao.getByProjectId(projectId).distinctUntilChanged().map { entities ->
             entities.toTopLevelTasks()
-        }
+        }.flowOn(mappingDispatcher)
 
     override fun getById(id: Long): Flow<Task?> =
         taskDao.getById(id).map { entity ->
             entity
-                ?.takeUnless { CustomListEnvelope.isAnyMetadataTask(it.description) }
+                ?.takeUnless { it.isMetadata }
                 ?.let { with(taskMapper) { it.toDomain() } }
-        }
+        }.flowOn(mappingDispatcher)
 
     override fun searchByTitle(query: String): Flow<List<Task>> =
         taskDao.searchByTitle(query).map { entities ->
@@ -252,25 +267,15 @@ class TaskRepositoryImpl(
             list.toTopLevelTasks()
         }
 
-    override fun getAllOpenTasks(): Flow<List<Task>> =
-        taskDao.getAllOpenTasks().distinctUntilChanged().map { entities ->
-            entities.toTopLevelTasks()
-        }
-
-    override fun getAllTasks(): Flow<List<Task>> =
-        taskDao.getAllTasksFlow().distinctUntilChanged().map { entities ->
-            entities.toTopLevelTasks()
-        }
-
     override fun getAllOpenTasksFlat(): Flow<List<Task>> =
         taskDao.getAllOpenTasks().distinctUntilChanged().map { entities ->
             entities.toTasks()
-        }
+        }.flowOn(mappingDispatcher)
 
     override fun getAllTasksFlat(): Flow<List<Task>> =
         taskDao.getAllTasksFlow().distinctUntilChanged().map { entities ->
             entities.toTasks()
-        }
+        }.flowOn(mappingDispatcher)
 
     override suspend fun create(task: Task): NetworkResult<Task> {
         return try {
@@ -371,7 +376,7 @@ class TaskRepositoryImpl(
 
     override suspend fun getByIds(ids: Set<Long>): List<Task> =
         taskDao.getByIds(ids.toList())
-            .filterNot { CustomListEnvelope.isAnyMetadataTask(it.description) }
+            .filterNot { it.isMetadata }
             .map { with(taskMapper) { it.toDomain() } }
 
     override suspend fun applyScheduleAction(taskId: Long): NetworkResult<Task> {

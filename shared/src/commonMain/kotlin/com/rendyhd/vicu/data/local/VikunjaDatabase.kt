@@ -27,7 +27,7 @@ import com.rendyhd.vicu.data.local.entity.TaskEntity
         AttachmentEntity::class,
         RoutineOccurrenceArchiveEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @ConstructedBy(VikunjaDatabaseConstructor::class)

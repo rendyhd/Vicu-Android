@@ -15,9 +15,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * The plain "all tasks" queries hide a subtask whose parent is in the same result. The flat ones
- * do not, so Tag and custom-list screens can apply their label and list conditions first and
- * hide nested subtasks only among the tasks that are left (cross-app semantics, section 3.2).
+ * The "all tasks" queries do not hide a subtask whose parent is in the same result, so Tag and
+ * custom-list screens can apply their label and list conditions first and hide nested subtasks
+ * only among the tasks that are left (cross-app semantics, section 3.2).
  */
 class TaskRepositoryFlatTasksTest {
 
@@ -43,10 +43,9 @@ class TaskRepositoryFlatTasksTest {
         TaskRepositoryHarness(taskDao = FakeTaskDao(entities.toList())) { serviceUnavailable() }
 
     @Test
-    fun `the plain queries hide a subtask whose parent is listed, the flat ones keep it`() = runTest {
+    fun `a subtask whose parent is listed stays a row`() = runTest {
         val h = harness(entity(1), entity(2, parentId = 1), entity(3))
 
-        assertEquals(listOf(1L, 3L), h.repository.getAllOpenTasks().first().map { it.id })
         assertEquals(listOf(1L, 2L, 3L), h.repository.getAllOpenTasksFlat().first().map { it.id })
     }
 
@@ -56,11 +55,10 @@ class TaskRepositoryFlatTasksTest {
 
         assertEquals(listOf(1L, 3L), h.repository.getAllOpenTasksFlat().first().map { it.id })
         assertEquals(listOf(1L, 2L, 3L), h.repository.getAllTasksFlat().first().map { it.id })
-        assertEquals(listOf(1L, 2L), h.repository.getAllTasks().first().map { it.id })
     }
 
     @Test
-    fun `sync metadata tasks never show up, flat or not`() = runTest {
+    fun `sync metadata tasks never show up`() = runTest {
         val carrier = "<!-- vicu-custom-lists:v1:e30 -->"
         val h = harness(entity(1), entity(2, description = carrier))
 

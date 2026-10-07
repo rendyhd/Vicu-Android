@@ -18,6 +18,7 @@ import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -63,6 +64,7 @@ class ProjectRepositoryOfflineTest {
             projectRefresher = ProjectRefresher(projectDao, pendingActionDao, api, ProjectMapper()),
             pendingActionDao = pendingActionDao,
             platformHooks = hooks,
+            mappingDispatcher = Dispatchers.Unconfined,
         )
 
         fun patches() = sent.filter { it.first.startsWith("PATCH") }

@@ -13,7 +13,10 @@ import com.rendyhd.vicu.util.UploadOpen
 import com.rendyhd.vicu.util.formatByteSize
 import com.rendyhd.vicu.util.parseByteSize
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -24,6 +27,8 @@ class AttachmentRepositoryImpl(
     private val api: VikunjaApiService,
     private val attachmentMapper: AttachmentMapper,
     private val platformFiles: PlatformFiles,
+    /** Where Room rows are mapped to domain models: off the main thread; tests pass an unconfined one. */
+    private val mappingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : AttachmentRepository {
 
     private val limitMutex = Mutex()
@@ -33,7 +38,7 @@ class AttachmentRepositoryImpl(
     override fun getByTaskId(taskId: Long): Flow<List<Attachment>> =
         attachmentDao.getByTaskId(taskId).map { entities ->
             entities.map { with(attachmentMapper) { it.toDomain() } }
-        }
+        }.flowOn(mappingDispatcher)
 
     override suspend fun maxUploadBytes(): Long = limitMutex.withLock {
         val now = Clock.System.now().toEpochMilliseconds()

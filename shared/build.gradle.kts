@@ -66,6 +66,10 @@ kotlin {
             implementation(libs.ktor.client.darwin)
         }
 
+        androidUnitTest.dependencies {
+            implementation(libs.sqlite.jdbc)
+        }
+
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.junit)
