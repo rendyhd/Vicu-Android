@@ -26,7 +26,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,7 +64,7 @@ fun TodayScreen(
     onOpenRoutines: () -> Unit = {},
     viewModel: TodayViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     // Rows kept on screen after completing them are let go when the screen is left.
     DisposableEffect(viewModel) { onDispose { viewModel.completions.releaseAll() } }
@@ -72,7 +72,7 @@ fun TodayScreen(
     val listState = rememberLazyListState()
 
     val selectionVm: SelectionViewModel = koinViewModel()
-    val selectedIds by selectionVm.selectedIds.collectAsState()
+    val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
     val selectionActive = selectedIds.isNotEmpty()
     var selectionAction by remember { mutableStateOf<SelectionAction?>(null) }
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
@@ -129,7 +129,7 @@ fun TodayScreen(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 if (state.routineDay.occurrences.isNotEmpty()) {
-                    item(key = "routine_header") {
+                    item(key = "routine_header", contentType = "header") {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -142,7 +142,7 @@ fun TodayScreen(
                             TextButton(onClick = onOpenRoutines) { Text("Manage") }
                         }
                     }
-                    items(state.routineDay.occurrences, key = { "routine_${it.key}" }) { occurrence ->
+                    items(state.routineDay.occurrences, key = { "routine_${it.key}" }, contentType = { "occurrence" }) { occurrence ->
                         RoutineOccurrenceRow(
                             occurrence = occurrence,
                             onToggle = { viewModel.toggleRoutine(occurrence) },
@@ -167,7 +167,7 @@ fun TodayScreen(
                     // own project groups. The Today title only shows when it follows Overdue.
                     val showSectionTitles = state.overdueGroups.isNotEmpty()
                     if (showSectionTitles) {
-                        item(key = "overdue_title") {
+                        item(key = "overdue_title", contentType = "title") {
                             TodaySectionTitle(
                                 title = "Overdue",
                                 count = state.overdueGroups.sumOf { it.tasks.size },
@@ -186,7 +186,7 @@ fun TodayScreen(
                         )
                     }
                     if (showSectionTitles && state.projectGroups.isNotEmpty()) {
-                        item(key = "today_title") {
+                        item(key = "today_title", contentType = "title") {
                             TodaySectionTitle(
                                 title = "Today",
                                 count = state.projectGroups.sumOf { it.tasks.size },
@@ -268,7 +268,7 @@ private fun LazyListScope.taskGroupItems(
 ) {
     val selectionActive = selectedIds.isNotEmpty()
     groups.forEach { group ->
-        item(key = "${keyPrefix}_header_${group.projectId}") {
+        item(key = "${keyPrefix}_header_${group.projectId}", contentType = "header") {
             CollapsibleSection(
                 title = group.title,
                 color = parseHexColor(group.hexColor)

@@ -203,6 +203,7 @@ fun CustomListDialog(
                         items(
                             sortedProjects,
                             key = { it.id },
+                            contentType = { "project" },
                         ) { project ->
                             Row(
                                 modifier = Modifier
@@ -306,7 +307,7 @@ fun CustomListDialog(
                 }
                 if (showLabelPicker) {
                     LazyColumn(modifier = Modifier.heightIn(max = 150.dp)) {
-                        items(labels, key = { it.id }) { label ->
+                        items(labels, key = { it.id }, contentType = { "label" }) { label ->
                             val dotColor = parseHexColor(label.hexColor)
                             Row(
                                 modifier = Modifier

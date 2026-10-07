@@ -6,12 +6,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -44,6 +50,33 @@ internal object PreservedHtmlBlockRenderer : ScopedBlockRenderer<BlockType> {
     ) {
         val tagName = ((block.content as? BlockContent.Custom)?.data?.get("tagName") as? String)
             ?.takeIf { it.isNotBlank() }
+        var confirmingRemoval by remember { mutableStateOf(false) }
+        if (confirmingRemoval) {
+            // The block holds HTML the editor cannot show (a table, say); removing it loses that
+            // content for good, so it takes a second step.
+            AlertDialog(
+                onDismissRequest = { confirmingRemoval = false },
+                title = { Text("Remove this content?") },
+                text = {
+                    Text(
+                        "The description has ${tagName?.let { "a <$it> block" } ?: "a block"} that this " +
+                            "editor cannot show. It is kept as it is until you remove it, and removing " +
+                            "it deletes it from the description.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmingRemoval = false
+                            scope.deleteBlock(block.id)
+                        },
+                    ) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmingRemoval = false }) { Text("Keep") }
+                },
+            )
+        }
         Surface(
             modifier = modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.small,
@@ -67,7 +100,7 @@ internal object PreservedHtmlBlockRenderer : ScopedBlockRenderer<BlockType> {
                         .padding(horizontal = 10.dp),
                 )
                 IconButton(
-                    onClick = { scope.deleteBlock(block.id) },
+                    onClick = { confirmingRemoval = true },
                     enabled = scope.canEditBlockStructure,
                 ) {
                     Icon(

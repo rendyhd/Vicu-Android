@@ -78,6 +78,7 @@ import com.rendyhd.vicu.ui.navigation.DrawerContent
 import com.rendyhd.vicu.ui.navigation.DrawerViewModel
 import com.rendyhd.vicu.ui.navigation.InboxRoute
 import com.rendyhd.vicu.ui.navigation.LogbookRoute
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.navigation.ProjectRoute
 import com.rendyhd.vicu.ui.navigation.ReviewRoute
 import com.rendyhd.vicu.ui.navigation.RoutinesRoute
@@ -99,6 +100,9 @@ import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailViewModel
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.DayClock
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 internal data class BottomNavItem(
@@ -176,6 +180,16 @@ fun VicuApp(
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
+    // Each move to another destination tells the screens' view models, so a multi-selection ends
+    // with the list it was made in. The entry shown at start (or after a rotation) is not a move.
+    val navigationTicker: NavigationTicker = koinInject()
+    LaunchedEffect(navController) {
+        navController.currentBackStackEntryFlow
+            .map { it.id }
+            .distinctUntilChanged()
+            .drop(1)
+            .collect { navigationTicker.navigated() }
+    }
     val currentDestination = navBackStackEntry?.destination
     val authState by authManager.authState.collectAsStateWithLifecycle()
     val drawerState = rememberDrawerState(DrawerValue.Closed)

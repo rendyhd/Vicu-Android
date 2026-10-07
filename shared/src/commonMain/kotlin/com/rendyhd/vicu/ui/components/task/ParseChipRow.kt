@@ -50,7 +50,8 @@ fun ParseChipRow(
                 trailingIcon = {
                     Icon(
                         Icons.Default.Close,
-                        contentDescription = "Dismiss",
+                        // The chip is the button; the icon only says what pressing it removes.
+                        contentDescription = chipDismissDescription(type, label),
                         modifier = Modifier.size(14.dp),
                     )
                 },
@@ -91,8 +92,17 @@ private fun buildChipList(result: ParseResult, today: LocalDate, is24Hour: Boole
     return chips
 }
 
+/** What a screen reader says for the close icon of a chip: it names what is removed. */
+internal fun chipDismissDescription(type: TokenType, label: String): String = when (type) {
+    TokenType.DATE -> "Remove due date"
+    TokenType.PRIORITY -> "Remove priority"
+    TokenType.LABEL -> "Remove label $label"
+    TokenType.PROJECT -> "Remove project $label"
+    TokenType.RECURRENCE -> "Remove repeat"
+}
+
 /** The date, plus the time of day only when the text named one (date-only values show no time). */
-private fun formatDateChip(date: LocalDateTime, hasTime: Boolean, today: LocalDate, is24Hour: Boolean): String {
+internal fun formatDateChip(date: LocalDateTime, hasTime: Boolean, today: LocalDate, is24Hour: Boolean): String {
     val dateOnly = date.date
     val day = when (dateOnly) {
         today -> "Today"

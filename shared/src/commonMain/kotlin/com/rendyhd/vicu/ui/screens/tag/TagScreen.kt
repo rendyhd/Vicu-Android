@@ -20,7 +20,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,7 +47,7 @@ fun TagScreen(
     onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     viewModel: TagViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     // Rows kept on screen after completing them are let go when the screen is left.
     DisposableEffect(viewModel) { onDispose { viewModel.completions.releaseAll() } }
@@ -55,7 +55,7 @@ fun TagScreen(
     val listState = rememberLazyListState()
 
     val selectionVm: SelectionViewModel = koinViewModel()
-    val selectedIds by selectionVm.selectedIds.collectAsState()
+    val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
     val selectionActive = selectedIds.isNotEmpty()
     var selectionAction by remember { mutableStateOf<SelectionAction?>(null) }
     BackHandler(enabled = selectionActive) { selectionVm.clear() }

@@ -58,7 +58,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -114,7 +114,7 @@ fun TaskDetailScreen(
     /** Opens another task (a subtask) in this screen; edits made here are saved first. */
     onOpenTask: (Long) -> Unit = {},
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showDatePicker by remember { mutableStateOf(false) }
     var showProjectPicker by remember { mutableStateOf(false) }
     var showLabelPicker by remember { mutableStateOf(false) }
@@ -124,7 +124,7 @@ fun TaskDetailScreen(
     var subtaskInput by remember { mutableStateOf("") }
     var showSubtaskInput by remember { mutableStateOf(false) }
     var showRelationPicker by remember { mutableStateOf(false) }
-    val relationSearchResults by viewModel.relationSearchResults.collectAsState()
+    val relationSearchResults by viewModel.relationSearchResults.collectAsStateWithLifecycle()
     val isDarkTheme = isSystemInDarkTheme()
     var titleFieldValue by remember(taskId) {
         mutableStateOf(TextFieldValue(state.task?.title.orEmpty()))
@@ -522,7 +522,7 @@ fun TaskDetailScreen(
             }
 
             // Subtasks
-            items(state.subtasks, key = { "subtask_${it.id}" }) { subtask ->
+            items(state.subtasks, key = { "subtask_${it.id}" }, contentType = { "subtask" }) { subtask ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -606,7 +606,7 @@ fun TaskDetailScreen(
                             modifier = Modifier.padding(top = 8.dp),
                         )
                     }
-                    items(tasks, key = { "relation_${kind}_${it.id}" }) { related ->
+                    items(tasks, key = { "relation_${kind}_${it.id}" }, contentType = { "relation" }) { related ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
@@ -651,7 +651,7 @@ fun TaskDetailScreen(
 
                 // Image-token-referenced attachments are hidden here — they render
                 // as thumbnails inside DescriptionField instead.
-                items(visibleAttachments, key = { "att_${it.id}" }) { attachment ->
+                items(visibleAttachments, key = { "att_${it.id}" }, contentType = { "attachment" }) { attachment ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -909,8 +909,10 @@ fun TaskDetailScreen(
     }
 
     if (showRelationPicker) {
+        val projectTitles = remember(state.allProjects) { state.allProjects.associate { it.id to it.title } }
         RelationTaskPickerDialog(
             searchResults = relationSearchResults.filter { it.id != state.task?.id },
+            projectTitleOf = projectTitles::get,
             onQueryChange = { viewModel.setRelationSearchQuery(it) },
             onConfirm = { otherId, kind ->
                 viewModel.addRelation(otherId, kind)

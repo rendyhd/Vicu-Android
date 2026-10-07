@@ -27,7 +27,16 @@ data class InboxUiState(
     val tasks: List<Task> = emptyList(),
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
+    /**
+     * A failure to tell the user about once (a snackbar): a refresh, a completion or a reorder the
+     * server refused. The Inbox is still usable, so it never takes the add button away.
+     */
     val error: String? = null,
+    /**
+     * A standing reason there is no usable Inbox (none chosen, or the chosen one archived). It
+     * stays until the Inbox is usable again; it replaces the list and hides the add button.
+     */
+    val notice: String? = null,
     val completedTaskIds: Set<Long> = emptySet(),
     val inboxProjectId: Long? = null,
 )
@@ -67,7 +76,7 @@ class InboxViewModel(
                 if (inboxId == null) {
                     // Signed in but not set up (the app was closed between sign-in and choosing the
                     // Inbox): say so, and carry on when the choice is made.
-                    _uiState.update { it.copy(tasks = emptyList(), isLoading = false, error = NO_INBOX_MESSAGE) }
+                    _uiState.update { it.copy(tasks = emptyList(), isLoading = false, notice = NO_INBOX_MESSAGE) }
                     return@collectLatest
                 }
                 combine(
@@ -85,13 +94,9 @@ class InboxViewModel(
                         it.copy(
                             tasks = if (inboxIsActive) tasks else emptyList(),
                             isLoading = false,
-                            error = when {
-                                !inboxIsActive -> ARCHIVED_MESSAGE
-                                // Only these notices go away once the Inbox is usable again; a refresh
-                                // error that is waiting to be shown stays.
-                                it.error == ARCHIVED_MESSAGE || it.error == NO_INBOX_MESSAGE -> null
-                                else -> it.error
-                            },
+                            // The notice follows the Inbox; a refresh error that is waiting to be
+                            // shown is a separate message and stays.
+                            notice = if (inboxIsActive) null else ARCHIVED_MESSAGE,
                         )
                     }
                 }
@@ -115,7 +120,11 @@ class InboxViewModel(
         viewModelScope.launch { taskRepository.refreshListPositions(inboxId) }
     }
 
+    /** What Retry does: the operation that failed last, or a refresh when none is waiting. */
+    private var retryAction: (() -> Unit)? = null
+
     fun refresh(showSpinner: Boolean = false) {
+        retryAction = null
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
             val result = refresher.refresh(manual = showSpinner)
@@ -154,6 +163,8 @@ class InboxViewModel(
         viewModelScope.launch {
             val result = taskRepository.applyPositions(inboxId, plan.updates)
             if (result is NetworkResult.Error) {
+                // A drag cannot be replayed: the list is read back as the server has it instead.
+                retryAction = null
                 _uiState.update { it.copy(error = result.message) }
                 taskRepository.refreshListPositions(inboxId)
             }
@@ -169,6 +180,7 @@ class InboxViewModel(
                     // Hard failure: put the row back to normal along with surfacing the error,
                     // otherwise it stays struck through.
                     completions.release(task.id)
+                    retryAction = { toggleDone(task) }
                     _uiState.update { it.copy(error = result.message) }
                 }
                 else -> {}
@@ -183,7 +195,10 @@ class InboxViewModel(
             completions.undoing(task.id)
             val result = taskRepository.setDone(task.id, false)
             completions.release(task.id)
-            if (result is NetworkResult.Error) _uiState.update { it.copy(error = result.message) }
+            if (result is NetworkResult.Error) {
+                retryAction = { undoComplete(task) }
+                _uiState.update { it.copy(error = result.message) }
+            }
         }
     }
 
@@ -194,7 +209,16 @@ class InboxViewModel(
         }
     }
 
+    /** The Retry of the failure message: repeats the failed completion, or refreshes. */
+    fun retry() {
+        val action = retryAction
+        retryAction = null
+        _uiState.update { it.copy(error = null) }
+        if (action != null) action() else refresh(showSpinner = true)
+    }
+
     fun clearError() {
+        retryAction = null
         _uiState.update { it.copy(error = null) }
     }
 }

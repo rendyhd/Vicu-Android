@@ -22,7 +22,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -41,7 +41,7 @@ fun LogbookScreen(
     onNavigateToSearch: () -> Unit = {},
     viewModel: LogbookViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     // Rows kept on screen after completing them are let go when the screen is left.
     DisposableEffect(viewModel) { onDispose { viewModel.completions.releaseAll() } }
@@ -91,7 +91,7 @@ fun LogbookScreen(
                         )
                     }
                     if (state.hasMore) {
-                        item(key = "logbook-more") {
+                        item(key = "logbook-more", contentType = "more") {
                             // Reaching the end of what is loaded asks for the next older page; the
                             // button is the way to try again when that fetch failed.
                             LaunchedEffect(state.pagesLoaded) { viewModel.loadMore() }

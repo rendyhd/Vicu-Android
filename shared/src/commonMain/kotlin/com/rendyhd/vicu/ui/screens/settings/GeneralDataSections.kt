@@ -89,7 +89,7 @@ internal fun LazyListScope.projectsSection(
     } else {
         // Build tree: parent projects first, children nested underneath
         val sortedProjects = buildProjectTree(state.projects)
-        items(sortedProjects, key = { "project_${it.first.id}" }) { (project, depth) ->
+        items(sortedProjects, key = { "project_${it.first.id}" }, contentType = { "project" }) { (project, depth) ->
             ProjectRow(
                 project = project,
                 depth = depth,
@@ -123,7 +123,7 @@ internal fun LazyListScope.projectsSection(
             }
         } else {
             val archivedTree = buildProjectTree(state.archivedProjects)
-            items(archivedTree, key = { "archived_project_${it.first.id}" }) { (project, depth) ->
+            items(archivedTree, key = { "archived_project_${it.first.id}" }, contentType = { "project" }) { (project, depth) ->
                 ProjectRow(
                     project = project,
                     depth = depth,
@@ -174,7 +174,7 @@ internal fun LazyListScope.labelsSection(
             )
         }
     } else {
-        items(state.labels, key = { "label_${it.id}" }) { label ->
+        items(state.labels, key = { "label_${it.id}" }, contentType = { "label" }) { label ->
             LabelRow(
                 label = label,
                 onEdit = { openDialog(SettingsDialog.LabelEditor(label.id)) },
@@ -257,7 +257,7 @@ internal fun LazyListScope.customListsSection(
             )
         }
     } else {
-        items(state.customLists, key = { "list_${it.id}" }) { list ->
+        items(state.customLists, key = { "list_${it.id}" }, contentType = { "list" }) { list ->
             CustomListRow(
                 customList = list,
                 onEdit = { openDialog(SettingsDialog.CustomListEditor(list.id)) },

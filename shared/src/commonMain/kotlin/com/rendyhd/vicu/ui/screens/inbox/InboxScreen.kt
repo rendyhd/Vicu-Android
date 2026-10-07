@@ -20,7 +20,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,7 +50,7 @@ fun InboxScreen(
     onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     viewModel: InboxViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     // Rows kept on screen after completing them are let go when the screen is left.
     DisposableEffect(viewModel) { onDispose { viewModel.completions.releaseAll() } }
@@ -71,7 +71,7 @@ fun InboxScreen(
     }
 
     val selectionVm: SelectionViewModel = koinViewModel()
-    val selectedIds by selectionVm.selectedIds.collectAsState()
+    val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
     val selectionActive = selectedIds.isNotEmpty()
     var selectionAction by remember { mutableStateOf<SelectionAction?>(null) }
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
@@ -99,7 +99,9 @@ fun InboxScreen(
             }
         },
         floatingActionButton = {
-            if (!selectionActive && state.error == null) {
+            // Only a standing notice (no usable Inbox) hides it; a failed refresh or completion
+            // is a passing message and the user can still add a task.
+            if (!selectionActive && state.notice == null) {
                 VicuFab(onClick = { onShowTaskEntry(state.inboxProjectId, null) })
             }
         },
@@ -118,8 +120,8 @@ fun InboxScreen(
                     item {
                         EmptyState(
                             icon = Icons.Outlined.Inbox,
-                            title = if (state.error != null) "Inbox unavailable" else "Inbox is empty",
-                            subtitle = state.error ?: "Tasks without a project appear here",
+                            title = if (state.notice != null) "Inbox unavailable" else "Inbox is empty",
+                            subtitle = state.notice ?: "Tasks without a project appear here",
                         )
                     }
                 } else {
@@ -181,9 +183,10 @@ fun InboxScreen(
                 duration = SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed) {
-                viewModel.refresh(true)
+                viewModel.retry()
+            } else {
+                viewModel.clearError()
             }
-            viewModel.clearError()
         }
     }
 }

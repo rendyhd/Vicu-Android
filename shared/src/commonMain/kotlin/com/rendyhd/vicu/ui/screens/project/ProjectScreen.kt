@@ -33,7 +33,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,7 +77,7 @@ fun ProjectScreen(
     onProjectClick: (Long) -> Unit = {},
     viewModel: ProjectViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     // Rows kept on screen after completing them are let go when the screen is left.
     DisposableEffect(viewModel) { onDispose { viewModel.completions.releaseAll() } }
@@ -101,7 +101,7 @@ fun ProjectScreen(
     }
 
     val selectionVm: SelectionViewModel = koinViewModel()
-    val selectedIds by selectionVm.selectedIds.collectAsState()
+    val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
     val selectionActive = selectedIds.isNotEmpty()
     var selectionAction by remember { mutableStateOf<SelectionAction?>(null) }
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
@@ -201,14 +201,14 @@ fun ProjectScreen(
                     // projects, so adding directly to the parent stays distinct from opening a
                     // child row or using a section's add action. With no children the FAB covers it.
                     if (state.sections.isNotEmpty() || state.childProjects.isNotEmpty()) {
-                        item(key = "add_task_parent") {
+                        item(key = "add_task_parent", contentType = "add_task") {
                             AddTaskButton(
                                 onClick = { onShowTaskEntry(projectId, null) },
                             )
                         }
                     }
 
-                    items(state.childProjects, key = { "subproject_${it.id}" }) { project ->
+                    items(state.childProjects, key = { "subproject_${it.id}" }, contentType = { "subproject" }) { project ->
                         SubprojectRow(
                             project = project,
                             enabled = !selectionActive,
@@ -318,7 +318,7 @@ private fun LazyListScope.projectSectionItems(
     onAddTask: (Long) -> Unit,
 ) {
     sections.forEach { section ->
-        item(key = "section_${section.project.id}") {
+        item(key = "section_${section.project.id}", contentType = "header") {
             val sectionColor = parseHexColor(section.project.hexColor)
             CollapsibleSection(
                 title = section.project.title,
@@ -355,7 +355,7 @@ private fun LazyListScope.projectSectionItems(
                 )
             }
 
-            item(key = "add_task_section_${section.project.id}") {
+            item(key = "add_task_section_${section.project.id}", contentType = "add_task") {
                 AddTaskButton(
                     onClick = { onAddTask(section.project.id) },
                     modifier = Modifier.padding(start = ((depth + 1) * 16).dp),

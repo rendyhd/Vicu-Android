@@ -137,7 +137,7 @@ fun BottomBarSlotEditor(
                                 RoundedCornerShape(8.dp),
                             ),
                     ) {
-                        items(projects, key = { it.id }) { project ->
+                        items(projects, key = { it.id }, contentType = { "project" }) { project ->
                             val isSelected = selectedReferenceId == project.id.toString()
                             Row(
                                 modifier = Modifier
@@ -182,7 +182,7 @@ fun BottomBarSlotEditor(
                                 RoundedCornerShape(8.dp),
                             ),
                     ) {
-                        items(customLists, key = { it.id }) { list ->
+                        items(customLists, key = { it.id }, contentType = { "list" }) { list ->
                             val isSelected = selectedReferenceId == list.id
                             Row(
                                 modifier = Modifier

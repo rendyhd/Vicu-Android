@@ -687,7 +687,7 @@ private fun ProjectSelectionStep(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            items(projects, key = { it.id }) { project ->
+            items(projects, key = { it.id }, contentType = { "project" }) { project ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

@@ -181,6 +181,7 @@ class InboxViewModelOrderTest {
         runCurrent()
 
         assertEquals("Could not save the new order", vm.uiState.value.error)
+        assertNull(vm.uiState.value.notice, "a refused reorder does not take the add button away")
         assertEquals(listOf(5L), rig.tasks.positionRefreshes, "the list is put back as the server holds it")
         rig.scope.cancel()
     }

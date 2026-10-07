@@ -57,7 +57,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -99,8 +99,8 @@ fun RoutinesScreen(
     onNavigateToSearch: () -> Unit = {},
     viewModel: RoutinesViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
-    val remindersEnabled by viewModel.remindersEnabled.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val remindersEnabled by viewModel.remindersEnabled.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
@@ -174,7 +174,7 @@ fun RoutinesScreen(
             modifier = Modifier.fillMaxSize().padding(padding),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item(key = "summary") {
+            item(key = "summary", contentType = "summary") {
                 RoutineDaySummary(
                     day = state.day,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -182,7 +182,7 @@ fun RoutinesScreen(
             }
 
             if (state.day.occurrences.isEmpty()) {
-                item(key = "empty_today") {
+                item(key = "empty_today", contentType = "empty") {
                     Text(
                         text = if (state.active.isEmpty()) {
                             "Add a supplement, medication, or household rhythm."
@@ -195,7 +195,7 @@ fun RoutinesScreen(
                     )
                 }
             } else {
-                items(state.day.occurrences, key = { it.key }) { occurrence ->
+                items(state.day.occurrences, key = { it.key }, contentType = { "occurrence" }) { occurrence ->
                     RoutineOccurrenceRow(
                         occurrence = occurrence,
                         onToggle = { viewModel.toggle(occurrence) },
@@ -205,8 +205,8 @@ fun RoutinesScreen(
                 }
             }
 
-            item(key = "all_header") { SectionLabel("ALL ROUTINES") }
-            items(state.active, key = { it.definition.id }) { routine ->
+            item(key = "all_header", contentType = "header") { SectionLabel("ALL ROUTINES") }
+            items(state.active, key = { it.definition.id }, contentType = { "routine" }) { routine ->
                 RoutineDefinitionCard(
                     routine = routine,
                     onEdit = {
@@ -221,8 +221,8 @@ fun RoutinesScreen(
             }
 
             if (state.archived.isNotEmpty()) {
-                item(key = "archived_header") { SectionLabel("ARCHIVED") }
-                items(state.archived, key = { "archived_${it.definition.id}" }) { routine ->
+                item(key = "archived_header", contentType = "header") { SectionLabel("ARCHIVED") }
+                items(state.archived, key = { "archived_${it.definition.id}" }, contentType = { "routine" }) { routine ->
                     RoutineDefinitionCard(
                         routine = routine,
                         onEdit = {},
@@ -236,7 +236,7 @@ fun RoutinesScreen(
             }
 
             if (state.issues.isNotEmpty()) {
-                item(key = "issues") {
+                item(key = "issues", contentType = "notice") {
                     Text(
                         text = "${state.issues.size} routine ${if (state.issues.size == 1) "record needs" else "records need"} repair",
                         color = MaterialTheme.colorScheme.error,
@@ -246,7 +246,7 @@ fun RoutinesScreen(
                 }
             }
             state.archiveWarning?.let { warning ->
-                item(key = "archive-warning") {
+                item(key = "archive-warning", contentType = "notice") {
                     Text(
                         text = warning,
                         color = MaterialTheme.colorScheme.error,
@@ -291,7 +291,7 @@ fun RoutinesScreen(
         // One flow per routine, not one per recomposition: a new instance would restart the
         // collection and flash the dialog empty.
         val historyFlow = remember(routine.definition.id) { viewModel.observeHistory(routine.definition.id) }
-        val history by historyFlow.collectAsState(emptyList())
+        val history by historyFlow.collectAsStateWithLifecycle(emptyList())
         RoutineHistoryDialog(
             routine = routine,
             history = history,
@@ -463,7 +463,7 @@ private fun RoutineHistoryDialog(
                     Text("Daily activity will appear here as you complete or skip it.")
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
-                        items(logged.take(30), key = { it.key }) { record ->
+                        items(logged.take(30), key = { it.key }, contentType = { "record" }) { record ->
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,

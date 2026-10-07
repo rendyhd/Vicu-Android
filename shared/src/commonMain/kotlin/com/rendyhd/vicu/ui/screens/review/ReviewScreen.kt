@@ -126,7 +126,7 @@ fun ReviewScreen(
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(items, key = { it.project.id }) { item ->
+                    items(items, key = { it.project.id }, contentType = { "review" }) { item ->
                         ReviewRow(
                             item = item,
                             expanded = item.project.id in state.expanded,

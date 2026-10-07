@@ -142,11 +142,11 @@ fun DrawerContent(
                 // Displaced smart lists (removed from bottom bar)
                 val displaced = state.displacedSmartLists
                 if (displaced.isNotEmpty()) {
-                    item(key = "smart_spacer") {
+                    item(key = "smart_spacer", contentType = "spacer") {
                         Spacer(Modifier.height(12.dp))
                     }
                     if (BottomBarSlotType.TODAY in displaced) {
-                        item(key = "smart_today") {
+                        item(key = "smart_today", contentType = "smart") {
                             SmartListItem(
                                 label = "Today",
                                 icon = Icons.Outlined.WbSunny,
@@ -157,7 +157,7 @@ fun DrawerContent(
                         }
                     }
                     if (BottomBarSlotType.UPCOMING in displaced) {
-                        item(key = "smart_upcoming") {
+                        item(key = "smart_upcoming", contentType = "smart") {
                             SmartListItem(
                                 label = "Upcoming",
                                 icon = Icons.Outlined.CalendarMonth,
@@ -168,7 +168,7 @@ fun DrawerContent(
                         }
                     }
                     if (BottomBarSlotType.ANYTIME in displaced) {
-                        item(key = "smart_anytime") {
+                        item(key = "smart_anytime", contentType = "smart") {
                             SmartListItem(
                                 label = "Anytime",
                                 icon = Icons.Outlined.AllInclusive,
@@ -181,7 +181,7 @@ fun DrawerContent(
                 }
 
                 // Logbook
-                item(key = "smart_logbook") {
+                item(key = "smart_logbook", contentType = "smart") {
                     if (displaced.isEmpty()) Spacer(Modifier.height(12.dp))
                     SmartListItem(
                         label = "Logbook",
@@ -192,7 +192,7 @@ fun DrawerContent(
                     )
                 }
 
-                item(key = "smart_routines") {
+                item(key = "smart_routines", contentType = "smart") {
                     SmartListItem(
                         label = "Routines",
                         icon = Icons.Outlined.FavoriteBorder,
@@ -204,7 +204,7 @@ fun DrawerContent(
 
                 // Review (with overdue badge); hidden when the feature is disabled
                 if (state.reviewEnabled) {
-                    item(key = "smart_review") {
+                    item(key = "smart_review", contentType = "smart") {
                         NavigationDrawerItem(
                             label = { Text("Review") },
                             icon = {
@@ -230,10 +230,10 @@ fun DrawerContent(
                 }
 
                 // Projects section
-                item(key = "divider_projects") {
+                item(key = "divider_projects", contentType = "divider") {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 }
-                item(key = "header_projects") {
+                item(key = "header_projects", contentType = "header") {
                     SectionHeader(
                         title = "Projects",
                         expanded = state.projectsExpanded,
@@ -241,7 +241,11 @@ fun DrawerContent(
                     )
                 }
                 if (state.projectsExpanded) {
-                    items(projectRows, key = { drawerKey(DrawerGroup.PROJECT, it.project.id) }) { row ->
+                    items(
+                        projectRows,
+                        key = { drawerKey(DrawerGroup.PROJECT, it.project.id) },
+                        contentType = { "project" },
+                    ) { row ->
                         val projectId = row.project.id
                         DrawerReorderableRow(
                             reorderState = reorderState,
@@ -262,10 +266,10 @@ fun DrawerContent(
                 }
 
                 // Custom Lists section
-                item(key = "divider_lists") {
+                item(key = "divider_lists", contentType = "divider") {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 }
-                item(key = "header_lists") {
+                item(key = "header_lists", contentType = "header") {
                     SectionHeader(
                         title = "Lists",
                         expanded = state.listsExpanded,
@@ -273,7 +277,11 @@ fun DrawerContent(
                     )
                 }
                 if (state.listsExpanded) {
-                    items(customLists, key = { drawerKey(DrawerGroup.LIST, it.id) }) { list ->
+                    items(
+                        customLists,
+                        key = { drawerKey(DrawerGroup.LIST, it.id) },
+                        contentType = { "list" },
+                    ) { list ->
                         DrawerReorderableRow(
                             reorderState = reorderState,
                             key = drawerKey(DrawerGroup.LIST, list.id),
@@ -298,7 +306,7 @@ fun DrawerContent(
                             )
                         }
                     }
-                    item(key = "new_list") {
+                    item(key = "new_list", contentType = "action") {
                         NavigationDrawerItem(
                             label = {
                                 Text(
@@ -323,10 +331,10 @@ fun DrawerContent(
 
                 // Labels section
                 if (state.labels.isNotEmpty()) {
-                    item(key = "divider_tags") {
+                    item(key = "divider_tags", contentType = "divider") {
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     }
-                    item(key = "header_tags") {
+                    item(key = "header_tags", contentType = "header") {
                         SectionHeader(
                             title = "Labels",
                             expanded = state.tagsExpanded,
@@ -334,7 +342,11 @@ fun DrawerContent(
                         )
                     }
                     if (state.tagsExpanded) {
-                        items(labels, key = { drawerKey(DrawerGroup.LABEL, it.id) }) { label ->
+                        items(
+                            labels,
+                            key = { drawerKey(DrawerGroup.LABEL, it.id) },
+                            contentType = { "label" },
+                        ) { label ->
                             DrawerReorderableRow(
                                 reorderState = reorderState,
                                 key = drawerKey(DrawerGroup.LABEL, label.id),
@@ -366,10 +378,10 @@ fun DrawerContent(
                 }
 
                 // Settings
-                item(key = "divider_settings") {
+                item(key = "divider_settings", contentType = "divider") {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 }
-                item(key = "settings") {
+                item(key = "settings", contentType = "smart") {
                     NavigationDrawerItem(
                         label = { Text("Settings") },
                         icon = {
@@ -385,7 +397,7 @@ fun DrawerContent(
                     )
                 }
 
-                item(key = "bottom_spacer") {
+                item(key = "bottom_spacer", contentType = "spacer") {
                     Spacer(Modifier.height(8.dp))
                 }
             }

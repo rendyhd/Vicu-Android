@@ -22,6 +22,7 @@ import com.rendyhd.vicu.ui.screens.review.ReviewViewModel
 import com.rendyhd.vicu.util.AppDispatchers
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.SchedulerTimeSource
 import com.rendyhd.vicu.worker.FakeCustomListRepository
 import kotlinx.coroutines.CoroutineScope
@@ -44,6 +45,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -106,14 +108,112 @@ class InboxProjectFlowViewModelsTest {
         assertNull(vm.uiState.value.inboxProjectId)
         assertFalse(vm.uiState.value.isLoading, "no Inbox yet is not an endless spinner")
         assertTrue(vm.uiState.value.tasks.isEmpty())
-        assertEquals("No Inbox project is selected. Choose one in Settings.", vm.uiState.value.error)
+        assertEquals("No Inbox project is selected. Choose one in Settings.", vm.uiState.value.notice)
+        assertNull(vm.uiState.value.error, "a notice is not a failure to be shown in a snackbar")
 
         auth.manager.onInboxProjectSelected(5)
         runCurrent()
 
         assertEquals(5L, vm.uiState.value.inboxProjectId)
         assertEquals(listOf(1L), vm.uiState.value.tasks.map { it.id })
-        assertNull(vm.uiState.value.error, "the notice goes away once an Inbox is chosen")
+        assertNull(vm.uiState.value.notice, "the notice goes away once an Inbox is chosen")
+        auth.scope.cancel()
+    }
+
+    @Test
+    fun `an archived inbox is a blocking notice, and a failed refresh does not replace it`() = runTest {
+        val auth = Auth().also { it.storage.storeInboxProjectId(5) }
+        val fakes = Fakes(listOf(other)).apply { tasks.put(taskIn(1, 5)) } // 5 is not among the active projects
+        val vm = InboxViewModel(
+            fakes.tasks, fakes.projects, fakes.labels, auth.manager,
+            fakeScreenRefresher(fakes.tasks, fakes.projects, fakes.labels),
+        )
+        runCurrent()
+        assertEquals(
+            "Your Inbox project is archived. Select an active Inbox project in Settings.",
+            vm.uiState.value.notice,
+        )
+        assertTrue(vm.uiState.value.tasks.isEmpty())
+
+        fakes.tasks.refreshResult = NetworkResult.Error("Server error")
+        vm.refresh(showSpinner = true)
+        runCurrent()
+
+        assertEquals("Server error", vm.uiState.value.error, "the failure is its own message")
+        assertNotNull(vm.uiState.value.notice, "the notice about the archived Inbox is still there")
+        vm.clearError()
+        assertNotNull(vm.uiState.value.notice, "dismissing the failure does not dismiss the notice")
+        auth.scope.cancel()
+    }
+
+    @Test
+    fun `a failed completion keeps the add button, and Retry completes the task again`() = runTest {
+        val auth = Auth().also { it.storage.storeInboxProjectId(5) }
+        val fakes = Fakes(listOf(inbox, other)).apply { tasks.put(taskIn(1, 5)) }
+        var offline = true
+        fakes.tasks.completionOutcome = { if (offline) NetworkResult.Error("Offline") else null }
+        val vm = InboxViewModel(
+            fakes.tasks, fakes.projects, fakes.labels, auth.manager,
+            fakeScreenRefresher(fakes.tasks, fakes.projects, fakes.labels),
+        )
+        runCurrent()
+
+        vm.toggleDone(vm.uiState.value.tasks.single())
+        runCurrent()
+        assertEquals("Offline", vm.uiState.value.error)
+        assertNull(vm.uiState.value.notice)
+
+        offline = false
+        vm.retry()
+        runCurrent()
+
+        assertNull(vm.uiState.value.error)
+        assertEquals(listOf(1L, 1L), fakes.tasks.toggled, "the same task was completed again, not just refreshed")
+        assertTrue(fakes.tasks.current(1)!!.done)
+        auth.scope.cancel()
+    }
+
+    @Test
+    fun `Retry after a failed refresh refreshes again`() = runTest {
+        val auth = Auth().also { it.storage.storeInboxProjectId(5) }
+        val fakes = Fakes(listOf(inbox, other)).apply { tasks.put(taskIn(1, 5)) }
+        val vm = InboxViewModel(
+            fakes.tasks, fakes.projects, fakes.labels, auth.manager,
+            fakeScreenRefresher(fakes.tasks, fakes.projects, fakes.labels),
+        )
+        runCurrent()
+        fakes.tasks.refreshResult = NetworkResult.Error("Server error")
+        vm.refresh(showSpinner = true)
+        runCurrent()
+        assertEquals("Server error", vm.uiState.value.error)
+        val before = fakes.tasks.completedRefreshes
+
+        fakes.tasks.refreshResult = NetworkResult.Success(Unit)
+        vm.retry()
+        runCurrent()
+
+        assertEquals(before + 1, fakes.tasks.completedRefreshes)
+        assertNull(vm.uiState.value.error)
+        auth.scope.cancel()
+    }
+
+    @Test
+    fun `a failure while the inbox is usable is not a notice`() = runTest {
+        val auth = Auth().also { it.storage.storeInboxProjectId(5) }
+        val fakes = Fakes(listOf(inbox, other)).apply { tasks.put(taskIn(1, 5)) }
+        val vm = InboxViewModel(
+            fakes.tasks, fakes.projects, fakes.labels, auth.manager,
+            fakeScreenRefresher(fakes.tasks, fakes.projects, fakes.labels),
+        )
+        runCurrent()
+        fakes.tasks.refreshResult = NetworkResult.Error("Server error")
+
+        vm.refresh(showSpinner = true)
+        runCurrent()
+
+        assertEquals("Server error", vm.uiState.value.error)
+        assertNull(vm.uiState.value.notice, "the add button stays: only a notice takes it away")
+        assertEquals(listOf(1L), vm.uiState.value.tasks.map { it.id })
         auth.scope.cancel()
     }
 

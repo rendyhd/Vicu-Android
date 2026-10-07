@@ -17,22 +17,26 @@ import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.layout.asPaddingValues
 import coil3.compose.AsyncImage
 import com.rendyhd.vicu.util.ImageTokens
+
+/** What a screen reader says for the image on page [index] (from 0) of [total]. */
+internal fun imageViewerDescription(index: Int, total: Int): String =
+    if (total <= 1) "Image" else "Image ${index + 1} of $total"
 
 @Composable
 fun ImageViewerDialog(
@@ -44,12 +48,10 @@ fun ImageViewerDialog(
     if (images.isEmpty()) return
     val safeInitial = initialIndex.coerceIn(0, images.lastIndex)
     val pagerState = rememberPagerState(initialPage = safeInitial) { images.size }
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
+    var transform by remember { mutableStateOf(ImageTransform.Identity) }
 
     LaunchedEffect(pagerState.currentPage) {
-        scale = 1f
-        offset = Offset.Zero
+        transform = ImageTransform.Identity
     }
 
     Dialog(
@@ -63,27 +65,28 @@ fun ImageViewerDialog(
         ) {
             HorizontalPager(
                 state = pagerState,
-                userScrollEnabled = scale <= 1.01f,
+                userScrollEnabled = transform.scale <= 1.01f,
                 modifier = Modifier.fillMaxSize(),
             ) { page ->
-                val transformState = rememberTransformableState { zoomChange, panChange, _ ->
-                    scale = (scale * zoomChange).coerceIn(1f, 5f)
-                    offset = if (scale > 1f) offset + panChange else Offset.Zero
+                var pageSize by remember { mutableStateOf(Size.Zero) }
+                val transformState = rememberTransformableState { centroid, zoomChange, panChange, _ ->
+                    transform = transform.transformedBy(zoomChange, panChange, centroid, pageSize)
                 }
                 val attId = images[page].attachmentId
                 // BaseUrlInterceptor adds the `/api/v2/` prefix — don't duplicate it here.
                 val isCurrentPage = page == pagerState.currentPage
                 AsyncImage(
                     model = "http://localhost/tasks/$taskId/attachments/$attId",
-                    contentDescription = null,
+                    contentDescription = imageViewerDescription(page, images.size),
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxSize()
+                        .onSizeChanged { pageSize = Size(it.width.toFloat(), it.height.toFloat()) }
                         .graphicsLayer {
-                            scaleX = if (isCurrentPage) scale else 1f
-                            scaleY = if (isCurrentPage) scale else 1f
-                            translationX = if (isCurrentPage) offset.x else 0f
-                            translationY = if (isCurrentPage) offset.y else 0f
+                            scaleX = if (isCurrentPage) transform.scale else 1f
+                            scaleY = if (isCurrentPage) transform.scale else 1f
+                            translationX = if (isCurrentPage) transform.offset.x else 0f
+                            translationY = if (isCurrentPage) transform.offset.y else 0f
                         }
                         .transformable(transformState, lockRotationOnZoomPan = true),
                 )

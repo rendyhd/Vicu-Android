@@ -448,7 +448,7 @@ private fun InboxPickerDialog(
         title = { Text("Select Inbox Project") },
         text = {
             LazyColumn {
-                items(state.projects, key = { it.id }) { project ->
+                items(state.projects, key = { it.id }, contentType = { "project" }) { project ->
                     val isSelected = project.id == state.inboxProjectId
                     Row(
                         modifier = Modifier

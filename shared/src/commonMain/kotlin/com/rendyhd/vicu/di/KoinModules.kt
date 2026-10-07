@@ -16,6 +16,7 @@ import com.rendyhd.vicu.data.remote.*
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.auth.*
 import com.rendyhd.vicu.util.AppDispatchers
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.BuildInfo
 import com.rendyhd.vicu.util.DayClock
@@ -191,6 +192,7 @@ val commonModule = module {
         )
     }
     single { AppMessages() }
+    single { NavigationTicker() }
     single { AppDispatchers() }
     single<TimeSource> { SystemTimeSource }
     single { DayClock(scope = get(), time = get()) }

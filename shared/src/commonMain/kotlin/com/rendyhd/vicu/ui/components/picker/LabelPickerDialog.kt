@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -80,8 +81,18 @@ fun LabelPickerDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                LazyColumn(modifier = Modifier.height(250.dp)) {
-                    items(filteredLabels, key = { it.id }) { label ->
+                if (filteredLabels.isEmpty()) {
+                    Text(
+                        text = if (allLabels.isEmpty()) "No labels yet" else "No label matches",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp),
+                    )
+                }
+                // As tall as the labels need, up to what the dialog has room for: the list gives
+                // way when the create section opens or the keyboard is up.
+                LazyColumn(modifier = Modifier.weight(1f, fill = false).heightIn(max = 320.dp)) {
+                    items(filteredLabels, key = { it.id }, contentType = { "label" }) { label ->
                         val isChecked = label.id in selectedLabelIds
                         val labelColor = parseHexColor(label.hexColor)
 
@@ -116,7 +127,11 @@ fun LabelPickerDialog(
 
                 if (!showCreateSection) {
                     TextButton(
-                        onClick = { showCreateSection = true },
+                        onClick = {
+                            // What was searched for and not found is the likely name of the new label.
+                            if (newLabelName.isBlank()) newLabelName = searchQuery.trim()
+                            showCreateSection = true
+                        },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))

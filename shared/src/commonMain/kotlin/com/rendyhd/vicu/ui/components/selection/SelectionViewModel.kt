@@ -8,6 +8,7 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.DayClock
@@ -34,7 +35,9 @@ import kotlinx.coroutines.sync.withPermit
 
 /**
  * Per-screen multi-select state + bulk actions. Scoped to the screen's NavBackStackEntry via
- * koinViewModel(), so selection is contextual to one list and clears when you leave.
+ * koinViewModel(), so selection is contextual to one list: it survives a rotation, and it ends
+ * when the app navigates to another destination ([NavigationTicker]), including a tab that is
+ * saved and restored with its view model.
  *
  * Bulk ops send the COMPLETE Task object (Go zero-value problem) or use the dedicated
  * move/label endpoints; the list ViewModels observe Room flows and update automatically.
@@ -50,7 +53,21 @@ class SelectionViewModel(
     private val appMessages: AppMessages,
     private val appScope: CoroutineScope,
     private val dayClock: DayClock,
+    navigationTicker: NavigationTicker = NavigationTicker(),
 ) : ViewModel() {
+
+    init {
+        // Read now, not when the collector starts, so a navigation in between is not missed.
+        var seen = navigationTicker.count.value
+        viewModelScope.launch {
+            navigationTicker.count.collect { count ->
+                if (count != seen) {
+                    seen = count
+                    clear()
+                }
+            }
+        }
+    }
 
     private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
     val selectedIds: StateFlow<Set<Long>> = _selectedIds.asStateFlow()

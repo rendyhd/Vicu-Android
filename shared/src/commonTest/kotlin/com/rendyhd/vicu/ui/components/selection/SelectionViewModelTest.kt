@@ -4,6 +4,7 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.ui.FakeLabelRepository
 import com.rendyhd.vicu.ui.FakeProjectRepository
 import com.rendyhd.vicu.ui.FakeTaskRepository
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.util.AppMessage
 import com.rendyhd.vicu.util.AppMessages
@@ -48,6 +49,7 @@ class SelectionViewModelTest {
         val vm: SelectionViewModel,
         val received: MutableList<AppMessage>,
         val labels: FakeLabelRepository,
+        val navigation: NavigationTicker,
     )
 
     private fun TestScope.rig(vararg ids: Long): Rig {
@@ -57,6 +59,7 @@ class SelectionViewModelTest {
         val received = mutableListOf<AppMessage>()
         backgroundScope.launch { messages.messages.collect { received += it } }
         val labels = FakeLabelRepository()
+        val navigation = NavigationTicker()
         val vm = SelectionViewModel(
             taskRepository = tasks,
             projectRepository = FakeProjectRepository(),
@@ -68,11 +71,52 @@ class SelectionViewModelTest {
                 FixedTimeSource(Instant.parse("2026-10-06T21:30:00Z"), TimeZone.of("Europe/Amsterdam")),
                 ticking = false,
             ),
+            navigationTicker = navigation,
         )
-        return Rig(tasks, vm, received, labels)
+        return Rig(tasks, vm, received, labels, navigation)
     }
 
     private fun Rig.select(vararg ids: Long) = ids.forEach { vm.toggle(it) }
+
+    @Test
+    fun `going to another screen ends the selection`() = runTest {
+        val rig = rig(1, 2)
+        runCurrent()
+        rig.select(1, 2)
+        assertEquals(setOf(1L, 2L), rig.vm.selectedIds.value)
+
+        rig.navigation.navigated()
+        runCurrent()
+
+        assertEquals(emptySet(), rig.vm.selectedIds.value)
+        assertEquals(0, rig.vm.selectedDescendantCount.value)
+    }
+
+    @Test
+    fun `a selection made after the last navigation stays`() = runTest {
+        val rig = rig(1, 2)
+        rig.navigation.navigated() // before the screen's selection existed
+        runCurrent()
+        rig.select(1)
+        runCurrent()
+
+        assertEquals(setOf(1L), rig.vm.selectedIds.value, "an old navigation does not clear a new selection")
+    }
+
+    @Test
+    fun `each navigation clears whatever was selected since`() = runTest {
+        val rig = rig(1, 2)
+        runCurrent()
+        rig.select(1)
+        rig.navigation.navigated()
+        runCurrent()
+        rig.select(2)
+        assertEquals(setOf(2L), rig.vm.selectedIds.value)
+
+        rig.navigation.navigated()
+        runCurrent()
+        assertEquals(emptySet(), rig.vm.selectedIds.value)
+    }
 
     @Test
     fun `completing the selection completes every task and offers one undo`() = runTest {
