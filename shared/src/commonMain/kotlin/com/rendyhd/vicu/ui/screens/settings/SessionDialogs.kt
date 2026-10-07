@@ -137,6 +137,37 @@ internal fun ClearCacheDialog(
     )
 }
 
+/**
+ * "Clear Failed" discards the changes that could not be sent: they are deleted from the queue for
+ * good, so it asks first. The rows they touched are refreshed from the server afterwards.
+ */
+@Composable
+internal fun ClearFailedActionsDialog(
+    failedCount: Int,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val noun = if (failedCount == 1) "change" else "changes"
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Discard failed changes") },
+        text = {
+            Text(
+                "Discard $failedCount failed $noun? They could not be sent to the server and will be " +
+                    "lost. The affected items are refreshed from the server on the next sync.",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Discard", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
 @Composable
 private fun DiscardCheckRow(
     checked: Boolean,

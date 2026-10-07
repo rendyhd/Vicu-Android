@@ -83,6 +83,45 @@ data class SettingsUiState(
     val successMessage: String? = null,
 )
 
+private data class UserInfo(
+    val username: String = "",
+    val email: String = "",
+    val authMethod: String = "",
+)
+
+private data class ContentGroup(
+    val labels: List<Label>,
+    val customLists: List<CustomList>,
+    val customListSync: CustomListSyncStatus,
+    val projects: List<Project>,
+    val notificationPrefs: NotificationPrefs,
+)
+
+private data class SyncGroup(
+    val pendingCount: Int,
+    val failedCount: Int,
+    val isOnline: Boolean,
+    val themeMode: ThemeMode,
+    val nlpConfig: ParserConfig,
+)
+
+private data class AccountGroup(
+    val userInfo: UserInfo,
+    val vikunjaUrl: String,
+    val inboxProjectId: Long?,
+    val bottomBarSlots: List<BottomBarSlot>,
+    /** (error, success) */
+    val messages: Pair<String?, String?>,
+)
+
+private data class PrefsGroup(
+    val smartAdd: Boolean,
+    val contextNav: Boolean,
+    val behaviorPrefs: BehaviorPrefs,
+    val reviewPrefs: ReviewPrefs,
+    val logbookPrefs: LogbookPrefs,
+)
+
 class SettingsViewModel(
     private val authManager: AuthManager,
     private val tokenStorage: TokenStorage,
@@ -106,7 +145,7 @@ class SettingsViewModel(
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<Pair<String?, String?>>(null to null)
-    private val _userInfo = MutableStateFlow(Triple("", "", "")) // username, email, authMethod
+    private val _userInfo = MutableStateFlow(UserInfo())
     private val _vikunjaUrl = MutableStateFlow("")
     private val _inboxProjectId = MutableStateFlow<Long?>(null)
 
@@ -121,92 +160,75 @@ class SettingsViewModel(
         viewModelScope.launch { customListRepository.sync() }
     }
 
-    val uiState: StateFlow<SettingsUiState> = combine(
-        combine(
-            labelRepository.getAll(),
-            combine(customListRepository.lists, customListRepository.syncStatus) { lists, status ->
-                lists to status
-            },
-            projectRepository.getAllIncludingArchived(),
-            notificationPrefsStore.getPrefs(),
-            _messages,
-        ) { labels, customLists, projects, notifPrefs, messages ->
-            listOf(labels, customLists, projects, notifPrefs, messages)
-        },
-        combine(
-            pendingActionDao.getPendingCount(),
-            pendingActionDao.getFailedCount(),
-            networkMonitor.isOnline,
-            themePrefsStore.themeMode,
-            nlpPrefsStore.config,
-        ) { pendingCount, failedCount, isOnline, themeMode, nlpConfig ->
-            listOf(pendingCount, failedCount, isOnline, themeMode, nlpConfig)
-        },
-        combine(
-            _userInfo,
-            _vikunjaUrl,
-            _inboxProjectId,
-            bottomBarPrefsStore.slots,
-        ) { userInfo, url, inboxId, bbSlots ->
-            listOf(userInfo, url, inboxId, bbSlots)
-        },
-        combine(
-            widgetPrefsStore.smartAdd,
-            widgetPrefsStore.contextNav,
-            behaviorPrefsStore.getPrefs(),
-            reviewPrefsStore.getPrefs(),
-            logbookPrefsStore.getPrefs(),
-        ) { smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs ->
-            listOf(smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs)
-        },
-    ) { base, syncTheme, userEtc, widgetPrefs ->
-        @Suppress("UNCHECKED_CAST")
-        val labels = base[0] as List<Label>
-        val customListBundle = base[1] as Pair<List<CustomList>, CustomListSyncStatus>
-        val customLists = customListBundle.first
-        val projects = base[2] as List<Project>
-        val notifPrefs = base[3] as NotificationPrefs
-        val messages = base[4] as Pair<String?, String?>
-        val pendingCount = syncTheme[0] as Int
-        val failedCount = syncTheme[1] as Int
-        val isOnline = syncTheme[2] as Boolean
-        val themeMode = syncTheme[3] as ThemeMode
-        val nlpConfig = syncTheme[4] as ParserConfig
-        val userInfo = userEtc[0] as Triple<String, String, String>
-        val url = userEtc[1] as String
-        val inboxId = userEtc[2] as Long?
-        val bbSlots = userEtc[3] as List<BottomBarSlot>
-        val smartAdd = widgetPrefs[0] as Boolean
-        val contextNav = widgetPrefs[1] as Boolean
-        val behaviorPrefs = widgetPrefs[2] as BehaviorPrefs
-        val reviewPrefs = widgetPrefs[3] as ReviewPrefs
-        val logbookPrefs = widgetPrefs[4] as LogbookPrefs
+    // The sources are combined in typed groups of at most five flows each, then the groups are
+    // combined: no positional lists and no casts, so a mismatch is a compile error.
+    private val content = combine(
+        labelRepository.getAll(),
+        customListRepository.lists,
+        customListRepository.syncStatus,
+        projectRepository.getAllIncludingArchived(),
+        notificationPrefsStore.getPrefs(),
+    ) { labels, customLists, customListSync, projects, notificationPrefs ->
+        ContentGroup(labels, customLists, customListSync, projects, notificationPrefs)
+    }
+
+    private val sync = combine(
+        pendingActionDao.getPendingCount(),
+        pendingActionDao.getFailedCount(),
+        networkMonitor.isOnline,
+        themePrefsStore.themeMode,
+        nlpPrefsStore.config,
+    ) { pendingCount, failedCount, isOnline, themeMode, nlpConfig ->
+        SyncGroup(pendingCount, failedCount, isOnline, themeMode, nlpConfig)
+    }
+
+    private val account = combine(
+        _userInfo,
+        _vikunjaUrl,
+        _inboxProjectId,
+        bottomBarPrefsStore.slots,
+        _messages,
+    ) { userInfo, url, inboxId, bottomBarSlots, messages ->
+        AccountGroup(userInfo, url, inboxId, bottomBarSlots, messages)
+    }
+
+    private val prefs = combine(
+        widgetPrefsStore.smartAdd,
+        widgetPrefsStore.contextNav,
+        behaviorPrefsStore.getPrefs(),
+        reviewPrefsStore.getPrefs(),
+        logbookPrefsStore.getPrefs(),
+    ) { smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs ->
+        PrefsGroup(smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs)
+    }
+
+    val uiState: StateFlow<SettingsUiState> = combine(content, sync, account, prefs) { c, s, a, p ->
         SettingsUiState(
-            username = userInfo.first,
-            email = userInfo.second,
-            authMethod = userInfo.third,
-            vikunjaUrl = url,
-            inboxProjectId = inboxId,
-            themeMode = themeMode,
-            nlpConfig = nlpConfig,
-            labels = labels.sortedBy { it.title.lowercase() },
-            customLists = customLists,
-            customListSyncStatus = customListBundle.second,
-            projects = projects.filter { !it.isArchived },
-            archivedProjects = projects.filter { it.isArchived },
-            notificationPrefs = notifPrefs,
+            username = a.userInfo.username,
+            email = a.userInfo.email,
+            authMethod = a.userInfo.authMethod,
+            vikunjaUrl = a.vikunjaUrl,
+            inboxProjectId = a.inboxProjectId,
+            themeMode = s.themeMode,
+            nlpConfig = s.nlpConfig,
+            labels = c.labels.sortedBy { it.title.lowercase() },
+            customLists = c.customLists,
+            customListSyncStatus = c.customListSync,
+            projects = c.projects.filter { !it.isArchived },
+            archivedProjects = c.projects.filter { it.isArchived },
+            notificationPrefs = c.notificationPrefs,
             supportsQuickAddTile = platformSettingsHooks.supportsQuickAddTile,
-            behaviorPrefs = behaviorPrefs,
-            pendingActionCount = pendingCount,
-            failedActionCount = failedCount,
-            isOnline = isOnline,
-            bottomBarSlots = bbSlots,
-            widgetSmartAdd = smartAdd,
-            widgetContextNav = contextNav,
-            reviewPrefs = reviewPrefs,
-            logbookPrefs = logbookPrefs,
-            error = messages.first,
-            successMessage = messages.second,
+            behaviorPrefs = p.behaviorPrefs,
+            pendingActionCount = s.pendingCount,
+            failedActionCount = s.failedCount,
+            isOnline = s.isOnline,
+            bottomBarSlots = a.bottomBarSlots,
+            widgetSmartAdd = p.smartAdd,
+            widgetContextNav = p.contextNav,
+            reviewPrefs = p.reviewPrefs,
+            logbookPrefs = p.logbookPrefs,
+            error = a.messages.first,
+            successMessage = a.messages.second,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())
 
@@ -215,16 +237,18 @@ class SettingsViewModel(
             val authMethod = tokenStorage.getAuthMethod() ?: ""
             val url = tokenStorage.getVikunjaUrl() ?: ""
             _vikunjaUrl.value = url
-            _userInfo.update { it.copy(third = authMethod) }
+            _userInfo.update { it.copy(authMethod = authMethod) }
 
             // Fetch user info from API
             try {
                 val user = apiService.getCurrentUser()
-                _userInfo.value = Triple(
-                    user.username.ifBlank { user.name },
-                    user.email,
-                    authMethod,
+                _userInfo.value = UserInfo(
+                    username = user.username.ifBlank { user.name },
+                    email = user.email,
+                    authMethod = authMethod,
                 )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (_: Exception) {
                 // Offline or failed — keep empty
             }
