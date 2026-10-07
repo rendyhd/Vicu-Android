@@ -43,12 +43,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Label
-
-private val PRESET_COLORS = listOf(
-    "#e8384f", "#fd612c", "#fd9a00", "#eec300",
-    "#a4cf30", "#37c5ab", "#20aaea", "#4186e0",
-    "#7a6ff0", "#aa62e3",
-)
+import com.rendyhd.vicu.util.PRESET_COLORS
+import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -87,16 +83,7 @@ fun LabelPickerDialog(
                 LazyColumn(modifier = Modifier.height(250.dp)) {
                     items(filteredLabels, key = { it.id }) { label ->
                         val isChecked = label.id in selectedLabelIds
-                        val labelColor = try {
-                            val hex = label.hexColor
-                            if (hex.isNotBlank()) {
-                                Color(
-                                    android.graphics.Color.parseColor(
-                                        if (hex.startsWith("#")) hex else "#$hex"
-                                    )
-                                )
-                            } else null
-                        } catch (_: Exception) { null }
+                        val labelColor = parseHexColor(label.hexColor)
 
                         Row(
                             modifier = Modifier
@@ -165,7 +152,7 @@ fun LabelPickerDialog(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         PRESET_COLORS.forEach { hex ->
-                            val color = Color(android.graphics.Color.parseColor(hex))
+                            val color = parseHexColor(hex) ?: Color.Gray
                             val isSelected = hex == selectedColor
 
                             Box(

@@ -259,7 +259,14 @@ class FakeLabelRepository(initial: List<Label> = emptyList()) : LabelRepository 
     override fun getAll(): Flow<List<Label>> = labels
     override suspend fun getById(id: Long): Label? = labels.value.firstOrNull { it.id == id }
 
+    /** When set, [create] fails with this message. */
+    var createError: String? = null
+
+    /** The error [addToTask] answers for a task, or null to succeed. */
+    var addToTaskError: (Long) -> String? = { null }
+
     override suspend fun create(label: Label): NetworkResult<Label> {
+        createError?.let { return NetworkResult.Error(it) }
         val saved = label.copy(id = nextId++)
         created += saved
         labels.value = labels.value + saved
@@ -270,6 +277,7 @@ class FakeLabelRepository(initial: List<Label> = emptyList()) : LabelRepository 
     override suspend fun delete(labelId: Long): NetworkResult<Unit> = NetworkResult.Success(Unit)
 
     override suspend fun addToTask(taskId: Long, labelId: Long): NetworkResult<Unit> {
+        addToTaskError(taskId)?.let { return NetworkResult.Error(it) }
         addedToTask += taskId to labelId
         return NetworkResult.Success(Unit)
     }

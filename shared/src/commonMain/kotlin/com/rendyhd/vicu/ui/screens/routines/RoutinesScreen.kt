@@ -42,7 +42,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FabPosition
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,8 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -83,7 +82,10 @@ import com.rendyhd.vicu.domain.model.RoutineOccurrenceRecord
 import com.rendyhd.vicu.domain.model.RoutinePeriod
 import com.rendyhd.vicu.domain.model.RoutineSchedule
 import com.rendyhd.vicu.domain.model.RoutineSlot
+import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
+import com.rendyhd.vicu.ui.components.shared.copyPlainText
 import com.rendyhd.vicu.ui.components.shared.LocalToday
+import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import org.koin.compose.viewmodel.koinViewModel
 import kotlinx.coroutines.launch
@@ -100,7 +102,7 @@ fun RoutinesScreen(
     val state by viewModel.uiState.collectAsState()
     val remindersEnabled by viewModel.remindersEnabled.collectAsState()
     val snackbar = remember { SnackbarHostState() }
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     var pageMenuOpen by remember { mutableStateOf(false) }
     var editorRoutine by remember { mutableStateOf<Routine?>(null) }
@@ -138,8 +140,8 @@ fun RoutinesScreen(
                                 onClick = {
                                     pageMenuOpen = false
                                     viewModel.exportCsv { export ->
-                                        clipboard.setText(AnnotatedString(export.csv))
                                         scope.launch {
+                                            clipboard.copyPlainText("Routine history", export.csv)
                                             snackbar.showSnackbar(
                                                 if (export.complete) {
                                                     "Routine history copied"
@@ -157,13 +159,15 @@ fun RoutinesScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                editorRoutine = null
-                showEditor = true
-            }) {
-                Text("+", style = MaterialTheme.typography.headlineSmall)
-            }
+            VicuFab(
+                onClick = {
+                    editorRoutine = null
+                    showEditor = true
+                },
+                contentDescription = "Add routine",
+            )
         },
+        floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         LazyColumn(
@@ -284,7 +288,10 @@ fun RoutinesScreen(
     }
 
     historyRoutine?.let { routine ->
-        val history by viewModel.observeHistory(routine.definition.id).collectAsState(emptyList())
+        // One flow per routine, not one per recomposition: a new instance would restart the
+        // collection and flash the dialog empty.
+        val historyFlow = remember(routine.definition.id) { viewModel.observeHistory(routine.definition.id) }
+        val history by historyFlow.collectAsState(emptyList())
         RoutineHistoryDialog(
             routine = routine,
             history = history,

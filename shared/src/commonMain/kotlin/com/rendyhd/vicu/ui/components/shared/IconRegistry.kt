@@ -67,8 +67,6 @@ object IconRegistry {
         BottomBarSlotType.CUSTOM_LIST to Icons.Outlined.FilterList,
     )
 
-    val INBOX_ICON: ImageVector = Icons.Outlined.MoveToInbox
-
     fun resolveIcon(slot: BottomBarSlot): ImageVector {
         // Smart lists always use their default icon
         SMART_LIST_ICONS[slot.type]?.let { return it }
@@ -77,13 +75,5 @@ object IconRegistry {
             ICON_MAP[slot.iconKey]?.let { return it }
         }
         return TYPE_DEFAULT_ICONS[slot.type] ?: Icons.Outlined.Folder
-    }
-
-    fun resolveLabel(slot: BottomBarSlot): String = when (slot.type) {
-        BottomBarSlotType.TODAY -> "Today"
-        BottomBarSlotType.UPCOMING -> "Upcoming"
-        BottomBarSlotType.ANYTIME -> "Anytime"
-        BottomBarSlotType.PROJECT -> ""  // resolved from project data
-        BottomBarSlotType.CUSTOM_LIST -> ""  // resolved from list data
     }
 }

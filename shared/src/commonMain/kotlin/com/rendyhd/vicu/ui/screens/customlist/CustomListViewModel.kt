@@ -178,13 +178,6 @@ class CustomListViewModel(
         }
     }
 
-    fun rescheduleTask(task: Task, newDueDate: String) {
-        viewModelScope.launch {
-            val updated = task.copy(dueDate = newDueDate)
-            taskRepository.update(updated)
-        }
-    }
-
     fun saveCustomList(customList: CustomList) {
         viewModelScope.launch {
             customListRepository.upsert(customList)

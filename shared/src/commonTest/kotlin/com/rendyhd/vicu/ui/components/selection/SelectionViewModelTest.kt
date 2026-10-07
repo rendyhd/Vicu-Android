@@ -47,6 +47,7 @@ class SelectionViewModelTest {
         val tasks: FakeTaskRepository,
         val vm: SelectionViewModel,
         val received: MutableList<AppMessage>,
+        val labels: FakeLabelRepository,
     )
 
     private fun TestScope.rig(vararg ids: Long): Rig {
@@ -55,10 +56,11 @@ class SelectionViewModelTest {
         val messages = AppMessages()
         val received = mutableListOf<AppMessage>()
         backgroundScope.launch { messages.messages.collect { received += it } }
+        val labels = FakeLabelRepository()
         val vm = SelectionViewModel(
             taskRepository = tasks,
             projectRepository = FakeProjectRepository(),
-            labelRepository = FakeLabelRepository(),
+            labelRepository = labels,
             appMessages = messages,
             appScope = backgroundScope,
             dayClock = DayClock(
@@ -67,7 +69,7 @@ class SelectionViewModelTest {
                 ticking = false,
             ),
         )
-        return Rig(tasks, vm, received)
+        return Rig(tasks, vm, received, labels)
     }
 
     private fun Rig.select(vararg ids: Long) = ids.forEach { vm.toggle(it) }
@@ -214,5 +216,51 @@ class SelectionViewModelTest {
 
         assertEquals(setOf(1L, 2L), rig.tasks.deleted.toSet())
         assertEquals(emptySet(), rig.vm.selectedIds.value)
+    }
+
+    @Test
+    fun `creating a label from the picker creates it and puts it on every selected task`() = runTest {
+        val rig = rig(1, 2)
+        rig.select(1, 2)
+        runCurrent()
+
+        rig.vm.createLabelAndApply("errand", "#20aaea")
+        runCurrent()
+
+        val created = rig.labels.created.single()
+        assertEquals("errand", created.title)
+        assertEquals("#20aaea", created.hexColor)
+        assertEquals(setOf(1L to created.id, 2L to created.id), rig.labels.addedToTask.toSet())
+        assertEquals(emptySet(), rig.vm.selectedIds.value)
+        assertTrue(rig.received.isEmpty())
+    }
+
+    @Test
+    fun `a label that cannot be created is reported and the selection stays`() = runTest {
+        val rig = rig(1, 2)
+        rig.labels.createError = "label already exists"
+        rig.select(1, 2)
+        runCurrent()
+
+        rig.vm.createLabelAndApply("errand", "#20aaea")
+        runCurrent()
+
+        assertEquals(listOf("Could not create the label: label already exists"), rig.received.map { it.text })
+        assertTrue(rig.labels.addedToTask.isEmpty())
+        assertEquals(setOf(1L, 2L), rig.vm.selectedIds.value)
+    }
+
+    @Test
+    fun `a failure to label one task leaves just that task selected`() = runTest {
+        val rig = rig(1, 2)
+        rig.labels.addToTaskError = { taskId -> if (taskId == 2L) "no access" else null }
+        rig.select(1, 2)
+        runCurrent()
+
+        rig.vm.createLabelAndApply("errand", "#20aaea")
+        runCurrent()
+
+        assertEquals(listOf("Could not label 1 of 2 tasks: no access"), rig.received.map { it.text })
+        assertEquals(setOf(2L), rig.vm.selectedIds.value)
     }
 }

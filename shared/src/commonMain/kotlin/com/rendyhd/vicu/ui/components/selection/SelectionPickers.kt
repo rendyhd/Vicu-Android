@@ -27,7 +27,10 @@ fun SelectionPickers(
     selectedCount: Int,
     onDismiss: () -> Unit,
 ) {
+    // Both collectors are read before the early return below: a state read after a conditional
+    // return only exists on some compositions.
     val pendingCompletionCount by selectionVm.pendingCompletionDescendantCount.collectAsState()
+    val selectedDescendantCount by selectionVm.selectedDescendantCount.collectAsState()
     if (pendingCompletionCount != null) {
         val count = pendingCompletionCount ?: 0
         AlertDialog(
@@ -46,7 +49,6 @@ fun SelectionPickers(
         return
     }
 
-    val selectedDescendantCount by selectionVm.selectedDescendantCount.collectAsState()
     when (action) {
         SelectionAction.SCHEDULE -> VicuDatePickerDialog(
             currentDate = null,
@@ -80,7 +82,10 @@ fun SelectionPickers(
                     selectionVm.bulkApplyLabel(it)
                     onDismiss()
                 },
-                onCreateLabel = { _, _ -> },
+                onCreateLabel = { name, hexColor ->
+                    selectionVm.createLabelAndApply(name, hexColor)
+                    onDismiss()
+                },
                 onDismiss = onDismiss,
             )
         }

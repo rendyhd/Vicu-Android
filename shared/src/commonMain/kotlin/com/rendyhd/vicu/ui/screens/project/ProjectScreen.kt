@@ -61,6 +61,7 @@ import com.rendyhd.vicu.ui.components.task.AddTaskButton
 import com.rendyhd.vicu.ui.components.task.ReorderableTaskRow
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.util.isManuallyOrdered
+import com.rendyhd.vicu.util.parseHexColor
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableLazyListState
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -281,7 +282,7 @@ private fun SubprojectRow(
         Icon(
             imageVector = Icons.Outlined.Folder,
             contentDescription = null,
-            tint = parseSectionColor(project.hexColor)
+            tint = parseHexColor(project.hexColor)
                 ?: MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(24.dp),
         )
@@ -299,17 +300,6 @@ private fun SubprojectRow(
         )
     }
 }
-
-private fun parseSectionColor(hex: String): Color? =
-    try {
-        if (hex.isNotBlank()) {
-            Color(android.graphics.Color.parseColor(if (hex.startsWith("#")) hex else "#$hex"))
-        } else {
-            null
-        }
-    } catch (_: Exception) {
-        null
-    }
 
 private fun LazyListScope.projectSectionItems(
     sections: List<ProjectSection>,
@@ -329,7 +319,7 @@ private fun LazyListScope.projectSectionItems(
 ) {
     sections.forEach { section ->
         item(key = "section_${section.project.id}") {
-            val sectionColor = parseSectionColor(section.project.hexColor)
+            val sectionColor = parseHexColor(section.project.hexColor)
             CollapsibleSection(
                 title = section.project.title,
                 color = sectionColor ?: MaterialTheme.colorScheme.onSurfaceVariant,

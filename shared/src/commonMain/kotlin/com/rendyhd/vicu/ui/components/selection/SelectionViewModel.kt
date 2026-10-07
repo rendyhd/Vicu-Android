@@ -18,6 +18,7 @@ import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.unfinishedDescendants
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -152,9 +153,16 @@ class SelectionViewModel(
             .none { it.id in selectedIds }
     }
 
+    private var descendantCountJob: Job? = null
+
+    /**
+     * Recounts the nested subtasks of the selection. Only the latest request may write the count:
+     * a slow answer for an earlier selection used to overwrite the one for the current selection.
+     */
     private fun refreshSelectedDescendantCount() {
         val ids = _selectedIds.value
-        viewModelScope.launch {
+        descendantCountJob?.cancel()
+        descendantCountJob = viewModelScope.launch {
             _selectedDescendantCount.value = taskRepository.getByIds(ids)
                 .flatMap { it.descendantsDepthFirst() }
                 .distinctBy { it.id }
@@ -209,10 +217,29 @@ class SelectionViewModel(
     fun bulkApplyLabel(labelId: Long) {
         val ids = _selectedIds.value
         if (ids.isEmpty()) return
+        appScope.launch { applyLabel(ids, labelId) }
+    }
+
+    /**
+     * The label picker's "Create new label": creates the label, then puts it on every selected
+     * task like [bulkApplyLabel]. A label that cannot be created is reported and the selection
+     * stays as it was.
+     */
+    fun createLabelAndApply(name: String, hexColor: String) {
+        val ids = _selectedIds.value
+        if (ids.isEmpty() || name.isBlank()) return
         appScope.launch {
-            val outcomes = runBulk(ids.toList()) { labelRepository.addToTask(it, labelId) }
-            finishBulk("label", outcomes)
+            when (val created = labelRepository.create(Label(id = 0, title = name.trim(), hexColor = hexColor))) {
+                is NetworkResult.Success -> applyLabel(ids, created.data.id)
+                is NetworkResult.Error -> appMessages.post("Could not create the label: ${created.message}")
+                is NetworkResult.Loading -> Unit
+            }
         }
+    }
+
+    private suspend fun applyLabel(ids: Set<Long>, labelId: Long) {
+        val outcomes = runBulk(ids.toList()) { labelRepository.addToTask(it, labelId) }
+        finishBulk("label", outcomes)
     }
 
     private suspend fun updateSelected(ids: Set<Long>, verb: String, change: (Task) -> Task) {

@@ -179,13 +179,6 @@ class TodayViewModel(
         }
     }
 
-    fun rescheduleTask(task: Task, newDueDate: String) {
-        viewModelScope.launch {
-            val updated = task.copy(dueDate = newDueDate)
-            taskRepository.update(updated)
-        }
-    }
-
     fun clearError() {
         _uiState.update { it.copy(error = null) }
     }

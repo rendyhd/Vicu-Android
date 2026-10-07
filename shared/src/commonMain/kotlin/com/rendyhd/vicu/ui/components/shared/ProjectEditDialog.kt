@@ -34,6 +34,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.util.PRESET_COLORS
+import com.rendyhd.vicu.util.parseHexColor
 
 /**
  * Collects all descendant project ids of [rootId] with a visited guard, so pre-existing
@@ -171,7 +173,7 @@ fun ProjectEditDialog(
                             .clickable { selectedColor = "" },
                     )
                     PRESET_COLORS.forEach { hex ->
-                        val color = Color(android.graphics.Color.parseColor(hex))
+                        val color = parseHexColor(hex) ?: Color.Gray
                         val normalizedSelected = selectedColor.let {
                             if (it.startsWith("#")) it else "#$it"
                         }

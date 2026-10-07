@@ -306,10 +306,6 @@ class TaskEntryViewModel(
         _uiState.update { it.copy(manualRecurrence = recurrence) }
     }
 
-    fun cyclePriority() {
-        _uiState.update { it.copy(priority = (it.priority + 1) % 5) }
-    }
-
     fun setProjectId(projectId: Long) {
         _uiState.update { it.copy(projectId = projectId) }
     }

@@ -86,11 +86,6 @@ object DateUtils {
         zone: TimeZone = localZone,
     ): Boolean = DueDates.isDueToday(dateStr, today, zone)
 
-    fun getDateKey(dateStr: String?): String {
-        val instant = parseIsoDate(dateStr) ?: return ""
-        return instant.toLocalDateTime(localZone).date.toString()
-    }
-
     /**
      * The local date of a due date as a relative label: Today, Tomorrow, Yesterday, a weekday within
      * the coming week, or "Oct 6" (with the year when it is not the current year).
@@ -136,19 +131,6 @@ object DateUtils {
         time.toJavaLocalTime().format(
             DateTimeFormatter.ofPattern(if (is24Hour) "HH:mm" else "h:mm a", Locale.getDefault()),
         )
-
-    fun formatDateHeader(dateStr: String?): String {
-        val instant = parseIsoDate(dateStr) ?: return ""
-        val date = instant.toLocalDateTime(localZone).date
-        val today = Clock.System.todayIn(localZone)
-        return when {
-            date == today -> "Today"
-            date == today.plus(1, DateTimeUnit.DAY) -> "Tomorrow"
-            date > today && date < today.plus(7, DateTimeUnit.DAY) ->
-                date.toJavaLocalDate().dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
-            else -> date.toJavaLocalDate().format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault()))
-        }
-    }
 
     fun formatTodaySubtitle(today: LocalDate = Clock.System.todayIn(localZone)): String {
         return today.toJavaLocalDate().format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault()))

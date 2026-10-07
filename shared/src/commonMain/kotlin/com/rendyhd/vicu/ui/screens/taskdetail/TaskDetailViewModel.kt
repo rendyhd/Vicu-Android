@@ -382,17 +382,6 @@ class TaskDetailViewModel(
         scheduleAutosave()
     }
 
-    fun cyclePriority() {
-        _uiState.update {
-            val current = it.task?.priority ?: 0
-            it.copy(
-                task = it.task?.copy(priority = (current + 1) % 5),
-                manuallyEditedTypes = it.manuallyEditedTypes + TokenType.PRIORITY,
-            )
-        }
-        scheduleAutosave()
-    }
-
     fun setPriority(value: Int) {
         _uiState.update {
             it.copy(
