@@ -15,7 +15,7 @@ A native Android task manager powered by [Vikunja](https://vikunja.io/).
 
 Vicu Android is the mobile companion to [Vicu](https://github.com/rendyhd/Vicu), bringing the same focused task management workflow to your phone. It connects to any Vikunja instance and organizes your tasks around when they need to happen: tasks land in your **Inbox**, get scheduled into **Today** or **Upcoming**, sit in **Anytime** as your open backlog, and end up in the **Logbook** when done. A home screen widget and per-task reminders keep you on top of things without opening the app.
 
-Both Vicu apps talk to the same Vikunja backend, so changes sync between desktop and mobile automatically.
+Both Vicu apps talk to the same Vikunja backend, so changes sync between desktop and mobile automatically. Since 1.9.0 both apps also read that data by the same rules (`docs/cross-app-semantics-v1.md`), so a due date, a custom list or a project review means the same thing on your phone and on your PC.
 
 ## Capture from anywhere
 
@@ -56,18 +56,24 @@ Two syntax modes are available in Settings: **Todoist** (default — `@` for lab
 
 ## Features
 
-- **Smart lists** — Inbox, Today, Upcoming, Anytime, Logbook
-- **Custom lists** — User-defined filtered views by project, due date, labels, and sort order
+- **Smart lists** — Inbox (drag tasks into your own order), Today with an Overdue section, Upcoming, Anytime, Logbook
+- **Custom lists** — User-defined filtered views by project, due date window (with an Include overdue option), labels, and sort order, synced with the desktop app
 - **Projects with sections** — Collapsible child projects, position-based ordering
+- **Project review** — Step through your projects on a cadence, with the same review status as the desktop app
+- **Routines** — Recurring routines with reminders, history, and CSV export; history older than 400 days is archived on your Vikunja server
+- **Search** — Titles, descriptions, and completed tasks, with cached matches shown at once
 - **Labels** — Full CRUD with custom colors, multi-select picker with inline creation
 - **Subtasks** — Parent-child task relationships via task relations
-- **Reminders** — Per-task reminders (absolute time or relative to due date) + configurable daily summary notifications
-- **Attachments** — Upload, download, and share files on any task
+- **Due dates and times** — A date without a time stays a date; a date with a time keeps it; the year shows when it is not this one
+- **Reminders** — Per-task reminders (absolute time or relative to due date) + configurable daily summary notifications at your local time
+- **Attachments** — Upload, open, and share any file type on any task, up to the server's size limit
 - **Recurring tasks** — Daily, weekly, monthly, or custom intervals
-- **Home screen widget** — Configurable Glance widget showing Today, Inbox, Upcoming, or any project/custom list with tap-to-complete checkboxes
-- **Offline-first** — Room DB as source of truth, pending action queue with automatic background sync
+- **Home screen widgets** — Configurable Glance widgets showing Today, Inbox, Upcoming, any project or custom list, or your routines, with tap-to-complete checkboxes
+- **Offline-first** — Room DB as source of truth; changes you make offline are queued, sent in order when the connection is back, and kept across sign-out and cache clears until you choose to discard them. Failed changes are shown with retry and discard, and a sync runs in the background every 30 minutes
 - **Dark / light / system themes** — Material 3 dynamic color support
 - **Swipe gestures** — Swipe right to complete, swipe left to schedule
+- **Accessibility** — TalkBack actions on every task row, including Move up and Move down wherever a list can be reordered
+- **Privacy** — No request logging in release builds, and backups leave out the task database and your sign-in tokens
 - **Authentication** — OIDC (SSO), username/password with TOTP two-factor, or manual API token entry
 
 ## Getting started
@@ -77,6 +83,8 @@ Two syntax modes are available in Settings: **Todoist** (default — `@` for lab
 [Add to Obtainium](https://apps.obtainium.imranr.dev/redirect.html?r=obtainium://add/https://github.com/rendyhd/Vicu-Android)
 
 Or grab the latest APK from [GitHub Releases](https://github.com/rendyhd/Vicu-Android/releases).
+
+Vicu Android needs a Vikunja server running version 2.4.0 or newer.
 
 ### First launch
 
