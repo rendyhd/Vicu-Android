@@ -24,6 +24,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
@@ -84,26 +85,27 @@ class TodayViewModel(
             }
         }
         viewModelScope.launch {
-            val inboxId = authManager.getInboxProjectId()
-            combine(
-                taskRepository.getTodayTasks(),
-                projectRepository.getAll(),
-                completions.state,
-                // The sections follow the day: a task due today is overdue once it is tomorrow.
-                dayClock.day,
-            ) { tasks, projects, _, day ->
-                val overdue = tasks.filter { DueDates.bucket(it.dueDate, day.date, day.zone) == DueDates.Bucket.OVERDUE }
-                val today = tasks.filter { DueDates.bucket(it.dueDate, day.date, day.zone) == DueDates.Bucket.TODAY }
-                buildTaskProjectGroups(completions.merge(overdue, OVERDUE_SCOPE), projects, inboxId) to
-                    buildTaskProjectGroups(completions.merge(today, TODAY_SCOPE), projects, inboxId)
-            }.collect { (overdueGroups, todayGroups) ->
-                _uiState.update { current ->
-                    // Preserve per-project expansion across refreshes, separately per section.
-                    current.copy(
-                        overdueGroups = overdueGroups.keepExpansion(current.overdueGroups),
-                        projectGroups = todayGroups.keepExpansion(current.projectGroups),
-                        isLoading = false,
-                    )
+            authManager.inboxProjectId.collectLatest { inboxId ->
+                combine(
+                    taskRepository.getTodayTasks(),
+                    projectRepository.getAll(),
+                    completions.state,
+                    // The sections follow the day: a task due today is overdue once it is tomorrow.
+                    dayClock.day,
+                ) { tasks, projects, _, day ->
+                    val overdue = tasks.filter { DueDates.bucket(it.dueDate, day.date, day.zone) == DueDates.Bucket.OVERDUE }
+                    val today = tasks.filter { DueDates.bucket(it.dueDate, day.date, day.zone) == DueDates.Bucket.TODAY }
+                    buildTaskProjectGroups(completions.merge(overdue, OVERDUE_SCOPE), projects, inboxId) to
+                        buildTaskProjectGroups(completions.merge(today, TODAY_SCOPE), projects, inboxId)
+                }.collect { (overdueGroups, todayGroups) ->
+                    _uiState.update { current ->
+                        // Preserve per-project expansion across refreshes, separately per section.
+                        current.copy(
+                            overdueGroups = overdueGroups.keepExpansion(current.overdueGroups),
+                            projectGroups = todayGroups.keepExpansion(current.projectGroups),
+                            isLoading = false,
+                        )
+                    }
                 }
             }
         }

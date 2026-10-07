@@ -11,6 +11,9 @@ import com.rendyhd.vicu.data.local.queuedAction
 import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -168,6 +171,36 @@ class AccountSessionTest {
 
         h.accountSession.apply(LoginPlan(identity, LoginDataAction.WIPE_ALL, 1))
         assertTrue(f.dao.taskIds.isEmpty() && f.dao.pending.isEmpty() && f.dao.routineArchive.isEmpty())
+        h.close()
+    }
+
+    @Test
+    fun `applying a wipe forgets the previous account's inbox project and a keep does not`() = runTest {
+        val h = harness()
+        h.signIn() // stores inbox project 5
+        val identity = AccountIdentity(ORIGINAL_SERVER, ORIGINAL_USER_ID)
+
+        h.accountSession.apply(LoginPlan(identity, LoginDataAction.KEEP, 0))
+        assertEquals(5L, h.storage.getInboxProjectId())
+
+        h.accountSession.apply(LoginPlan(AccountIdentity(ORIGINAL_SERVER, 8), LoginDataAction.WIPE_ALL, 0))
+        assertEquals(null, h.storage.getInboxProjectId())
+        h.close()
+    }
+
+    @Test
+    fun `the inbox project flow reports a new choice and a clear`() = runTest {
+        val h = harness(signedIn = false)
+        val seen = mutableListOf<Long?>()
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) { h.authManager.inboxProjectId.toList(seen) }
+
+        h.authManager.onInboxProjectSelected(5)
+        h.authManager.onInboxProjectSelected(5)
+        h.authManager.onInboxProjectSelected(6)
+        h.storage.clearInboxProjectId()
+
+        assertEquals(listOf(null, 5L, 6L, null), seen, "a repeated id is not reported twice")
+        job.cancel()
         h.close()
     }
 

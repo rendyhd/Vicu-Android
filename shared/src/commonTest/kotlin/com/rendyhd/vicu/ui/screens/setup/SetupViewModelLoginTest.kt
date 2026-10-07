@@ -149,6 +149,7 @@ class SetupViewModelLoginTest {
         assertEquals(setOf(1L, 2L), f.dao.taskIds)
         assertEquals(1, f.dao.routineArchive.size)
         assertEquals(0, f.customLists.clearLocalCalls)
+        assertEquals(5L, h.storage.getInboxProjectId(), "the same account keeps its Inbox")
         h.close()
     }
 
@@ -168,6 +169,10 @@ class SetupViewModelLoginTest {
         assertEquals(8L, h.storage.getUserId())
         assertTrue(f.dao.taskIds.isEmpty())
         assertEquals(1, f.customLists.clearLocalCalls)
+        assertNull(
+            h.storage.getInboxProjectId(),
+            "the previous account's Inbox must not survive; project selection sets the new one",
+        )
         h.close()
     }
 

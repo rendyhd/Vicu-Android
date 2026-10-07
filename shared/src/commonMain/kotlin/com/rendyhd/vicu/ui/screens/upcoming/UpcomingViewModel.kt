@@ -17,6 +17,7 @@ import com.rendyhd.vicu.util.NetworkResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -47,22 +48,23 @@ class UpcomingViewModel(
             completions.heldIds.collect { ids -> _uiState.update { it.copy(completedTaskIds = ids) } }
         }
         viewModelScope.launch {
-            val inboxId = authManager.getInboxProjectId()
-            combine(
-                taskRepository.getUpcomingTasks(),
-                projectRepository.getAll(),
-                completions.state,
-            ) { tasks, projects, _ ->
-                buildTaskProjectGroups(completions.merge(tasks), projects, inboxId)
-            }.collect { groups ->
-                _uiState.update { current ->
-                    val merged = groups.map { g ->
-                        g.copy(
-                            isExpanded = current.projectGroups
-                                .find { it.projectId == g.projectId }?.isExpanded ?: true,
-                        )
+            authManager.inboxProjectId.collectLatest { inboxId ->
+                combine(
+                    taskRepository.getUpcomingTasks(),
+                    projectRepository.getAll(),
+                    completions.state,
+                ) { tasks, projects, _ ->
+                    buildTaskProjectGroups(completions.merge(tasks), projects, inboxId)
+                }.collect { groups ->
+                    _uiState.update { current ->
+                        val merged = groups.map { g ->
+                            g.copy(
+                                isExpanded = current.projectGroups
+                                    .find { it.projectId == g.projectId }?.isExpanded ?: true,
+                            )
+                        }
+                        current.copy(projectGroups = merged, isLoading = false)
                     }
-                    current.copy(projectGroups = merged, isLoading = false)
                 }
             }
         }

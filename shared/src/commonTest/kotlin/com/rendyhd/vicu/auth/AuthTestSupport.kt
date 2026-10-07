@@ -43,7 +43,7 @@ class InMemoryTokenStorage(
     private val authMethod = MutableStateFlow<String?>(null)
     private var providerKey: String? = null
     private val vikunjaUrl = MutableStateFlow<String?>(null)
-    private var inboxProjectId: Long? = null
+    private val inboxProjectId = MutableStateFlow<Long?>(null)
     private var userId: Long? = null
 
     override suspend fun storeJwt(jwt: String, expiry: Long) {
@@ -106,10 +106,14 @@ class InMemoryTokenStorage(
     override val vikunjaUrlFlow: Flow<String?> = vikunjaUrl
 
     override suspend fun storeInboxProjectId(id: Long) {
-        inboxProjectId = id
+        inboxProjectId.value = id
     }
 
-    override suspend fun getInboxProjectId(): Long? = inboxProjectId
+    override suspend fun getInboxProjectId(): Long? = inboxProjectId.value
+    override val inboxProjectIdFlow: Flow<Long?> = inboxProjectId
+    override suspend fun clearInboxProjectId() {
+        inboxProjectId.value = null
+    }
 
     override suspend fun storeUserId(id: Long) {
         userId = id
@@ -129,7 +133,7 @@ class InMemoryTokenStorage(
         authMethod.value = null
         providerKey = null
         vikunjaUrl.value = null
-        inboxProjectId = null
+        inboxProjectId.value = null
         userId = null
     }
 }

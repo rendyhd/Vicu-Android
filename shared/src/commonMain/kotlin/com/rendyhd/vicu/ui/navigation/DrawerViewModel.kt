@@ -84,21 +84,13 @@ class DrawerViewModel(
         Triple(true, true, true), // projects, lists, tags
     )
 
-    private val _inboxProjectId = MutableStateFlow<Long?>(null)
-
-    init {
-        viewModelScope.launch {
-            _inboxProjectId.value = authManager.getInboxProjectId()
-        }
-    }
-
     val uiState: StateFlow<DrawerUiState> = combine(
         combine(
             projectRepository.getAll(),
             labelRepository.getAll(),
             customListRepository.lists,
             _sectionsExpanded,
-            _inboxProjectId,
+            authManager.inboxProjectId,
         ) { projects, labels, customLists, expanded, inboxId ->
             listOf(projects, labels, customLists, expanded, inboxId)
         },

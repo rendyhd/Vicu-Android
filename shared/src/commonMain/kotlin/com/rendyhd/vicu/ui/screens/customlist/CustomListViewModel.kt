@@ -120,8 +120,9 @@ class CustomListViewModel(
                 }
         }
         viewModelScope.launch {
-            val inboxId = authManager.getInboxProjectId() ?: 0L
-            _uiState.update { it.copy(inboxProjectId = inboxId) }
+            authManager.inboxProjectId.collect { inboxId ->
+                _uiState.update { it.copy(inboxProjectId = inboxId ?: 0L) }
+            }
         }
     }
 

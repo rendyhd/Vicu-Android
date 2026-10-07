@@ -42,7 +42,13 @@ class AccountSession(
     }
 
     suspend fun apply(plan: LoginPlan) {
-        if (plan.action == LoginDataAction.WIPE_ALL) wiper.wipeEverything()
+        if (plan.action == LoginDataAction.WIPE_ALL) {
+            wiper.wipeEverything()
+            // The Inbox project belonged to the account that is gone. Left in place, it would send
+            // the app straight to an Inbox that does not exist for the new account, skipping the
+            // project selection that sets the right one.
+            tokenStorage.clearInboxProjectId()
+        }
     }
 
     /** Call after the new credentials are stored. */

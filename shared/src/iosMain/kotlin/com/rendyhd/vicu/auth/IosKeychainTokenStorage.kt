@@ -16,6 +16,8 @@ class IosKeychainTokenStorage : TokenStorage {
     override val authMethodFlow: Flow<String?> = _authMethodFlow.asStateFlow()
     
     private val _vikunjaUrlFlow = MutableStateFlow<String?>(defaults.stringForKey(KEY_VIKUNJA_URL))
+    private val _inboxProjectIdFlow = MutableStateFlow<Long?>(readInboxProjectId())
+    override val inboxProjectIdFlow: Flow<Long?> = _inboxProjectIdFlow.asStateFlow()
     override val vikunjaUrlFlow: Flow<String?> = _vikunjaUrlFlow.asStateFlow()
 
     companion object {
@@ -157,11 +159,19 @@ class IosKeychainTokenStorage : TokenStorage {
 
     override suspend fun storeInboxProjectId(id: Long) {
         defaults.setInteger(id, KEY_INBOX_PROJECT_ID)
+        _inboxProjectIdFlow.value = id
     }
 
-    override suspend fun getInboxProjectId(): Long? {
+    override suspend fun getInboxProjectId(): Long? = readInboxProjectId()
+
+    private fun readInboxProjectId(): Long? {
         val id = defaults.integerForKey(KEY_INBOX_PROJECT_ID)
         return if (id == 0L) null else id
+    }
+
+    override suspend fun clearInboxProjectId() {
+        defaults.removeObjectForKey(KEY_INBOX_PROJECT_ID)
+        _inboxProjectIdFlow.value = null
     }
 
     override suspend fun storeUserId(id: Long) {
@@ -188,5 +198,6 @@ class IosKeychainTokenStorage : TokenStorage {
         defaults.removeObjectForKey(KEY_SERVER_IS_V2)
         _authMethodFlow.value = null
         _vikunjaUrlFlow.value = null
+        _inboxProjectIdFlow.value = null
     }
 }

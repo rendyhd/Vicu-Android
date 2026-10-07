@@ -15,6 +15,7 @@ import com.rendyhd.vicu.util.NetworkResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -53,38 +54,40 @@ class InboxViewModel(
         }
         Log.d(TAG, "init: InboxViewModel created")
         viewModelScope.launch {
-            val inboxId = authManager.getInboxProjectId()
-            Log.d(TAG, "init: inboxProjectId=$inboxId")
-            _uiState.update { it.copy(inboxProjectId = inboxId) }
-            if (inboxId == null) {
-                Log.e(TAG, "init: inboxProjectId is NULL — Flow collection skipped!")
-                _uiState.update { it.copy(isLoading = false) }
-                return@launch
-            }
-            if (refresher.isStale()) refresh()
-            combine(
-                taskRepository.getInboxTasks(inboxId),
-                projectRepository.getAll(),
-                completions.state,
-            ) { tasks, activeProjects, _ ->
-                completions.merge(tasks) to activeProjects.any { it.id == inboxId }
-            }.collect { (tasks, inboxIsActive) ->
-                Log.d(TAG, "Flow emission: ${tasks.size} tasks for inboxId=$inboxId, active=$inboxIsActive")
-                _uiState.update {
-                    it.copy(
-                        tasks = if (inboxIsActive) tasks else emptyList(),
-                        isLoading = false,
-                        error = when {
-                            !inboxIsActive -> ARCHIVED_MESSAGE
-                            // Only the archived notice goes away once the project is active again;
-                            // a refresh error that is waiting to be shown stays.
-                            it.error == ARCHIVED_MESSAGE -> null
-                            else -> it.error
-                        },
-                    )
+            // The Inbox project can change while this screen is open (picked in Settings, or set
+            // by the setup that follows a sign-in), so it is observed, not read once.
+            authManager.inboxProjectId.collectLatest { inboxId ->
+                Log.d(TAG, "inboxProjectId=$inboxId")
+                _uiState.update { it.copy(inboxProjectId = inboxId) }
+                if (inboxId == null) {
+                    _uiState.update { it.copy(tasks = emptyList(), isLoading = false) }
+                    return@collectLatest
+                }
+                combine(
+                    taskRepository.getInboxTasks(inboxId),
+                    projectRepository.getAll(),
+                    completions.state,
+                ) { tasks, activeProjects, _ ->
+                    completions.merge(tasks) to activeProjects.any { it.id == inboxId }
+                }.collect { (tasks, inboxIsActive) ->
+                    Log.d(TAG, "Flow emission: ${tasks.size} tasks for inboxId=$inboxId, active=$inboxIsActive")
+                    _uiState.update {
+                        it.copy(
+                            tasks = if (inboxIsActive) tasks else emptyList(),
+                            isLoading = false,
+                            error = when {
+                                !inboxIsActive -> ARCHIVED_MESSAGE
+                                // Only the archived notice goes away once the project is active again;
+                                // a refresh error that is waiting to be shown stays.
+                                it.error == ARCHIVED_MESSAGE -> null
+                                else -> it.error
+                            },
+                        )
+                    }
                 }
             }
         }
+        if (refresher.isStale()) refresh()
     }
 
     fun refresh(showSpinner: Boolean = false) {

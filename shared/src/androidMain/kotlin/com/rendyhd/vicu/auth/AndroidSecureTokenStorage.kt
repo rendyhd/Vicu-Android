@@ -15,6 +15,7 @@ import com.google.crypto.tink.KeyTemplates
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import androidx.datastore.preferences.preferencesDataStore
@@ -262,6 +263,13 @@ class AndroidSecureTokenStorage(
     override suspend fun getInboxProjectId(): Long? {
         val prefs = context.authDataStore.data.first()
         return prefs[Keys.INBOX_PROJECT_ID]
+    }
+
+    override val inboxProjectIdFlow: Flow<Long?> =
+        context.authDataStore.data.map { it[Keys.INBOX_PROJECT_ID] }.distinctUntilChanged()
+
+    override suspend fun clearInboxProjectId() {
+        context.authDataStore.edit { prefs -> prefs.remove(Keys.INBOX_PROJECT_ID) }
     }
 
     // User id (identity of the signed-in account)

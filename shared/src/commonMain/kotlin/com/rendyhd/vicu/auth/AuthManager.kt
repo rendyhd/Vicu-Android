@@ -11,9 +11,11 @@ import com.rendyhd.vicu.util.isNetworkFailure
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -328,6 +330,12 @@ class AuthManager(
     suspend fun getVikunjaUrl(): String? = tokenStorage.getVikunjaUrl()
 
     suspend fun getInboxProjectId(): Long? = tokenStorage.getInboxProjectId()
+
+    /**
+     * The Inbox project id as it changes. Screens collect this instead of reading it once, so
+     * choosing another Inbox in Settings, or finishing setup after sign-in, reaches them at once.
+     */
+    val inboxProjectId: Flow<Long?> = tokenStorage.inboxProjectIdFlow.distinctUntilChanged()
 
     suspend fun getRefreshToken(): String? = tokenStorage.getRefreshToken()
 

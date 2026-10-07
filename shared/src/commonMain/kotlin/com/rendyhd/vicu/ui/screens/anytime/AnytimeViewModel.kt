@@ -16,6 +16,7 @@ import com.rendyhd.vicu.util.NetworkResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -60,66 +61,67 @@ class AnytimeViewModel(
             completions.heldIds.collect { ids -> _uiState.update { it.copy(completedTaskIds = ids) } }
         }
         viewModelScope.launch {
-            val inboxId = authManager.getInboxProjectId()
-            if (inboxId == null) {
-                _uiState.update { it.copy(isLoading = false) }
-                return@launch
-            }
-            combine(
-                taskRepository.getAnytimeTasks(inboxId),
-                projectRepository.getAll(),
-                completions.state,
-            ) { storedTasks, projects, _ ->
-                val tasks = completions.merge(storedTasks)
-                val projectMap = projects.associateBy { it.id }
-                val tasksByProject = tasks.groupBy { it.projectId }
-                val activeIds = projectMap.keys
-
-                // Find top-level projects (parentProjectId == 0)
-                val topLevelProjects = projects.filter {
-                    (it.parentProjectId == 0L || it.parentProjectId !in activeIds) && it.id != inboxId
+            authManager.inboxProjectId.collectLatest { inboxId ->
+                if (inboxId == null) {
+                    _uiState.update { it.copy(isLoading = false) }
+                    return@collectLatest
                 }
-                // Build child map: parentId -> list of children
-                val childrenByParent = projects.filter { it.parentProjectId != 0L }
-                    .groupBy { it.parentProjectId }
+                combine(
+                    taskRepository.getAnytimeTasks(inboxId),
+                    projectRepository.getAll(),
+                    completions.state,
+                ) { storedTasks, projects, _ ->
+                    val tasks = completions.merge(storedTasks)
+                    val projectMap = projects.associateBy { it.id }
+                    val tasksByProject = tasks.groupBy { it.projectId }
+                    val activeIds = projectMap.keys
 
-                topLevelProjects.mapNotNull { parent ->
-                    val parentTasks = tasksByProject[parent.id] ?: emptyList()
-                    val children = childrenByParent[parent.id] ?: emptyList()
-                    val childSections = children.mapNotNull { child ->
-                        val childTasks = tasksByProject[child.id] ?: emptyList()
-                        if (childTasks.isEmpty()) return@mapNotNull null
-                        AnytimeSection(project = child, tasks = childTasks)
+                    // Find top-level projects (parentProjectId == 0)
+                    val topLevelProjects = projects.filter {
+                        (it.parentProjectId == 0L || it.parentProjectId !in activeIds) && it.id != inboxId
+                    }
+                    // Build child map: parentId -> list of children
+                    val childrenByParent = projects.filter { it.parentProjectId != 0L }
+                        .groupBy { it.parentProjectId }
+
+                    topLevelProjects.mapNotNull { parent ->
+                        val parentTasks = tasksByProject[parent.id] ?: emptyList()
+                        val children = childrenByParent[parent.id] ?: emptyList()
+                        val childSections = children.mapNotNull { child ->
+                            val childTasks = tasksByProject[child.id] ?: emptyList()
+                            if (childTasks.isEmpty()) return@mapNotNull null
+                            AnytimeSection(project = child, tasks = childTasks)
+                        }.sortedBy { it.project.title.lowercase() }
+
+                        // Skip this project entirely if it has no tasks and no child sections with tasks
+                        if (parentTasks.isEmpty() && childSections.isEmpty()) return@mapNotNull null
+
+                        AnytimeProjectGroup(
+                            project = parent,
+                            unsectionedTasks = parentTasks,
+                            sections = childSections,
+                        )
                     }.sortedBy { it.project.title.lowercase() }
-
-                    // Skip this project entirely if it has no tasks and no child sections with tasks
-                    if (parentTasks.isEmpty() && childSections.isEmpty()) return@mapNotNull null
-
-                    AnytimeProjectGroup(
-                        project = parent,
-                        unsectionedTasks = parentTasks,
-                        sections = childSections,
-                    )
-                }.sortedBy { it.project.title.lowercase() }
-            }.collect { groups ->
-                _uiState.update { current ->
-                    // Preserve expansion state across data refreshes
-                    val mergedGroups = groups.map { group ->
-                        val existing = current.projectGroups.find { it.project.id == group.project.id }
-                        val sections = group.sections.map { section ->
-                            val existingSection = existing?.sections
-                                ?.find { it.project.id == section.project.id }
-                            section.copy(isExpanded = existingSection?.isExpanded ?: true)
+                }.collect { groups ->
+                    _uiState.update { current ->
+                        // Preserve expansion state across data refreshes
+                        val mergedGroups = groups.map { group ->
+                            val existing = current.projectGroups.find { it.project.id == group.project.id }
+                            val sections = group.sections.map { section ->
+                                val existingSection = existing?.sections
+                                    ?.find { it.project.id == section.project.id }
+                                section.copy(isExpanded = existingSection?.isExpanded ?: true)
+                            }
+                            group.copy(
+                                isExpanded = existing?.isExpanded ?: true,
+                                sections = sections,
+                            )
                         }
-                        group.copy(
-                            isExpanded = existing?.isExpanded ?: true,
-                            sections = sections,
+                        current.copy(
+                            projectGroups = mergedGroups,
+                            isLoading = false,
                         )
                     }
-                    current.copy(
-                        projectGroups = mergedGroups,
-                        isLoading = false,
-                    )
                 }
             }
         }

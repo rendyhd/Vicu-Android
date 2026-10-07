@@ -47,6 +47,12 @@ interface TokenStorage {
     suspend fun storeInboxProjectId(id: Long)
     suspend fun getInboxProjectId(): Long?
 
+    /** The Inbox project id as it changes: Settings picks another one, or an account switch clears it. */
+    val inboxProjectIdFlow: Flow<Long?>
+
+    /** Forgets the Inbox project id, which belongs to the account that is being replaced. */
+    suspend fun clearInboxProjectId()
+
     /**
      * Server-side id of the signed-in user, recorded at login (or backfilled for sessions that
      * predate it). Together with the server URL it tells a re-login of the same account from a

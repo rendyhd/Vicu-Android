@@ -75,7 +75,7 @@ class ReviewViewModel(
     private val reviewedThisSession = MutableStateFlow<Set<Long>>(emptySet())
 
     init {
-        viewModelScope.launch { inboxId.value = authManager.getInboxProjectId() }
+        viewModelScope.launch { authManager.inboxProjectId.collect { inboxId.value = it } }
         viewModelScope.launch {
             combine(
                 projectRepository.getAll(),

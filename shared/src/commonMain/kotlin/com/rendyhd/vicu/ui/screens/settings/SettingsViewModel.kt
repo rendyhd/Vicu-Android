@@ -112,6 +112,7 @@ class SettingsViewModel(
 
     init {
         loadAccountInfo()
+        viewModelScope.launch { authManager.inboxProjectId.collect { _inboxProjectId.value = it } }
         viewModelScope.launch {
             // Settings is the management surface for archived projects, so refresh its
             // complete snapshot when opened to pick up changes made in Vikunja or desktop.
@@ -213,9 +214,7 @@ class SettingsViewModel(
         viewModelScope.launch {
             val authMethod = tokenStorage.getAuthMethod() ?: ""
             val url = tokenStorage.getVikunjaUrl() ?: ""
-            val inboxId = tokenStorage.getInboxProjectId()
             _vikunjaUrl.value = url
-            _inboxProjectId.value = inboxId
             _userInfo.update { it.copy(third = authMethod) }
 
             // Fetch user info from API
