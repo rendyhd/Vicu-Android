@@ -92,7 +92,11 @@ fun AppNavHost(
             )
         }
         composable<ReviewRoute> {
-            ReviewScreen(onOpenDrawer = onOpenDrawer, onTaskClick = onTaskClick)
+            ReviewScreen(
+                onOpenDrawer = onOpenDrawer,
+                onNavigateToSearch = onNavigateToSearch,
+                onTaskClick = onTaskClick,
+            )
         }
         composable<RoutinesRoute> {
             RoutinesScreen(

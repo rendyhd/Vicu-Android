@@ -15,11 +15,17 @@ import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.ReviewMetadata
 import com.rendyhd.vicu.util.ReviewState
 import com.rendyhd.vicu.util.ReviewStatus
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
@@ -140,35 +146,63 @@ class ReviewViewModel(
 
     fun setTab(tab: ReviewTab) = _uiState.update { it.copy(tab = tab) }
 
+    /** The jobs that keep the content of the expanded rows up to date, by project. */
+    private val contentJobs = HashMap<Long, Job>()
+
     fun toggleExpanded(projectId: Long) {
         val expanding = projectId !in _uiState.value.expanded
         _uiState.update {
             it.copy(expanded = if (expanding) it.expanded + projectId else it.expanded - projectId)
         }
-        // Load lazily the first time a project is expanded; keep the result cached afterwards.
-        if (expanding && _uiState.value.content[projectId] == null) {
-            loadContent(projectId)
+        if (expanding) {
+            observeContent(projectId)
+        } else {
+            // A closed row is not followed; what it showed last stays until it is opened again.
+            contentJobs.remove(projectId)?.cancel()
         }
     }
 
-    private fun loadContent(projectId: Long) {
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(content = it.content + (projectId to ReviewProjectContent(isLoading = true)))
-            }
-            val loaded = try {
-                val parentTasks = taskRepository.getByProjectId(projectId).first().filter { !it.done }
-                val subProjects = projectRepository.getChildren(projectId).first().map { child ->
-                    ReviewSubProject(
-                        project = child,
-                        tasks = taskRepository.getByProjectId(child.id).first().filter { !it.done },
-                    )
+    /**
+     * Follows the open tasks of the project and of its subprojects while its row is expanded, so a
+     * task completed or added elsewhere (or by a sync) shows up without closing and opening it.
+     */
+    private fun observeContent(projectId: Long) {
+        contentJobs.remove(projectId)?.cancel()
+        contentJobs[projectId] = viewModelScope.launch {
+            if (_uiState.value.content[projectId] == null) {
+                _uiState.update {
+                    it.copy(content = it.content + (projectId to ReviewProjectContent(isLoading = true)))
                 }
-                ReviewProjectContent(parentTasks, subProjects, isLoading = false)
-            } catch (e: Exception) {
-                ReviewProjectContent(isLoading = false)
             }
-            _uiState.update { it.copy(content = it.content + (projectId to loaded)) }
+            try {
+                contentFlow(projectId).collect { loaded ->
+                    _uiState.update { it.copy(content = it.content + (projectId to loaded)) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update { it.copy(content = it.content + (projectId to ReviewProjectContent(isLoading = false))) }
+            }
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun contentFlow(projectId: Long): Flow<ReviewProjectContent> {
+        val subProjects: Flow<List<ReviewSubProject>> = projectRepository.getChildren(projectId)
+            .flatMapLatest { children ->
+                if (children.isEmpty()) {
+                    flowOf(emptyList())
+                } else {
+                    combine(
+                        children.map { child ->
+                            taskRepository.getByProjectId(child.id)
+                                .map { tasks -> ReviewSubProject(child, tasks.filter { !it.done }) }
+                        },
+                    ) { it.toList() }
+                }
+            }
+        return combine(taskRepository.getByProjectId(projectId), subProjects) { tasks, subs ->
+            ReviewProjectContent(tasks.filter { !it.done }, subs, isLoading = false)
         }
     }
 

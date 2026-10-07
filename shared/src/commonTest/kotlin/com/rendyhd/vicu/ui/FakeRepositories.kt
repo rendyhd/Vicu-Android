@@ -300,7 +300,7 @@ class FakeProjectRepository(initial: List<Project> = emptyList()) : ProjectRepos
     override fun getAllIncludingArchived(): Flow<List<Project>> = projects
     override fun getById(id: Long): Flow<Project?> = projects.map { list -> list.firstOrNull { it.id == id } }
     override fun getChildren(parentId: Long): Flow<List<Project>> =
-        flowOf(projects.value.filter { it.parentProjectId == parentId })
+        projects.map { list -> list.filter { it.parentProjectId == parentId } }
 
     override suspend fun create(project: Project): NetworkResult<Project> = NetworkResult.Success(project)
     /** Projects passed to [update], in call order. */

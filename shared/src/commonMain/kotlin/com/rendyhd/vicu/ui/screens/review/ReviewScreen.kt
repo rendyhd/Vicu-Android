@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -29,15 +28,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +52,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.ui.components.shared.ReviewCadenceInputDialog
+import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.util.ReviewState
 import com.rendyhd.vicu.util.parseHexColor
 
@@ -61,6 +60,7 @@ import com.rendyhd.vicu.util.parseHexColor
 @Composable
 fun ReviewScreen(
     onOpenDrawer: () -> Unit,
+    onNavigateToSearch: () -> Unit = {},
     onTaskClick: (Long) -> Unit = {},
     viewModel: ReviewViewModel = koinViewModel(),
 ) {
@@ -85,13 +85,10 @@ fun ReviewScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            VicuTopAppBar(
                 title = { Text("Review") },
-                navigationIcon = {
-                    IconButton(onClick = onOpenDrawer) {
-                        Icon(Icons.Default.Menu, contentDescription = "Open menu")
-                    }
-                },
+                onOpenDrawer = onOpenDrawer,
+                onNavigateToSearch = onNavigateToSearch,
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -107,7 +104,7 @@ fun ReviewScreen(
                 progress = { if (reviewable == 0) 1f else reviewedCount.toFloat() / total.toFloat() },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            TabRow(selectedTabIndex = if (state.tab == ReviewTab.DUE) 0 else 1) {
+            PrimaryTabRow(selectedTabIndex = if (state.tab == ReviewTab.DUE) 0 else 1) {
                 Tab(
                     selected = state.tab == ReviewTab.DUE,
                     onClick = { viewModel.setTab(ReviewTab.DUE) },
