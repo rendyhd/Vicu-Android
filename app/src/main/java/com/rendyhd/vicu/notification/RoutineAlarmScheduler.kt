@@ -10,21 +10,22 @@ import com.rendyhd.vicu.data.local.RoutinePrefsStore
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.util.RoutineScheduleEngine
+import com.rendyhd.vicu.util.TimeSource
 import kotlinx.coroutines.flow.first
-import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atTime
 import kotlinx.datetime.plus
-import kotlinx.datetime.todayIn
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.toInstant
 
 class RoutineAlarmScheduler(
     private val context: Context,
     private val repository: RoutineRepository,
     private val prefsStore: RoutinePrefsStore,
+    private val time: TimeSource,
 ) {
     companion object {
         private const val TAG = "RoutineAlarmScheduler"
@@ -39,9 +40,10 @@ class RoutineAlarmScheduler(
         cancelAll()
         if (!prefsStore.remindersEnabled.first()) return
 
-        val timeZone = TimeZone.currentSystemDefault()
-        val today = Clock.System.todayIn(timeZone)
-        val now = Clock.System.now().toEpochMilliseconds()
+        val timeZone = time.zone()
+        val nowInstant = time.now()
+        val today = nowInstant.toLocalDateTime(timeZone).date
+        val now = nowInstant.toEpochMilliseconds()
         val requestCodes = mutableSetOf<String>()
         val routines = repository.observeActive().first()
 

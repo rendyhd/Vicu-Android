@@ -68,12 +68,11 @@ class NotificationActionReceiver : BroadcastReceiver(), KoinComponent {
 
     private fun handleSnooze(context: Context, taskId: Long, intent: Intent) {
         val taskTitle = intent.getStringExtra(AlarmReceiver.EXTRA_TASK_TITLE) ?: "Task Reminder"
-        val triggerAt = System.currentTimeMillis() + 15 * 60 * 1000
         Log.d(TAG, "Snoozing task $taskId for 15 minutes")
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                alarmScheduler.scheduleSnooze(taskId, taskTitle, triggerAt)
+                alarmScheduler.snooze(taskId, taskTitle)
             } finally {
                 pendingResult.finish()
             }

@@ -16,9 +16,9 @@ import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.domain.repository.customListTasks
-import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DueDates
+import com.rendyhd.vicu.util.TimeSource
 import kotlinx.coroutines.flow.first
 
 class TaskWidgetWorker(
@@ -32,6 +32,7 @@ class TaskWidgetWorker(
     private val widgetPrefsStore: WidgetPrefsStore,
     private val behaviorPrefsStore: BehaviorPrefsStore,
     private val dayClock: DayClock,
+    private val time: TimeSource,
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -59,7 +60,7 @@ class TaskWidgetWorker(
                     val state = TaskWidgetState(
                         tasks = emptyList(),
                         totalCount = 0,
-                        lastUpdated = DateUtils.nowIso(),
+                        lastUpdated = time.now().toString(),
                         error = "Log in to see your tasks",
                     )
                     updateAppWidgetState(
@@ -134,7 +135,7 @@ class TaskWidgetWorker(
                     viewName = resolvedConfig.viewName,
                     tasks = widgetTasks,
                     totalCount = totalCount,
-                    lastUpdated = DateUtils.nowIso(),
+                    lastUpdated = time.now().toString(),
                     smartAdd = smartAddEnabled,
                     contextNav = contextNavEnabled,
                     addToProjectId = addToProjectId,

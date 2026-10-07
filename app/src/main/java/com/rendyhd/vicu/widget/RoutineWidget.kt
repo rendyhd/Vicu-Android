@@ -46,10 +46,8 @@ import com.rendyhd.vicu.MainActivity
 import com.rendyhd.vicu.R
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.repository.RoutineRepository
+import com.rendyhd.vicu.util.DayClock
 import kotlinx.coroutines.flow.first
-import kotlinx.datetime.Clock
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.todayIn
 import org.koin.core.context.GlobalContext
 
 class RoutineWidget : GlanceAppWidget() {
@@ -78,7 +76,10 @@ class RoutineWidget : GlanceAppWidget() {
 
     suspend fun updateAllWidgets(context: Context) {
         val repository = GlobalContext.get().get<RoutineRepository>()
-        val today = Clock.System.todayIn(TimeZone.currentSystemDefault()).toString()
+        // The day is re-read first: this can run long after the clock last ticked.
+        val dayClock = GlobalContext.get().get<DayClock>()
+        dayClock.refresh()
+        val today = dayClock.day.value.date.toString()
         val state = RoutineWidgetState.from(repository.observeDay(today).first())
         val manager = GlanceAppWidgetManager(context)
         manager.getGlanceIds(RoutineWidget::class.java).forEach { glanceId ->

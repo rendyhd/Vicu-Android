@@ -15,6 +15,8 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.util.ReminderAlarmBackend
 import com.rendyhd.vicu.util.ReminderAlarmCoordinator
 import com.rendyhd.vicu.util.ReminderAlarmSpec
+import com.rendyhd.vicu.util.SnoozeRules
+import com.rendyhd.vicu.util.TimeSource
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -29,6 +31,7 @@ class AlarmScheduler(
     private val taskMapper: TaskMapper,
     private val snoozeStore: SnoozeStore,
     registry: ReminderAlarmRegistry,
+    private val time: TimeSource,
 ) {
     companion object {
         private const val TAG = "AlarmScheduler"
@@ -45,6 +48,7 @@ class AlarmScheduler(
 
             override fun cancel(requestCode: Int) = cancelReminderAlarm(requestCode)
         },
+        nowMillis = { time.now().toEpochMilliseconds() },
     )
 
     /** Replaces the alarms of [task] with the ones its reminders call for right now. */
@@ -88,6 +92,11 @@ class AlarmScheduler(
         snoozeStore.all().forEach { cancelSnooze(it.taskId) }
     }
 
+    /** The "Snooze" notification action: fires the reminder again one snooze period from now. */
+    suspend fun snooze(taskId: Long, taskTitle: String) {
+        scheduleSnooze(taskId, taskTitle, SnoozeRules.triggerAfterSnooze(time.now().toEpochMilliseconds()))
+    }
+
     suspend fun scheduleSnooze(taskId: Long, taskTitle: String, triggerAtMillis: Long) {
         snoozeStore.put(SnoozeEntry(taskId, taskTitle, triggerAtMillis))
         registerSnoozeAlarm(taskId, taskTitle, triggerAtMillis)
@@ -109,9 +118,9 @@ class AlarmScheduler(
 
     /** Re-registers persisted snoozes after a reboot; past-due ones fire one minute out. */
     suspend fun rescheduleSnoozes() {
-        val now = System.currentTimeMillis()
+        val now = time.now().toEpochMilliseconds()
         snoozeStore.all().forEach { entry ->
-            registerSnoozeAlarm(entry.taskId, entry.title, maxOf(entry.triggerAtMillis, now + 60_000L))
+            registerSnoozeAlarm(entry.taskId, entry.title, SnoozeRules.triggerAfterRestore(entry.triggerAtMillis, now))
         }
     }
 
