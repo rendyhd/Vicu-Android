@@ -312,6 +312,7 @@ class SyncEngineFailedActionsTest {
     fun `a task with the same title but another description is not taken for the queued one`() = runTest {
         val h = duplicateHarness(serverDescription = "something else")
         h.pendingActionDao.insert(queuedCreateWithDescription("mine"))
+        h.tempIds.markCreateMaybeSent(-1)
 
         h.engine.performSync()
 
@@ -323,6 +324,8 @@ class SyncEngineFailedActionsTest {
     fun `an earlier attempt of the same create is still recognised`() = runTest {
         val h = duplicateHarness(serverDescription = "mine")
         h.pendingActionDao.insert(queuedCreateWithDescription("mine"))
+        // That attempt timed out: it may have reached the server.
+        h.tempIds.markCreateMaybeSent(-1)
 
         h.engine.performSync()
 

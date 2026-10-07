@@ -1,6 +1,9 @@
 package com.rendyhd.vicu.util
 
 import java.io.IOException
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
 actual fun isPlatformRetriableError(e: Exception): Boolean {
@@ -18,6 +21,19 @@ actual fun isPlatformNetworkFailure(e: Exception): Boolean {
     var depth = 0
     while (current != null && depth < MAX_CAUSE_DEPTH) {
         if (current is IOException) return true
+        current = current.cause
+        depth++
+    }
+    return false
+}
+
+actual fun isPlatformConnectionNeverOpened(e: Exception): Boolean {
+    var current: Throwable? = e
+    var depth = 0
+    while (current != null && depth < MAX_CAUSE_DEPTH) {
+        if (current is UnknownHostException || current is ConnectException || current is NoRouteToHostException) {
+            return true
+        }
         current = current.cause
         depth++
     }

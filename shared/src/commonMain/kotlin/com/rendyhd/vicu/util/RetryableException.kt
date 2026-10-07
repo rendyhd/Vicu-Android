@@ -24,3 +24,19 @@ expect fun isPlatformRetriableError(e: Exception): Boolean
 fun isNetworkFailure(e: Exception): Boolean = isPlatformNetworkFailure(e)
 
 expect fun isPlatformNetworkFailure(e: Exception): Boolean
+
+/**
+ * True when a request that failed may still have been carried out by the server: a 5xx, a
+ * timeout, a connection that broke after the request went out. False when it certainly was not:
+ * an answer that refuses it (4xx, 429) or a connection that never opened (no network, unknown
+ * host, connection refused). A create that may have been carried out is looked for on the server
+ * before it is sent again.
+ */
+fun mayHaveReachedServer(e: Exception): Boolean {
+    if (e is VikunjaApiException) return e.httpStatus in 500..599
+    if (e is ResponseException) return e.response.status.value in 500..599
+    return !isPlatformConnectionNeverOpened(e)
+}
+
+/** True when [e] says the connection to the server was never made, so no request went out. */
+expect fun isPlatformConnectionNeverOpened(e: Exception): Boolean

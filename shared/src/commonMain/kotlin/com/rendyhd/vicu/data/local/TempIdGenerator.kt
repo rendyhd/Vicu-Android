@@ -55,6 +55,31 @@ class TempIdGenerator(
     /** Every remembered temporary id with the server's id it became. */
     suspend fun realIds(): Map<Long, Long> = decodeMap(dataStore.data.first()[KEY_REAL_IDS])
 
+    /**
+     * Records that an attempt to create [tempId] may have reached the server without an answer (a
+     * timeout, a 5xx): before it is sent again the sync looks for the task that attempt may have
+     * made. A create no attempt of which can have reached the server is never matched that way, so
+     * two identical tasks made offline stay two.
+     */
+    suspend fun markCreateMaybeSent(tempId: Long) {
+        dataStore.edit { prefs ->
+            val ids = decodeIds(prefs[KEY_MAYBE_SENT]) - tempId
+            prefs[KEY_MAYBE_SENT] = (ids + tempId).takeLast(MAX_REMEMBERED).joinToString(",")
+        }
+    }
+
+    suspend fun createMaybeSent(tempId: Long): Boolean = tempId in decodeIds(dataStore.data.first()[KEY_MAYBE_SENT])
+
+    /** The create of [tempId] is done (or gone); its attempts no longer matter. */
+    suspend fun forgetCreateAttempts(tempId: Long) {
+        dataStore.edit { prefs ->
+            val ids = decodeIds(prefs[KEY_MAYBE_SENT])
+            if (tempId in ids) prefs[KEY_MAYBE_SENT] = (ids - tempId).joinToString(",")
+        }
+    }
+
+    private fun decodeIds(raw: String?): List<Long> = raw.orEmpty().split(',').mapNotNull { it.toLongOrNull() }
+
     private fun decodeMap(raw: String?): Map<Long, Long> =
         raw.orEmpty().split(',').mapNotNull { entry ->
             val (temp, real) = entry.split(':').takeIf { it.size == 2 } ?: return@mapNotNull null
@@ -69,6 +94,7 @@ class TempIdGenerator(
     private companion object {
         val KEY_LAST = longPreferencesKey("last_temp_id")
         val KEY_REAL_IDS = stringPreferencesKey("real_ids")
+        val KEY_MAYBE_SENT = stringPreferencesKey("creates_maybe_sent")
 
         /** Enough for any backlog a device builds up offline; a temporary id is never reused. */
         const val MAX_REMEMBERED = 500

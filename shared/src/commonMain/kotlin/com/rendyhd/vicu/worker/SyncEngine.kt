@@ -34,6 +34,7 @@ import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.isRetriableNetworkError
+import com.rendyhd.vicu.util.mayHaveReachedServer
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.RoutineEnvelope
@@ -441,7 +442,13 @@ class SyncEngine(
         }
     }
 
-    private suspend fun findRecentDuplicate(task: Task): TaskDto? = try {
+    /**
+     * A task on the server that an earlier attempt of this create made: same title, project and
+     * description (for a routine carrier: the same routine), created around the time it was queued,
+     * and not already taken by another create ([claimed]). Only asked when an attempt may have
+     * reached the server, or for a routine carrier, which its routine id identifies exactly.
+     */
+    private suspend fun findRecentDuplicate(task: Task, claimed: Set<Long>): TaskDto? = try {
         val queuedAt = DateUtils.parseIsoDate(task.created)
         val routineId = RoutineEnvelope.parse(task.description, json).payload?.definition?.id
         if (queuedAt == null) {
@@ -450,7 +457,8 @@ class SyncEngine(
             api.getAllTasks(mapOf("q" to task.title, "filter" to "project_id = ${task.projectId}"))
                 .firstOrNull { dto ->
                     val dt = DateUtils.parseIsoDate(dto.created)
-                    dto.title == task.title &&
+                    dto.id !in claimed &&
+                        dto.title == task.title &&
                         dto.projectId == task.projectId &&
                         dt != null && dt > queuedAt - DUPLICATE_WINDOW_SECS.seconds &&
                         if (routineId != null) {
@@ -463,7 +471,22 @@ class SyncEngine(
                         }
                 }
         }
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
+        null
+    }
+
+    /**
+     * The task an earlier attempt of the create of [tempId] made, by the id that attempt got back
+     * (the create went through, a later step failed); null when it has been deleted on the server
+     * since. Then the create is over: the local row goes, nothing is created again.
+     */
+    private suspend fun createdEarlier(tempId: Long, realId: Long): TaskDto? = try {
+        api.getTask(realId)
+    } catch (e: VikunjaApiException) {
+        if (!missing.taskGone(realId, e)) throw e
+        dropGoneTask(tempId, "create")
         null
     }
 
@@ -471,11 +494,29 @@ class SyncEngine(
         when (action.actionType) {
             "create" -> {
                 val task = json.decodeFromString<Task>(action.payload)
-                val duplicate = findRecentDuplicate(task)
-                val responseDto = duplicate
-                    ?: api.createTask(task.projectId, with(taskMapper) { task.toCreateDto() })
+                val tempId = action.entityId
+                val knownId = tempIdMap[tempId]
+                val adopted = when {
+                    knownId != null -> createdEarlier(tempId, knownId) ?: run {
+                        tempIds?.forgetCreateAttempts(tempId)
+                        return
+                    }
+                    tempIds == null || tempIds.createMaybeSent(tempId) || RoutineEnvelope.hasMarker(task.description) ->
+                        findRecentDuplicate(task, claimed = tempIdMap.values.toSet())
+                    // No attempt can have reached the server: a task that looks the same is another one.
+                    else -> null
+                }
+                val responseDto = adopted ?: try {
+                    api.createTask(task.projectId, with(taskMapper) { task.toCreateDto() })
+                } catch (e: Exception) {
+                    // A timeout, a 5xx or a cancelled request may have created it all the same.
+                    if (e is CancellationException || mayHaveReachedServer(e)) {
+                        withContext(NonCancellable) { tempIds?.markCreateMaybeSent(tempId) }
+                    }
+                    throw e
+                }
                 val responseEntity = with(taskMapper) { responseDto.toEntity() }
-                adoptCreated(action.entityId, responseEntity, tempIdMap)
+                adoptCreated(tempId, responseEntity, tempIdMap)
 
                 var finalEntity = responseEntity
                 if (task.done) {
@@ -501,10 +542,11 @@ class SyncEngine(
                 if (action.entityId != created.id) platformHooks.cancelAlarm(action.entityId)
                 // The server prepends new tasks. A create that was answered by an earlier attempt
                 // was positioned by it; metadata carriers and completed tasks are in no list.
-                if (duplicate == null && !task.done && !CustomListEnvelope.isAnyMetadataTask(task.description)) {
+                if (adopted == null && !task.done && !CustomListEnvelope.isAnyMetadataTask(task.description)) {
                     positioner?.anchorAtEndInBackground(task.projectId, created.id)
                 }
                 linkToQueuedParents(task, created.id, tempIdMap)
+                tempIds?.forgetCreateAttempts(tempId)
             }
             "update", "toggle_done" -> {
                 val taskId = tempIdMap[action.entityId] ?: action.entityId

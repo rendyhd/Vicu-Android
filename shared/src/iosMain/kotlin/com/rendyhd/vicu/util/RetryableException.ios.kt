@@ -27,3 +27,6 @@ actual fun isPlatformNetworkFailure(e: Exception): Boolean {
     }
     return false
 }
+
+/** Not told apart on iOS: every failure counts as one that may have reached the server. */
+actual fun isPlatformConnectionNeverOpened(e: Exception): Boolean = false

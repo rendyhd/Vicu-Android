@@ -25,6 +25,7 @@ import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.PositionUpdate
 import com.rendyhd.vicu.util.isNetworkFailure
 import com.rendyhd.vicu.util.isRetriableNetworkError
+import com.rendyhd.vicu.util.mayHaveReachedServer
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.RoutineEnvelope
@@ -338,6 +339,9 @@ class TaskRepositoryImpl(
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
                 val tempId = tempIds.next()
+                // A timeout or a 5xx may have created the task after all: the sync looks for it
+                // before creating it again.
+                if (mayHaveReachedServer(e)) tempIds.markCreateMaybeSent(tempId)
                 val localTask = task.copy(
                     id = tempId,
                     created = DateUtils.nowIso(),
@@ -581,9 +585,11 @@ class TaskRepositoryImpl(
         val parentTaskId = currentId(parentTaskId)
         // A parent that only exists on this device cannot be linked on the server yet.
         if (parentTaskId < 0L) return queueSubtaskCreate(parentTaskId, subtask)
+        var createdOnServer: Long? = null
         return try {
             val createDto = with(taskMapper) { subtask.toCreateDto() }
             val createdDto = api.createTask(subtask.projectId, createDto)
+            createdOnServer = createdDto.id
 
             api.createRelation(
                 parentTaskId,
@@ -614,9 +620,9 @@ class TaskRepositoryImpl(
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
                 // Offline, or the server is down. This also covers a task that was created but
-                // could not be linked: the sync engine finds that task again (same title,
-                // description and project) instead of creating a second one, and links it.
-                queueSubtaskCreate(parentTaskId, subtask)
+                // could not be linked: the sync engine takes that task (by its id) instead of
+                // creating a second one, and links it.
+                queueSubtaskCreate(parentTaskId, subtask, createdOnServer, maybeSent = mayHaveReachedServer(e))
             } else {
                 NetworkResult.Error(e.message ?: "Failed to create subtask")
             }
@@ -628,13 +634,25 @@ class TaskRepositoryImpl(
      * id, shown under its parent, and a queued create that carries the parent so the sync engine
      * links the two once both exist.
      */
-    private suspend fun queueSubtaskCreate(parentTaskId: Long, subtask: Task): NetworkResult<Task> {
+    private suspend fun queueSubtaskCreate(
+        parentTaskId: Long,
+        subtask: Task,
+        /** The server's id when the create went through and only the link failed. */
+        createdOnServer: Long? = null,
+        /** An attempt that may have created the task without an answer. */
+        maybeSent: Boolean = false,
+    ): NetworkResult<Task> {
         val parentEntity = taskDao.getByIdSync(parentTaskId)
         val parentStub = parentEntity
             ?.let { with(taskMapper) { it.toDomain() } }
             ?.copy(relatedTasks = emptyMap(), attachments = emptyList())
             ?: Task(id = parentTaskId, title = "", projectId = subtask.projectId)
         val tempId = tempIds.next()
+        if (createdOnServer != null) {
+            tempIds.rememberRealId(tempId, createdOnServer)
+        } else if (maybeSent) {
+            tempIds.markCreateMaybeSent(tempId)
+        }
         val now = DateUtils.nowIso()
         val localTask = subtask.copy(
             id = tempId,

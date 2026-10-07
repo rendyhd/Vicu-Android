@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.data.repository
 
 import com.rendyhd.vicu.auth.authTestJsonHeaders
+import com.rendyhd.vicu.util.DateUtils
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
@@ -30,6 +31,8 @@ class FakeTaskServer {
         var description: String,
         var done: Boolean,
         var projectId: Long,
+        /** When the task was made; empty for seeded rows unless a test sets it. */
+        var created: String = "",
     )
 
     data class Recorded(val method: String, val path: String, val query: Map<String, String>, val body: String?) {
@@ -50,8 +53,8 @@ class FakeTaskServer {
     /** Runs after a create or update changed [Row], before the answer is sent (a misbehaving server). */
     var afterWrite: (Row) -> Unit = {}
 
-    fun seed(id: Long, title: String, description: String, done: Boolean = true, projectId: Long = 5): Row =
-        Row(id, title, description, done, projectId).also { rows[id] = it }
+    fun seed(id: Long, title: String, description: String, done: Boolean = true, projectId: Long = 5, created: String = ""): Row =
+        Row(id, title, description, done, projectId, created).also { rows[id] = it }
 
     fun row(id: Long): Row = checkNotNull(rows[id]) { "No task $id on the fake server" }
 
@@ -67,6 +70,7 @@ class FakeTaskServer {
         put("description", description)
         put("done", done)
         put("project_id", projectId)
+        if (created.isNotEmpty()) put("created", created)
     }.toString()
 
     fun handle(scope: MockRequestHandleScope, request: HttpRequestData): HttpResponseData = with(scope) {
@@ -104,6 +108,7 @@ class FakeTaskServer {
                     description = fields["description"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                     done = fields["done"]?.jsonPrimitive?.booleanOrNull ?: false,
                     projectId = createIn,
+                    created = DateUtils.nowIso(),
                 )
                 rows[row.id] = row
                 afterWrite(row)
