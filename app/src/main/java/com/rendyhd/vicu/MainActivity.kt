@@ -29,6 +29,7 @@ import com.rendyhd.vicu.worker.RoutineMaintenanceScheduler
 import com.rendyhd.vicu.worker.TokenRefreshScheduler
 import com.rendyhd.vicu.worker.SyncScheduler
 import com.rendyhd.vicu.ui.theme.VicuTheme
+import com.rendyhd.vicu.widget.WidgetUpdateScheduler
 import org.koin.android.ext.android.inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -101,7 +102,9 @@ class MainActivity : ComponentActivity() {
                 }
                 if (state == AuthState.Authenticated && signedOut) {
                     // Sign-out cancelled the daily summaries, the routine maintenance and the periodic sync.
+                    // A device that started signed out never scheduled the widget refresh either.
                     RoutineMaintenanceScheduler.schedule(this@MainActivity)
+                    WidgetUpdateScheduler.schedulePeriodicRefresh(this@MainActivity)
                     PeriodicSyncScheduler.schedule(this@MainActivity)
                     dailySummaryScheduler.scheduleFromPrefs(notificationPrefsStore.getPrefs().first())
                 }

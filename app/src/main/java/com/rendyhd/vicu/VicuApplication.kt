@@ -47,8 +47,14 @@ class VicuApplication : Application(), SingletonImageLoader.Factory, KoinCompone
         }
         notificationChannelManager.createChannels()
         DayChangeReceiver.register(this, dayClock)
-        WidgetUpdateScheduler.schedulePeriodicRefresh(this)
-        RoutineMaintenanceScheduler.schedule(this)
+        appScope.launch {
+            // Only for an account: sign-out cancels the account's background work, and scheduling
+            // it again at every start would undo that. Signing in schedules it (MainActivity).
+            if (!authManager.getVikunjaUrl().isNullOrBlank()) {
+                WidgetUpdateScheduler.schedulePeriodicRefresh(this@VicuApplication)
+                RoutineMaintenanceScheduler.schedule(this@VicuApplication)
+            }
+        }
         // A sync that failed while the device was offline waits out its backoff, minutes to hours,
         // even after the network is back. Start it as soon as the network returns instead.
         appScope.launch {
