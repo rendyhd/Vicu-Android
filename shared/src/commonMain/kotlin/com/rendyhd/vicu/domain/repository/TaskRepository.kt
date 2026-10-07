@@ -13,8 +13,14 @@ interface TaskRepository {
     fun getByProjectId(projectId: Long): Flow<List<Task>>
     fun getById(id: Long): Flow<Task?>
     suspend fun getByIds(ids: Set<Long>): List<Task>
-    fun searchByTitle(query: String): Flow<List<Task>>
-    fun searchByTitleIncludingDone(query: String): Flow<List<Task>>
+
+    /**
+     * The cached tasks, open and completed, whose title or description contains [query]. Open
+     * tasks come first, the most recently changed first; sync metadata tasks never show. Nested
+     * subtasks are not hidden: the caller decides how to nest what matched. Reads Room only; ask
+     * the server with [refreshAll] and a `q` filter, and the cache (and this flow) follows.
+     */
+    fun searchTasks(query: String): Flow<List<Task>>
 
     /**
      * Every open task, or every task, with nested subtasks not hidden: every task is a row. For

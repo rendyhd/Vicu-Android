@@ -66,11 +66,9 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE id = :id")
     fun getById(id: Long): Flow<TaskEntity?>
 
-    @Query("SELECT * FROM tasks WHERE title LIKE '%' || :query || '%' AND done = 0")
-    fun searchByTitle(query: String): Flow<List<TaskEntity>>
-
-    @Query("SELECT * FROM tasks WHERE title LIKE '%' || :query || '%'")
-    fun searchByTitleIncludingDone(query: String): Flow<List<TaskEntity>>
+    /** Open and completed tasks whose title or description matches [pattern] (a LIKE pattern, see [com.rendyhd.vicu.util.SqlLike]). */
+    @Query(TASK_SEARCH_SQL)
+    fun search(pattern: String): Flow<List<TaskEntity>>
 
     @Query("SELECT * FROM tasks WHERE done = 0 AND isMetadata = 0 ORDER BY updated DESC")
     fun getAllOpenTasks(): Flow<List<TaskEntity>>

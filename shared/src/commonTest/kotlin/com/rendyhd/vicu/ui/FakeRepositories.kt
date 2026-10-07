@@ -94,8 +94,21 @@ class FakeTaskRepository : TaskRepository {
         all.map { tasks -> tasks.filter { it.projectId == projectId } }
     override fun getById(id: Long): Flow<Task?> = rowFor(id)
     override suspend fun getByIds(ids: Set<Long>): List<Task> = ids.mapNotNull { rowFor(it).value }
-    override fun searchByTitle(query: String): Flow<List<Task>> = flowOf(emptyList())
-    override fun searchByTitleIncludingDone(query: String): Flow<List<Task>> = flowOf(emptyList())
+
+    /** The queries [searchTasks] was started with, in order. */
+    val searches = mutableListOf<String>()
+
+    /** Title or description contains the text (plain, case-insensitive), open tasks first. */
+    override fun searchTasks(query: String): Flow<List<Task>> {
+        searches += query
+        val text = query.trim()
+        if (text.isEmpty()) return flowOf(emptyList())
+        return all.map { tasks ->
+            tasks
+                .filter { it.title.contains(text, ignoreCase = true) || it.description.contains(text, ignoreCase = true) }
+                .sortedBy { it.done }
+        }
+    }
     override fun getAllOpenTasksFlat(): Flow<List<Task>> = all.map { tasks -> tasks.filter { !it.done } }
     override fun getAllTasksFlat(): Flow<List<Task>> = all
 
@@ -180,10 +193,15 @@ class FakeTaskRepository : TaskRepository {
     /** Holds every [refreshAll] until a test completes it, to model a slow network. */
     var refreshGate: CompletableDeferred<Unit>? = null
 
+    /** How many [refreshAll] calls ran to the end; a call cancelled while it waited on [refreshGate] is not counted. */
+    var completedRefreshes = 0
+        private set
+
     override suspend fun refreshAll(filters: Map<String, String>, full: Boolean): NetworkResult<Unit> {
         refreshes += filters
         fullRefreshes += full
         refreshGate?.await()
+        completedRefreshes++
         return refreshResult
     }
 

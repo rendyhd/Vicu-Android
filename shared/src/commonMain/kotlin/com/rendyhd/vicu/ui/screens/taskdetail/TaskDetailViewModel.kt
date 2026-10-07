@@ -16,6 +16,7 @@ import com.rendyhd.vicu.domain.repository.AttachmentRepository
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.screens.shared.collectSearchRefresh
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DayClock
@@ -140,11 +141,16 @@ class TaskDetailViewModel(
         .debounce(250)
         .flatMapLatest { q ->
             if (q.isBlank()) flowOf(emptyList())
-            else taskRepository.searchByTitleIncludingDone(q)
+            else taskRepository.searchTasks(q)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
+        // The server is asked about a relation search after the text rests, one request at a
+        // time, and the one in flight is cancelled by a new text. The list reads Room only.
+        viewModelScope.launch {
+            _relationSearchQuery.collectSearchRefresh { text -> taskRepository.refreshAll(mapOf("q" to text)) }
+        }
         viewModelScope.launch {
             nlpPrefsStore.config.collect { config ->
                 _uiState.update { state ->
@@ -540,9 +546,6 @@ class TaskDetailViewModel(
 
     fun setRelationSearchQuery(q: String) {
         _relationSearchQuery.value = q
-        if (q.isNotBlank()) {
-            viewModelScope.launch { taskRepository.refreshAll(mapOf("q" to q)) }
-        }
     }
 
     fun requestToggleSubtaskDone(subtask: Task) {

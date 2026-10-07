@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -38,6 +39,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
+import com.rendyhd.vicu.ui.components.section.SectionHeader
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.task.TaskItem
 
@@ -98,6 +100,11 @@ fun SearchScreen(
 
         SnackbarHost(snackbarHostState)
 
+        // The server is being asked in the background; the cached matches are already on screen.
+        if (state.isRefreshing) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -109,11 +116,13 @@ fun SearchScreen(
                     EmptyState(
                         icon = Icons.Outlined.Search,
                         title = "Search tasks",
-                        subtitle = "Type to search by title",
+                        subtitle = "Type to search titles and notes",
                     )
                 }
-            } else if (state.results.isEmpty() && !state.isSearching) {
-                item {
+            } else if (state.results.isEmpty() && state.completedResults.isEmpty()) {
+                // Nothing is said about "no results" until the cached matches were read and the
+                // server had its say; an empty list next to a progress bar is not an answer yet.
+                if (state.resultsReady && !state.isRefreshing) item {
                     EmptyState(
                         icon = Icons.Outlined.SearchOff,
                         title = "No results",
@@ -135,6 +144,20 @@ fun SearchScreen(
                         onSubtaskToggleDone = viewModel::toggleDone,
                         onSubtaskClick = { child -> onTaskClick(child.id) },
                     )
+                }
+                if (state.completedResults.isNotEmpty()) {
+                    item(key = "completed_header", contentType = "header") {
+                        SectionHeader(title = "Completed")
+                    }
+                    items(state.completedResults, key = { it.id }, contentType = { "task" }) { task ->
+                        TaskItem(
+                            task = task,
+                            onToggleDone = { viewModel.toggleDone(task) },
+                            onClick = { onTaskClick(task.id) },
+                            onSubtaskToggleDone = viewModel::toggleDone,
+                            onSubtaskClick = { child -> onTaskClick(child.id) },
+                        )
+                    }
                 }
             }
         }

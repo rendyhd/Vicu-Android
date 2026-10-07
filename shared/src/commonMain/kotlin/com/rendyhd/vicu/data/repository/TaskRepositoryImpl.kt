@@ -26,6 +26,7 @@ import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.RoutineEnvelope
+import com.rendyhd.vicu.util.SqlLike
 import com.rendyhd.vicu.util.withoutNestedSubtasks
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -36,6 +37,7 @@ import kotlinx.coroutines.flow.Flow
 import com.rendyhd.vicu.data.local.ScheduleAction
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -230,15 +232,13 @@ class TaskRepositoryImpl(
                 ?.let { with(taskMapper) { it.toDomain() } }
         }.flowOn(mappingDispatcher)
 
-    override fun searchByTitle(query: String): Flow<List<Task>> =
-        taskDao.searchByTitle(query).map { entities ->
-            entities.toTopLevelTasks()
-        }
-
-    override fun searchByTitleIncludingDone(query: String): Flow<List<Task>> =
-        taskDao.searchByTitleIncludingDone(query).map { list ->
-            list.toTopLevelTasks()
-        }
+    override fun searchTasks(query: String): Flow<List<Task>> {
+        val text = query.trim()
+        if (text.isEmpty()) return flowOf(emptyList())
+        return taskDao.search(SqlLike.contains(text)).distinctUntilChanged().map { entities ->
+            entities.toTasks()
+        }.flowOn(mappingDispatcher)
+    }
 
     override fun getAllOpenTasksFlat(): Flow<List<Task>> =
         taskDao.getAllOpenTasks().distinctUntilChanged().map { entities ->

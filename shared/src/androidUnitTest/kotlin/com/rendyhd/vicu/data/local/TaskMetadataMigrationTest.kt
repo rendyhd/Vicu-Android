@@ -1,14 +1,9 @@
 package com.rendyhd.vicu.data.local
 
 import com.rendyhd.vicu.util.CustomListEnvelope
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import java.io.File
 import java.sql.Connection
-import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -20,28 +15,6 @@ import kotlin.test.assertTrue
  * the rule that sets the column on every later write.
  */
 class TaskMetadataMigrationTest {
-
-    private val schemaDir = File("schemas/com.rendyhd.vicu.data.local.VikunjaDatabase")
-
-    private fun entities(version: Int): JsonArray =
-        Json.parseToJsonElement(File(schemaDir, "$version.json").readText())
-            .jsonObject.getValue("database").jsonObject.getValue("entities").jsonArray
-
-    /** An in-memory SQLite holding the tables and indexes the exported schema of [version] describes. */
-    private fun database(version: Int): Connection {
-        val connection = DriverManager.getConnection("jdbc:sqlite::memory:")
-        connection.createStatement().use { statement ->
-            for (entity in entities(version)) {
-                val table = entity.jsonObject.getValue("tableName").jsonPrimitive.content
-                fun run(text: String) = statement.execute(text.replace("\${TABLE_NAME}", table))
-                run(entity.jsonObject.getValue("createSql").jsonPrimitive.content)
-                entity.jsonObject["indices"]?.jsonArray?.forEach { index ->
-                    run(index.jsonObject.getValue("createSql").jsonPrimitive.content)
-                }
-            }
-        }
-        return connection
-    }
 
     private fun Connection.insertTask(id: Long, title: String, description: String) {
         prepareStatement(
@@ -122,10 +95,10 @@ class TaskMetadataMigrationTest {
 
     @Test
     fun `the migrated tables match the exported version 3 schema`() {
-        val migrated = database(2).also { migrate(it) }
-        val expected = database(3)
+        val migrated = ExportedSchema.database(2).also { migrate(it) }
+        val expected = ExportedSchema.database(3)
 
-        for (entity in entities(3)) {
+        for (entity in ExportedSchema.entities(3)) {
             val table = entity.jsonObject.getValue("tableName").jsonPrimitive.content
             assertEquals(expected.columns(table), migrated.columns(table), "columns of $table")
             assertEquals(expected.indexes(table), migrated.indexes(table), "indexes of $table")
@@ -135,7 +108,7 @@ class TaskMetadataMigrationTest {
 
     @Test
     fun `the new column is not null and defaults to zero for a row written without it`() {
-        val migrated = database(2).also { migrate(it) }
+        val migrated = ExportedSchema.database(2).also { migrate(it) }
 
         migrated.insertTask(1, "Plain", "plain")
 
@@ -146,7 +119,7 @@ class TaskMetadataMigrationTest {
 
     @Test
     fun `existing carriers are flagged and ordinary tasks are not`() {
-        val connection = database(2)
+        val connection = ExportedSchema.database(2)
         samples.forEachIndexed { index, (_, description) -> connection.insertTask(index + 1L, "Task $index", description) }
 
         migrate(connection)
@@ -159,7 +132,7 @@ class TaskMetadataMigrationTest {
 
     @Test
     fun `the backfill agrees with the rule that sets the column on every later write`() {
-        val connection = database(2)
+        val connection = ExportedSchema.database(2)
         samples.forEachIndexed { index, (_, description) -> connection.insertTask(index + 1L, "Task $index", description) }
 
         migrate(connection)
@@ -172,7 +145,7 @@ class TaskMetadataMigrationTest {
 
     @Test
     fun `the backfill is looser than the write rule only in case, which the next write corrects`() {
-        val connection = database(2)
+        val connection = ExportedSchema.database(2)
         connection.insertTask(1, "Shouting", "<!-- VICU-ROUTINE:v1:abc -->")
 
         migrate(connection)
@@ -183,7 +156,7 @@ class TaskMetadataMigrationTest {
 
     @Test
     fun `no other column or row changes`() {
-        val connection = database(2)
+        val connection = ExportedSchema.database(2)
         connection.insertTask(1, "Carrier", routineCarrier)
         connection.insertTask(2, "Milk", "plain")
 
@@ -199,7 +172,7 @@ class TaskMetadataMigrationTest {
 
     @Test
     fun `a list query can leave metadata rows out by the indexed column`() {
-        val connection = database(2)
+        val connection = ExportedSchema.database(2)
         connection.insertTask(1, "Carrier", routineCarrier)
         connection.insertTask(2, "Milk", "plain")
         migrate(connection)

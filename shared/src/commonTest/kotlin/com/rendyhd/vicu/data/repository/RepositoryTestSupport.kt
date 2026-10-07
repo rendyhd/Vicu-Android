@@ -73,8 +73,22 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     override fun getLogbookTasks(cutoff: String): Flow<List<TaskEntity>> = flowOf(emptyList())
     override fun getByProjectId(projectId: Long): Flow<List<TaskEntity>> = flowOf(emptyList())
     override fun getById(id: Long): Flow<TaskEntity?> = flowOf(null)
-    override fun searchByTitle(query: String): Flow<List<TaskEntity>> = flowOf(emptyList())
-    override fun searchByTitleIncludingDone(query: String): Flow<List<TaskEntity>> = flowOf(emptyList())
+    /** The LIKE patterns the search was started with, in order. */
+    val searchPatterns = mutableListOf<String>()
+
+    /** Title or description matches, open first: the same rows and order as the real query. */
+    override fun search(pattern: String): Flow<List<TaskEntity>> {
+        searchPatterns += pattern
+        return flow {
+            emit(
+                lock.withLock {
+                    rows.values
+                        .filter { !it.isMetadata && (sqlLike(pattern, it.title) || sqlLike(pattern, it.description)) }
+                        .sortedWith(compareBy<TaskEntity> { it.done }.thenByDescending { it.updated }.thenByDescending { it.id })
+                },
+            )
+        }
+    }
     override fun getAllOpenTasks(): Flow<List<TaskEntity>> =
         flow { emit(lock.withLock { rows.values.filter { !it.done } }) }
     override fun getAllTasksFlow(): Flow<List<TaskEntity>> = flow { emit(lock.withLock { rows.values.toList() }) }
@@ -390,4 +404,24 @@ class RecordingRepositoryHooks : PlatformRepositoryHooks {
     override suspend fun clearWidgetConfigurations() {
         clearWidgetConfigurationsCalls++
     }
+}
+
+/** `text LIKE pattern ESCAPE '\'` the way SQLite evaluates it: case-insensitive, `%` and `_` wild, `\` escapes. */
+fun sqlLike(pattern: String, text: String): Boolean {
+    val regex = StringBuilder()
+    var i = 0
+    while (i < pattern.length) {
+        val c = pattern[i]
+        when {
+            c == '\\' && i + 1 < pattern.length -> {
+                regex.append(Regex.escape(pattern[i + 1].toString()))
+                i++
+            }
+            c == '%' -> regex.append("[\\s\\S]*")
+            c == '_' -> regex.append("[\\s\\S]")
+            else -> regex.append(Regex.escape(c.toString()))
+        }
+        i++
+    }
+    return Regex(regex.toString(), RegexOption.IGNORE_CASE).matches(text)
 }
