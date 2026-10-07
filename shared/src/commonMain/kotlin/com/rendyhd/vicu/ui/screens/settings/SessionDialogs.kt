@@ -41,10 +41,12 @@ internal fun SignOutDialog(
     pendingCount: Int,
     failedCount: Int,
     routineHistoryCount: Int,
+    customListChangesUnsynced: Boolean,
     onConfirm: (discardUnsynced: Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val unsynced = pendingCount + failedCount
+    val anythingUnsynced = unsynced > 0 || customListChangesUnsynced
     var discard by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -69,6 +71,14 @@ internal fun SignOutDialog(
                             "have not reached the server and will be lost.",
                         color = MaterialTheme.colorScheme.error,
                     )
+                }
+                if (customListChangesUnsynced) {
+                    Text(
+                        "Changes to your custom lists have not reached the server yet and will be lost.",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                if (anythingUnsynced) {
                     DiscardCheckRow(
                         checked = discard,
                         onCheckedChange = { discard = it },
@@ -79,8 +89,8 @@ internal fun SignOutDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(unsynced > 0) },
-                enabled = unsynced == 0 || discard,
+                onClick = { onConfirm(anythingUnsynced) },
+                enabled = !anythingUnsynced || discard,
             ) {
                 Text("Sign Out", color = MaterialTheme.colorScheme.error)
             }

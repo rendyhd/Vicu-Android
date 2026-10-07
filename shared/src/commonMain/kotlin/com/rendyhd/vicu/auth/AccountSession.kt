@@ -37,7 +37,7 @@ class AccountSession(
         val storedUrl = tokenStorage.getVikunjaUrl()
         val previous = storedUrl?.takeIf { it.isNotBlank() }?.let { AccountIdentity(it, tokenStorage.getUserId()) }
         val action = AccountSwitch.decide(previous, incoming)
-        val lost = if (action == LoginDataAction.WIPE_ALL) wiper.unsyncedActionCount() else 0
+        val lost = if (action == LoginDataAction.WIPE_ALL) wiper.unsyncedChangeCount() else 0
         return LoginPlan(incoming, action, lost)
     }
 

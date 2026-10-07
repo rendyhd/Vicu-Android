@@ -315,6 +315,10 @@ class SettingsViewModel(
     val routineHistoryCount: StateFlow<Int> = sessionCleanup.routineHistoryCount
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    /** Custom-list changes not on the server yet (sign-out deletes them). */
+    val customListChangesUnsynced: StateFlow<Boolean> = sessionCleanup.customListChangesUnsynced
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     /**
      * Signs out and deletes local data. Offline changes that never reached the server are lost
      * with it, so with any queued the caller must pass [discardUnsynced] = true (the dialog makes

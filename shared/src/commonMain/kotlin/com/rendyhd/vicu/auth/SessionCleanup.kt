@@ -8,7 +8,10 @@ import kotlinx.coroutines.withContext
 sealed interface SignOutResult {
     data object Done : SignOutResult
 
-    /** Sign-out was not done: [unsyncedChanges] queued changes would be lost and discarding was not chosen. */
+    /**
+     * Sign-out was not done: [unsyncedChanges] changes would be lost (queued changes, and unsynced
+     * custom-list changes as one) and discarding was not chosen.
+     */
     data class NeedsDiscard(val unsyncedChanges: Int) : SignOutResult
 }
 
@@ -23,6 +26,9 @@ class SessionCleanup(
     /** Entries of routine history not uploaded to the server yet (sign-out deletes them). */
     val routineHistoryCount: Flow<Int> get() = wiper.routineHistoryCount
 
+    /** Custom-list changes not on the server yet (sign-out deletes them). */
+    val customListChangesUnsynced: Flow<Boolean> get() = wiper.customListChangesUnsynced
+
     /**
      * Signs out and deletes local data. With queued changes and [discardUnsynced] false nothing
      * is touched and [SignOutResult.NeedsDiscard] is returned.
@@ -33,7 +39,7 @@ class SessionCleanup(
      * wiped but the tokens still stored.
      */
     suspend fun signOut(discardUnsynced: Boolean): SignOutResult {
-        val unsynced = wiper.unsyncedActionCount()
+        val unsynced = wiper.unsyncedChangeCount()
         if (unsynced > 0 && !discardUnsynced) return SignOutResult.NeedsDiscard(unsynced)
         withContext(NonCancellable) {
             authManager.logout()

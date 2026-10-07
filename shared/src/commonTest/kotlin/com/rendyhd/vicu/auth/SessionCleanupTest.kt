@@ -105,6 +105,21 @@ class SessionCleanupTest {
     }
 
     @Test
+    fun `custom-list changes not on the server yet need an explicit discard too`() = runTest {
+        val f = WiperFixture().apply { customLists.unsynced.value = true }
+        val h = harness(f)
+        h.signIn()
+
+        assertEquals(SignOutResult.NeedsDiscard(1), h.sessionCleanup.signOut(discardUnsynced = false))
+        assertEquals(0, f.customLists.clearLocalCalls, "nothing was deleted")
+        assertEquals(AuthState.Authenticated, h.authManager.authState.value)
+
+        assertEquals(SignOutResult.Done, h.sessionCleanup.signOut(discardUnsynced = true))
+        assertEquals(1, f.customLists.clearLocalCalls)
+        h.close()
+    }
+
+    @Test
     fun `a sign-out whose caller is cancelled still finishes both halves`() = runTest {
         val f = fixtureWithWork()
         val probe = LogoutProbe()

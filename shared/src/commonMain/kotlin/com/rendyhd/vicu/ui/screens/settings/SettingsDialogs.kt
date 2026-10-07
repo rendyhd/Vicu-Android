@@ -46,6 +46,7 @@ internal fun SettingsDialogHost(
     dialog: SettingsDialog?,
     state: SettingsUiState,
     routineHistoryCount: Int,
+    customListChangesUnsynced: Boolean,
     viewModel: SettingsViewModel,
     open: (SettingsDialog) -> Unit,
     dismiss: () -> Unit,
@@ -260,6 +261,7 @@ internal fun SettingsDialogHost(
             pendingCount = state.pendingActionCount,
             failedCount = state.failedActionCount,
             routineHistoryCount = routineHistoryCount,
+            customListChangesUnsynced = customListChangesUnsynced,
             onConfirm = { discardUnsynced ->
                 viewModel.logout(discardUnsynced)
                 dismiss()

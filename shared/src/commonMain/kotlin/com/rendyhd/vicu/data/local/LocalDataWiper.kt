@@ -7,6 +7,7 @@ import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.worker.SyncEngine
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 /**
  * The only place that clears local data, so every screen that does it keeps the same promise:
@@ -49,6 +50,16 @@ class LocalDataWiper(
 
     /** Queued changes (waiting, in flight or failed) that have not reached the server. */
     suspend fun unsyncedActionCount(): Int = dao.countUnsyncedActions()
+
+    /** Custom-list changes the server may not have yet; they are not in the queue. */
+    val customListChangesUnsynced: Flow<Boolean> = customLists.hasUnsyncedChanges
+
+    /**
+     * Everything [wipeEverything] would lose that has not reached the server: the queued changes,
+     * and unsynced custom-list changes, counted as one.
+     */
+    suspend fun unsyncedChangeCount(): Int =
+        unsyncedActionCount() + if (customListChangesUnsynced.first()) 1 else 0
 
     suspend fun clearCaches() {
         SyncEngine.exclusive {

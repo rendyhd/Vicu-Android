@@ -87,6 +87,10 @@ class FakeLabelDao : LabelDao {
 class FakeCustomListRepository : CustomListRepository {
     override val lists: Flow<List<CustomList>> = flowOf(emptyList())
     override val syncStatus: StateFlow<CustomListSyncStatus> = MutableStateFlow(CustomListSyncStatus.Idle)
+
+    /** Set by a test: custom-list changes that have not reached the server. */
+    val unsynced = MutableStateFlow(false)
+    override val hasUnsyncedChanges: Flow<Boolean> = unsynced
     var clearLocalCalls = 0
         private set
 

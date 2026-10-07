@@ -41,6 +41,7 @@ class CustomListRepositoryImpl(
     override val lists = store.getAll()
     private val _syncStatus = MutableStateFlow<CustomListSyncStatus>(CustomListSyncStatus.Idle)
     override val syncStatus: StateFlow<CustomListSyncStatus> = _syncStatus
+    override val hasUnsyncedChanges = store.hasUnsyncedChanges
     private val mutationMutex = Mutex()
     private val syncMutex = Mutex()
     private var clearGeneration = 0L
