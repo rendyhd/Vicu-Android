@@ -16,7 +16,13 @@ interface PendingActionDao {
     @Query("SELECT COUNT(*) FROM pending_actions WHERE status = 'pending'")
     fun getPendingCount(): Flow<Int>
 
-    @Query("SELECT * FROM pending_actions WHERE status = 'pending' AND retryCount < maxRetries ORDER BY createdAt ASC, id ASC")
+    /**
+     * Every waiting action, oldest first. There is no retry limit: an action that failed for a reason
+     * worth retrying (offline, timeout, 5xx, 429) waits for the server however long it is away, and
+     * one the server refuses is marked failed instead (see SyncEngine). [PendingActionEntity.retryCount]
+     * only counts the attempts.
+     */
+    @Query("SELECT * FROM pending_actions WHERE status = 'pending' ORDER BY createdAt ASC, id ASC")
     suspend fun getRetryable(): List<PendingActionEntity>
 
     @Insert

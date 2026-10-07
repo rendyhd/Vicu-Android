@@ -216,7 +216,7 @@ class FakePendingActionDao : PendingActionDao {
     override fun getPendingCount(): Flow<Int> = version.map { countWithStatus("pending") }
 
     override suspend fun getRetryable(): List<PendingActionEntity> = lock.withLock {
-        rows.values.filter { it.status == "pending" && it.retryCount < it.maxRetries }
+        rows.values.filter { it.status == "pending" }
             .sortedWith(compareBy({ it.createdAt }, { it.id }))
     }
 

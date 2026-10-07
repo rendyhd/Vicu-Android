@@ -187,6 +187,61 @@ class SyncEngineFailedActionsTest {
         h.close()
     }
 
+    // ---- retriable failures -----------------------------------------------------------------
+
+    private fun MockRequestHandleScope.updatedTask(id: Long): HttpResponseData =
+        respond(
+            content = """{"id":$id,"title":"Task $id","project_id":7,"priority":3}""",
+            status = HttpStatusCode.OK,
+            headers = authTestJsonHeaders,
+        )
+
+    @Test
+    fun `a change that already failed many times for a retriable reason is still sent`() = runTest {
+        val h = SyncEngineHarness(taskDao = FakeTaskDao(listOf(localTask(11)))) { request ->
+            when {
+                request.method == HttpMethod.Patch && request.url.encodedPath == "/tasks/11" -> updatedTask(11)
+                request.method == HttpMethod.Get -> emptyPage()
+                else -> error("Unexpected ${request.method.value} ${request.url.encodedPath}")
+            }
+        }
+        // What an older version left behind: pending, and at the old limit of five attempts.
+        h.pendingActionDao.insert(queuedTaskAction(11, "update").copy(retryCount = 5))
+
+        val finished = h.engine.performSync()
+
+        assertTrue(finished)
+        assertEquals(1, h.count(HttpMethod.Patch, "/tasks/11"))
+        assertTrue(h.pendingActionDao.snapshot().isEmpty(), "the change reached the server")
+        h.close()
+    }
+
+    @Test
+    fun `a server that stays away does not make a change give up`() = runTest {
+        var serverUp = false
+        val h = SyncEngineHarness(taskDao = FakeTaskDao(listOf(localTask(11)))) { request ->
+            when {
+                request.method == HttpMethod.Patch && request.url.encodedPath == "/tasks/11" ->
+                    if (serverUp) updatedTask(11) else respond("", HttpStatusCode.ServiceUnavailable)
+                request.method == HttpMethod.Get ->
+                    if (serverUp) emptyPage() else respond("", HttpStatusCode.ServiceUnavailable)
+                else -> error("Unexpected ${request.method.value} ${request.url.encodedPath}")
+            }
+        }
+        h.pendingActionDao.insert(queuedTaskAction(11, "update"))
+
+        repeat(7) { assertFalse(h.engine.performSync(), "every run asks to be retried") }
+        val waiting = h.pendingActionDao.snapshot().single()
+        assertEquals("pending", waiting.status, "still waiting, neither dropped nor stuck")
+        assertEquals(7, waiting.retryCount)
+
+        serverUp = true
+        assertTrue(h.engine.performSync())
+        assertTrue(h.pendingActionDao.snapshot().isEmpty(), "sent once the server is back")
+        assertEquals(8, h.count(HttpMethod.Patch, "/tasks/11"))
+        h.close()
+    }
+
     // ---- failed actions ---------------------------------------------------------------------
 
     @Test

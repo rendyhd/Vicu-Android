@@ -83,7 +83,6 @@ class SyncEngine(
 
     companion object {
         private const val TAG = "SyncEngine"
-        private const val MAX_RETRIES = 5
         private const val DUPLICATE_WINDOW_SECS = 900L
 
         /**
@@ -175,10 +174,15 @@ class SyncEngine(
                             // "failed" would only nag. The local rows were cleaned up.
                             pendingActionDao.updateStatus(action.id, "completed")
                         }
-                        isRetriableNetworkError(e) && action.retryCount < MAX_RETRIES -> {
+                        isRetriableNetworkError(e) -> {
+                            // Offline, a timeout, a 5xx or a 429: the change is fine, the server is
+                            // not. It stays queued however often that happens (the count is only
+                            // kept for the record); WorkManager's backoff spaces the attempts.
                             pendingActionDao.updateStatus(action.id, "pending", action.retryCount + 1)
                             hasRetriableFailures = true
                         }
+                        // The server refused the change: retrying cannot help. It is shown as a
+                        // failed change the user can retry or discard.
                         else -> pendingActionDao.markFailed(action.id, DateUtils.nowIso())
                     }
                     if (pausedForAuth) break
