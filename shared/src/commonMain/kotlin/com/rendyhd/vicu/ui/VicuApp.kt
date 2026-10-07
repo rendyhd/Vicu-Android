@@ -65,7 +65,11 @@ import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.rememberIs24HourFormat
 import com.rendyhd.vicu.ui.components.shared.FailedActionsBanner
 import com.rendyhd.vicu.ui.components.shared.OfflineBanner
+import com.rendyhd.vicu.domain.repository.QuickDue
+import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.components.task.LocalTaskRowActions
 import com.rendyhd.vicu.ui.components.task.TaskEntrySheet
+import com.rendyhd.vicu.ui.components.task.TaskRowActions
 import com.rendyhd.vicu.ui.components.task.LocalSubtaskDisplayMode
 import com.rendyhd.vicu.ui.navigation.AnytimeRoute
 import com.rendyhd.vicu.ui.navigation.AppNavHost
@@ -190,6 +194,17 @@ fun VicuApp(
     val clockDay by dayClock.day.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { dayClock.refresh() }
     val is24Hour = rememberIs24HourFormat()
+
+    // What a screen reader can do to a task row besides open it: the swipe gestures have no
+    // equivalent for it, so the rows offer the quick due dates as actions.
+    val taskRepository: TaskRepository = koinInject()
+    val taskRowActions = remember(taskRepository) {
+        object : TaskRowActions {
+            override fun scheduleDue(taskId: Long, due: QuickDue) {
+                scope.launch { taskRepository.scheduleDue(taskId, due) }
+            }
+        }
+    }
 
     // Messages for outcomes nobody is looking at (an autosave that failed after the editor
     // closed). Shown in a snackbar above everything, including the full-screen editor.
@@ -497,6 +512,7 @@ fun VicuApp(
                     LocalToday provides clockDay.date,
                     LocalClockDay provides clockDay,
                     LocalIs24Hour provides is24Hour,
+                    LocalTaskRowActions provides taskRowActions,
                 ) {
                     AppNavHost(
                         navController = navController,

@@ -10,6 +10,7 @@ import com.rendyhd.vicu.domain.repository.AttachmentRepository
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.LogbookPage
 import com.rendyhd.vicu.domain.repository.ProjectRepository
+import com.rendyhd.vicu.domain.repository.QuickDue
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.DEFAULT_MAX_UPLOAD_BYTES
 import com.rendyhd.vicu.util.NetworkResult
@@ -134,6 +135,14 @@ class FakeTaskRepository : TaskRepository {
     }
 
     override suspend fun applyScheduleAction(taskId: Long): NetworkResult<Task> = NetworkResult.Error("not faked")
+
+    /** (task id, day) of every [scheduleDue]; the stored row is not changed. */
+    val quickDues = mutableListOf<Pair<Long, QuickDue>>()
+
+    override suspend fun scheduleDue(taskId: Long, due: QuickDue): NetworkResult<Task> {
+        quickDues += taskId to due
+        return NetworkResult.Error("not faked")
+    }
     override suspend fun moveToProject(taskId: Long, newProjectId: Long): NetworkResult<Unit> =
         NetworkResult.Error("not faked")
 

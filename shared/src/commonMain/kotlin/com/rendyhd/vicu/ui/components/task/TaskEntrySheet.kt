@@ -62,6 +62,9 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
@@ -262,6 +265,20 @@ fun TaskEntrySheet(
 
                 AssistChip(
                     onClick = { showDatePicker = true },
+                    // The clear button is as tall as the chip lets it be (32 dp); a screen reader
+                    // gets the same thing from the chip's actions without having to find it.
+                    modifier = if (hasDate) {
+                        Modifier.semantics {
+                            customActions = listOf(
+                                CustomAccessibilityAction("Clear date") {
+                                    viewModel.clearDueDate()
+                                    true
+                                },
+                            )
+                        }
+                    } else {
+                        Modifier
+                    },
                     label = { Text(dateLabel) },
                     leadingIcon = {
                         Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -270,12 +287,12 @@ fun TaskEntrySheet(
                         {
                             IconButton(
                                 onClick = { viewModel.clearDueDate() },
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier.size(32.dp),
                             ) {
                                 Icon(
                                     Icons.Default.Close,
                                     contentDescription = "Clear date",
-                                    modifier = Modifier.size(12.dp),
+                                    modifier = Modifier.size(16.dp),
                                 )
                             }
                         }
@@ -507,7 +524,7 @@ private fun AttachmentPreviewRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = onRemove) {
             Icon(
                 Icons.Default.Close,
                 contentDescription = "Remove attachment",

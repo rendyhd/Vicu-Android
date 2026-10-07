@@ -20,9 +20,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Notes
@@ -36,6 +36,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,9 +49,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -60,14 +62,12 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.data.local.SubtaskDisplayMode
-import com.rendyhd.vicu.ui.theme.PriorityHigh
-import com.rendyhd.vicu.ui.theme.PriorityLow
-import com.rendyhd.vicu.ui.theme.PriorityMedium
-import com.rendyhd.vicu.ui.theme.PriorityUrgent
+import com.rendyhd.vicu.domain.repository.QuickDue
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
 import com.rendyhd.vicu.util.DateUtils
@@ -115,11 +115,35 @@ fun TaskItem(
         }
     }
 
+    // A screen reader reaches complete, reopen and the quick due dates from the row's actions
+    // menu: the swipe gestures are not available to it. While selecting, the row only selects.
+    val rowActions = LocalTaskRowActions.current
+    val customActions = if (selectionActive) {
+        emptyList()
+    } else {
+        taskRowActions(done = task.done, canSchedule = rowActions != null).map { action ->
+            action to {
+                when (action) {
+                    TaskRowAction.COMPLETE, TaskRowAction.REOPEN -> requestToggle(task)
+                    TaskRowAction.DUE_TODAY -> rowActions?.scheduleDue(task.id, QuickDue.TODAY)
+                    TaskRowAction.DUE_TOMORROW -> rowActions?.scheduleDue(task.id, QuickDue.TOMORROW)
+                }
+                Unit
+            }
+        }
+    }
+
     Column(modifier = modifier) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                .combinedClickable(
+                    onClickLabel = if (selectionActive) null else "Open",
+                    onLongClickLabel = if (selectionActive) null else "Select",
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                )
+                .taskRowCustomActions(customActions)
                 .then(
                     if (selected) {
                         Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
@@ -127,19 +151,25 @@ fun TaskItem(
                         Modifier
                     },
                 )
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                // The checkbox brings its own 48 dp of height and 13 dp of space either side of
+                // its circle, so the row's padding is only what is left of the old 16 dp.
+                .padding(start = 4.dp, end = 16.dp),
             verticalAlignment = Alignment.Top,
         ) {
             if (selectionActive) {
-                Checkbox(checked = selected, onCheckedChange = { onClick() })
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = { onClick() },
+                    modifier = Modifier.semantics { contentDescription = "Select ${task.title}" },
+                )
             } else {
                 AnimatedCheckbox(
                     done = task.done,
                     onToggle = { requestToggle(task) },
+                    contentDescription = task.title,
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f).padding(vertical = 12.dp)) {
                 if (task.labels.isNotEmpty()) {
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -183,6 +213,8 @@ fun TaskItem(
                 }
             }
             Row(
+                // Level with the title's first line, whatever the checkbox's height does.
+                modifier = Modifier.padding(top = 12.dp).heightIn(min = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -198,7 +230,12 @@ fun TaskItem(
                 if (subtaskCount > 0) {
                     Row(
                         modifier = if (displayMode == SubtaskDisplayMode.EXPANDABLE) {
-                            Modifier.clickable { subtasksExpanded = !subtasksExpanded }
+                            Modifier
+                                .minimumInteractiveComponentSize()
+                                .clickable(
+                                    onClickLabel = if (subtasksExpanded) "Collapse subtasks" else "Expand subtasks",
+                                    role = Role.Button,
+                                ) { subtasksExpanded = !subtasksExpanded }
                         } else {
                             Modifier
                         },
@@ -208,7 +245,8 @@ fun TaskItem(
                         if (displayMode == SubtaskDisplayMode.EXPANDABLE) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                                contentDescription = if (subtasksExpanded) "Collapse subtasks" else "Expand subtasks",
+                                // The click label above says what a tap does.
+                                contentDescription = null,
                                 modifier = Modifier.size(18.dp).rotate(if (subtasksExpanded) 90f else 0f),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -250,7 +288,7 @@ fun TaskItem(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     )
                 }
-                PriorityDot(priority = task.priority)
+                PriorityMark(priority = task.priority)
                 if (!DateUtils.isNullDate(task.dueDate) && task.dueDate.isNotBlank()) {
                     TaskDueBadge(dueDate = task.dueDate)
                 }
@@ -319,20 +357,17 @@ private fun InlineSubtaskTree(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onClick(child) }
-                    .padding(
-                        start = (28 + depth.coerceAtMost(4) * 20).dp,
-                        end = 16.dp,
-                        top = 8.dp,
-                        bottom = 8.dp,
-                    ),
+                    .clickable(onClickLabel = "Open", onClick = { onClick(child) })
+                    // The 48 dp checkbox brings 14 dp of space either side of its 20 dp circle.
+                    .padding(start = (14 + depth.coerceAtMost(4) * 20).dp, end = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 AnimatedCheckbox(
                     done = child.done,
                     onToggle = { onToggleDone(child) },
-                    modifier = Modifier.size(20.dp),
+                    contentDescription = child.title,
+                    circleSize = 20.dp,
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -355,19 +390,24 @@ private fun InlineSubtaskTree(
                         )
                     }
                 }
-                PriorityDot(priority = child.priority)
+                PriorityMark(priority = child.priority)
                 if (!DateUtils.isNullDate(child.dueDate) && child.dueDate.isNotBlank()) {
                     TaskDueBadge(dueDate = child.dueDate)
                 }
                 if (total > 0) {
                     Row(
-                        modifier = Modifier.clickable { expanded = !expanded },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .clickable(
+                                onClickLabel = if (expanded) "Collapse subtasks" else "Expand subtasks",
+                                role = Role.Button,
+                            ) { expanded = !expanded },
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                            contentDescription = if (expanded) "Collapse subtasks" else "Expand subtasks",
+                            contentDescription = null,
                             modifier = Modifier.size(18.dp).rotate(if (expanded) 90f else 0f),
                         )
                         Text(
@@ -391,11 +431,18 @@ private fun InlineSubtaskTree(
     }
 }
 
+/**
+ * The round completion checkbox. Its touch target is [MIN_TOUCH_TARGET] square whatever the size of
+ * the drawn circle ([circleSize]); to a screen reader it is a checkbox named [contentDescription]
+ * (the task's title) that is checked when [done].
+ */
 @Composable
 fun AnimatedCheckbox(
     done: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    contentDescription: String? = null,
+    circleSize: Dp = 22.dp,
 ) {
     val haptic = LocalHapticFeedback.current
 
@@ -438,17 +485,27 @@ fun AnimatedCheckbox(
 
     Box(
         modifier = modifier
-            .size(24.dp)
-            .clickable(
+            .size(MIN_TOUCH_TARGET)
+            .toggleable(
+                value = done,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-            ) {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onToggle()
-            },
+                role = Role.Checkbox,
+                onValueChange = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onToggle()
+                },
+            )
+            .then(
+                if (contentDescription != null) {
+                    Modifier.semantics { this.contentDescription = contentDescription }
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(22.dp)) {
+        Canvas(modifier = Modifier.size(circleSize)) {
             val radius = size.minDimension / 2f
             val center = Offset(size.width / 2f, size.height / 2f)
             val currentScale = scaleAnim.value
@@ -557,33 +614,6 @@ fun TaskDueBadge(
 
 /** What a due badge shows, worked out once per (date, day, clock style). */
 private data class DueBadge(val isOverdue: Boolean, val isToday: Boolean, val label: String)
-
-@Composable
-private fun PriorityDot(
-    priority: Int,
-    modifier: Modifier = Modifier,
-) {
-    val color = when (priority) {
-        1 -> PriorityLow
-        2 -> PriorityMedium
-        3 -> PriorityHigh
-        4 -> PriorityUrgent
-        else -> return
-    }
-    val label = when (priority) {
-        1 -> "Low priority"
-        2 -> "Medium priority"
-        3 -> "High priority"
-        4 -> "Urgent priority"
-        else -> return
-    }
-    Box(
-        modifier = modifier
-            .size(8.dp)
-            .background(color, CircleShape)
-            .semantics { contentDescription = label },
-    )
-}
 
 @Composable
 fun LabelChip(

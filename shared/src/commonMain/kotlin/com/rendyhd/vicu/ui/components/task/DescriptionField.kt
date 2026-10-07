@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
@@ -53,6 +54,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -494,13 +496,13 @@ private fun PendingThumb(
 
 @Composable
 private fun BoxScope.RemoveBadge(onClick: () -> Unit) {
+    // The badge is 22 dp to look at and 48 dp to hit (the 4 dp inset it had is part of that).
     Box(
         modifier = Modifier
             .align(Alignment.TopEnd)
-            .padding(4.dp)
-            .size(22.dp)
-            .clip(RoundedCornerShape(11.dp))
-            .clickable(onClick = onClick),
+            .size(48.dp)
+            .clip(CircleShape)
+            .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(

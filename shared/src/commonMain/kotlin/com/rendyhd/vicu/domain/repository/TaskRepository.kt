@@ -39,6 +39,13 @@ interface TaskRepository {
      * fields back, and only the field the action sets is patched.
      */
     suspend fun applyScheduleAction(taskId: Long): NetworkResult<Task>
+
+    /**
+     * The "Today" / "Tomorrow" quick pick: sets only the due date of the stored task to the end
+     * of that local day. Like [applyScheduleAction] the task is re-read by id, so the patch holds
+     * just the due date whatever copy the caller saw.
+     */
+    suspend fun scheduleDue(taskId: Long, due: QuickDue): NetworkResult<Task>
     suspend fun moveToProject(taskId: Long, newProjectId: Long): NetworkResult<Unit>
     /**
      * Moves every descendant of [taskId] (subtasks, their subtasks, and so on) into
@@ -78,6 +85,9 @@ interface TaskRepository {
      */
     suspend fun loadLogbookPage(page: Int): NetworkResult<LogbookPage>
 }
+
+/** The days offered as quick due-date picks. */
+enum class QuickDue { TODAY, TOMORROW }
 
 /** What a [TaskRepository.loadLogbookPage] call found: whether a later page exists. */
 data class LogbookPage(val page: Int, val hasMore: Boolean)

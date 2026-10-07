@@ -14,6 +14,7 @@ import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.sync.TaskRefresher
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LogbookPage
+import com.rendyhd.vicu.domain.repository.QuickDue
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.util.DateUtils
@@ -378,6 +379,17 @@ class TaskRepositoryImpl(
             ScheduleAction.PRIORITY_URGENT -> current.copy(priority = 4)
         }
         return update(updated)
+    }
+
+    override suspend fun scheduleDue(taskId: Long, due: QuickDue): NetworkResult<Task> {
+        val current = taskDao.getByIdSync(taskId)?.let { with(taskMapper) { it.toDomain() } }
+            ?: return NetworkResult.Error("Task $taskId is not in the local cache")
+        val day = dayClock.day.value
+        val instant = when (due) {
+            QuickDue.TODAY -> DueDates.today(day.date, day.zone)
+            QuickDue.TOMORROW -> DueDates.tomorrow(day.date, day.zone)
+        }
+        return update(current.copy(dueDate = instant.toString()))
     }
 
     override suspend fun moveToProject(taskId: Long, newProjectId: Long): NetworkResult<Unit> {

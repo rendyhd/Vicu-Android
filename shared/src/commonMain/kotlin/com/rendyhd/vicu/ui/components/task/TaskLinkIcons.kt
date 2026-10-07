@@ -2,10 +2,12 @@ package com.rendyhd.vicu.ui.components.task
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -14,8 +16,13 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.util.TaskLinkParser
+
+private val LINK_TARGET = 32.dp
 
 val ObsidianIcon: ImageVector
     get() = ImageVector.Builder(
@@ -99,22 +106,31 @@ fun TaskLinkIcons(
             is TaskLinkParser.TaskLink.ObsidianNote -> link.url
             is TaskLinkParser.TaskLink.BrowserPage -> link.url
         }
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDesc,
+        // A 14 dp icon is far too small to hit: the icon is drawn small inside a 32 dp target, the
+        // most a crowded task row can give each link.
+        Box(
             modifier = modifier
-                .size(14.dp)
+                .size(LINK_TARGET)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
+                    role = Role.Button,
                 ) {
                     try {
                         uriHandler.openUri(url)
                     } catch (_: Exception) {
                         // Ignore any failure silently on common level
                     }
-                },
-            tint = tint,
-        )
+                }
+                .semantics { contentDescription = contentDesc },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = tint,
+            )
+        }
     }
 }
