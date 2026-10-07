@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.settings
 
+import com.rendyhd.vicu.util.countOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
@@ -329,7 +330,8 @@ class SettingsViewModel(
             when (val result = sessionCleanup.signOut(discardUnsynced)) {
                 is SignOutResult.NeedsDiscard ->
                     _messages.update {
-                        "${result.unsyncedChanges} unsynced change(s) would be lost. Discard them to sign out." to null
+                        "${countOf(result.unsyncedChanges, "unsynced change")} would be lost. " +
+                            "Discard ${if (result.unsyncedChanges == 1) "it" else "them"} to sign out." to null
                     }
                 SignOutResult.Done -> platformSettingsHooks.updateWidgets()
             }

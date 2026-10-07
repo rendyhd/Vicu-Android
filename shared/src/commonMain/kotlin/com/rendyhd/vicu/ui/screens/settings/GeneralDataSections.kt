@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.settings
 
+import com.rendyhd.vicu.util.countOf
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -301,14 +302,14 @@ internal fun LazyListScope.dataSyncSection(
                 )
                 if (state.pendingActionCount > 0) {
                     Text(
-                        text = "${state.pendingActionCount} pending change(s)",
+                        text = countOf(state.pendingActionCount, "pending change"),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 if (state.failedActionCount > 0) {
                     Text(
-                        text = "${state.failedActionCount} failed change(s)",
+                        text = countOf(state.failedActionCount, "failed change"),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )

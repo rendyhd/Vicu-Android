@@ -20,16 +20,31 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.util.countOf
 
 /** "3 changes (2 waiting, 1 failed)" for the dialogs below. */
 internal fun unsyncedChangesSummary(pending: Int, failed: Int): String {
-    val total = pending + failed
-    val noun = if (total == 1) "change" else "changes"
     val parts = buildList {
         if (pending > 0) add("$pending waiting")
         if (failed > 0) add("$failed failed")
     }
-    return "$total unsynced $noun (${parts.joinToString(", ")})"
+    return "${countOf(pending + failed, "unsynced change")} (${parts.joinToString(", ")})"
+}
+
+/** The sign-out warning: "1 unsynced change (1 waiting) has not reached the server ...". */
+internal fun unsyncedChangesLostWarning(pending: Int, failed: Int): String {
+    val verb = if (pending + failed == 1) "has" else "have"
+    return "${unsyncedChangesSummary(pending, failed)} $verb not reached the server and will be lost."
+}
+
+/** The clear-cache note: the queued changes stay unless discarded. */
+internal fun unsyncedChangesKeptNote(pending: Int, failed: Int): String {
+    val rest = if (pending + failed == 1) {
+        "It is kept and sent on the next sync unless you discard it."
+    } else {
+        "They are kept and sent on the next sync unless you discard them."
+    }
+    return "${unsyncedChangesSummary(pending, failed)}. $rest"
 }
 
 /**
@@ -67,8 +82,7 @@ internal fun SignOutDialog(
                 }
                 if (unsynced > 0) {
                     Text(
-                        "${unsyncedChangesSummary(pendingCount, failedCount)} " +
-                            "have not reached the server and will be lost.",
+                        unsyncedChangesLostWarning(pendingCount, failedCount),
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
@@ -124,10 +138,7 @@ internal fun ClearCacheDialog(
                         "You will not be signed out.",
                 )
                 if (unsynced > 0) {
-                    Text(
-                        "${unsyncedChangesSummary(pendingCount, failedCount)}. " +
-                            "They are kept and sent on the next sync unless you discard them.",
-                    )
+                    Text(unsyncedChangesKeptNote(pendingCount, failedCount))
                     DiscardCheckRow(
                         checked = discard,
                         onCheckedChange = { discard = it },
@@ -157,14 +168,18 @@ internal fun ClearFailedActionsDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val noun = if (failedCount == 1) "change" else "changes"
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Discard failed changes") },
         text = {
             Text(
-                "Discard $failedCount failed $noun? They could not be sent to the server and will be " +
-                    "lost. The affected items are refreshed from the server on the next sync.",
+                if (failedCount == 1) {
+                    "Discard 1 failed change? It could not be sent to the server and will be lost. " +
+                        "The affected item is refreshed from the server on the next sync."
+                } else {
+                    "Discard $failedCount failed changes? They could not be sent to the server and will be " +
+                        "lost. The affected items are refreshed from the server on the next sync."
+                },
             )
         },
         confirmButton = {

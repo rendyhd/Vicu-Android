@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.components.shared
 
+import com.rendyhd.vicu.util.countOf
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -56,7 +57,7 @@ fun OfflineBanner(
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = if (pendingCount > 0) {
-                    "Offline — $pendingCount change(s) pending"
+                    "Offline — ${countOf(pendingCount, "change")} pending"
                 } else {
                     "Offline"
                 },
