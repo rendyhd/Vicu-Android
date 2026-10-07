@@ -83,6 +83,13 @@ interface TaskRepository {
      * (notification buttons).
      */
     suspend fun setDone(taskId: Long, done: Boolean): NetworkResult<Task>
+
+    /**
+     * [setDone] for a caller that can be stopped at any moment (a notification button, a widget
+     * tap): the change is stored on the device and queued, and nothing is sent from the caller, so
+     * it survives the process being killed; the sync sends it.
+     */
+    suspend fun setDoneInBackground(taskId: Long, done: Boolean): NetworkResult<Task> = setDone(taskId, done)
     suspend fun createSubtask(parentTaskId: Long, subtask: Task): NetworkResult<Task>
     suspend fun toggleSubtaskDone(parentTaskId: Long, subtask: Task): NetworkResult<Task>
     suspend fun deleteRelation(taskId: Long, relationKind: String, otherTaskId: Long): NetworkResult<Unit>

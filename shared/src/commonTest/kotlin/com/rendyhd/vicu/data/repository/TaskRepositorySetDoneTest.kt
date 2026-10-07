@@ -86,6 +86,32 @@ class TaskRepositorySetDoneTest {
     }
 
     @Test
+    fun `a completion from a notification is stored and queued, nothing is sent from it`() = runTest {
+        val h = harness(open) { error("The notification action must not send anything itself") }
+
+        val result = h.repository.setDoneInBackground(42, true)
+
+        assertIs<NetworkResult.Success<*>>(result)
+        assertTrue(h.sent.isEmpty())
+        assertTrue(h.taskDao.entity(42)!!.done, "recorded on the device at once")
+        val queued = h.pendingActionDao.snapshot().single()
+        assertEquals("toggle_done", queued.actionType)
+        assertEquals(JsonObject(mapOf("done" to JsonPrimitive(true))), Json.parseToJsonElement(queued.payload))
+        assertEquals(1, h.hooks.syncTriggers, "the sync sends it")
+        assertEquals(listOf(42L), h.hooks.cancelled)
+    }
+
+    @Test
+    fun `a completion from a notification of a task already done does nothing`() = runTest {
+        val h = harness(done) { error("Nothing to send") }
+
+        h.repository.setDoneInBackground(42, true)
+
+        assertTrue(h.pendingActionDao.snapshot().isEmpty())
+        assertTrue(h.taskDao.entity(42)!!.done)
+    }
+
+    @Test
     fun `an unknown task is an error and sends nothing`() = runTest {
         val h = harness(open)
 

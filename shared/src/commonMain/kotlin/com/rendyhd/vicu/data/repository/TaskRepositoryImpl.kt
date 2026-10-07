@@ -684,14 +684,16 @@ class TaskRepositoryImpl(
     private suspend fun toggleTaskTree(
         task: Task,
         explicitParentId: Long? = null,
+        /** Store and queue every change without sending it; see [setDoneInBackground]. */
+        queueOnly: Boolean = false,
     ): NetworkResult<Task> {
         val targetDone = !task.done
         if (!targetDone) {
             val batch = completionBatchesMutex.withLock { completionBatches.remove(task.id) }.orEmpty()
             val rootResult = if (explicitParentId != null) {
-                setLinkedTaskDone(explicitParentId, task, targetDone = false, playSound = false)
+                setLinkedTaskDone(explicitParentId, task, targetDone = false, playSound = false, queueOnly = queueOnly)
             } else {
-                setTaskDone(task, targetDone = false, playSound = false)
+                setTaskDone(task, targetDone = false, playSound = false, queueOnly = queueOnly)
             }
             if (rootResult !is NetworkResult.Success) return rootResult
 
@@ -707,6 +709,7 @@ class TaskRepositoryImpl(
                         current,
                         targetDone = false,
                         playSound = false,
+                        queueOnly = queueOnly,
                     )
                     if (restored is NetworkResult.Error) {
                         Logger.w(TAG, "Could not restore auto-completed subtask ${link.task.id}: ${restored.message}")
@@ -724,10 +727,11 @@ class TaskRepositoryImpl(
                 link.task,
                 targetDone = true,
                 playSound = false,
+                queueOnly = queueOnly,
             )) {
                 is NetworkResult.Success -> completed += link
                 is NetworkResult.Error -> {
-                    rollbackAutoCompleted(completed)
+                    rollbackAutoCompleted(completed, queueOnly)
                     return childResult
                 }
                 NetworkResult.Loading -> Unit
@@ -735,25 +739,25 @@ class TaskRepositoryImpl(
         }
 
         val rootResult = if (explicitParentId != null) {
-            setLinkedTaskDone(explicitParentId, task, targetDone = true, playSound = true)
+            setLinkedTaskDone(explicitParentId, task, targetDone = true, playSound = true, queueOnly = queueOnly)
         } else {
-            setTaskDone(task, targetDone = true, playSound = true)
+            setTaskDone(task, targetDone = true, playSound = true, queueOnly = queueOnly)
         }
         if (rootResult is NetworkResult.Success) {
             completionBatchesMutex.withLock { completionBatches[task.id] = autoCompleted }
         } else {
-            rollbackAutoCompleted(completed)
+            rollbackAutoCompleted(completed, queueOnly)
         }
         return rootResult
     }
 
-    private suspend fun rollbackAutoCompleted(completed: List<DescendantLink>) {
+    private suspend fun rollbackAutoCompleted(completed: List<DescendantLink>, queueOnly: Boolean) {
         completed.forEach { link ->
             val current = taskDao.getByIdSync(link.task.id)
                 ?.let { with(taskMapper) { it.toDomain() } }
                 ?: link.task.copy(done = true)
             if (current.done) {
-                setLinkedTaskDone(link.parentId, current, targetDone = false, playSound = false)
+                setLinkedTaskDone(link.parentId, current, targetDone = false, playSound = false, queueOnly = queueOnly)
             }
         }
     }
@@ -763,6 +767,7 @@ class TaskRepositoryImpl(
         subtask: Task,
         targetDone: Boolean,
         playSound: Boolean,
+        queueOnly: Boolean = false,
     ): NetworkResult<Task> {
         val cached = taskDao.getByIdSync(subtask.id)
         val current = cached?.let { with(taskMapper) { it.toDomain() } } ?: subtask
@@ -799,12 +804,23 @@ class TaskRepositoryImpl(
             return when (outcome) {
                 is LocalChange.Done -> outcome.result
                 is LocalChange.Created ->
-                    setLinkedTaskDone(parentTaskId, subtask.copy(id = outcome.realId), targetDone, playSound = false)
+                    setLinkedTaskDone(parentTaskId, subtask.copy(id = outcome.realId), targetDone, playSound = false, queueOnly = queueOnly)
             }
         }
         cached?.let {
             taskDao.upsert(it.copy(done = toggled.done, doneAt = DateUtils.normalizeToUtc(toggled.doneAt)))
         }
+        val queue: suspend () -> NetworkResult<Task> = {
+            queueTaskAction(
+                subtask.id,
+                "toggle_done",
+                queuedUpdatePayload(toggled, patch),
+            )
+            if (toggled.done) platformHooks.cancelAlarm(subtask.id)
+            platformHooks.updateWidgets()
+            NetworkResult.Success(toggled)
+        }
+        if (queueOnly) return queue()
         return writeGate.sendOrQueue(
             taskId = subtask.id,
             send = {
@@ -817,16 +833,7 @@ class TaskRepositoryImpl(
                 platformHooks.updateWidgets()
                 NetworkResult.Success(result)
             },
-            queue = {
-                queueTaskAction(
-                    subtask.id,
-                    "toggle_done",
-                    queuedUpdatePayload(toggled, patch),
-                )
-                if (toggled.done) platformHooks.cancelAlarm(subtask.id)
-                platformHooks.updateWidgets()
-                NetworkResult.Success(toggled)
-            },
+            queue = queue,
             refused = { e ->
                 cached?.let { taskDao.upsert(it) }
                 updateParentDoneReferences(current, current.done, parentTaskId)
@@ -946,10 +953,18 @@ class TaskRepositoryImpl(
         return toggleTaskTree(current)
     }
 
+    override suspend fun setDoneInBackground(taskId: Long, done: Boolean): NetworkResult<Task> {
+        val current = taskDao.getByIdSync(currentId(taskId))?.let { with(taskMapper) { it.toDomain() } }
+            ?: return NetworkResult.Error("Task $taskId is not in the local cache")
+        if (current.done == done) return NetworkResult.Success(current)
+        return toggleTaskTree(current, queueOnly = true)
+    }
+
     private suspend fun setTaskDone(
         task: Task,
         targetDone: Boolean,
         playSound: Boolean,
+        queueOnly: Boolean = false,
     ): NetworkResult<Task> {
         val cachedEntity = taskDao.getByIdSync(task.id)
         val cached = cachedEntity?.let { with(taskMapper) { it.toDomain() } }
@@ -981,9 +996,25 @@ class TaskRepositoryImpl(
             }
             return when (outcome) {
                 is LocalChange.Done -> outcome.result
-                is LocalChange.Created -> setTaskDone(task.copy(id = outcome.realId), targetDone, playSound = false)
+                is LocalChange.Created ->
+                    setTaskDone(task.copy(id = outcome.realId), targetDone, playSound = false, queueOnly = queueOnly)
             }
         }
+        val queue: suspend () -> NetworkResult<Task> = {
+            taskDao.upsert(optimisticDoneEntity(cachedEntity, toggled))
+            queueTaskAction(
+                task.id,
+                "toggle_done",
+                queuedUpdatePayload(toggled, patch),
+            )
+            updateParentDoneReferences(toggled, toggled.done)
+            if (toggled.done) {
+                platformHooks.cancelAlarm(task.id)
+            }
+            platformHooks.updateWidgets()
+            NetworkResult.Success(toggled)
+        }
+        if (queueOnly) return queue()
         return writeGate.sendOrQueue(
             taskId = task.id,
             send = {
@@ -1003,20 +1034,7 @@ class TaskRepositoryImpl(
                 platformHooks.updateWidgets()
                 NetworkResult.Success(result)
             },
-            queue = {
-                taskDao.upsert(optimisticDoneEntity(cachedEntity, toggled))
-                queueTaskAction(
-                    task.id,
-                    "toggle_done",
-                    queuedUpdatePayload(toggled, patch),
-                )
-                updateParentDoneReferences(toggled, toggled.done)
-                if (toggled.done) {
-                    platformHooks.cancelAlarm(task.id)
-                }
-                platformHooks.updateWidgets()
-                NetworkResult.Success(toggled)
-            },
+            queue = queue,
             refused = { e -> NetworkResult.Error(e.message ?: "Failed to toggle task") },
         )
     }

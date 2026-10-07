@@ -53,8 +53,9 @@ class ToggleTaskCallback : ActionCallback, KoinComponent {
 
             // setDone, not a toggle: a second tap on a row that is already being completed must
             // not reopen it. The repository owns the recursive completion and the offline queue.
-            // It also cancels the reminders, or schedules the next one of a repeating task.
-            when (val result = taskRepository.setDone(taskId, true)) {
+            // It also cancels the reminders. Stored and queued, not sent from here: a widget
+            // action can be stopped at any moment; the sync below sends it.
+            when (val result = taskRepository.setDoneInBackground(taskId, true)) {
                 is NetworkResult.Error -> Log.w(TAG, "Could not complete task $taskId: ${result.message}")
                 else -> SyncScheduler.enqueueImmediate(context)
             }
