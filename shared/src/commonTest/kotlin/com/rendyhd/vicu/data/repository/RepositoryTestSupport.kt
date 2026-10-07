@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.ProjectDao
+import com.rendyhd.vicu.data.local.dao.StoredPosition
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.local.entity.ProjectEntity
@@ -135,20 +136,19 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
         rows.values.filter { it.remindersJson != "[]" && !it.done }
     }
 
-    override suspend fun upsert(task: TaskEntity) {
-        lock.withLock {
-            rows[task.id] = task
-            upsertedIds += task.id
-        }
-    }
-
-    override suspend fun upsertAll(tasks: List<TaskEntity>) {
+    // upsert and upsertAll are the interface's own, so the position rule runs here as it does in Room.
+    override suspend fun upsertRows(tasks: List<TaskEntity>) {
         lock.withLock {
             tasks.forEach {
                 rows[it.id] = it
                 upsertedIds += it.id
             }
         }
+    }
+
+    override suspend fun getStoredPositionsChunk(ids: List<Long>): List<StoredPosition> = lock.withLock {
+        boundIdListSizes += ids.size
+        ids.mapNotNull { id -> rows[id]?.takeIf { it.position != 0.0 }?.let { StoredPosition(id, it.position) } }
     }
 
     override suspend fun getOpenOrLocalOnlyIds(): List<Long> =
@@ -180,8 +180,14 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
         }
     }
 
+    /** Ids passed to [updatePosition], in order, so a test can tell which rows a position refresh wrote. */
+    val updatedPositionIds = mutableListOf<Long>()
+
     override suspend fun updatePosition(taskId: Long, position: Double) {
-        lock.withLock { rows[taskId]?.let { rows[taskId] = it.copy(position = position) } }
+        lock.withLock {
+            updatedPositionIds += taskId
+            rows[taskId]?.let { rows[taskId] = it.copy(position = position) }
+        }
     }
 
     override suspend fun deleteAll() {

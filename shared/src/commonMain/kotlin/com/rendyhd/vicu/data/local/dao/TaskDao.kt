@@ -10,14 +10,8 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TaskDao {
 
-    @Query(
-        """
-        SELECT * FROM tasks
-        WHERE done = 0 AND isMetadata = 0 AND projectId = :inboxProjectId
-        AND (:includeDated = 1 OR dueDate = '' OR dueDate = '0001-01-01T00:00:00Z')
-        ORDER BY created DESC
-        """
-    )
+    /** The Inbox in its list view's order (see [INBOX_TASKS_SQL]); the screen puts dated tasks first. */
+    @Query(INBOX_TASKS_SQL)
     fun getInboxTasks(inboxProjectId: Long, includeDated: Boolean): Flow<List<TaskEntity>>
 
     @Query(
@@ -192,11 +186,33 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE remindersJson != '[]' AND done = 0")
     suspend fun getAllWithReminders(): List<TaskEntity>
 
+    /** Writes the rows exactly as given. Callers use [upsert] and [upsertAll], which keep stored positions. */
     @Upsert
-    suspend fun upsert(task: TaskEntity)
+    suspend fun upsertRows(tasks: List<TaskEntity>)
 
-    @Upsert
-    suspend fun upsertAll(tasks: List<TaskEntity>)
+    /** The non-zero stored positions of at most [MAX_SQL_ID_PARAMS] of the given tasks. */
+    @Query("SELECT id, position FROM tasks WHERE position != 0 AND id IN (:ids)")
+    suspend fun getStoredPositionsChunk(ids: List<Long>): List<StoredPosition>
+
+    /**
+     * Writes the rows, except that a position of 0 never replaces a stored one. The server only
+     * sends a task's position when it is fetched through a list view; every other answer (the task
+     * lists, the reply to an update) says 0 for "not told", and writing that would throw away the
+     * order the Inbox was just given. Positions are changed on purpose through [updatePosition] and
+     * [updatePositions].
+     */
+    @Transaction
+    suspend fun upsertAll(tasks: List<TaskEntity>) {
+        val unplaced = tasks.filter { it.position == 0.0 }.map { it.id }
+        val stored = if (unplaced.isEmpty()) {
+            emptyMap()
+        } else {
+            unplaced.sqlIdChunks().flatMap { getStoredPositionsChunk(it) }.associate { it.id to it.position }
+        }
+        upsertRows(keepStoredPositions(tasks, stored))
+    }
+
+    suspend fun upsert(task: TaskEntity) = upsertAll(listOf(task))
 
     @Query("SELECT * FROM tasks")
     suspend fun getAllSync(): List<TaskEntity>
@@ -237,6 +253,12 @@ interface TaskDao {
 
     @Query("UPDATE tasks SET position = :position WHERE id = :taskId")
     suspend fun updatePosition(taskId: Long, position: Double)
+
+    /** Sets several positions in one transaction: the order of a list view, as the server holds it. */
+    @Transaction
+    suspend fun updatePositions(positions: Map<Long, Double>) {
+        positions.forEach { (taskId, position) -> updatePosition(taskId, position) }
+    }
 
     @Query("DELETE FROM tasks")
     suspend fun deleteAll()

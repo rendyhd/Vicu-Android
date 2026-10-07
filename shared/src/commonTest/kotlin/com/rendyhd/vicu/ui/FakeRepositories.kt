@@ -14,6 +14,7 @@ import com.rendyhd.vicu.domain.repository.QuickDue
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.DEFAULT_MAX_UPLOAD_BYTES
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.PositionUpdate
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -151,7 +152,32 @@ class FakeTaskRepository : TaskRepository {
         return moveDescendantsResult
     }
 
-    override suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double) = Unit
+    /** (project id, updates) of every [applyPositions]; [positionResult] decides the outcome. */
+    val appliedPositions = mutableListOf<Pair<Long, List<PositionUpdate>>>()
+    var positionResult: NetworkResult<Unit> = NetworkResult.Success(Unit)
+
+    /** Like the real repository, a reorder is stored on the cached rows at once, whatever the server says. */
+    override suspend fun applyPositions(projectId: Long, updates: List<PositionUpdate>): NetworkResult<Unit> {
+        appliedPositions += projectId to updates
+        updates.forEach { update -> rowFor(update.taskId).value?.let { write(it.id, it.copy(position = update.position)) } }
+        return positionResult
+    }
+
+    override suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double): NetworkResult<Unit> =
+        applyPositions(projectId, listOf(PositionUpdate(taskId, newPosition)))
+
+    /** The projects [refreshListPositions] was asked about; [listPositions] is what the "server" says. */
+    val positionRefreshes = mutableListOf<Long>()
+    var listPositions: Map<Long, Double> = emptyMap()
+    var positionRefreshResult: NetworkResult<Unit> = NetworkResult.Success(Unit)
+
+    override suspend fun refreshListPositions(projectId: Long): NetworkResult<Unit> {
+        positionRefreshes += projectId
+        if (positionRefreshResult is NetworkResult.Success) {
+            listPositions.forEach { (id, position) -> rowFor(id).value?.let { write(id, it.copy(position = position)) } }
+        }
+        return positionRefreshResult
+    }
 
     override suspend fun delete(taskId: Long, deleteSubtasks: Boolean): NetworkResult<Unit> {
         deleted += taskId

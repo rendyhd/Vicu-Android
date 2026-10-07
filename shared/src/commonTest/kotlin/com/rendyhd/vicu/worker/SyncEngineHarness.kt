@@ -22,6 +22,7 @@ import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.repository.FakePendingActionDao
 import com.rendyhd.vicu.data.repository.FakeProjectDao
 import com.rendyhd.vicu.data.repository.FakeTaskDao
+import com.rendyhd.vicu.data.repository.ListPositioner
 import com.rendyhd.vicu.data.repository.RecordingRepositoryHooks
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.CustomListSyncStatus
@@ -135,6 +136,8 @@ class SyncEngineHarness(
     val hooks: RecordingRepositoryHooks = RecordingRepositoryHooks(),
     val customLists: CustomListRepository = FakeCustomListRepository(),
     val routines: RoutineRepository? = null,
+    /** Gives the engine a [ListPositioner] (over the harness's DAO), so replayed creates are put at the end of their list. */
+    anchorCreates: Boolean = false,
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ) {
     private val requestLock = Mutex()
@@ -156,6 +159,14 @@ class SyncEngineHarness(
     }
 
     val api = VikunjaApiService(client, authTestJson)
+
+    /** Unconfined, so a background position request starts at once; a test waits for it with awaitIdle(). */
+    val positioner = ListPositioner(
+        api,
+        CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+        storePosition = { taskId, position -> taskDao.updatePosition(taskId, position) },
+    )
+    private val enginePositioner = if (anchorCreates) positioner else null
     private val storage = InMemoryTokenStorage()
     val cursorStore = SyncCursorStore(InMemoryPreferencesDataStore())
     val refresher = TaskRefresher(
@@ -193,6 +204,7 @@ class SyncEngineHarness(
         authManager = authManager,
         customListRepository = customLists,
         routineRepository = routines,
+        positioner = enginePositioner,
     )
 
     val engine: SyncEngine = newEngine()

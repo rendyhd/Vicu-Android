@@ -110,9 +110,15 @@ class TaskRepositoryCreateSubtaskTest {
 
         val result = h.repository.createSubtask(42, child)
 
+        h.positioner.awaitIdle()
+
         assertEquals(501L, (result as NetworkResult.Success).data.id)
         assertEquals(listOf(42L), parentIdsOf(result.data))
         assertTrue(h.pendingActionDao.snapshot().isEmpty())
-        assertEquals(listOf("POST /projects/7/tasks", "POST /tasks/42/relations"), h.sent.map { "${it.method} ${it.path}" })
+        assertEquals(
+            // The last request is the background move to the end of the list (refused here: best effort).
+            listOf("POST /projects/7/tasks", "POST /tasks/42/relations", "GET /projects/7/views"),
+            h.sent.map { "${it.method} ${it.path}" },
+        )
     }
 }

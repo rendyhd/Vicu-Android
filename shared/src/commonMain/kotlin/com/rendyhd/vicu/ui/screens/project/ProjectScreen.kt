@@ -58,6 +58,7 @@ import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.AddTaskButton
+import com.rendyhd.vicu.ui.components.task.ReorderableTaskRow
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.util.isManuallyOrdered
 import sh.calvin.reorderable.ReorderableItem
@@ -296,67 +297,6 @@ private fun SubprojectRow(
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp),
         )
-    }
-}
-
-@Composable
-private fun LazyItemScope.ReorderableTaskRow(
-    reorderableState: ReorderableLazyListState,
-    task: Task,
-    displayTask: Task,
-    canDrag: Boolean,
-    selectionActive: Boolean,
-    selected: Boolean,
-    onDragStarted: () -> Unit,
-    onDragStopped: () -> Unit,
-    onToggleDone: () -> Unit,
-    onClick: () -> Unit,
-    onSubtaskToggleDone: (Task) -> Unit,
-    onSubtaskClick: (Task) -> Unit,
-    onSchedule: () -> Unit,
-    onLongClick: (() -> Unit)?,
-    contentStartPadding: Dp = 0.dp,
-) {
-    val haptic = LocalHapticFeedback.current
-    ReorderableItem(reorderableState, key = task.id) { isDragging ->
-        val elevation by animateDpAsState(
-            if (isDragging) 4.dp else 0.dp,
-            label = "dragElevation",
-        )
-        // The Surface stays in the tree even when idle: swapping it in/out on isDragging
-        // would change the slot structure and reset the row's internal state mid-drag.
-        Surface(
-            shadowElevation = elevation,
-            color = if (isDragging) {
-                MaterialTheme.colorScheme.surfaceContainerHigh
-            } else {
-                Color.Transparent
-            },
-        ) {
-            SwipeableTaskItem(
-                task = displayTask,
-                onToggleDone = onToggleDone,
-                onClick = onClick,
-                onSubtaskToggleDone = onSubtaskToggleDone,
-                onSubtaskClick = onSubtaskClick,
-                onSchedule = onSchedule,
-                selectionActive = selectionActive,
-                selected = selected,
-                onLongClick = onLongClick,
-                contentStartPadding = contentStartPadding,
-                modifier = if (canDrag) {
-                    Modifier.longPressDraggableHandle(
-                        onDragStarted = {
-                            onDragStarted()
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
-                        onDragStopped = onDragStopped,
-                    )
-                } else {
-                    Modifier
-                },
-            )
-        }
     }
 }
 

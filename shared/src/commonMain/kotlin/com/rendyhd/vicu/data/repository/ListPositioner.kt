@@ -30,13 +30,16 @@ import kotlin.time.Duration.Companion.minutes
  * - Any failure, and a task moving between projects, forgets what was remembered about the
  *   project ([invalidate]); [clear] forgets everything (account change).
  *
- * Positioning is best effort: a failure is logged and never reaches the caller, the task is where
- * the server put it. One request chain at a time, so quick creates get increasing positions.
+ * Positioning is best effort: a failure is logged and never reaches the background caller, the
+ * task is where the server put it. One request chain at a time, so quick creates get increasing
+ * positions. [storePosition] writes a position the server accepted onto the cached row, so the
+ * list that is drawn from the cache agrees with the server without waiting for a refresh.
  */
 class ListPositioner(
     private val api: VikunjaApiService,
     private val scope: CoroutineScope,
     private val time: TimeSource = SystemTimeSource,
+    private val storePosition: suspend (taskId: Long, position: Double) -> Unit = { _, _ -> },
 ) {
     companion object {
         private const val TAG = "ListPositioner"
@@ -81,6 +84,7 @@ class ListPositioner(
             val position = lastPosition(projectId, viewId, generation) + GAP
             api.updateTaskPosition(taskId, TaskPositionDto(position = position, projectViewId = viewId))
             remember(generation) { it.copy(lastPositions = it.lastPositions + (projectId to LastPosition(position, nowMs()))) }
+            storePosition(taskId, position)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -89,25 +93,38 @@ class ListPositioner(
         }
     }
 
-    /** A manual reorder: [position] is where [taskId] belongs in [projectId]'s list view. */
-    suspend fun setPosition(projectId: Long, taskId: Long, position: Double) = mutex.withLock {
+    /**
+     * A manual reorder: [position] is where [taskId] belongs in [projectId]'s list view. True when
+     * the server has it (or the project has no list view, so there is nothing to tell it), false
+     * when the request failed; the caller says so to the user.
+     */
+    suspend fun setPosition(projectId: Long, taskId: Long, position: Double): Boolean = mutex.withLock {
         val generation = cache.value.generation
         try {
             val viewId = listViewId(projectId, generation)
-            if (viewId == NO_LIST_VIEW) return@withLock
+            if (viewId == NO_LIST_VIEW) return@withLock true
             api.updateTaskPosition(taskId, TaskPositionDto(position = position, projectViewId = viewId))
             // The last position can only have grown; if it was not remembered, ask when it is needed.
             remember(generation) { current ->
                 val last = current.lastPositions[projectId] ?: return@remember current
                 current.copy(lastPositions = current.lastPositions + (projectId to LastPosition(maxOf(last.value, position), last.atMs)))
             }
+            true
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             invalidate(projectId)
-            Logger.w(TAG, "Could not set the position of task $taskId (non-fatal): ${e.message}")
+            Logger.w(TAG, "Could not set the position of task $taskId: ${e.message}")
+            false
         }
     }
+
+    /**
+     * The id of [projectId]'s list view (remembered), or null when it has none. Throws when the
+     * views cannot be fetched.
+     */
+    suspend fun listViewIdOrNull(projectId: Long): Long? =
+        listViewId(projectId, cache.value.generation).takeIf { it != NO_LIST_VIEW }
 
     /** Forgets what is remembered about [projectId]: a task moved in or out, or a request failed. */
     fun invalidate(projectId: Long) {

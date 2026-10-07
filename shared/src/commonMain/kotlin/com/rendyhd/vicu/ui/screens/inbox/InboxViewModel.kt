@@ -12,6 +12,9 @@ import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.moveTaskInList
+import com.rendyhd.vicu.util.planDrop
+import com.rendyhd.vicu.util.sortProjectTasks
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,9 +75,12 @@ class InboxViewModel(
                     projectRepository.getAll(),
                     completions.state,
                 ) { tasks, activeProjects, _ ->
-                    completions.merge(tasks) to activeProjects.any { it.id == inboxId }
+                    // Dated tasks first (by date), then the rest in the order of the list view: the
+                    // same order the desktop app shows. Held rows go back where they were.
+                    completions.merge(sortProjectTasks(tasks)) to activeProjects.any { it.id == inboxId }
                 }.collect { (tasks, inboxIsActive) ->
                     Log.d(TAG, "Flow emission: ${tasks.size} tasks for inboxId=$inboxId, active=$inboxIsActive")
+                    askForUnknownPositions(inboxId, tasks)
                     _uiState.update {
                         it.copy(
                             tasks = if (inboxIsActive) tasks else emptyList(),
@@ -94,6 +100,21 @@ class InboxViewModel(
         if (refresher.isStale()) refresh()
     }
 
+    /** Tasks whose position the server has been asked for (or is being asked for). */
+    private val askedForPosition = HashSet<Long>()
+
+    /**
+     * The task lists do not carry positions (the server states them only for a list view), so a
+     * task the cache knows no position for (0) means the order is not known yet: a first look at
+     * the Inbox, or a task another device added. The Inbox's list view is read once for each such
+     * task; a pull to refresh reads it again whatever is known.
+     */
+    private fun askForUnknownPositions(inboxId: Long, tasks: List<Task>) {
+        val unknown = tasks.filter { it.position == 0.0 && it.id > 0L && askedForPosition.add(it.id) }
+        if (unknown.isEmpty()) return
+        viewModelScope.launch { taskRepository.refreshListPositions(inboxId) }
+    }
+
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
@@ -101,6 +122,41 @@ class InboxViewModel(
             // A failed refresh is shown (an offline one only when the user asked for it) and
             // leaves the app stale, so the next screen tries again.
             _uiState.update { it.copy(isRefreshing = false, error = result.refreshErrorToShow(showSpinner) ?: it.error) }
+            if (showSpinner) {
+                // Another device may have reordered the Inbox.
+                _uiState.value.inboxProjectId?.let { taskRepository.refreshListPositions(it) }
+            }
+        }
+    }
+
+    /**
+     * Live reorder while dragging: move [fromId] into the slot of [toId]. A dated task is not
+     * movable (it is listed by its date), and neither is a slot among them. Returns true when a
+     * move was applied; the explicit compare-and-set ties the answer to the attempt that landed.
+     */
+    fun onTaskMoved(fromId: Long, toId: Long): Boolean {
+        while (true) {
+            val current = _uiState.value
+            val reordered = moveTaskInList(current.tasks, fromId, toId) ?: return false
+            if (_uiState.compareAndSet(current, current.copy(tasks = reordered))) return true
+        }
+    }
+
+    /**
+     * The drag was released: store and send the dropped task's new position (and, when its
+     * neighbours left no room, the others'). When the server refuses, say so and read its order
+     * back, which puts the list as the server has it.
+     */
+    fun onTaskDropped(taskId: Long) {
+        val state = _uiState.value
+        val inboxId = state.inboxProjectId ?: return
+        val plan = planDrop(state.tasks, taskId) ?: return
+        viewModelScope.launch {
+            val result = taskRepository.applyPositions(inboxId, plan.updates)
+            if (result is NetworkResult.Error) {
+                _uiState.update { it.copy(error = result.message) }
+                taskRepository.refreshListPositions(inboxId)
+            }
         }
     }
 

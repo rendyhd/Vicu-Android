@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
 import com.rendyhd.vicu.data.local.*
+import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.mapper.*
 import com.rendyhd.vicu.data.repository.*
 import com.rendyhd.vicu.domain.repository.*
@@ -95,7 +96,15 @@ val repositoryModule = module {
     }
     single { ProjectRefresher(projectDao = get(), pendingActionDao = get(), api = get(), projectMapper = get()) }
 
-    single { ListPositioner(api = get(), scope = CoroutineScope(SupervisorJob() + Dispatchers.Default), time = get()) }
+    single {
+        val taskDao = get<TaskDao>()
+        ListPositioner(
+            api = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            time = get(),
+            storePosition = { taskId, position -> taskDao.updatePosition(taskId, position) },
+        )
+    }
     single<TaskRepository> {
         TaskRepositoryImpl(
             taskDao = get(),
@@ -248,6 +257,7 @@ val commonModule = module {
             authManager = get(),
             customListRepository = get(),
             routineRepository = get(),
+            positioner = get(),
         )
     }
 }

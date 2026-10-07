@@ -2,6 +2,7 @@ package com.rendyhd.vicu.domain.repository
 
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.PositionUpdate
 import kotlinx.coroutines.flow.Flow
 
 interface TaskRepository {
@@ -53,8 +54,25 @@ interface TaskRepository {
      * skipped. Returns how many were moved, or an error naming how many could not be.
      */
     suspend fun moveDescendantsToProject(taskId: Long, newProjectId: Long): NetworkResult<Int>
-    /** Manual reorder: optimistic local position write + best-effort remote view-position POST. */
-    suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double)
+    /** Manual reorder of one task: [applyPositions] with a single update. */
+    suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double): NetworkResult<Unit>
+
+    /**
+     * Applies a manual reorder of [projectId]'s list view. The positions are stored on the cached
+     * rows at once, so the list shows the new order; then they are sent to the server, one request
+     * after the other in the order given, stopping at the first one that fails (an error, and the
+     * local order stays until [refreshListPositions] brings the server's back). A task that only
+     * exists on this device is not sent: the sync puts it at the end when it creates it.
+     */
+    suspend fun applyPositions(projectId: Long, updates: List<PositionUpdate>): NetworkResult<Unit>
+
+    /**
+     * Reads the order of [projectId]'s list view from the server and stores it on the cached open
+     * tasks. The task lists do not carry positions (the server only states them for a list view),
+     * so this is how a list that is drawn in manual order learns it. Only the position of tasks
+     * already cached is written; a project without a list view has nothing to read.
+     */
+    suspend fun refreshListPositions(projectId: Long): NetworkResult<Unit>
     /** Deletes a task. Descendants are deleted by default so they cannot be silently promoted. */
     suspend fun delete(taskId: Long, deleteSubtasks: Boolean = true): NetworkResult<Unit>
     suspend fun toggleDone(task: Task): NetworkResult<Task>

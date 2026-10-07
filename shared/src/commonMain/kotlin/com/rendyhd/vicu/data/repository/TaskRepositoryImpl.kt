@@ -22,6 +22,7 @@ import com.rendyhd.vicu.util.CustomListEnvelope
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.PositionUpdate
 import com.rendyhd.vicu.util.isNetworkFailure
 import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.Logger
@@ -112,10 +113,44 @@ class TaskRepositoryImpl(
         return result
     }
 
-    override suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double) {
-        taskDao.updatePosition(taskId, newPosition)
-        // Best effort; the list view id is remembered, so a reorder is a single request.
-        positioner.setPosition(projectId, taskId, newPosition)
+    override suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double): NetworkResult<Unit> =
+        applyPositions(projectId, listOf(PositionUpdate(taskId, newPosition)))
+
+    override suspend fun applyPositions(projectId: Long, updates: List<PositionUpdate>): NetworkResult<Unit> {
+        if (updates.isEmpty()) return NetworkResult.Success(Unit)
+        // The list is drawn from the cached rows, so the new order shows at once.
+        taskDao.updatePositions(updates.associate { it.taskId to it.position })
+        for (update in updates) {
+            // A task that only exists here has no position on the server yet; the sync gives it one.
+            if (update.taskId < 0L) continue
+            if (!positioner.setPosition(projectId, update.taskId, update.position)) {
+                return NetworkResult.Error("Could not save the new order")
+            }
+        }
+        return NetworkResult.Success(Unit)
+    }
+
+    override suspend fun refreshListPositions(projectId: Long): NetworkResult<Unit> {
+        return try {
+            val viewId = positioner.listViewIdOrNull(projectId) ?: return NetworkResult.Success(Unit)
+            val listed = api.getAllViewTasks(
+                projectId,
+                viewId,
+                mapOf("filter" to "done = false", "sort_by" to "position", "order_by" to "asc"),
+                expandSubtasks = false,
+            )
+            val cached = taskDao.getByIds(listed.map { it.id }).associateBy { it.id }
+            val changed = listed
+                .filter { dto -> cached[dto.id]?.let { it.position != dto.position } == true }
+                .associate { it.id to it.position }
+            if (changed.isNotEmpty()) taskDao.updatePositions(changed)
+            NetworkResult.Success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Logger.w(TAG, "refreshListPositions($projectId) failed: ${e.message}")
+            refreshFailure(e, "Failed to read the order of the list")
+        }
     }
 
     private suspend fun queueTaskAction(entityId: Long, actionType: String, payload: String) {
@@ -299,6 +334,9 @@ class TaskRepositoryImpl(
             // The task changes lists: what is remembered about where each list ends is out of date.
             positioner.invalidate(previous.projectId)
             positioner.invalidate(task.projectId)
+            // A position belongs to one list view: the old one means nothing in the new list. 0 is
+            // "not known", so a list drawn in manual order asks the server for the real one.
+            taskDao.updatePosition(task.id, 0.0)
         }
 
         if (task.id < 0L) {
@@ -496,7 +534,14 @@ class TaskRepositoryImpl(
             } ?: createdEntity
             taskDao.upsert(linkedChildEntity)
 
-            NetworkResult.Success(with(taskMapper) { linkedChildEntity.toDomain() })
+            val createdSubtask = with(taskMapper) { linkedChildEntity.toDomain() }
+            // Like any new task: its reminders are armed, and it goes to the end of its list.
+            platformHooks.scheduleAlarm(createdSubtask)
+            if (!CustomListEnvelope.isAnyMetadataTask(subtask.description)) {
+                positioner.anchorAtEndInBackground(subtask.projectId, createdSubtask.id)
+            }
+            platformHooks.updateWidgets()
+            NetworkResult.Success(createdSubtask)
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
                 // Offline, or the server is down. This also covers a task that was created but

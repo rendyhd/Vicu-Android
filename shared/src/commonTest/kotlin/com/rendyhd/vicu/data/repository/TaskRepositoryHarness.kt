@@ -93,7 +93,12 @@ class TaskRepositoryHarness(
     val api = VikunjaApiService(client, authTestJson)
 
     /** Unconfined, so a background position request starts at once and a test can wait for it with awaitIdle(). */
-    val positioner = ListPositioner(api, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined), positionerTime)
+    val positioner = ListPositioner(
+        api,
+        CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+        positionerTime,
+        storePosition = { taskId, position -> taskDao.updatePosition(taskId, position) },
+    )
 
     val repository = TaskRepositoryImpl(
         taskDao = taskDao,

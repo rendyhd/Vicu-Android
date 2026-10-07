@@ -18,6 +18,7 @@ import com.rendyhd.vicu.data.remote.api.TaskDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
+import com.rendyhd.vicu.data.repository.ListPositioner
 import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.data.sync.ProjectRefresher
 import com.rendyhd.vicu.data.sync.TaskRefresher
@@ -75,6 +76,8 @@ class SyncEngine(
     private val customListRepository: CustomListRepository,
     /** Uploads routine history older versions kept only on this phone; see [uploadLocalRoutineHistory]. */
     private val routineRepository: RoutineRepository? = null,
+    /** Puts a task whose create is replayed at the end of its list, like an online create does. */
+    private val positioner: ListPositioner? = null,
 ) {
     private val missing = MissingResourceCheck(api)
 
@@ -360,7 +363,8 @@ class SyncEngine(
         when (action.actionType) {
             "create" -> {
                 val task = json.decodeFromString<Task>(action.payload)
-                val responseDto = findRecentDuplicate(task)
+                val duplicate = findRecentDuplicate(task)
+                val responseDto = duplicate
                     ?: api.createTask(task.projectId, with(taskMapper) { task.toCreateDto() })
                 val responseEntity = with(taskMapper) { responseDto.toEntity() }
                 taskDao.deleteById(action.entityId)
@@ -388,6 +392,11 @@ class SyncEngine(
                 // The offline create scheduled its alarms under the temporary id; they now belong
                 // to the real one, which was scheduled just above.
                 if (action.entityId != created.id) platformHooks.cancelAlarm(action.entityId)
+                // The server prepends new tasks. A create that was answered by an earlier attempt
+                // was positioned by it; metadata carriers and completed tasks are in no list.
+                if (duplicate == null && !task.done && !CustomListEnvelope.isAnyMetadataTask(task.description)) {
+                    positioner?.anchorAtEndInBackground(task.projectId, created.id)
+                }
                 linkToQueuedParents(task, created.id, tempIdMap)
                 if (action.entityId != responseEntity.id) {
                     tempIdMap[action.entityId] = responseEntity.id

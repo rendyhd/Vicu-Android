@@ -233,9 +233,10 @@ class VikunjaApiService(
         projectId: Long,
         viewId: Long,
         filters: Map<String, String> = emptyMap(),
+        expandSubtasks: Boolean = true,
     ): PaginatedResponse<TaskDto> =
         client.get("projects/$projectId/views/$viewId/tasks") {
-            parameter("expand", SUBTASK_EXPANSION)
+            if (expandSubtasks) parameter("expand", SUBTASK_EXPANSION)
             filters.forEach { (key, value) -> parameter(key, value) }
         }.bodyOrThrow()
 
@@ -243,8 +244,9 @@ class VikunjaApiService(
         projectId: Long,
         viewId: Long,
         filters: Map<String, String> = emptyMap(),
+        expandSubtasks: Boolean = true,
     ): List<TaskDto> =
-        fetchAllPages(filters) { params -> getViewTasksPage(projectId, viewId, params) }
+        fetchAllPages(filters) { params -> getViewTasksPage(projectId, viewId, params, expandSubtasks) }
 
     suspend fun updateTaskPosition(taskId: Long, body: TaskPositionDto) {
         client.put("tasks/$taskId/position") {
