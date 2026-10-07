@@ -32,19 +32,12 @@
 -keep @kotlinx.serialization.Serializable class com.rendyhd.vicu.** { *; }
 
 # =============================================================================
-# Retrofit
+# Reflection metadata (generic signatures and annotations that Ktor, kotlinx.serialization and
+# Room read at runtime)
 # =============================================================================
-# Keep Retrofit service interface methods and annotations
 -keepattributes Signature,Exceptions,InnerClasses,EnclosingMethod
 -keepattributes RuntimeVisibleAnnotations,RuntimeVisibleParameterAnnotations
 -keepattributes *Annotation*
-
--keep,allowobfuscation,allowshrinking interface retrofit2.Call
--keep,allowobfuscation,allowshrinking class retrofit2.Response
--keep,allowobfuscation,allowshrinking class kotlin.coroutines.Continuation
-
-# Keep our API service interface
--keep interface com.rendyhd.vicu.data.remote.api.VikunjaApiService { *; }
 
 # =============================================================================
 # OkHttp
@@ -63,15 +56,6 @@
 -keep @androidx.room.Database class * {
     public abstract *;
 }
-
-# =============================================================================
-# Hilt / Dagger
-# =============================================================================
--keep @dagger.Module class * { *; }
--keep @dagger.hilt.InstallIn class * { *; }
--keep class dagger.hilt.** { *; }
--keep class javax.inject.** { *; }
--keep @dagger.hilt.android.lifecycle.HiltViewModel class * { *; }
 
 # =============================================================================
 # Glance (Widgets)

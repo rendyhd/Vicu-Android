@@ -298,10 +298,6 @@ class AuthManager(
         _authState.value = AuthState.Authenticated
     }
 
-    suspend fun onApiTokenSaved(token: String, expiry: Long) {
-        tokenStorage.storeApiToken(token, expiry)
-    }
-
     suspend fun onJwtRenewed(newJwt: String, newRefreshToken: String? = null) {
         val expiry = parseJwtExpiry(newJwt)
         Logger.d("JWT_RENEWED", "newRefreshToken=${newRefreshToken != null}")

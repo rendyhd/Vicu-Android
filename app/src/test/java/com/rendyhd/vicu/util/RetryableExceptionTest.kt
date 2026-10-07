@@ -1,12 +1,9 @@
 package com.rendyhd.vicu.util
 
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.ResponseBody.Companion.toResponseBody
+import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import retrofit2.HttpException
-import retrofit2.Response
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.SocketException
@@ -16,8 +13,7 @@ import javax.net.ssl.SSLHandshakeException
 
 class RetryableExceptionTest {
 
-    private fun http(code: Int): HttpException =
-        HttpException(Response.error<Any>(code, "".toResponseBody("application/json".toMediaType())))
+    private fun http(code: Int): VikunjaApiException = VikunjaApiException(httpStatus = code)
 
     @Test fun `unknown host is retriable`() =
         assertTrue(isRetriableNetworkError(UnknownHostException("x")))
