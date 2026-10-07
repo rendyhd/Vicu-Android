@@ -1,22 +1,28 @@
 package com.rendyhd.vicu.ui.screens.setup
 
 import com.rendyhd.vicu.ui.rememberOidcLauncher
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
@@ -33,8 +39,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,14 +57,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.auth.isTotpPasscodeComplete
 import org.koin.compose.viewmodel.koinViewModel
@@ -71,21 +84,23 @@ fun SetupScreen(
         if (state.setupComplete) onSetupComplete()
     }
 
-    val oidcLauncher = rememberOidcLauncher { code, state, error ->
-        viewModel.handleOidcCallback(code, state, error)
+    val oidcLauncher = rememberOidcLauncher { code, callbackState, error ->
+        viewModel.handleOidcCallback(code, callbackState, error)
     }
+
+    // Back steps through the setup instead of leaving the app mid-way; on the first step, and
+    // once signed in (only the Inbox choice is left), it is the system's.
+    BackHandler(enabled = state.canGoBack) { viewModel.goBack() }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
             .padding(24.dp),
-        verticalArrangement = Arrangement.Top,
     ) {
-        Spacer(modifier = Modifier.weight(1f))
-
-        // Back button for non-first steps
-        if (state.step != SetupStep.ServerUrl) {
+        if (state.canGoBack) {
             IconButton(onClick = { viewModel.goBack() }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
@@ -94,61 +109,77 @@ fun SetupScreen(
         AnimatedContent(
             targetState = state.step,
             label = "setup_step",
+            modifier = Modifier.weight(1f).fillMaxWidth(),
         ) { step ->
             when (step) {
-                SetupStep.ServerUrl -> ServerUrlStep(
-                    url = state.serverUrl,
-                    isLoading = state.isLoading,
-                    error = state.error,
-                    onUrlChange = viewModel::updateServerUrl,
-                    onContinue = viewModel::discoverServer,
-                )
-                SetupStep.AuthMethodPicker -> AuthMethodPickerStep(
-                    localAuthEnabled = state.localAuthEnabled,
-                    oidcProviders = state.oidcProviders,
-                    error = state.error,
-                    onSelectPassword = viewModel::selectPasswordLogin,
-                    onSelectApiToken = viewModel::selectApiTokenEntry,
-                    onSelectOidc = { provider ->
-                        viewModel.selectOidcProvider(provider)
-                        val params = viewModel.getOidcAuthParams()
-                        if (params != null) {
-                            oidcLauncher(params)
-                        }
-                    },
-                )
-                SetupStep.PasswordLogin -> PasswordLoginStep(
-                    username = state.username,
-                    password = state.password,
-                    totpPasscode = state.totpPasscode,
-                    showTotpField = state.showTotpField,
-                    isLoading = state.isLoading,
-                    error = state.error,
-                    onUsernameChange = viewModel::updateUsername,
-                    onPasswordChange = viewModel::updatePassword,
-                    onTotpChange = viewModel::updateTotpPasscode,
-                    onSubmit = viewModel::submitPasswordLogin,
-                )
-                SetupStep.OidcTotp -> TotpStep(
-                    passcode = state.totpPasscode,
-                    isLoading = state.isLoading,
-                    error = state.error,
-                    onPasscodeChange = viewModel::updateTotpPasscode,
-                    onSubmit = {
-                        val params = viewModel.retryOidcWithTotp()
-                        if (params != null) {
-                            oidcLauncher(params)
-                        }
-                    },
-                )
-                SetupStep.ApiTokenEntry -> ApiTokenEntryStep(
-                    apiToken = state.apiToken,
-                    isLoading = state.isLoading,
-                    error = state.error,
-                    onTokenChange = viewModel::updateApiToken,
-                    onSubmit = viewModel::submitApiToken,
-                )
+                SetupStep.ServerUrl -> CenteredScrollingStep {
+                    ServerUrlStep(
+                        url = state.serverUrl,
+                        isLoading = state.isLoading,
+                        error = state.error,
+                        showCleartextWarning = state.showCleartextWarning,
+                        onUrlChange = viewModel::updateServerUrl,
+                        onContinue = viewModel::discoverServer,
+                    )
+                }
+                SetupStep.AuthMethodPicker -> CenteredScrollingStep {
+                    AuthMethodPickerStep(
+                        localAuthEnabled = state.localAuthEnabled,
+                        oidcProviders = state.oidcProviders,
+                        error = state.error,
+                        showCleartextWarning = state.showCleartextWarning,
+                        onSelectPassword = viewModel::selectPasswordLogin,
+                        onSelectApiToken = viewModel::selectApiTokenEntry,
+                        onSelectOidc = { provider ->
+                            viewModel.selectOidcProvider(provider)
+                            val params = viewModel.getOidcAuthParams()
+                            if (params != null) {
+                                oidcLauncher(params)
+                            }
+                        },
+                    )
+                }
+                SetupStep.PasswordLogin -> CenteredScrollingStep {
+                    PasswordLoginStep(
+                        username = state.username,
+                        password = state.password,
+                        totpPasscode = state.totpPasscode,
+                        showTotpField = state.showTotpField,
+                        isLoading = state.isLoading,
+                        error = state.error,
+                        showCleartextWarning = state.showCleartextWarning,
+                        onUsernameChange = viewModel::updateUsername,
+                        onPasswordChange = viewModel::updatePassword,
+                        onTotpChange = viewModel::updateTotpPasscode,
+                        onSubmit = viewModel::submitPasswordLogin,
+                    )
+                }
+                SetupStep.OidcTotp -> CenteredScrollingStep {
+                    TotpStep(
+                        passcode = state.totpPasscode,
+                        isLoading = state.isLoading,
+                        error = state.error,
+                        onPasscodeChange = viewModel::updateTotpPasscode,
+                        onSubmit = {
+                            val params = viewModel.retryOidcWithTotp()
+                            if (params != null) {
+                                oidcLauncher(params)
+                            }
+                        },
+                    )
+                }
+                SetupStep.ApiTokenEntry -> CenteredScrollingStep {
+                    ApiTokenEntryStep(
+                        apiToken = state.apiToken,
+                        isLoading = state.isLoading,
+                        error = state.error,
+                        showCleartextWarning = state.showCleartextWarning,
+                        onTokenChange = viewModel::updateApiToken,
+                        onSubmit = viewModel::submitApiToken,
+                    )
+                }
                 SetupStep.OidcInProgress -> OidcInProgressStep()
+                // The list scrolls itself, so this step is not wrapped in a scrolling column.
                 SetupStep.ProjectSelection -> ProjectSelectionStep(
                     projects = state.projects,
                     selectedProjectId = state.selectedProjectId,
@@ -158,8 +189,6 @@ fun SetupScreen(
                 )
             }
         }
-
-        Spacer(modifier = Modifier.weight(2f))
     }
 
     state.discardPrompt?.let { prompt ->
@@ -171,11 +200,94 @@ fun SetupScreen(
     }
 }
 
+/**
+ * A step that is centred when it fits and scrolls when it does not (a small screen, the keyboard
+ * open). The scroll sits inside the insets the screen already applies.
+ */
+@Composable
+private fun CenteredScrollingStep(content: @Composable ColumnScope.() -> Unit) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val minHeight = maxHeight
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = minHeight),
+            verticalArrangement = Arrangement.Center,
+            content = content,
+        )
+    }
+}
+
+/** Shown for a plain http:// address to a host outside the user's network. Warns; never blocks. */
+@Composable
+private fun CleartextWarning(modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(Icons.Filled.Warning, contentDescription = null)
+            Text(
+                text = "This address is not encrypted (http://). Your password or token would cross " +
+                    "the network in plain text. Use https:// unless this server is only reachable " +
+                    "on your own network.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+/** A masked text field with a toggle to reveal what was typed or pasted. */
+@Composable
+private fun SecretField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    imeAction: ImeAction,
+    keyboardActions: KeyboardActions,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    var visible by rememberSaveable { mutableStateOf(false) }
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        modifier = modifier.fillMaxWidth(),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Password,
+            imeAction = imeAction,
+            autoCorrectEnabled = false,
+        ),
+        keyboardActions = keyboardActions,
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }) {
+                Icon(
+                    imageVector = if (visible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                    contentDescription = if (visible) "Hide ${label.lowercase()}" else "Show ${label.lowercase()}",
+                )
+            }
+        },
+        enabled = enabled,
+    )
+}
+
 @Composable
 private fun ServerUrlStep(
     url: String,
     isLoading: Boolean,
     error: String?,
+    showCleartextWarning: Boolean,
     onUrlChange: (String) -> Unit,
     onContinue: () -> Unit,
 ) {
@@ -193,26 +305,13 @@ private fun ServerUrlStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(8.dp))
-        var hasBeenFocused by remember { mutableStateOf(false) }
         OutlinedTextField(
             value = url,
-            onValueChange = {
-                hasBeenFocused = true
-                onUrlChange(it)
-            },
+            onValueChange = onUrlChange,
             label = { Text("Server URL") },
             placeholder = { Text("https://app.vikunja.cloud") },
             singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .onFocusChanged { focusState ->
-                    if (focusState.isFocused && !hasBeenFocused) {
-                        hasBeenFocused = true
-                        if (url == "https://app.vikunja.cloud") {
-                            onUrlChange("")
-                        }
-                    }
-                },
+            modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Uri,
                 imeAction = ImeAction.Go,
@@ -221,9 +320,14 @@ private fun ServerUrlStep(
             ),
             keyboardActions = KeyboardActions(onGo = { onContinue() }),
             isError = error != null,
-            supportingText = error?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
+            supportingText = when {
+                error != null -> ({ Text(error, color = MaterialTheme.colorScheme.error) })
+                url.isBlank() -> ({ Text("Leave empty to use Vikunja Cloud") })
+                else -> null
+            },
             enabled = !isLoading,
         )
+        if (showCleartextWarning) CleartextWarning()
         Button(
             onClick = onContinue,
             modifier = Modifier.fillMaxWidth(),
@@ -261,6 +365,7 @@ private fun AuthMethodPickerStep(
     localAuthEnabled: Boolean,
     oidcProviders: List<com.rendyhd.vicu.data.remote.api.OidcProviderDto>,
     error: String?,
+    showCleartextWarning: Boolean,
     onSelectPassword: () -> Unit,
     onSelectApiToken: () -> Unit,
     onSelectOidc: (com.rendyhd.vicu.data.remote.api.OidcProviderDto) -> Unit,
@@ -283,6 +388,7 @@ private fun AuthMethodPickerStep(
         if (error != null) {
             Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
+        if (showCleartextWarning) CleartextWarning()
 
         // OIDC providers
         oidcProviders.forEach { provider ->
@@ -355,6 +461,7 @@ private fun PasswordLoginStep(
     showTotpField: Boolean,
     isLoading: Boolean,
     error: String?,
+    showCleartextWarning: Boolean,
     onUsernameChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onTotpChange: (String) -> Unit,
@@ -373,29 +480,31 @@ private fun PasswordLoginStep(
         if (error != null) {
             Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
+        if (showCleartextWarning) CleartextWarning()
 
         OutlinedTextField(
             value = username,
             onValueChange = onUsernameChange,
             label = { Text("Username") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentType = ContentType.Username },
+            keyboardOptions = KeyboardOptions(
+                imeAction = ImeAction.Next,
+                capitalization = KeyboardCapitalization.None,
+                autoCorrectEnabled = false,
+            ),
             enabled = !isLoading,
         )
-        OutlinedTextField(
+        SecretField(
             value = password,
             onValueChange = onPasswordChange,
-            label = { Text("Password") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-                imeAction = if (showTotpField) ImeAction.Next else ImeAction.Go,
-            ),
+            label = "Password",
+            imeAction = if (showTotpField) ImeAction.Next else ImeAction.Go,
             keyboardActions = if (!showTotpField) KeyboardActions(onGo = { onSubmit() }) else KeyboardActions.Default,
             enabled = !isLoading,
+            modifier = Modifier.semantics { contentType = ContentType.Password },
         )
         if (showTotpField) {
             OutlinedTextField(
@@ -487,6 +596,7 @@ private fun ApiTokenEntryStep(
     apiToken: String,
     isLoading: Boolean,
     error: String?,
+    showCleartextWarning: Boolean,
     onTokenChange: (String) -> Unit,
     onSubmit: () -> Unit,
 ) {
@@ -508,14 +618,13 @@ private fun ApiTokenEntryStep(
         if (error != null) {
             Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
+        if (showCleartextWarning) CleartextWarning()
 
-        OutlinedTextField(
+        SecretField(
             value = apiToken,
             onValueChange = onTokenChange,
-            label = { Text("API Token") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            label = "API Token",
+            imeAction = ImeAction.Go,
             keyboardActions = KeyboardActions(onGo = { onSubmit() }),
             enabled = !isLoading,
         )
@@ -556,7 +665,7 @@ private fun ProjectSelectionStep(
     onConfirm: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(

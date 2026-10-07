@@ -41,7 +41,8 @@ enum class SetupStep {
 
 data class SetupUiState(
     val step: SetupStep = SetupStep.ServerUrl,
-    val serverUrl: String = "https://app.vikunja.cloud",
+    /** Empty on a fresh install (the field then shows Vikunja Cloud as its hint); the stored URL on re-authentication. */
+    val serverUrl: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,
     val localAuthEnabled: Boolean = false,
@@ -57,7 +58,22 @@ data class SetupUiState(
     val setupComplete: Boolean = false,
     /** Set when signing in would discard queued changes of a different account; needs a decision. */
     val discardPrompt: DiscardPrompt? = null,
-)
+) {
+    /** The address is plain http:// to a host outside the user's own network: warn, do not block. */
+    val showCleartextWarning: Boolean get() = isCleartextToRemoteHost(serverUrl)
+
+    /**
+     * Whether Back (the arrow or the system gesture) steps back. Not from the first step, not once
+     * the sign-in has gone through (the method picker is behind us then), and not while a request
+     * is running, except the SSO wait, which the user has to be able to leave.
+     */
+    val canGoBack: Boolean
+        get() = when (step) {
+            SetupStep.ServerUrl, SetupStep.ProjectSelection -> false
+            SetupStep.OidcInProgress -> true
+            else -> !isLoading
+        }
+}
 
 data class DiscardPrompt(val unsyncedChanges: Int)
 
@@ -80,6 +96,17 @@ class SetupViewModel(
 
     private val _uiState = MutableStateFlow(SetupUiState())
     val uiState: StateFlow<SetupUiState> = _uiState.asStateFlow()
+
+    init {
+        // Signing in again (an expired session, a new account on the same server) starts from the
+        // address already on record. Anything typed in the meantime wins.
+        viewModelScope.launch {
+            val stored = authManager.getVikunjaUrl()?.trim().orEmpty()
+            if (stored.isNotEmpty()) {
+                _uiState.update { if (it.serverUrl.isBlank()) it.copy(serverUrl = stored) else it }
+            }
+        }
+    }
 
     fun updateServerUrl(url: String) {
         _uiState.update { it.copy(serverUrl = url, error = null) }
@@ -129,6 +156,8 @@ class SetupViewModel(
                         step = SetupStep.AuthMethodPicker,
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Logger.e(TAG, "Server discovery failed", e)
                 baseUrlHolder.baseUrl = ""
@@ -357,14 +386,15 @@ class SetupViewModel(
 
     fun goBack() {
         _uiState.update { state ->
+            if (!state.canGoBack) return@update state
             when (state.step) {
                 SetupStep.AuthMethodPicker -> state.copy(step = SetupStep.ServerUrl, error = null)
                 SetupStep.PasswordLogin -> state.copy(step = SetupStep.AuthMethodPicker, error = null, showTotpField = false)
                 SetupStep.OidcTotp -> state.copy(step = SetupStep.AuthMethodPicker, error = null, totpPasscode = "")
                 SetupStep.ApiTokenEntry -> state.copy(step = SetupStep.AuthMethodPicker, error = null)
-                SetupStep.OidcInProgress -> state.copy(step = SetupStep.AuthMethodPicker, error = null)
-                SetupStep.ProjectSelection -> state.copy(step = SetupStep.AuthMethodPicker, error = null)
-                else -> state
+                SetupStep.OidcInProgress -> state.copy(step = SetupStep.AuthMethodPicker, error = null, isLoading = false)
+                // Signed in already: there is no method left to pick, only the Inbox to choose.
+                SetupStep.ServerUrl, SetupStep.ProjectSelection -> state
             }
         }
     }
@@ -429,6 +459,5 @@ internal fun isSupportedVikunjaVersion(version: String): Boolean {
         .map { it.substringBefore('-').toIntOrNull() ?: 0 }
     val major = parts.getOrElse(0) { 0 }
     val minor = parts.getOrElse(1) { 0 }
-    val patch = parts.getOrElse(2) { 0 }
-    return major > 2 || (major == 2 && (minor > 4 || (minor == 4 && patch >= 0)))
+    return major > 2 || (major == 2 && minor >= 4)
 }
