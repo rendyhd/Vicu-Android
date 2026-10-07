@@ -97,6 +97,12 @@ fun SwipeableTaskItem(
     // layout pass does not write observable state once per row.
     val rowRefs = remember { SwipeRowRefs() }
     var gestureFromEdge by remember { mutableStateOf(false) }
+    // confirmValueChange is deprecated "without replacement", but nothing replaces what it does
+    // here: the newer onDismiss callback runs after the row has settled on the dismissed side,
+    // so the half-way check below (a flick must not commit early) and the spring-back would
+    // both be lost. Moving to dynamic anchors is a rewrite of the gesture that needs checking
+    // on a device, so the deprecated overload stays until then.
+    @Suppress("DEPRECATION")
     val dismissState = rememberSwipeToDismissBoxState(
         positionalThreshold = { totalDistance -> totalDistance * 0.5f },
         confirmValueChange = { value ->

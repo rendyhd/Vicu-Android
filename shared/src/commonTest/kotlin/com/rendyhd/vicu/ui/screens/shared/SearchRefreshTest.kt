@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package com.rendyhd.vicu.ui.screens.shared
 
 import kotlinx.coroutines.CancellationException

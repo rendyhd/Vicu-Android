@@ -42,7 +42,7 @@ class LoginHarness(
 
     suspend fun requests(): List<LoggedRequest> = lock.withLock { log.toList() }
 
-    private lateinit var service: VikunjaApiService
+    private val service: VikunjaApiService
 
     val baseUrlHolder = BaseUrlHolder(storage)
     val authManager = AuthManager(

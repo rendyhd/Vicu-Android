@@ -18,9 +18,9 @@ actual fun Modifier.imagePasteReceiver(onImagePasted: (String) -> Unit): Modifie
     val onImagePastedState = rememberUpdatedState(onImagePasted)
     val pasteListener = remember {
         object : ReceiveContentListener {
-            override fun onReceive(content: TransferableContent): TransferableContent? {
-                if (!content.hasMediaType(MediaType.Image)) return content
-                return content.consume { item ->
+            override fun onReceive(transferableContent: TransferableContent): TransferableContent? {
+                if (!transferableContent.hasMediaType(MediaType.Image)) return transferableContent
+                return transferableContent.consume { item ->
                     val uri = item.uri
                     if (uri != null) {
                         onImagePastedState.value(uri.toString())

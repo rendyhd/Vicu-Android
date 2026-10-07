@@ -230,8 +230,8 @@ class TaskParserTest {
         assertNotNull(r.dueDate)
         // Date-only: the "!" shortcut is today at 23:59:59, like every other "today".
         assertEquals(23, r.dueDate!!.hour)
-        assertEquals(59, r.dueDate!!.minute)
-        assertEquals(59, r.dueDate!!.second)
+        assertEquals(59, r.dueDate.minute)
+        assertEquals(59, r.dueDate.second)
         assertEquals("call dentist", r.title)
     }
 
@@ -456,8 +456,8 @@ class TaskParserTest {
         assertNotNull("'$input' should have a date", r.dueDate)
         assertEquals("'$input' has no time of day", false, r.dueDateHasTime)
         assertEquals("'$input' is carried at 23:59:59", 23, r.dueDate!!.hour)
-        assertEquals(59, r.dueDate!!.minute)
-        assertEquals(59, r.dueDate!!.second)
+        assertEquals(59, r.dueDate.minute)
+        assertEquals(59, r.dueDate.second)
     }
 
     @Test
@@ -481,7 +481,7 @@ class TaskParserTest {
         val tomorrow = TaskParser.parse("task tomorrow 3pm", todoist)
         assertEquals(true, tomorrow.dueDateHasTime)
         assertEquals(15, tomorrow.dueDate!!.hour)
-        assertEquals(0, tomorrow.dueDate!!.minute)
+        assertEquals(0, tomorrow.dueDate.minute)
 
         val today = TaskParser.parse("task today at 9am", todoist)
         assertEquals(true, today.dueDateHasTime)

@@ -9,6 +9,11 @@ plugins {
 }
 
 kotlin {
+    compilerOptions {
+        // The expect/actual classes (Logger, Base64Decoder, PlatformContext, ...) are in Beta.
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+
     androidTarget {
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)

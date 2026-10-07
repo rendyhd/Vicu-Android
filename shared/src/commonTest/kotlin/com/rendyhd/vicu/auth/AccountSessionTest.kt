@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package com.rendyhd.vicu.auth
 
 import com.rendyhd.vicu.auth.LoginHarness.Companion.ORIGINAL_SERVER

@@ -116,7 +116,7 @@ object ServerFilterEval {
                     (value.kind == Kind.WORD || value.kind == Kind.STRING),
             ) { "Cannot parse a comparison at token $pos of: $filter" }
             pos += 3
-            return comparison(token.text, op!!.text, value!!.text)
+            return comparison(token.text, op.text, value.text)
         }
 
         fun parseAnd(): (Row) -> Boolean {

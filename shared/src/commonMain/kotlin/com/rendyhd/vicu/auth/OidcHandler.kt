@@ -35,7 +35,7 @@ class OidcHandler(
         pendingState = state
 
         val authUrl = "${provider.authUrl}" +
-            "?client_id=${encodeUrl(provider.clientId ?: "")}" +
+            "?client_id=${encodeUrl(provider.clientId)}" +
             "&redirect_uri=${encodeUrl(redirectUri)}" +
             "&response_type=code" +
             "&state=$state" +

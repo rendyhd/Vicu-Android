@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package com.rendyhd.vicu.worker
 
 import com.rendyhd.vicu.worker.DailySummaryRun.Outcome

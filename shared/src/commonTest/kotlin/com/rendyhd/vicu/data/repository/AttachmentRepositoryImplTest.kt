@@ -127,7 +127,7 @@ class AttachmentRepositoryImplTest {
         val result = h.repository.uploadPicked(5, "content://pick/1")
 
         assertTrue(result is NetworkResult.Success, "$result")
-        assertEquals(9L, (result as NetworkResult.Success).data.id)
+        assertEquals(9L, result.data.id)
         val body = h.seen.single { it.method == HttpMethod.Post }.body.orEmpty()
         assertTrue(body.contains("hello world"), "the file's bytes are in the request")
         assertEquals(1, h.files.channelsOpened, "the file is read once, as a stream")
@@ -157,7 +157,7 @@ class AttachmentRepositoryImplTest {
         assertTrue(result is NetworkResult.Error)
         assertEquals(
             "\"big.bin\" is 25 B, but the server accepts files up to 10 B",
-            (result as NetworkResult.Error).message,
+            result.message,
         )
         assertEquals(0, h.count(HttpMethod.Post, "/tasks/5/attachments"))
         assertEquals(0, h.files.channelsOpened)

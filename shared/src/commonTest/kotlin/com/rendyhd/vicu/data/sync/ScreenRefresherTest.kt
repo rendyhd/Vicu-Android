@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package com.rendyhd.vicu.data.sync
 
 import com.rendyhd.vicu.ui.FakeLabelRepository

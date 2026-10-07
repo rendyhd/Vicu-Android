@@ -12,13 +12,13 @@ import android.security.keystore.KeyProperties
 import android.util.Log
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.KeyTemplates
+import com.google.crypto.tink.RegistryConfiguration
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import androidx.datastore.preferences.preferencesDataStore
 import java.security.KeyStore
 import java.util.Base64
 
@@ -72,7 +72,7 @@ class AndroidSecureTokenStorage(
             .withMasterKeyUri("android-keystore://$MASTER_KEY_ALIAS")
             .build()
             .keysetHandle
-        return keysetHandle.getPrimitive(Aead::class.java)
+        return keysetHandle.getPrimitive(RegistryConfiguration.get(), Aead::class.java)
     }
 
     private fun resetKeystore() {
