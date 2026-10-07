@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import androidx.core.content.edit
 import com.rendyhd.vicu.data.local.RoutinePrefsStore
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.repository.RoutineRepository
@@ -68,7 +69,7 @@ class RoutineAlarmScheduler(
                     }
             }
         }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putStringSet(KEY_IDS, requestCodes).apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putStringSet(KEY_IDS, requestCodes) }
         Log.d(TAG, "Scheduled ${requestCodes.size} routine alarms")
     }
 
@@ -117,7 +118,7 @@ class RoutineAlarmScheduler(
                 pending.cancel()
             }
         }
-        prefs.edit().remove(KEY_IDS).apply()
+        prefs.edit { remove(KEY_IDS) }
     }
 
     private fun requestCode(occurrenceKey: String, followUp: Boolean): Int =

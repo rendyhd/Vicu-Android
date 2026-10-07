@@ -1,6 +1,6 @@
 package com.rendyhd.vicu.util
 
-import android.net.Uri
+import androidx.core.net.toUri
 import com.rendyhd.vicu.data.local.PlatformContext
 import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.CancellationException
@@ -10,7 +10,7 @@ import kotlinx.coroutines.withContext
 class AndroidPlatformFiles(private val platformContext: PlatformContext) : PlatformFiles {
     override fun getDisplayName(uriString: String): String? {
         return try {
-            FileUtils.getDisplayName(platformContext.context, Uri.parse(uriString))
+            FileUtils.getDisplayName(platformContext.context, uriString.toUri())
         } catch (_: Exception) {
             null
         }
@@ -19,7 +19,7 @@ class AndroidPlatformFiles(private val platformContext: PlatformContext) : Platf
     override suspend fun openForUpload(uriString: String, maxBytes: Long): UploadOpen =
         withContext(Dispatchers.IO) {
             try {
-                FileUtils.openForUpload(platformContext.context, Uri.parse(uriString), maxBytes)
+                FileUtils.openForUpload(platformContext.context, uriString.toUri(), maxBytes)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

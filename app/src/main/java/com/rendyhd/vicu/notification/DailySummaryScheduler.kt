@@ -108,7 +108,7 @@ class DailySummaryScheduler(
         val request = request(slot, target, now)
 
         WorkManager.getInstance(context).enqueueUniqueWork(workName(slot), policy, request)
-        Log.d(TAG, "Scheduled $slot daily summary at $hour:$minute (delay=${request.workSpec.initialDelay / 60000}min)")
+        Log.d(TAG, "Scheduled $slot daily summary at $hour:$minute (delay=${(target - now).inWholeMinutes.coerceAtLeast(0L)}min)")
     }
 
     /** Schedules, or cancels, both summaries as [prefs] says (used after signing in again). */
