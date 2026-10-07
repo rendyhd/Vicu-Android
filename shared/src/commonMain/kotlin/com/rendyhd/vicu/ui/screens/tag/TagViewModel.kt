@@ -10,7 +10,8 @@ import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.data.sync.ScreenRefresher
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.withoutNestedSubtasks
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,7 +35,7 @@ class TagViewModel(
     private val taskRepository: TaskRepository,
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
-    private val syncStaleness: SyncStaleness,
+    private val refresher: ScreenRefresher,
 ) : ViewModel() {
 
     private val labelId: Long = savedStateHandle["labelId"]!!
@@ -70,24 +71,21 @@ class TagViewModel(
                 _uiState.update { it.copy(tasks = filtered, isLoading = false) }
             }
         }
-        if (syncStaleness.isStale()) refresh()
+        if (refresher.isStale()) refresh()
     }
 
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
-            try {
-                taskRepository.refreshAll()
-                projectRepository.refreshAll()
-                labelRepository.refreshAll()
-                syncStaleness.markSynced()
-                // Re-fetch label in case it was updated
-                val label = labelRepository.getById(labelId)
-                _uiState.update { it.copy(label = label) }
-            } catch (e: Exception) {
-                Log.e("TagViewModel", "refresh() failed: ${e.message}", e)
-            } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
+            val result = refresher.refresh(manual = showSpinner)
+            // Re-fetch the label in case it was updated
+            val label = labelRepository.getById(labelId)
+            _uiState.update {
+                it.copy(
+                    label = label,
+                    isRefreshing = false,
+                    error = result.refreshErrorToShow(showSpinner) ?: it.error,
+                )
             }
         }
     }

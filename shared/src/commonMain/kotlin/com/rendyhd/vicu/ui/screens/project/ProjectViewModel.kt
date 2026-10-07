@@ -17,7 +17,8 @@ import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.dropPositionFor
 import com.rendyhd.vicu.util.moveTaskInList
 import com.rendyhd.vicu.util.sortProjectTasks
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.data.sync.ScreenRefresher
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,7 +47,7 @@ class ProjectViewModel(
     private val taskRepository: TaskRepository,
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
-    private val syncStaleness: SyncStaleness,
+    private val refresher: ScreenRefresher,
     private val behaviorPrefsStore: BehaviorPrefsStore,
     private val projectSectionPrefsStore: ProjectSectionPrefsStore,
 ) : ViewModel() {
@@ -148,11 +149,15 @@ class ProjectViewModel(
                     newState.copy(
                         sections = preserveExpansion(newState.sections, current.sections),
                         completedTaskIds = current.completedTaskIds,
+                        // The lists emit whenever a task changes; that must not wipe the spinner
+                        // or an error that is still waiting to be shown.
+                        isRefreshing = current.isRefreshing,
+                        error = newState.error ?: current.error,
                     )
                 }
             }
         }
-        if (syncStaleness.isStale()) refresh()
+        if (refresher.isStale()) refresh()
     }
 
     /** [state] with the held rows back in the lists they were completed from. */
@@ -230,16 +235,10 @@ class ProjectViewModel(
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
-            try {
-                taskRepository.refreshAll()
-                projectRepository.refreshAll()
-                labelRepository.refreshAll()
-                syncStaleness.markSynced()
-            } catch (e: Exception) {
-                Log.e("ProjectViewModel", "refresh() failed: ${e.message}", e)
-            } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
-            }
+            val result = refresher.refresh(manual = showSpinner)
+            // A failed refresh is shown (an offline one only when the user asked for it) and
+            // leaves the app stale, so the next screen tries again.
+            _uiState.update { it.copy(isRefreshing = false, error = result.refreshErrorToShow(showSpinner) ?: it.error) }
         }
     }
 

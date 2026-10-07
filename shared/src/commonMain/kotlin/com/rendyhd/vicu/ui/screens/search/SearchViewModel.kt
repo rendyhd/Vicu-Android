@@ -3,6 +3,7 @@ package com.rendyhd.vicu.ui.screens.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
@@ -64,7 +65,11 @@ class SearchViewModel(
             _uiState.update { it.copy(isSearching = true) }
 
             // Trigger API search to refresh local cache
-            taskRepository.refreshAll(mapOf("q" to query))
+            val refreshed = taskRepository.refreshAll(mapOf("q" to query))
+            // Offline stays quiet (the cached matches are shown); other failures are reported.
+            refreshed.refreshErrorToShow(manual = false)?.let { message ->
+                _uiState.update { it.copy(error = message) }
+            }
 
             // Observe local results
             collectJob?.cancel()

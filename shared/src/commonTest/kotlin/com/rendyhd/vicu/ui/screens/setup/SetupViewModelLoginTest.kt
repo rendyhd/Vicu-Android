@@ -93,6 +93,8 @@ class SetupViewModelLoginTest {
         oidcHandler = OidcHandler { api },
         accountSession = accountSession,
         platformAuthHooks = hooks,
+        syncStaleness = fixture.staleness,
+        repositoryHooks = fixture.hooks,
     )
 
     private suspend fun SetupViewModel.awaitOutcome() = awaitUntil {
@@ -259,6 +261,28 @@ class SetupViewModelLoginTest {
         assertEquals(DiscardPrompt(1), vm.uiState.value.discardPrompt)
         assertNull(h.storage.getJwt())
         assertEquals(1, f.dao.pending.size)
+        h.close()
+    }
+
+    // --- refresh after sign-in ---
+
+    @Test
+    fun `finishing setup starts a sync at once and makes the next screens refresh`() = runTest {
+        val f = fixtureWithWork()
+        f.staleness.markSynced()
+        val h = harness(f)
+        h.signIn()
+        val vm = h.viewModel()
+        vm.enterToken("same-account")
+        vm.awaitOutcome()
+        assertEquals(0, f.hooks.syncTriggers, "choosing an account does not sync before it is set up")
+
+        vm.selectProject(5)
+        vm.confirmSetup()
+        awaitUntil { vm.uiState.value.setupComplete }
+
+        assertEquals(1, f.hooks.syncTriggers)
+        assertTrue(f.staleness.isStale(), "nothing cached counts as fresh for the signed-in account")
         h.close()
     }
 }

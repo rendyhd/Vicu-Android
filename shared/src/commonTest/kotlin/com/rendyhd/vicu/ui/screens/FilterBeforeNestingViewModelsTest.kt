@@ -5,7 +5,7 @@ import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.FakeNetworkMonitor
 import com.rendyhd.vicu.auth.InMemoryTokenStorage
 import com.rendyhd.vicu.auth.RecordingAuthHooks
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.ui.fakeScreenRefresher
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.CustomListFilter
 import com.rendyhd.vicu.domain.model.CustomListSyncStatus
@@ -22,6 +22,7 @@ import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.CrossAppFixture.fixture
 import com.rendyhd.vicu.util.CrossAppFixture.local
 import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.SchedulerTimeSource
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +43,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 
 /**
@@ -91,13 +94,17 @@ class FilterBeforeNestingViewModelsTest {
 
     // --- Tag screen -----------------------------------------------------------------------
 
-    private fun tagViewModel(tasks: FakeTaskRepository) = TagViewModel(
-        savedStateHandle = SavedStateHandle(mapOf("labelId" to errands.id)),
-        taskRepository = tasks,
-        projectRepository = FakeProjectRepository(projects),
-        labelRepository = FakeLabelRepository(listOf(errands)),
-        syncStaleness = SyncStaleness().apply { markSynced() },
-    )
+    private fun tagViewModel(tasks: FakeTaskRepository): TagViewModel {
+        val projectRepository = FakeProjectRepository(projects)
+        val labels = FakeLabelRepository(listOf(errands))
+        return TagViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("labelId" to errands.id)),
+            taskRepository = tasks,
+            projectRepository = projectRepository,
+            labelRepository = labels,
+            refresher = fakeScreenRefresher(tasks, projectRepository, labels),
+        )
+    }
 
     private fun TagViewModel.shownIds() = uiState.value.tasks.map { it.id }
 
@@ -176,11 +183,13 @@ class FilterBeforeNestingViewModelsTest {
         val lists = StubCustomLists(listOf(CustomList(id = "list-1", name = "List", filter = filter)))
         val authScope = CoroutineScope(SupervisorJob())
         val time = SchedulerTimeSource(testScheduler, local(now, zone), zone)
+        val projectRepository = FakeProjectRepository(projects)
+        val labels = FakeLabelRepository(listOf(errands))
         val vm = CustomListViewModel(
             savedStateHandle = SavedStateHandle(mapOf("listId" to "list-1")),
             taskRepository = tasks,
-            projectRepository = FakeProjectRepository(projects),
-            labelRepository = FakeLabelRepository(listOf(errands)),
+            projectRepository = projectRepository,
+            labelRepository = labels,
             customListRepository = lists,
             authManager = AuthManager(
                 platformAuthHooks = RecordingAuthHooks(),
@@ -190,6 +199,7 @@ class FilterBeforeNestingViewModelsTest {
                 networkMonitor = FakeNetworkMonitor(),
             ),
             dayClock = DayClock(backgroundScope, time),
+            refresher = fakeScreenRefresher(tasks, projectRepository, labels),
         )
         return Rig(vm, tasks, lists, time, authScope)
     }
@@ -234,6 +244,23 @@ class FilterBeforeNestingViewModelsTest {
         rig.lists.upsert(CustomList("list-1", "List", filter = CustomListFilter(priorityFilter = listOf(4), includeDone = true)))
         runCurrent()
         assertEquals(listOf(1L), rig.shownIds())
+        rig.authScope.cancel()
+    }
+
+    @Test
+    fun `refreshing a custom list fetches its own tasks and reports a failure`() = runTest {
+        val rig = customListRig(CustomListFilter(priorityFilter = listOf(4)))
+        runCurrent()
+        rig.tasks.refreshes.clear()
+        rig.tasks.refreshResult = NetworkResult.Error("Server error", code = 500)
+
+        rig.vm.refresh(showSpinner = true)
+        runCurrent()
+
+        assertEquals(1, rig.tasks.refreshes.size, "one filtered fetch, not a refresh of every task")
+        assertTrue(rig.tasks.refreshes.single().isNotEmpty())
+        assertEquals("Server error", rig.vm.uiState.value.error)
+        assertFalse(rig.vm.uiState.value.isRefreshing)
         rig.authScope.cancel()
     }
 

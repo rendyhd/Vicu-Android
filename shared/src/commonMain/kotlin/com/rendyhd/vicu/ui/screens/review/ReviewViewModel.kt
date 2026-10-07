@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.ReviewPrefs
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
@@ -87,7 +88,7 @@ class ReviewViewModel(
                 buildState(projects, prefs, inbox, reviewed, today, _uiState.value)
             }.collect { built -> _uiState.value = built }
         }
-        refresh()
+        refresh(manual = false)
     }
 
     private fun buildState(
@@ -155,18 +156,16 @@ class ReviewViewModel(
         }
     }
 
-    fun refresh() {
+    /** Refreshes the projects. Opening the screen refreshes quietly when offline; pulling does not. */
+    fun refresh(manual: Boolean = true) {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true, error = null) }
-            try {
-                projectRepository.refreshAll()
-            } catch (e: Exception) {
-                _uiState.update { it.copy(error = e.message) }
-            } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
-            }
+            val result = projectRepository.refreshAll()
+            _uiState.update { it.copy(isRefreshing = false, error = result.refreshErrorToShow(manual) ?: it.error) }
         }
     }
+
+    fun clearError() = _uiState.update { it.copy(error = null) }
 
     fun markReviewed(project: Project) {
         viewModelScope.launch {

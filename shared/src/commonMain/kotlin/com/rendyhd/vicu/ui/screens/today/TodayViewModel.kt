@@ -18,7 +18,8 @@ import com.rendyhd.vicu.ui.screens.shared.buildTaskProjectGroups
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.NetworkResult
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.data.sync.ScreenRefresher
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,7 +47,7 @@ class TodayViewModel(
     private val labelRepository: LabelRepository,
     private val routineRepository: RoutineRepository,
     private val authManager: AuthManager,
-    private val syncStaleness: SyncStaleness,
+    private val refresher: ScreenRefresher,
     private val dayClock: DayClock,
 ) : ViewModel() {
 
@@ -106,7 +107,7 @@ class TodayViewModel(
                 }
             }
         }
-        if (syncStaleness.isStale()) refresh()
+        if (refresher.isStale()) refresh()
     }
 
     fun toggleProject(projectId: Long) {
@@ -135,16 +136,10 @@ class TodayViewModel(
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
-            try {
-                taskRepository.refreshAll()
-                projectRepository.refreshAll()
-                labelRepository.refreshAll()
-                syncStaleness.markSynced()
-            } catch (e: Exception) {
-                Log.e("TodayViewModel", "refresh() failed: ${e.message}", e)
-            } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
-            }
+            val result = refresher.refresh(manual = showSpinner)
+            // A failed refresh is shown (an offline one only when the user asked for it) and
+            // leaves the app stale, so the next screen tries again.
+            _uiState.update { it.copy(isRefreshing = false, error = result.refreshErrorToShow(showSpinner) ?: it.error) }
         }
     }
 

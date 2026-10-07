@@ -1,5 +1,7 @@
 package com.rendyhd.vicu.ui
 
+import com.rendyhd.vicu.data.sync.ScreenRefresher
+import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.domain.model.Attachment
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
@@ -19,6 +21,17 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+
+/**
+ * The refresh a list screen runs, over the given fakes. It starts fresh (so a screen that opens
+ * does not refresh) unless [fresh] is false.
+ */
+fun fakeScreenRefresher(
+    tasks: TaskRepository,
+    projects: ProjectRepository,
+    labels: LabelRepository,
+    fresh: Boolean = true,
+) = ScreenRefresher(tasks, projects, labels, SyncStaleness().apply { if (fresh) markSynced() })
 
 /**
  * In-memory [TaskRepository] for view model tests. It behaves like the real one where tests
@@ -168,9 +181,13 @@ class FakeTaskRepository : TaskRepository {
     /** What [refreshAll] answers; a test sets an error to model a failed or offline refresh. */
     var refreshResult: NetworkResult<Unit> = NetworkResult.Success(Unit)
 
+    /** Holds every [refreshAll] until a test completes it, to model a slow network. */
+    var refreshGate: CompletableDeferred<Unit>? = null
+
     override suspend fun refreshAll(filters: Map<String, String>, full: Boolean): NetworkResult<Unit> {
         refreshes += filters
         fullRefreshes += full
+        refreshGate?.await()
         return refreshResult
     }
 
@@ -209,7 +226,14 @@ class FakeLabelRepository(initial: List<Label> = emptyList()) : LabelRepository 
     }
 
     override suspend fun removeFromTask(taskId: Long, labelId: Long): NetworkResult<Unit> = NetworkResult.Success(Unit)
-    override suspend fun refreshAll(): NetworkResult<Unit> = NetworkResult.Success(Unit)
+
+    var refreshCalls = 0
+    var refreshResult: NetworkResult<Unit> = NetworkResult.Success(Unit)
+
+    override suspend fun refreshAll(): NetworkResult<Unit> {
+        refreshCalls++
+        return refreshResult
+    }
 }
 
 class FakeProjectRepository(initial: List<Project> = emptyList()) : ProjectRepository {
@@ -230,7 +254,14 @@ class FakeProjectRepository(initial: List<Project> = emptyList()) : ProjectRepos
         return NetworkResult.Success(project)
     }
     override suspend fun delete(projectId: Long): NetworkResult<Unit> = NetworkResult.Success(Unit)
-    override suspend fun refreshAll(): NetworkResult<Unit> = NetworkResult.Success(Unit)
+
+    var refreshCalls = 0
+    var refreshResult: NetworkResult<Unit> = NetworkResult.Success(Unit)
+
+    override suspend fun refreshAll(): NetworkResult<Unit> {
+        refreshCalls++
+        return refreshResult
+    }
 }
 
 class FakeAttachmentRepository : AttachmentRepository {

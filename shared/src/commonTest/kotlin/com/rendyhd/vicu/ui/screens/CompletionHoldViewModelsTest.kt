@@ -1,13 +1,13 @@
 package com.rendyhd.vicu.ui.screens
 
 import androidx.lifecycle.SavedStateHandle
-import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.ui.FakeLabelRepository
 import com.rendyhd.vicu.ui.FakeProjectRepository
 import com.rendyhd.vicu.ui.FakeTaskRepository
+import com.rendyhd.vicu.ui.fakeScreenRefresher
 import com.rendyhd.vicu.ui.screens.logbook.LogbookViewModel
 import com.rendyhd.vicu.ui.screens.tag.TagViewModel
 import com.rendyhd.vicu.util.NetworkResult
@@ -49,22 +49,28 @@ class CompletionHoldViewModelsTest {
     private fun openTask(id: Long) = Task(id = id, title = "Task $id", projectId = 1, labels = listOf(label))
     private fun doneTask(id: Long) = Task(id = id, title = "Task $id", projectId = 1, done = true)
 
-    private fun freshSync() = SyncStaleness().apply { markSynced() }
+    private fun tagViewModel(tasks: FakeTaskRepository): TagViewModel {
+        val projects = FakeProjectRepository(listOf(Project(id = 1, title = "Project")))
+        val labels = FakeLabelRepository(listOf(label))
+        return TagViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("labelId" to label.id)),
+            taskRepository = tasks,
+            projectRepository = projects,
+            labelRepository = labels,
+            refresher = fakeScreenRefresher(tasks, projects, labels),
+        )
+    }
 
-    private fun tagViewModel(tasks: FakeTaskRepository) = TagViewModel(
-        savedStateHandle = SavedStateHandle(mapOf("labelId" to label.id)),
-        taskRepository = tasks,
-        projectRepository = FakeProjectRepository(listOf(Project(id = 1, title = "Project"))),
-        labelRepository = FakeLabelRepository(listOf(label)),
-        syncStaleness = freshSync(),
-    )
-
-    private fun logbookViewModel(tasks: FakeTaskRepository, sync: SyncStaleness = freshSync()) = LogbookViewModel(
-        taskRepository = tasks,
-        projectRepository = FakeProjectRepository(listOf(Project(id = 1, title = "Project"))),
-        labelRepository = FakeLabelRepository(),
-        syncStaleness = sync,
-    )
+    private fun logbookViewModel(tasks: FakeTaskRepository, fresh: Boolean = true): LogbookViewModel {
+        val projects = FakeProjectRepository(listOf(Project(id = 1, title = "Project")))
+        val labels = FakeLabelRepository()
+        return LogbookViewModel(
+            taskRepository = tasks,
+            projectRepository = projects,
+            labelRepository = labels,
+            refresher = fakeScreenRefresher(tasks, projects, labels, fresh),
+        )
+    }
 
     private fun FakeTaskRepository.withOpenTasks(vararg ids: Long) = apply { ids.forEach { put(openTask(it)) } }
 
@@ -211,7 +217,7 @@ class CompletionHoldViewModelsTest {
     @Test
     fun `logbook does not download every task when the data is fresh`() = runTest {
         val tasks = FakeTaskRepository().apply { put(doneTask(1)) }
-        logbookViewModel(tasks, sync = freshSync())
+        logbookViewModel(tasks)
         runCurrent()
 
         assertTrue(tasks.refreshes.isEmpty())
@@ -221,7 +227,7 @@ class CompletionHoldViewModelsTest {
     @Test
     fun `logbook refreshes once with the normal refresh when the data is stale`() = runTest {
         val tasks = FakeTaskRepository().apply { put(doneTask(1)) }
-        logbookViewModel(tasks, sync = SyncStaleness())
+        logbookViewModel(tasks, fresh = false)
         runCurrent()
 
         assertEquals(listOf(emptyMap<String, String>()), tasks.refreshes)

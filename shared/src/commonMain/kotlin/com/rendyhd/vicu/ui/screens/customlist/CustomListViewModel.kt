@@ -9,6 +9,8 @@ import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.data.sync.ScreenRefresher
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
@@ -52,6 +54,7 @@ class CustomListViewModel(
     private val customListRepository: CustomListRepository,
     private val authManager: AuthManager,
     private val dayClock: DayClock,
+    private val refresher: ScreenRefresher,
 ) : ViewModel() {
 
     private val listId: String = savedStateHandle["listId"]!!
@@ -109,7 +112,10 @@ class CustomListViewModel(
                 .distinctUntilChanged()
                 .collect { (filter, day) ->
                     if (filter != null) {
-                        taskRepository.refreshAll(CustomListFilterBuilder.buildQueryParams(filter, day.date, day.zone))
+                        val result = taskRepository.refreshAll(
+                            CustomListFilterBuilder.buildQueryParams(filter, day.date, day.zone),
+                        )
+                        _uiState.update { it.copy(error = result.refreshErrorToShow(manual = false) ?: it.error) }
                     }
                 }
         }
@@ -122,22 +128,18 @@ class CustomListViewModel(
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
-            try {
-                // A foreground refresh also pulls custom-list edits made by another client.
-                customListRepository.sync()
-                val customList = _uiState.value.customList
-                if (customList != null) {
+            // A foreground refresh also pulls custom-list edits made by another client.
+            customListRepository.sync()
+            val customList = _uiState.value.customList
+            // The list's own tasks come from a filtered fetch; projects and labels refresh as usual.
+            val listTasks: (suspend () -> NetworkResult<Unit>)? = customList?.let { list ->
+                {
                     val day = dayClock.day.value
-                    val params = CustomListFilterBuilder.buildQueryParams(customList.filter, day.date, day.zone)
-                    taskRepository.refreshAll(params)
+                    taskRepository.refreshAll(CustomListFilterBuilder.buildQueryParams(list.filter, day.date, day.zone))
                 }
-                projectRepository.refreshAll()
-                labelRepository.refreshAll()
-            } catch (e: Exception) {
-                Log.e("CustomListViewModel", "refresh() failed: ${e.message}", e)
-            } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
             }
+            val result = refresher.refresh(manual = showSpinner, tasks = listTasks)
+            _uiState.update { it.copy(isRefreshing = false, error = result.refreshErrorToShow(showSpinner) ?: it.error) }
         }
     }
 

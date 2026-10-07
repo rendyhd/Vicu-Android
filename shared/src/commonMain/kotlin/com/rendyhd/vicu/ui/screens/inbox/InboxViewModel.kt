@@ -9,7 +9,8 @@ import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.data.sync.ScreenRefresher
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.util.NetworkResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,11 +33,13 @@ class InboxViewModel(
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
     private val authManager: AuthManager,
-    private val syncStaleness: SyncStaleness,
+    private val refresher: ScreenRefresher,
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "InboxViewModel"
+        private const val ARCHIVED_MESSAGE =
+            "Your Inbox project is archived. Select an active Inbox project in Settings."
     }
 
     private val _uiState = MutableStateFlow(InboxUiState())
@@ -58,7 +61,7 @@ class InboxViewModel(
                 _uiState.update { it.copy(isLoading = false) }
                 return@launch
             }
-            if (syncStaleness.isStale()) refresh()
+            if (refresher.isStale()) refresh()
             combine(
                 taskRepository.getInboxTasks(inboxId),
                 projectRepository.getAll(),
@@ -71,10 +74,12 @@ class InboxViewModel(
                     it.copy(
                         tasks = if (inboxIsActive) tasks else emptyList(),
                         isLoading = false,
-                        error = if (inboxIsActive) {
-                            null
-                        } else {
-                            "Your Inbox project is archived. Select an active Inbox project in Settings."
+                        error = when {
+                            !inboxIsActive -> ARCHIVED_MESSAGE
+                            // Only the archived notice goes away once the project is active again;
+                            // a refresh error that is waiting to be shown stays.
+                            it.error == ARCHIVED_MESSAGE -> null
+                            else -> it.error
                         },
                     )
                 }
@@ -84,18 +89,11 @@ class InboxViewModel(
 
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
-            Log.d(TAG, "refresh() starting")
             _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
-            try {
-                taskRepository.refreshAll()
-                projectRepository.refreshAll()
-                labelRepository.refreshAll()
-                syncStaleness.markSynced()
-            } catch (e: Exception) {
-                Log.e(TAG, "refresh() failed: ${e.message}", e)
-            } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
-            }
+            val result = refresher.refresh(manual = showSpinner)
+            // A failed refresh is shown (an offline one only when the user asked for it) and
+            // leaves the app stale, so the next screen tries again.
+            _uiState.update { it.copy(isRefreshing = false, error = result.refreshErrorToShow(showSpinner) ?: it.error) }
         }
     }
 

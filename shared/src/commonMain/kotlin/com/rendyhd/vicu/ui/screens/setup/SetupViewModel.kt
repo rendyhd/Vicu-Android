@@ -16,6 +16,8 @@ import com.rendyhd.vicu.auth.sanitizeTotpPasscode
 import com.rendyhd.vicu.data.remote.api.OidcProviderDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
+import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.auth.PlatformAuthHooks
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,6 +69,8 @@ class SetupViewModel(
     private val oidcHandler: OidcHandler,
     private val accountSession: AccountSession,
     private val platformAuthHooks: PlatformAuthHooks,
+    private val syncStaleness: SyncStaleness,
+    private val repositoryHooks: PlatformRepositoryHooks,
 ) : ViewModel() {
 
     companion object {
@@ -369,9 +373,13 @@ class SetupViewModel(
         val projectId = _uiState.value.selectedProjectId ?: return
         viewModelScope.launch {
             authManager.onInboxProjectSelected(projectId)
+            // Whatever the cache holds is not this account's yet: the screens opening next must
+            // refresh, and a sync starts now instead of waiting for the first screen to ask.
+            syncStaleness.reset()
             _uiState.update { it.copy(setupComplete = true) }
             platformAuthHooks.updateWidgets()
             platformAuthHooks.scheduleRefresh()
+            repositoryHooks.triggerSync()
         }
     }
 

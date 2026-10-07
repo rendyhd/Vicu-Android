@@ -20,6 +20,7 @@ import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.data.sync.ProjectRefresher
+import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.data.sync.TaskRefresher
 import com.rendyhd.vicu.util.SystemTimeSource
@@ -163,6 +164,14 @@ val repositoryModule = module {
 
 val commonModule = module {
     single { SyncStaleness() }
+    single {
+        ScreenRefresher(
+            taskRepository = get(),
+            projectRepository = get(),
+            labelRepository = get(),
+            staleness = get(),
+        )
+    }
     single { AppMessages() }
     single<TimeSource> { SystemTimeSource }
     single { DayClock(scope = get(), time = get()) }

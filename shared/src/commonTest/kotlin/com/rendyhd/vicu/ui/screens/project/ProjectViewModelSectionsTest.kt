@@ -4,7 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.ProjectSectionPrefsStore
 import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.ui.fakeScreenRefresher
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.ui.FakeLabelRepository
@@ -50,15 +50,19 @@ class ProjectViewModelSectionsTest {
         val tasks = FakeTaskRepository()
     }
 
-    private fun Stores.viewModel() = ProjectViewModel(
-        savedStateHandle = SavedStateHandle(mapOf("projectId" to root.id)),
-        taskRepository = tasks,
-        projectRepository = FakeProjectRepository(listOf(root, sectionA, sectionB, nested)),
-        labelRepository = FakeLabelRepository(),
-        syncStaleness = SyncStaleness().apply { markSynced() },
-        behaviorPrefsStore = behaviorPrefs,
-        projectSectionPrefsStore = sectionPrefs,
-    )
+    private fun Stores.viewModel(): ProjectViewModel {
+        val projects = FakeProjectRepository(listOf(root, sectionA, sectionB, nested))
+        val labels = FakeLabelRepository()
+        return ProjectViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("projectId" to root.id)),
+            taskRepository = tasks,
+            projectRepository = projects,
+            labelRepository = labels,
+            refresher = fakeScreenRefresher(tasks, projects, labels),
+            behaviorPrefsStore = behaviorPrefs,
+            projectSectionPrefsStore = sectionPrefs,
+        )
+    }
 
     private fun ProjectViewModel.section(id: Long): ProjectSection =
         checkNotNull(findProjectSection(uiState.value.sections, id)) { "no section $id" }

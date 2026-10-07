@@ -4,7 +4,7 @@ import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.FakeNetworkMonitor
 import com.rendyhd.vicu.auth.InMemoryTokenStorage
 import com.rendyhd.vicu.auth.RecordingAuthHooks
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.ui.fakeScreenRefresher
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Routine
@@ -94,12 +94,14 @@ class TodayViewModelOverdueTest {
         val tasks = FakeTaskRepository()
         val authScope = CoroutineScope(SupervisorJob())
         val time = SchedulerTimeSource(testScheduler, local(now, zone), zone)
+        val projects = FakeProjectRepository(
+            listOf(Project(id = 10, title = "Alpha"), Project(id = 11, title = "Beta"), Project(id = 12, title = "Gamma")),
+        )
+        val labels = FakeLabelRepository()
         val vm = TodayViewModel(
             taskRepository = tasks,
-            projectRepository = FakeProjectRepository(
-                listOf(Project(id = 10, title = "Alpha"), Project(id = 11, title = "Beta"), Project(id = 12, title = "Gamma")),
-            ),
-            labelRepository = FakeLabelRepository(),
+            projectRepository = projects,
+            labelRepository = labels,
             routineRepository = EmptyRoutines(),
             authManager = AuthManager(
                 platformAuthHooks = RecordingAuthHooks(),
@@ -108,7 +110,7 @@ class TodayViewModelOverdueTest {
                 appScope = authScope,
                 networkMonitor = FakeNetworkMonitor(),
             ),
-            syncStaleness = SyncStaleness().also { it.markSynced() },
+            refresher = fakeScreenRefresher(tasks, projects, labels),
             dayClock = DayClock(backgroundScope, time),
         )
         return Rig(vm, tasks, authScope)

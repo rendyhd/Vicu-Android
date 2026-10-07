@@ -7,7 +7,8 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.data.sync.ScreenRefresher
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.util.NetworkResult
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,13 +24,18 @@ data class LogbookUiState(
     val isRefreshing: Boolean = false,
     val error: String? = null,
     val uncompletedTaskIds: Set<Long> = emptySet(),
+    /** Whether the server has older completed tasks than the pages loaded so far. */
+    val hasMore: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    /** Pages of completed tasks fetched so far; the screen asks for the next one when it ends. */
+    val pagesLoaded: Int = 0,
 )
 
 class LogbookViewModel(
     private val taskRepository: TaskRepository,
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
-    private val syncStaleness: SyncStaleness,
+    private val refresher: ScreenRefresher,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LogbookUiState())
@@ -59,10 +65,41 @@ class LogbookViewModel(
         }
         // Completed history is not part of the normal sync: the first page is fetched whenever
         // the screen opens (and on pull-to-refresh). The rest of a refresh runs when stale.
-        if (syncStaleness.isStale()) {
+        if (refresher.isStale()) {
             refresh()
         } else {
-            viewModelScope.launch { taskRepository.loadLogbookPage(1) }
+            viewModelScope.launch {
+                val result = loadFirstPage()
+                _uiState.update { it.copy(error = result.refreshErrorToShow(manual = false) ?: it.error) }
+            }
+        }
+    }
+
+    private suspend fun loadFirstPage(): NetworkResult<*> {
+        val result = taskRepository.loadLogbookPage(1)
+        if (result is NetworkResult.Success) {
+            _uiState.update { it.copy(hasMore = result.data.hasMore, pagesLoaded = 1) }
+        }
+        return result
+    }
+
+    /** Fetches the next page of older completed tasks; the screen calls it when the list ends. */
+    fun loadMore() {
+        val current = _uiState.value
+        if (!current.hasMore || current.isLoadingMore || current.pagesLoaded == 0) return
+        _uiState.update { it.copy(isLoadingMore = true) }
+        viewModelScope.launch {
+            val next = current.pagesLoaded + 1
+            when (val result = taskRepository.loadLogbookPage(next)) {
+                is NetworkResult.Success -> _uiState.update {
+                    it.copy(isLoadingMore = false, hasMore = result.data.hasMore, pagesLoaded = next)
+                }
+                is NetworkResult.Error -> _uiState.update {
+                    // The user scrolled to the end and asked for this, so say why it did not work.
+                    it.copy(isLoadingMore = false, error = result.message)
+                }
+                else -> _uiState.update { it.copy(isLoadingMore = false) }
+            }
         }
     }
 
@@ -94,21 +131,16 @@ class LogbookViewModel(
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
-            try {
-                val tasks = taskRepository.refreshAll()
-                val projects = projectRepository.refreshAll()
-                labelRepository.refreshAll()
-                val completed = taskRepository.loadLogbookPage(1)
-                val failure = listOf(tasks, projects, completed).filterIsInstance<NetworkResult.Error>().firstOrNull()
-                if (failure != null) {
-                    _uiState.update { it.copy(error = failure.message) }
-                } else {
-                    syncStaleness.markSynced()
-                }
-            } catch (e: Exception) {
-                Log.e("LogbookViewModel", "refresh() failed: ${e.message}", e)
-            } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
+            val result = refresher.refresh(manual = showSpinner)
+            // The first page of completed history comes with every refresh, unless the server
+            // could not be reached at all (a second attempt would only fail the same way).
+            val completed = if (result is NetworkResult.Error && result.offline) null else loadFirstPage()
+            val failure = if (result is NetworkResult.Error) result else completed
+            _uiState.update {
+                it.copy(
+                    isRefreshing = false,
+                    error = failure?.refreshErrorToShow(showSpinner) ?: it.error,
+                )
             }
         }
     }

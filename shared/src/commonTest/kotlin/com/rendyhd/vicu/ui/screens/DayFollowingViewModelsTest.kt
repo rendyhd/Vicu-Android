@@ -7,7 +7,7 @@ import com.rendyhd.vicu.auth.RecordingAuthHooks
 import com.rendyhd.vicu.data.local.RoutinePrefsStore
 import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
 import com.rendyhd.vicu.data.repository.RecordingRepositoryHooks
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.ui.fakeScreenRefresher
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.model.Routine
 import com.rendyhd.vicu.domain.model.RoutineDay
@@ -144,10 +144,13 @@ class DayFollowingViewModelsTest {
     fun `the Today routine block moves to the next day at midnight`() = runTest {
         val repository = FakeRoutineRepository()
         val authScope = CoroutineScope(SupervisorJob())
+        val tasks = FakeTaskRepository()
+        val projects = FakeProjectRepository()
+        val labels = FakeLabelRepository()
         val vm = TodayViewModel(
-            taskRepository = FakeTaskRepository(),
-            projectRepository = FakeProjectRepository(),
-            labelRepository = FakeLabelRepository(),
+            taskRepository = tasks,
+            projectRepository = projects,
+            labelRepository = labels,
             routineRepository = repository,
             authManager = AuthManager(
                 platformAuthHooks = RecordingAuthHooks(),
@@ -156,7 +159,7 @@ class DayFollowingViewModelsTest {
                 appScope = authScope,
                 networkMonitor = FakeNetworkMonitor(),
             ),
-            syncStaleness = SyncStaleness().also { it.markSynced() },
+            refresher = fakeScreenRefresher(tasks, projects, labels),
             dayClock = dayClock("2026-10-06T22:00:00Z"),
         )
         runCurrent()
