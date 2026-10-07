@@ -1969,8 +1969,8 @@ private fun NotificationsTab(
 
         item(key = "notif_upcoming") {
             SwitchRow(
-                label = "Include Upcoming",
-                description = "Count tomorrow's tasks in the summary",
+                label = "Include Tomorrow",
+                description = "Count tasks due tomorrow in the summary",
                 checked = state.notificationPrefs.notifyUpcomingEnabled,
                 onCheckedChange = onNotifyUpcomingChanged,
             )
