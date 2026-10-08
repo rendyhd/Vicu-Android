@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.ui.components.section.ProjectMeta
 import com.rendyhd.vicu.util.unfinishedDescendants
 import kotlin.math.abs
 
@@ -67,6 +68,8 @@ fun SwipeableTaskItem(
     onSubtaskClick: (Task) -> Unit = {},
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
+    /** The project to name on the meta line when the row's group has no header. */
+    projectMeta: ProjectMeta? = null,
 ) {
     val haptic = LocalHapticFeedback.current
     var showCompletionConfirmation by remember { mutableStateOf(false) }
@@ -149,6 +152,7 @@ fun SwipeableTaskItem(
             confirmRootCompletion = false,
             onMoveUp = onMoveUp,
             onMoveDown = onMoveDown,
+            projectMeta = projectMeta,
         )
         if (showCompletionConfirmation) {
             CompletionConfirmationDialog(
@@ -208,6 +212,7 @@ fun SwipeableTaskItem(
             confirmRootCompletion = false,
             onMoveUp = onMoveUp,
             onMoveDown = onMoveDown,
+            projectMeta = projectMeta,
         )
     }
 

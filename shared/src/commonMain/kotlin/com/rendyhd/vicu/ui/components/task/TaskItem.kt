@@ -73,6 +73,7 @@ import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.theme.LocalVicuColors
 import com.rendyhd.vicu.ui.theme.VicuChipShape
+import com.rendyhd.vicu.ui.components.section.ProjectMeta
 import com.rendyhd.vicu.util.DateContext
 import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateUtils
@@ -99,6 +100,8 @@ fun TaskItem(
     confirmRootCompletion: Boolean = true,
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
+    /** Set when the row's group has no header: the project belongs on the row's meta line (drawn with the row anatomy). */
+    projectMeta: ProjectMeta? = null,
 ) {
     val directSubtasks = task.relatedTasks[RelationKind.SUBTASK].orEmpty()
     // Walking the subtask tree and parsing the description are per-row work: done again only when

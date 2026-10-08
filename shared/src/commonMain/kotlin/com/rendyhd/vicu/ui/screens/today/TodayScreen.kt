@@ -37,7 +37,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
-import com.rendyhd.vicu.ui.components.section.CollapsibleSection
+import com.rendyhd.vicu.ui.components.section.ProjectMeta
+import com.rendyhd.vicu.ui.components.section.SectionHeader
+import com.rendyhd.vicu.ui.components.section.SectionLevel
+import com.rendyhd.vicu.ui.components.section.SectionTone
+import com.rendyhd.vicu.ui.components.section.openCount
+import com.rendyhd.vicu.ui.components.section.showsGroupHeader
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
 import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
@@ -173,16 +178,17 @@ fun TodayScreen(
                     val showSectionTitles = state.overdueGroups.isNotEmpty()
                     if (showSectionTitles) {
                         item(key = "overdue_title", contentType = "title") {
-                            TodaySectionTitle(
+                            SectionHeader(
                                 title = "Overdue",
-                                count = state.overdueGroups.sumOf { it.tasks.size },
-                                color = MaterialTheme.colorScheme.error,
+                                count = state.overdueGroups.sumOf { openCount(it.tasks, state.completedTaskIds) },
+                                tone = SectionTone.OVERDUE,
                             )
                         }
                         taskGroupItems(
                             groups = state.overdueGroups,
                             keyPrefix = "overdue",
                             onToggleGroup = viewModel::toggleOverdueProject,
+                            level = SectionLevel.TWO,
                             state = state,
                             viewModel = viewModel,
                             selectionVm = selectionVm,
@@ -192,10 +198,9 @@ fun TodayScreen(
                     }
                     if (showSectionTitles && state.projectGroups.isNotEmpty()) {
                         item(key = "today_title", contentType = "title") {
-                            TodaySectionTitle(
+                            SectionHeader(
                                 title = "Today",
-                                count = state.projectGroups.sumOf { it.tasks.size },
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                count = state.projectGroups.sumOf { openCount(it.tasks, state.completedTaskIds) },
                             )
                         }
                     }
@@ -203,6 +208,8 @@ fun TodayScreen(
                         groups = state.projectGroups,
                         keyPrefix = "today",
                         onToggleGroup = viewModel::toggleProject,
+                        // Without an Overdue section above, the projects are the top level of the list.
+                        level = if (showSectionTitles) SectionLevel.TWO else SectionLevel.ONE,
                         state = state,
                         viewModel = viewModel,
                         selectionVm = selectionVm,
@@ -237,32 +244,12 @@ fun TodayScreen(
     }
 }
 
-/** "Overdue" / "Today": a section title above that section's project groups. */
-@Composable
-private fun TodaySectionTitle(title: String, count: Int, color: Color) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            color = color,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = "$count",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-        )
-    }
-}
-
 /** One collapsible group per project with its task rows; keys carry [keyPrefix] so sections never collide. */
 private fun LazyListScope.taskGroupItems(
     groups: List<TaskProjectGroup>,
     keyPrefix: String,
     onToggleGroup: (Long) -> Unit,
+    level: SectionLevel,
     state: TodayUiState,
     viewModel: TodayViewModel,
     selectionVm: SelectionViewModel,
@@ -271,16 +258,22 @@ private fun LazyListScope.taskGroupItems(
 ) {
     val selectionActive = selectedIds.isNotEmpty()
     groups.forEach { group ->
-        item(key = "${keyPrefix}_header_${group.projectId}", contentType = "header") {
-            CollapsibleSection(
-                title = group.title,
-                dotColor = parseHexColor(group.hexColor),
-                taskCount = group.tasks.size,
-                isExpanded = group.isExpanded,
-                onToggle = { onToggleGroup(group.projectId) },
-            )
+        // A group of one task has no header: its project goes on the row's meta line.
+        val hasHeader = showsGroupHeader(group.tasks.size)
+        val projectMeta = if (hasHeader) null else ProjectMeta(group.title, group.hexColor)
+        if (hasHeader) {
+            item(key = "${keyPrefix}_header_${group.projectId}", contentType = "header") {
+                SectionHeader(
+                    title = group.title,
+                    level = level,
+                    dotColor = parseHexColor(group.hexColor),
+                    count = openCount(group.tasks, state.completedTaskIds),
+                    isExpanded = group.isExpanded,
+                    onToggle = { onToggleGroup(group.projectId) },
+                )
+            }
         }
-        if (group.isExpanded) {
+        if (group.isExpanded || !hasHeader) {
             items(group.tasks, key = { it.id }, contentType = { "task" }) { task ->
                 val displayTask =
                     if (task.id in state.completedTaskIds) task.copy(done = true) else task
@@ -307,6 +300,7 @@ private fun LazyListScope.taskGroupItems(
                     selected = task.id in selectedIds,
                     onLongClick = { selectionVm.toggle(task.id) },
                     modifier = Modifier.animateItem(),
+                    projectMeta = projectMeta,
                 )
             }
         }

@@ -67,7 +67,7 @@ class AnytimeViewModel(
                     _uiState.update { current ->
                         current.copy(
                             projectGroups = groups,
-                            rows = flattenAnytimeGroups(groups),
+                            rows = flattenAnytimeGroups(groups, completions.completedIds),
                             isLoading = false,
                         )
                     }

@@ -122,7 +122,8 @@ class AnytimeViewModelTest {
         }
         val vm = rig.viewModel()
         runCurrent()
-        assertEquals(4, vm.uiState.value.rows.size)
+        // Work (two tasks with its sub-project) has a header; the sub-project's single task has none.
+        assertEquals(3, vm.uiState.value.rows.size)
 
         vm.toggleProject(7L)
         runCurrent()

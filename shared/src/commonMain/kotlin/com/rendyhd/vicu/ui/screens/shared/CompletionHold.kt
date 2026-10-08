@@ -63,6 +63,10 @@ class CompletionHold(
     val heldIds: Flow<Set<Long>>
         get() = _state.map { rows -> rows.filterValues { it.changed }.keys }.distinctUntilChanged()
 
+    /** The rows held right now as completed (not those being reopened): they no longer count as open. */
+    val completedIds: Set<Long>
+        get() = _state.value.filterValues { it.changed }.keys
+
     private val shown = HashMap<Long, List<Long>>()
     private val timers = HashMap<Long, Job>()
 

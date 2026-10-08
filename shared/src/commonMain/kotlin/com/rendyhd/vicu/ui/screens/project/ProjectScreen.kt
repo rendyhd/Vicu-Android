@@ -49,7 +49,8 @@ import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
-import com.rendyhd.vicu.ui.components.section.CollapsibleSection
+import com.rendyhd.vicu.ui.components.section.SectionHeader
+import com.rendyhd.vicu.ui.components.section.SectionLevel
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
 import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
@@ -329,10 +330,12 @@ private fun LazyListScope.projectSectionItems(
     sections.forEach { section ->
         item(key = "section_${section.project.id}", contentType = "header") {
             val sectionColor = parseHexColor(section.project.hexColor)
-            CollapsibleSection(
+            // A sub-project inside the project being viewed: a level 2 header with its dot.
+            SectionHeader(
                 title = section.project.title,
+                level = SectionLevel.TWO,
                 dotColor = sectionColor,
-                taskCount = totalTaskCount(section),
+                count = openTaskCount(section, completedTaskIds),
                 isExpanded = section.isExpanded,
                 onToggle = { onSectionToggle(section.project.id) },
                 modifier = Modifier.padding(start = (depth * 16).dp),

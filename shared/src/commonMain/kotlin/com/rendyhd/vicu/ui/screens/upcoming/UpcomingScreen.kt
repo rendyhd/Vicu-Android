@@ -36,6 +36,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.section.SectionHeader
+import com.rendyhd.vicu.ui.components.section.openCount
 import com.rendyhd.vicu.ui.components.shared.FabClearance
 import com.rendyhd.vicu.util.DateContext
 import com.rendyhd.vicu.util.DateDisplay
@@ -124,8 +126,13 @@ fun UpcomingScreen(
                 } else {
                     state.days.forEach { day ->
                         stickyHeader(key = "day_${day.date}", contentType = "header") {
-                            UpcomingDayHeader(
-                                label = DateDisplay.formatDay(DateContext.HEADER_DAY, day.date, today, dateFormat),
+                            // Pinned to the top while the day's tasks scroll under it.
+                            SectionHeader(
+                                title = DateDisplay.formatDay(DateContext.HEADER_DAY, day.date, today, dateFormat),
+                                count = openCount(day.tasks, state.completedTaskIds),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.background),
                             )
                         }
                         items(day.tasks, key = { it.id }, contentType = { "task" }) { task ->
@@ -182,27 +189,4 @@ fun UpcomingScreen(
             viewModel.clearError()
         }
     }
-}
-
-/** The heading of one day, pinned to the top of the list while that day's tasks scroll under it. */
-@Composable
-private fun UpcomingDayHeader(label: String, modifier: Modifier = Modifier) {
-    Text(
-        text = label.uppercase(),
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.SemiBold,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background)
-            .heightIn(min = 40.dp)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            // The visible text is upper case, which a screen reader may spell out.
-            .semantics(mergeDescendants = true) {
-                heading()
-                contentDescription = label
-            },
-    )
 }

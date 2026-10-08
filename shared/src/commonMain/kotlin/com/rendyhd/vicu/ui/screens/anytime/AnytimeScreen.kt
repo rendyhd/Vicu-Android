@@ -32,7 +32,8 @@ import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.domain.model.Task
-import com.rendyhd.vicu.ui.components.section.CollapsibleSection
+import com.rendyhd.vicu.ui.components.section.SectionHeader
+import com.rendyhd.vicu.ui.components.section.SectionLevel
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
 import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
@@ -120,10 +121,11 @@ fun AnytimeScreen(
                         when (row) {
                             is AnytimeRow.Header -> {
                                 val projectColor = remember(row.project.hexColor) { parseHexColor(row.project.hexColor) }
-                                CollapsibleSection(
+                                SectionHeader(
                                     title = row.project.title,
+                                    level = if (row.depth == 0) SectionLevel.ONE else SectionLevel.TWO,
                                     dotColor = projectColor,
-                                    taskCount = row.taskCount,
+                                    count = row.taskCount,
                                     isExpanded = row.isExpanded,
                                     onToggle = { viewModel.toggleProject(row.project.id) },
                                     modifier = Modifier.padding(start = indentFor(row.depth)),
@@ -152,6 +154,7 @@ fun AnytimeScreen(
                                     onLongClick = { selectionVm.toggle(task.id) },
                                     modifier = Modifier.animateItem(),
                                     contentStartPadding = indentFor(row.depth),
+                                    projectMeta = row.projectMeta,
                                 )
                             }
                         }
