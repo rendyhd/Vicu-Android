@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Notes
@@ -81,6 +83,7 @@ import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.isRecurring
 import com.rendyhd.vicu.util.TaskLinkParser
 import com.rendyhd.vicu.util.parseHexArgb
+import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.util.subtaskProgress
 import com.rendyhd.vicu.util.unfinishedDescendants
 
@@ -102,6 +105,8 @@ fun TaskItem(
     onMoveDown: (() -> Unit)? = null,
     /** Set when the row's group has no header: the project belongs on the row's meta line (drawn with the row anatomy). */
     projectMeta: ProjectMeta? = null,
+    /** What the view around the row already says; the row's own provider ([LocalRowView]) when null. */
+    rowView: RowView? = null,
 ) {
     val directSubtasks = task.relatedTasks[RelationKind.SUBTASK].orEmpty()
     // Walking the subtask tree and parsing the description are per-row work: done again only when
@@ -186,27 +191,15 @@ fun TaskItem(
                     contentDescription = task.title,
                 )
             }
+            val view = rowView ?: LocalRowView.current
+            val metaProject = rowProject(task.projectId, view, projectMeta)
+            val metaLabels = rowLabels(task.labels, view)
+            val parentTitle = task.relatedTasks[RelationKind.PARENTTASK].orEmpty().firstOrNull()?.title
+            val isRepeating = isRecurring(task.repeatAfter, task.repeatMode)
+            val hasMeta = metaProject != null || metaLabels.isNotEmpty() || parentTitle != null ||
+                subtaskCount > 0 || hasNotes || isRepeating || task.attachments.isNotEmpty()
+            // Line 1 is the title, level with the checkbox; line 2 is the meta line, when there is one.
             Column(modifier = Modifier.weight(1f).padding(vertical = 12.dp)) {
-                if (task.labels.isNotEmpty()) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        val displayed = task.labels.take(3)
-                        displayed.forEach { label ->
-                            LabelChip(title = label.title, hexColor = label.hexColor)
-                        }
-                        val overflow = task.labels.size - 3
-                        if (overflow > 0) {
-                            Text(
-                                text = "+$overflow",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                }
                 Text(
                     text = task.title,
                     style = MaterialTheme.typography.bodyLarge,
@@ -216,97 +209,141 @@ fun TaskItem(
                         MaterialTheme.colorScheme.onSurface
                     },
                     textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                task.relatedTasks[RelationKind.PARENTTASK].orEmpty().firstOrNull()?.let { parent ->
-                    Text(
-                        text = "Subtask of ${parent.title}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                if (hasMeta) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // The project, the labels and "Subtask of" give way to the icons on a narrow
+                        // row: whatever does not fit on the one line is left off, never wrapped.
+                        if (metaProject != null || metaLabels.isNotEmpty() || parentTitle != null) FlowRow(
+                            modifier = Modifier.weight(1f, fill = false),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            maxLines = 1,
+                        ) {
+                            if (metaProject != null) {
+                                RowProject(title = metaProject.title, hexColor = metaProject.hexColor)
+                            }
+                            metaLabels.take(3).forEach { label ->
+                                LabelChip(
+                                    title = label.title,
+                                    hexColor = label.hexColor,
+                                    modifier = Modifier.widthIn(max = 120.dp),
+                                )
+                            }
+                            val overflow = metaLabels.size - 3
+                            if (overflow > 0) {
+                                Text(
+                                    text = "+$overflow",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (parentTitle != null) {
+                                Text(
+                                    text = "Subtask of $parentTitle",
+                                    modifier = Modifier.widthIn(max = 160.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        if (subtaskCount > 0) {
+                            val expandable = displayMode == SubtaskDisplayMode.EXPANDABLE
+                            Row(
+                                modifier = Modifier
+                                    .semantics(mergeDescendants = true) {
+                                        contentDescription = "$completedSubtasks of $subtaskCount subtasks completed"
+                                    }
+                                    .then(
+                                        if (expandable) {
+                                            // Compose widens the tap area of a clickable to 48 dp.
+                                            Modifier.clickable(
+                                                onClickLabel = if (subtasksExpanded) "Collapse subtasks" else "Expand subtasks",
+                                                role = Role.Button,
+                                            ) { subtasksExpanded = !subtasksExpanded }
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                if (expandable) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                        // The click label above says what a tap does.
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp).rotate(if (subtasksExpanded) 90f else 0f),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Outlined.Checklist,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = checklistLabel(completedSubtasks, subtaskCount),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                        if (hasNotes) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.Notes,
+                                contentDescription = "Has notes",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (isRepeating) {
+                            Icon(
+                                imageVector = Icons.Outlined.Repeat,
+                                contentDescription = "Repeating",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (task.attachments.isNotEmpty()) {
+                            Icon(
+                                imageVector = Icons.Outlined.AttachFile,
+                                contentDescription = "Attachments",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             }
+            // The trailing cluster, level with the title: the due phrase, the reminder bell, the
+            // priority mark last.
             Row(
-                // Level with the title's first line, whatever the checkbox's height does.
                 modifier = Modifier.padding(top = 12.dp).heightIn(min = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 TaskLinkIcons(description = task.description)
-                if (hasNotes) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.Notes,
-                        contentDescription = "Has notes",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    )
-                }
-                if (subtaskCount > 0) {
-                    Row(
-                        modifier = if (displayMode == SubtaskDisplayMode.EXPANDABLE) {
-                            Modifier
-                                .minimumInteractiveComponentSize()
-                                .clickable(
-                                    onClickLabel = if (subtasksExpanded) "Collapse subtasks" else "Expand subtasks",
-                                    role = Role.Button,
-                                ) { subtasksExpanded = !subtasksExpanded }
-                        } else {
-                            Modifier
-                        },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        if (displayMode == SubtaskDisplayMode.EXPANDABLE) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                                // The click label above says what a tap does.
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp).rotate(if (subtasksExpanded) 90f else 0f),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Outlined.Checklist,
-                            contentDescription = "$completedSubtasks of $subtaskCount subtasks completed",
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        )
-                        Text(
-                            text = "$completedSubtasks/$subtaskCount",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                if (isRecurring(task.repeatAfter, task.repeatMode)) {
-                    Icon(
-                        imageVector = Icons.Outlined.Repeat,
-                        contentDescription = "Repeating",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    )
-                }
-                if (task.attachments.isNotEmpty()) {
-                    Icon(
-                        imageVector = Icons.Outlined.AttachFile,
-                        contentDescription = "Attachments",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    )
+                if (!DateUtils.isNullDate(task.dueDate) && task.dueDate.isNotBlank()) {
+                    TaskDueBadge(dueDate = task.dueDate, context = view.dateContext)
                 }
                 if (task.reminders.isNotEmpty()) {
                     Icon(
                         imageVector = Icons.Outlined.Notifications,
                         contentDescription = "Reminders",
                         modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                }
-                if (!DateUtils.isNullDate(task.dueDate) && task.dueDate.isNotBlank()) {
-                    TaskDueBadge(dueDate = task.dueDate)
                 }
                 PriorityMark(priority = task.priority)
             }
@@ -408,7 +445,7 @@ private fun InlineSubtaskTree(
                     }
                 }
                 if (!DateUtils.isNullDate(child.dueDate) && child.dueDate.isNotBlank()) {
-                    TaskDueBadge(dueDate = child.dueDate)
+                    TaskDueBadge(dueDate = child.dueDate, context = DateContext.ROW)
                 }
                 PriorityMark(priority = child.priority)
                 if (total > 0) {
@@ -594,18 +631,22 @@ fun AnimatedCheckbox(
 fun TaskDueBadge(
     dueDate: String,
     modifier: Modifier = Modifier,
+    /** How the date is phrased: the view around the row decides (no "Today" in Today, no day under a day header). */
+    context: DateContext = LocalRowView.current.dateContext,
 ) {
     // Reading LocalClockDay makes the badge recompose when the day or the time zone changes.
     val day = LocalClockDay.current
     val dateFormat = LocalDateFormat.current
-    val badge = remember(dueDate, day, dateFormat) {
+    val badge = remember(dueDate, day, dateFormat, context) {
         DueBadge(
             isOverdue = DateUtils.isOverdue(dueDate, day.date, day.zone),
             isToday = DateUtils.isToday(dueDate, day.date, day.zone),
-            label = DateDisplay.formatDue(DateContext.ROW, dueDate, day.date, day.zone, dateFormat),
+            label = DateDisplay.formatDue(context, dueDate, day.date, day.zone, dateFormat),
         )
     }
     val (isOverdue, isToday, label) = badge
+    // A date-only task under its own day header says nothing here.
+    if (label.isEmpty()) return
 
     // Overdue is the error role on an 8% tint of itself; due today is the dueToday text colour
     // with no chip; later dates are quiet (docs/design-system-v1.md, status colours).
@@ -652,4 +693,27 @@ fun LabelChip(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
     )
+}
+
+/** The project on a row's meta line: its colour dot and name. */
+@Composable
+private fun RowProject(title: String, hexColor: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.widthIn(max = 160.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .background(parseHexColor(hexColor) ?: MaterialTheme.colorScheme.outline, CircleShape),
+        )
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }

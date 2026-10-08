@@ -55,6 +55,7 @@ import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
+import com.rendyhd.vicu.ui.components.task.TodayRowView
 import com.rendyhd.vicu.ui.screens.routines.RoutineOccurrenceRow
 import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
 import com.rendyhd.vicu.util.DateContext
@@ -301,6 +302,7 @@ private fun LazyListScope.taskGroupItems(
                     onLongClick = { selectionVm.toggle(task.id) },
                     modifier = Modifier.animateItem(),
                     projectMeta = projectMeta,
+                    rowView = TodayRowView,
                 )
             }
         }

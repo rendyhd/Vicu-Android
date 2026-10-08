@@ -53,6 +53,7 @@ import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
+import com.rendyhd.vicu.ui.components.task.UpcomingRowView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -161,6 +162,7 @@ fun UpcomingScreen(
                                 selected = task.id in selectedIds,
                                 onLongClick = { selectionVm.toggle(task.id) },
                                 modifier = Modifier.animateItem(),
+                                rowView = UpcomingRowView,
                             )
                         }
                     }

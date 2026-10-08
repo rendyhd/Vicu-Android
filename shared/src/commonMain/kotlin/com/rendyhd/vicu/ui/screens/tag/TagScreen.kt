@@ -42,6 +42,7 @@ import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
+import com.rendyhd.vicu.ui.components.task.RowView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -146,6 +147,7 @@ fun TagScreen(
                                 onLongClick = { selectionVm.toggle(task.id) },
                                 modifier = Modifier.animateItem(),
                                 projectMeta = projectMeta,
+                                rowView = RowView(labelId = labelId),
                             )
                         }
                     }

@@ -70,6 +70,8 @@ fun SwipeableTaskItem(
     onMoveDown: (() -> Unit)? = null,
     /** The project to name on the meta line when the row's group has no header. */
     projectMeta: ProjectMeta? = null,
+    /** What the view around the row already says (see [RowView]). */
+    rowView: RowView? = null,
 ) {
     val haptic = LocalHapticFeedback.current
     var showCompletionConfirmation by remember { mutableStateOf(false) }
@@ -153,6 +155,7 @@ fun SwipeableTaskItem(
             onMoveUp = onMoveUp,
             onMoveDown = onMoveDown,
             projectMeta = projectMeta,
+            rowView = rowView,
         )
         if (showCompletionConfirmation) {
             CompletionConfirmationDialog(
@@ -213,6 +216,7 @@ fun SwipeableTaskItem(
             onMoveUp = onMoveUp,
             onMoveDown = onMoveDown,
             projectMeta = projectMeta,
+            rowView = rowView,
         )
     }
 
