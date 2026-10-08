@@ -8,11 +8,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.MoveToInbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -67,6 +66,8 @@ import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.rememberIs24HourFormat
 import com.rendyhd.vicu.ui.components.shared.FailedActionsBanner
 import com.rendyhd.vicu.ui.components.shared.OfflineBanner
+import com.rendyhd.vicu.ui.components.shared.SmartListIdentity
+import com.rendyhd.vicu.ui.theme.LocalVicuColors
 import com.rendyhd.vicu.domain.repository.QuickDue
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.components.task.LocalTaskRowActions
@@ -113,6 +114,8 @@ internal data class BottomNavItem(
     val route: Any,
     val routeName: String,
     val isParameterized: Boolean = false,
+    /** Set for a smart list: its icon is drawn in the identity colour. */
+    val identity: SmartListIdentity? = null,
 )
 
 /** Carries the task editor's unsaved draft through process death (see [TaskDetailViewModel.currentDraftJson]). */
@@ -130,18 +133,21 @@ internal fun resolveBottomBarItems(
     inboxProjectId: Long,
 ): List<BottomNavItem> {
     val items = mutableListOf(
-        BottomNavItem("Inbox", Icons.Outlined.MoveToInbox, InboxRoute, "InboxRoute"),
+        BottomNavItem("Inbox", SmartListIdentity.INBOX.icon, InboxRoute, "InboxRoute", identity = SmartListIdentity.INBOX),
     )
     for (slot in slots) {
         val item = when (slot.type) {
             BottomBarSlotType.TODAY -> BottomNavItem(
                 "Today", IconRegistry.resolveIcon(slot), TodayRoute, "TodayRoute",
+                identity = SmartListIdentity.TODAY,
             )
             BottomBarSlotType.UPCOMING -> BottomNavItem(
                 "Upcoming", IconRegistry.resolveIcon(slot), UpcomingRoute, "UpcomingRoute",
+                identity = SmartListIdentity.UPCOMING,
             )
             BottomBarSlotType.ANYTIME -> BottomNavItem(
                 "Anytime", IconRegistry.resolveIcon(slot), AnytimeRoute, "AnytimeRoute",
+                identity = SmartListIdentity.ANYTIME,
             )
             BottomBarSlotType.PROJECT -> {
                 val projectId = slot.referenceId.toLongOrNull() ?: continue
@@ -471,6 +477,9 @@ fun VicuApp(
                                         item.icon,
                                         contentDescription = null,
                                         modifier = Modifier.scale(scale),
+                                        // A smart list's icon is drawn in its identity colour (design-system-v1, section 8).
+                                        tint = item.identity?.color(LocalVicuColors.current.identity)
+                                            ?: LocalContentColor.current,
                                     )
                                 },
                                 label = {

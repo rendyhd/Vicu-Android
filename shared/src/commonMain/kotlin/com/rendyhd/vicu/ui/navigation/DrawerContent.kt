@@ -20,17 +20,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.AllInclusive
-import androidx.compose.material.icons.outlined.Autorenew
-import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,19 +58,14 @@ import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.ui.components.section.sectionStateDescription
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
+import com.rendyhd.vicu.ui.components.shared.SmartListIdentity
 import com.rendyhd.vicu.ui.components.task.moveCustomActions
+import com.rendyhd.vicu.ui.theme.LocalVicuColors
 import com.rendyhd.vicu.util.moveIdBy
 import com.rendyhd.vicu.util.parseHexColor
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableLazyListState
 import sh.calvin.reorderable.rememberReorderableLazyListState
-
-private val SmartListTodayColor = Color(0xFFEAB308)
-private val SmartListUpcomingColor = Color(0xFF3B82F6)
-private val SmartListAnytimeColor = Color(0xFF8B5CF6)
-private val SmartListLogbookColor = Color(0xFF16A34A)
-private val SmartListReviewColor = Color(0xFF8B5CF6)
-private val HealthColor = Color(0xFF2E9D78)
 
 /** How far each level of the project tree is moved in. */
 private val ProjectIndent = 16.dp
@@ -104,6 +93,7 @@ fun DrawerContent(
 ) {
     val haptic = LocalHapticFeedback.current
     val listState = rememberLazyListState()
+    val identity = LocalVicuColors.current.identity
 
     // While a row is dragged, its group is drawn in the order being made. At the drop the view
     // model takes over: it keeps the new order on show until the stored order says the same.
@@ -156,8 +146,8 @@ fun DrawerContent(
                         item(key = "smart_today", contentType = "smart") {
                             SmartListItem(
                                 label = "Today",
-                                icon = Icons.Outlined.WbSunny,
-                                iconTint = SmartListTodayColor,
+                                icon = SmartListIdentity.TODAY.icon,
+                                iconTint = SmartListIdentity.TODAY.color(identity),
                                 selected = currentRoute == "TodayRoute",
                                 onClick = { onNavigate(TodayRoute) },
                             )
@@ -167,8 +157,8 @@ fun DrawerContent(
                         item(key = "smart_upcoming", contentType = "smart") {
                             SmartListItem(
                                 label = "Upcoming",
-                                icon = Icons.Outlined.CalendarMonth,
-                                iconTint = SmartListUpcomingColor,
+                                icon = SmartListIdentity.UPCOMING.icon,
+                                iconTint = SmartListIdentity.UPCOMING.color(identity),
                                 selected = currentRoute == "UpcomingRoute",
                                 onClick = { onNavigate(UpcomingRoute) },
                             )
@@ -178,8 +168,8 @@ fun DrawerContent(
                         item(key = "smart_anytime", contentType = "smart") {
                             SmartListItem(
                                 label = "Anytime",
-                                icon = Icons.Outlined.AllInclusive,
-                                iconTint = SmartListAnytimeColor,
+                                icon = SmartListIdentity.ANYTIME.icon,
+                                iconTint = SmartListIdentity.ANYTIME.color(identity),
                                 selected = currentRoute == "AnytimeRoute",
                                 onClick = { onNavigate(AnytimeRoute) },
                             )
@@ -192,8 +182,8 @@ fun DrawerContent(
                     if (displaced.isEmpty()) Spacer(Modifier.height(12.dp))
                     SmartListItem(
                         label = "Logbook",
-                        icon = Icons.Outlined.CheckCircle,
-                        iconTint = SmartListLogbookColor,
+                        icon = SmartListIdentity.LOGBOOK.icon,
+                        iconTint = SmartListIdentity.LOGBOOK.color(identity),
                         selected = currentRoute == "LogbookRoute",
                         onClick = { onNavigate(LogbookRoute) },
                     )
@@ -204,8 +194,8 @@ fun DrawerContent(
                     item(key = "smart_routines", contentType = "smart") {
                         SmartListItem(
                             label = "Routines",
-                            icon = Icons.Outlined.FavoriteBorder,
-                            iconTint = HealthColor,
+                            icon = SmartListIdentity.ROUTINES.icon,
+                            iconTint = SmartListIdentity.ROUTINES.color(identity),
                             selected = currentRoute == "RoutinesRoute",
                             onClick = { onNavigate(RoutinesRoute) },
                         )
@@ -219,16 +209,16 @@ fun DrawerContent(
                             label = { Text("Review") },
                             icon = {
                                 Icon(
-                                    Icons.Outlined.Autorenew,
+                                    SmartListIdentity.REVIEW.icon,
                                     contentDescription = null,
-                                    tint = SmartListReviewColor,
+                                    tint = SmartListIdentity.REVIEW.color(identity),
                                 )
                             },
                             badge = {
                                 if (state.reviewOverdueCount > 0) {
                                     Text(
                                         state.reviewOverdueCount.toString(),
-                                        color = SmartListReviewColor,
+                                        color = MaterialTheme.colorScheme.primary,
                                     )
                                 }
                             },
