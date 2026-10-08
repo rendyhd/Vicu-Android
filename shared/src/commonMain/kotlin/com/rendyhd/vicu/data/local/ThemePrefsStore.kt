@@ -30,9 +30,9 @@ class ThemePrefsStore(
         }
     }
 
-    /** Material You: use the wallpaper-derived dynamic color scheme (default on). */
+    /** Material You: use the wallpaper-derived dynamic colour scheme (default off: the Vicu scheme). */
     val useDeviceColors: Flow<Boolean> = dataStore.data.map { prefs ->
-        prefs[KEY_USE_DEVICE_COLORS] ?: true
+        prefs[KEY_USE_DEVICE_COLORS] ?: false
     }
 
     suspend fun setThemeMode(mode: ThemeMode) {

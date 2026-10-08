@@ -143,9 +143,9 @@ async function a8Colours(ctx) {
   let original = null
   async function deviceColors(on) {
     await v.drawer('Settings', 1800)
-    const { n: label, nodes } = await v.scrollFind((x) => x.text === 'Use device colors', 'Use device colors')
+    const { n: label, nodes } = await v.scrollFind((x) => /^Use device colou?rs$/.test(x.text || ''), 'Use device colours')
     const sw = nodes.find((n) => n.checkable && n.x1 > v.sc.width * 0.7 && n.cy >= label.y1 - 40 && n.cy <= label.y2 + 120)
-    if (!sw) throw new Error('no switch next to "Use device colors"')
+    if (!sw) throw new Error('no switch next to "Use device colours"')
     if (original === null) original = sw.checked
     if (sw.checked !== on) { await d.tap(sw.cx, sw.cy, 1200) }
     shot(`settings-appearance-colors-${on ? 'on' : 'off'}`)

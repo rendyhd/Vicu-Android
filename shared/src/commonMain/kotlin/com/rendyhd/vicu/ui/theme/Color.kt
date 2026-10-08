@@ -1,18 +1,117 @@
 package com.rendyhd.vicu.ui.theme
 
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
-// Dark theme tones (light/high-luminance "80" roles, per Material naming)
-val Blue80 = Color(0xFF99C8FF)
-val BlueGrey80 = Color(0xFFB8C8DC)
-val Teal80 = Color(0xFF80CBC4)
+// The Vicu Material 3 colour schemes. The values are test-fixtures/design-tokens-v1.json
+// (android.colorScheme), generated from the seed #0A66D1; DesignTokensTest fails when this
+// file drifts from the fixture. Docs: docs/design-system-v1.md, section 8.
 
-// Light theme tones (darker "40" roles — Things 3 inspired blue)
-val Blue40 = Color(0xFF007AFF)
-val BlueGrey40 = Color(0xFF546E7A)
-val Teal40 = Color(0xFF00897B)
+val VicuLightColorScheme: ColorScheme = lightColorScheme(
+    primary = Color(0xFF004EA5),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFF0A66D1),
+    onPrimaryContainer = Color(0xFFE3EAFF),
+    inversePrimary = Color(0xFFACC7FF),
+    secondary = Color(0xFF495E88),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFB9CFFF),
+    onSecondaryContainer = Color(0xFF425881),
+    tertiary = Color(0xFF8B3700),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFB24900),
+    onTertiaryContainer = Color(0xFFFFE5DA),
+    error = Color(0xFFBA1A1A),
+    onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF93000A),
+    background = Color(0xFFF9F9FF),
+    onBackground = Color(0xFF191C22),
+    surface = Color(0xFFF9F9FF),
+    onSurface = Color(0xFF191C22),
+    surfaceVariant = Color(0xFFDEE2F2),
+    onSurfaceVariant = Color(0xFF424753),
+    surfaceTint = Color(0xFF005BBE),
+    inverseSurface = Color(0xFF2E3037),
+    inverseOnSurface = Color(0xFFEFF0FA),
+    outline = Color(0xFF727784),
+    outlineVariant = Color(0xFFC2C6D5),
+    scrim = Color(0xFF000000),
+    surfaceBright = Color(0xFFF9F9FF),
+    surfaceDim = Color(0xFFD8D9E3),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFF2F3FD),
+    surfaceContainer = Color(0xFFECEDF7),
+    surfaceContainerHigh = Color(0xFFE6E8F1),
+    surfaceContainerHighest = Color(0xFFE1E2EB),
+    primaryFixed = Color(0xFFD7E2FF),
+    primaryFixedDim = Color(0xFFACC7FF),
+    onPrimaryFixed = Color(0xFF001A40),
+    onPrimaryFixedVariant = Color(0xFF004492),
+    secondaryFixed = Color(0xFFD7E2FF),
+    secondaryFixedDim = Color(0xFFB1C7F6),
+    onSecondaryFixed = Color(0xFF001A40),
+    onSecondaryFixedVariant = Color(0xFF31476F),
+    tertiaryFixed = Color(0xFFFFDBCC),
+    tertiaryFixedDim = Color(0xFFFFB693),
+    onTertiaryFixed = Color(0xFF351000),
+    onTertiaryFixedVariant = Color(0xFF7A3000),
+)
 
-// Priority colors
+val VicuDarkColorScheme: ColorScheme = darkColorScheme(
+    primary = Color(0xFFACC7FF),
+    onPrimary = Color(0xFF002F67),
+    primaryContainer = Color(0xFF0A66D1),
+    onPrimaryContainer = Color(0xFFE3EAFF),
+    inversePrimary = Color(0xFF005BBE),
+    secondary = Color(0xFFB1C7F6),
+    onSecondary = Color(0xFF193057),
+    secondaryContainer = Color(0xFF334971),
+    onSecondaryContainer = Color(0xFFA3B8E7),
+    tertiary = Color(0xFFFFB693),
+    onTertiary = Color(0xFF561F00),
+    tertiaryContainer = Color(0xFFB24900),
+    onTertiaryContainer = Color(0xFFFFE5DA),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    background = Color(0xFF11131A),
+    onBackground = Color(0xFFE1E2EB),
+    surface = Color(0xFF11131A),
+    onSurface = Color(0xFFE1E2EB),
+    surfaceVariant = Color(0xFF424753),
+    onSurfaceVariant = Color(0xFFC2C6D5),
+    surfaceTint = Color(0xFFACC7FF),
+    inverseSurface = Color(0xFFE1E2EB),
+    inverseOnSurface = Color(0xFF2E3037),
+    outline = Color(0xFF8C909F),
+    outlineVariant = Color(0xFF424753),
+    scrim = Color(0xFF000000),
+    surfaceBright = Color(0xFF363940),
+    surfaceDim = Color(0xFF11131A),
+    surfaceContainerLowest = Color(0xFF0B0E14),
+    surfaceContainerLow = Color(0xFF191C22),
+    surfaceContainer = Color(0xFF1D2026),
+    surfaceContainerHigh = Color(0xFF272A31),
+    surfaceContainerHighest = Color(0xFF32353C),
+    primaryFixed = Color(0xFFD7E2FF),
+    primaryFixedDim = Color(0xFFACC7FF),
+    onPrimaryFixed = Color(0xFF001A40),
+    onPrimaryFixedVariant = Color(0xFF004492),
+    secondaryFixed = Color(0xFFD7E2FF),
+    secondaryFixedDim = Color(0xFFB1C7F6),
+    onSecondaryFixed = Color(0xFF001A40),
+    onSecondaryFixedVariant = Color(0xFF31476F),
+    tertiaryFixed = Color(0xFFFFDBCC),
+    tertiaryFixedDim = Color(0xFFFFB693),
+    onTertiaryFixed = Color(0xFF351000),
+    onTertiaryFixedVariant = Color(0xFF7A3000),
+)
+
+// Priority colours of the current priority marks; the priority-mark card replaces them with roles.
 val PriorityUrgent = Color(0xFFFF3B30)
 val PriorityHigh = Color(0xFFFF9500)
 val PriorityMedium = Color(0xFFFFCC00)

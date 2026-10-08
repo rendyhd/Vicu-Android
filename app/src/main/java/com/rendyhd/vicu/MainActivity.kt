@@ -118,7 +118,7 @@ class MainActivity : ComponentActivity() {
                 initialValue = ThemeMode.System,
             )
             val useDeviceColors = themePrefsStore.useDeviceColors.collectAsStateWithLifecycle(
-                initialValue = true,
+                initialValue = false,
             )
             VicuTheme(themeMode = themeMode.value, dynamicColor = useDeviceColors.value) {
                 VicuApp(
