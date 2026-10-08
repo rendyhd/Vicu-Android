@@ -43,27 +43,6 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 
 
-/**
- * The due date a new task gets from the picker, the screen's seed and the text, without the bang
- * shortcut. A date picked by hand wins; otherwise a date typed in the title wins (a date seeded by
- * the screen, like Today's FAB, counts as unset); otherwise the seed, otherwise none.
- */
-internal fun resolveEntryDueDate(
-    dueDate: String,
-    dueDateIsManual: Boolean,
-    parserEnabled: Boolean,
-    parsed: ParseResult?,
-    zone: TimeZone,
-): String {
-    val manual = dueDateIsManual && dueDate.isNotBlank() && !DateUtils.isNullDate(dueDate)
-    if (manual) return dueDate
-    if (parserEnabled && parsed != null) {
-        val parsedDue = parsed.dueDate
-        if (parsedDue != null) return DueDates.fromParsed(parsedDue, parsed.dueDateHasTime, zone).toString()
-    }
-    return dueDate
-}
-
 data class TaskEntryUiState(
     val title: String = "",
     val description: String = "",
@@ -74,7 +53,11 @@ data class TaskEntryUiState(
      */
     val dueDateIsManual: Boolean = false,
     val priority: Int = 0,
+    /** True once the user picked a priority, None included: the pick wins over "!3" in the title. */
+    val priorityIsManual: Boolean = false,
     val projectId: Long = 0,
+    /** True once the user picked a project: the pick wins over "#Work" in the title. */
+    val projectIsManual: Boolean = false,
     val selectedLabelIds: Set<Long> = emptySet(),
     val reminders: List<TaskReminder> = emptyList(),
     /** null lets NLP decide; a non-null value, including None, is an explicit picker choice. */
@@ -115,6 +98,13 @@ class TaskEntryViewModel(
 
     // Track raw texts for stale suppression detection
     private var suppressedRawTexts: Map<TokenType, List<String>> = emptyMap()
+
+    /**
+     * Types the user set with a chip's own control. The parser stops reading them, so their tokens
+     * lose the highlight and stay plain text in the title; unlike a dismissed chip this never lifts
+     * when the title changes (the desktop `pinType`).
+     */
+    private var pinnedTypes: Set<TokenType> = emptySet()
 
     /** The due date the opening screen asked for; a fresh draft (mass-add) starts from it again. */
     private var seedDueDate: String? = null
@@ -253,6 +243,7 @@ class TaskEntryViewModel(
         _uiState.update { state ->
             // Auto-lift stale suppressions: if the raw text no longer appears in input
             val activeSuppressed = state.suppressedTypes.filter { type ->
+                if (type in pinnedTypes) return@filter true
                 val texts = suppressedRawTexts[type] ?: return@filter false
                 texts.any { title.contains(it) }
             }.toSet()
@@ -300,24 +291,43 @@ class TaskEntryViewModel(
         _uiState.update { it.copy(description = description) }
     }
 
+    /** Stops the parser reading [type]: the user set it with its own control (see [pinnedTypes]). */
+    private fun pin(type: TokenType) {
+        pinnedTypes = pinnedTypes + type
+        _uiState.update { state ->
+            val suppressed = state.suppressedTypes + type
+            val config = state.parserConfig.copy(suppressTypes = suppressed)
+            state.copy(
+                suppressedTypes = suppressed,
+                parserConfig = config,
+                parseResult = if (state.title.isNotBlank()) TaskParser.parse(state.title, config) else null,
+            )
+        }
+    }
+
     fun setDueDate(dueDate: String) {
         _uiState.update { it.copy(dueDate = dueDate, dueDateIsManual = true) }
+        pin(TokenType.DATE)
     }
 
     fun clearDueDate() {
         _uiState.update { it.copy(dueDate = Constants.NULL_DATE_STRING, dueDateIsManual = true) }
+        pin(TokenType.DATE)
     }
 
     fun setPriority(priority: Int) {
-        _uiState.update { it.copy(priority = priority) }
+        _uiState.update { it.copy(priority = priority, priorityIsManual = true) }
+        pin(TokenType.PRIORITY)
     }
 
     fun setRecurrence(recurrence: RecurrenceValue) {
         _uiState.update { it.copy(manualRecurrence = recurrence) }
+        pin(TokenType.RECURRENCE)
     }
 
     fun setProjectId(projectId: Long) {
-        _uiState.update { it.copy(projectId = projectId) }
+        _uiState.update { it.copy(projectId = projectId, projectIsManual = true) }
+        pin(TokenType.PROJECT)
     }
 
     fun toggleLabel(labelId: Long) {
@@ -329,6 +339,12 @@ class TaskEntryViewModel(
             }
             it.copy(selectedLabelIds = newSet)
         }
+    }
+
+    /** The Tags chip's clear button: no labels picked and none read from the text. */
+    fun clearLabels() {
+        _uiState.update { it.copy(selectedLabelIds = emptySet()) }
+        pin(TokenType.LABEL)
     }
 
     /** Create a brand-new label inline and select it (mirrors the detail sheet). */
@@ -383,50 +399,25 @@ class TaskEntryViewModel(
         }
         if (title.isBlank()) return
 
-        // Determine due date: date picked by hand > date typed in the title > the screen's seed.
+        // What the sheet shows is what is saved: a field the user set with its own control wins
+        // over the text, otherwise the text, otherwise what the screen gave (TaskEntryFields.kt).
         val day = dayClock.day.value
-        val manualDueDate = state.dueDateIsManual && state.dueDate.isNotBlank() &&
-            !DateUtils.isNullDate(state.dueDate)
-        var dueDate = resolveEntryDueDate(
-            dueDate = state.dueDate,
-            dueDateIsManual = state.dueDateIsManual,
-            parserEnabled = config.enabled,
-            parsed = parseResult,
-            zone = day.zone,
-        )
-
-        // Determine priority: manual > parsed
-        var priority = state.priority
-        if (config.enabled && parseResult?.priority != null && priority == 0) {
-            priority = parseResult.priority
-        }
-
-        // Determine project: parsed overrides if a match is found
-        var projectId = state.projectId
-        if (config.enabled && parseResult?.project != null) {
-            val matchedProject = state.allProjects.find {
-                it.title.equals(parseResult.project, ignoreCase = true)
-            }
-            if (matchedProject != null) {
-                projectId = matchedProject.id
-            }
-        }
+        val fields = resolveEntryFields(state, day.zone)
+        val manualDueDate = fields.dueSource == FieldSource.CHIP
+        var dueDate = fields.dueDate
+        val priority = fields.priority
+        val projectId = fields.projectId
 
         // Manual label selections; parsed @label tokens are resolved inside the coroutine
         // below (so unknown labels can be auto-created via the repository).
         val manualLabelIds = state.selectedLabelIds.toMutableSet()
 
-        // Determine recurrence: an explicit picker choice (including None) wins over NLP.
-        val recurrence = resolveTaskEntryRecurrence(
-            manualRecurrence = state.manualRecurrence,
-            parserEnabled = config.enabled,
-            parsedRecurrence = parseResult?.recurrence,
-        )
+        val recurrence = fields.recurrence
 
         // Bang-today fallback (works even when parser disabled; skipped when the user
         // dismissed the Today chip — DATE is then in suppressTypes). A date picked by hand or typed
         // as a date phrase wins over it; a seeded date does not.
-        val typedDate = config.enabled && parseResult?.dueDate != null
+        val typedDate = fields.dueSource == FieldSource.TEXT
         if (config.bangToday && TokenType.DATE !in config.suppressTypes && !manualDueDate && !typedDate) {
             val bang = extractBangToday(title)
             if (bang.dueDate != null) {
@@ -559,6 +550,7 @@ class TaskEntryViewModel(
 
     fun reset() {
         suppressedRawTexts = emptyMap()
+        pinnedTypes = emptySet()
         _uiState.update {
             it.copy(
                 title = "",
@@ -566,6 +558,8 @@ class TaskEntryViewModel(
                 dueDate = seedDueDate ?: "",
                 dueDateIsManual = false,
                 priority = 0,
+                priorityIsManual = false,
+                projectIsManual = false,
                 selectedLabelIds = emptySet(),
                 reminders = emptyList(),
                 manualRecurrence = null,

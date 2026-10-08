@@ -237,7 +237,7 @@ class TaskEntryViewModelDueDateTest {
     }
 
     @Test
-    fun `clearing the date by hand leaves a typed date in charge`() = runTest {
+    fun `clearing the date by hand wins over a typed date, and the words stay in the title`() = runTest {
         val rig = rig()
         rig.vm.initWithDefaults(defaultProjectId = 1, defaultDueDate = todayDue)
         runCurrent()
@@ -246,7 +246,8 @@ class TaskEntryViewModelDueDateTest {
 
         val task = saved(rig)
 
-        assertEquals(tomorrowDue, task.dueDate)
+        assertEquals("", task.dueDate)
+        assertEquals("Buy milk tomorrow", task.title)
     }
 
     @Test

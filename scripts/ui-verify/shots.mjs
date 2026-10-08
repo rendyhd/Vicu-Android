@@ -442,6 +442,101 @@ async function clock24(ctx) {
   }
 }
 
+/**
+ * A5: the compact quick add sheet. "Call Ana Saturday 3pm #Personal" shows the coming Saturday at
+ * 3 PM (once) and "Personal" on the chips; the sheet is compact on the keyboard; "+ Notes" grows it;
+ * and a priority picked with its chip wins over "!low" in the text (the chip rule of card 3.5).
+ * Nothing is saved: the draft is cleared at the end.
+ */
+async function a5QuickAdd(ctx) {
+  const { step, shot, warn } = ctx
+  const zone = d.sh('getprop persist.sys.timezone').trim() || 'UTC'
+  const dayOf = (instant) => Number(new Intl.DateTimeFormat('en-GB', { timeZone: zone, day: 'numeric' }).format(instant))
+  const weekdayOf = (instant) => new Intl.DateTimeFormat('en-US', { timeZone: zone, weekday: 'short' }).format(instant)
+  let saturday = null
+  for (let i = 1; i <= 7 && !saturday; i++) {
+    const t = new Date(Date.now() + i * 86400000)
+    if (weekdayOf(t) === 'Sat') saturday = t
+  }
+  const texts = (nodes) => nodes.filter((n) => n.text).map((n) => n.text)
+  const titleField = (nodes) => nodes.find((n) => /EditText/.test(n.class ?? ''))
+  const draftCleanup = async () => {
+    try {
+      const field = titleField(d.dump())
+      if (field) { await d.tap(field.cx, field.cy, 500); await d.clearField() }
+    } catch { /* best effort */ }
+    await d.back(); await d.back()
+  }
+
+  await step('open', async () => {
+    await v.nav('Today')
+    await d.tapDesc('Add task', { wait: 1800 })
+    await d.clearField() // the sheet keeps an unsent draft
+    await d.typeSlow('Call Ana Saturday 3pm #Personal')
+    await d.sleep(1200)
+    shot('compact')
+  })
+
+  await step('chips', async () => {
+    const nodes = d.dump()
+    const t = texts(nodes)
+    const dateChips = t.filter((x) => /^Sat, /.test(x))
+    if (dateChips.length !== 1) throw new Error(`the date shows ${dateChips.length} times as a chip (${dateChips.join(' | ')}), expected once`)
+    if (!new RegExp(`\\b${dayOf(saturday)}\\b`).test(dateChips[0]) || !/(3:00 PM|15:00)/.test(dateChips[0])) {
+      throw new Error(`the date chip reads "${dateChips[0]}", expected the coming Saturday ${dayOf(saturday)} at 3 PM`)
+    }
+    console.log(`  date chip: ${dateChips[0]}`)
+    if (!t.includes('Personal')) throw new Error(`no "Personal" chip (texts: ${t.slice(0, 12).join(' | ')})`)
+    for (const name of ['When', 'Project', 'Tags', 'Priority']) {
+      if (name === 'When' || name === 'Project') continue // these hold values here
+      if (!t.includes(name)) warn(`a5: no "${name}" chip`)
+    }
+    if (!t.includes('+ Notes')) throw new Error('no "+ Notes" chip')
+    printFindings(`${ctx.theme}-compact`, audit(nodes), ctx.outDir) // reported, never failing
+  })
+
+  await step('compact', async () => {
+    const nodes = d.dump()
+    const field = titleField(nodes)
+    const notes = nodes.find((n) => n.text === '+ Notes')
+    if (!field || !notes) throw new Error('title field or "+ Notes" not found')
+    // The sheet rests on the keyboard: its top is the title field less the drag handle, and it
+    // takes well under half of the screen.
+    const topDp = (field.y1 - v.px(40)) / v.sc.scale
+    const heightDp = v.sc.height / v.sc.scale
+    const keyboardTop = d.screen().height - v.px(300)
+    console.log(`  title field at ${topDp.toFixed(0)} dp of ${heightDp.toFixed(0)} dp; chips row at ${(notes.y1 / v.sc.scale).toFixed(0)} dp`)
+    if (field.y1 < v.sc.height * 0.3) throw new Error('the sheet is tall: the title field starts in the top third of the screen')
+    if (notes.y2 > keyboardTop + v.px(500)) warn('a5: the chips sit very low; check the capture')
+  })
+
+  await step('chip-rule', async () => {
+    // The text says !low; picking Urgent with the chip wins, and the chip then reads Urgent.
+    const field = titleField(d.dump())
+    await d.tap(field.cx, field.cy, 500)
+    await d.clearField()
+    await d.typeSlow('Call Ana !low')
+    await d.sleep(900)
+    if (!texts(d.dump()).includes('Low')) throw new Error('the priority chip does not read Low for "!low"')
+    await d.tapText('Low', { wait: 1200 })
+    await d.tapText('Urgent', { wait: 1200 })
+    const t = texts(d.dump())
+    shot('chip-rule')
+    if (!t.includes('Urgent')) throw new Error('the priority chip does not read Urgent after picking it')
+    if (t.includes('Low')) throw new Error('the typed "!low" still shows as a Low chip after picking Urgent')
+  })
+
+  await step('notes', async () => {
+    await d.tapText('+ Notes', { wait: 1500 })
+    shot('notes')
+    const t = texts(d.dump())
+    if (t.includes('+ Notes')) throw new Error('"+ Notes" is still there after tapping it')
+    for (const name of ['Repeat', 'Reminder']) if (!t.includes(name)) throw new Error(`no "${name}" chip after "+ Notes"`)
+  })
+
+  await draftCleanup()
+}
+
 const stub = (id, wave) => Object.assign(async () => { stubs.push(id); console.log(`STUB ${id}: not implemented yet (plan wave ${wave})`) }, { isStub: true })
 
 // id, wave (from the plan's Android scenario table), run
@@ -451,7 +546,7 @@ const SCENARIOS = {
   a2: { wave: 4, run: stub('a2', 4), about: 'swipe to 40 and 60 percent, armed pop, WhenSheet' },
   a3: { wave: 4, run: stub('a3', 4), about: 'predictive back on the editor, container transform' },
   a4: { wave: 1, run: a4Upcoming, about: 'Upcoming day groups and sticky headers' },
-  a5: { wave: 3, run: stub('a5', 3), about: 'quick add sheet with chips' },
+  a5: { wave: 3, run: a5QuickAdd, about: 'compact quick add: chips in words, the date once, + Notes grows it, a picked chip wins over the text' },
   a6: { wave: 3, run: a6WhenSheet, about: 'WhenSheet: tomorrow 9am, a calendar day, Next week (throwaway tasks, read back from the server)' },
   clock24: { wave: 3, run: clock24, about: 'device on the 24-hour clock: editor, When sheet and quick add show 15:00, never PM' },
   a7: { wave: 4, run: stub('a7', 4), about: 'scroll Today: large title folds, FAB shrinks' },
