@@ -3,6 +3,7 @@ package com.rendyhd.vicu.ui.theme
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import com.rendyhd.vicu.ui.theme.color.Blend
 
 // Colours outside the Material 3 scheme. The values are test-fixtures/design-tokens-v1.json
 // (android.custom, roles priority.*, identity); DesignTokensTest fails when they drift.
@@ -16,7 +17,15 @@ class VicuColorRole(
     val onColor: Color,
     val container: Color,
     val onContainer: Color,
-)
+) {
+    /** Every colour of the role shifted towards [source] by Blend.harmonize (tone and chroma are kept). */
+    fun harmonizedWith(source: Color): VicuColorRole = VicuColorRole(
+        color = Blend.harmonize(color, source),
+        onColor = Blend.harmonize(onColor, source),
+        container = Blend.harmonize(container, source),
+        onContainer = Blend.harmonize(onContainer, source),
+    )
+}
 
 /** Smart list identity colours. They only ever colour list icons, never text. */
 @Immutable
@@ -42,6 +51,23 @@ class VicuColors(
     val priorityUrgent: Color,
     val identity: VicuIdentityColors,
 ) {
+    /**
+     * The status and swipe colours shifted towards [primary], the primary of the device (wallpaper)
+     * colour scheme, so they sit in that palette. Priority and identity colours keep their hue:
+     * the marks and list icons must stay told apart.
+     */
+    fun harmonizedWith(primary: Color): VicuColors = VicuColors(
+        dueToday = dueToday.harmonizedWith(primary),
+        done = done.harmonizedWith(primary),
+        swipeComplete = swipeComplete.harmonizedWith(primary),
+        swipeSchedule = swipeSchedule.harmonizedWith(primary),
+        priorityLow = priorityLow,
+        priorityMedium = priorityMedium,
+        priorityHigh = priorityHigh,
+        priorityUrgent = priorityUrgent,
+        identity = identity,
+    )
+
     /** The colour of a Vikunja priority: 1 low, 2 medium, 3 high, 4 and 5 urgent; 0 has none. */
     fun priority(level: Int): Color? = when (level) {
         1 -> priorityLow

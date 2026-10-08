@@ -7,6 +7,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import com.rendyhd.vicu.data.local.ThemeMode
 
@@ -22,8 +23,9 @@ fun VicuTheme(
         ThemeMode.System -> isSystemInDarkTheme()
     }
 
+    val useDeviceColors = dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+        useDeviceColors -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
@@ -32,13 +34,19 @@ fun VicuTheme(
         else -> VicuLightColorScheme
     }
 
+    // With device colours the status and swipe colours are shifted towards the wallpaper primary.
+    val vicuColors = remember(colorScheme, darkTheme, useDeviceColors) {
+        val base = if (darkTheme) VicuDarkColors else VicuLightColors
+        if (useDeviceColors) base.harmonizedWith(colorScheme.primary) else base
+    }
+
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
         shapes = VicuShapes,
     ) {
         CompositionLocalProvider(
-            LocalVicuColors provides if (darkTheme) VicuDarkColors else VicuLightColors,
+            LocalVicuColors provides vicuColors,
             content = content,
         )
     }
