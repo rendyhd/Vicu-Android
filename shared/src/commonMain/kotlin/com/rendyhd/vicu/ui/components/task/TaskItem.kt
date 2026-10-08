@@ -70,6 +70,7 @@ import com.rendyhd.vicu.data.local.SubtaskDisplayMode
 import com.rendyhd.vicu.domain.repository.QuickDue
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
+import com.rendyhd.vicu.ui.theme.LocalVicuColors
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.isRecurring
@@ -599,14 +600,13 @@ fun TaskDueBadge(
     }
     val (isOverdue, isToday, label) = badge
 
-    val bgColor = when {
-        isOverdue -> Color(0xFFEF4444).copy(alpha = 0.12f)
-        isToday -> Color(0xFFF97316).copy(alpha = 0.12f)
-        else -> Color.Transparent
-    }
+    // Overdue is the error role on an 8% tint of itself; due today is the dueToday text colour
+    // with no chip; later dates are quiet (docs/design-system-v1.md, status colours).
+    val error = MaterialTheme.colorScheme.error
+    val bgColor = if (isOverdue) error.copy(alpha = 0.08f) else Color.Transparent
     val textColor = when {
-        isOverdue -> Color(0xFFEF4444)
-        isToday -> Color(0xFFF97316)
+        isOverdue -> error
+        isToday -> LocalVicuColors.current.dueToday.color
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 

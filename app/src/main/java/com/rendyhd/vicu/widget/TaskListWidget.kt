@@ -49,6 +49,10 @@ import androidx.glance.text.TextStyle
 import com.rendyhd.vicu.MainActivity
 import com.rendyhd.vicu.putViewTarget
 import com.rendyhd.vicu.ui.navigation.ViewTarget
+import com.rendyhd.vicu.ui.theme.VicuDarkColorScheme
+import com.rendyhd.vicu.ui.theme.VicuDarkColors
+import com.rendyhd.vicu.ui.theme.VicuLightColorScheme
+import com.rendyhd.vicu.ui.theme.VicuLightColors
 import com.rendyhd.vicu.util.DateUtils
 
 class TaskListWidget : GlanceAppWidget() {
@@ -79,20 +83,15 @@ class TaskListWidget : GlanceAppWidget() {
     }
 }
 
-// Semantic color constants (not part of Material You theming)
+// Status and priority colours come from the Vicu roles (not the Material You theming of the widget).
 private val overdueColor = ColorProvider(
-    day = Color(0xFFEF4444),
-    night = Color(0xFFF87171),
+    day = VicuLightColorScheme.error,
+    night = VicuDarkColorScheme.error,
 )
 
-private val highPriorityColor = ColorProvider(
-    day = Color(0xFFEF4444),
-    night = Color(0xFFF87171),
-)
-
-private val medPriorityColor = ColorProvider(
-    day = Color(0xFFF59E0B),
-    night = Color(0xFFFBBF24),
+private fun priorityColor(priority: Int) = ColorProvider(
+    day = VicuLightColors.priority(priority) ?: VicuLightColors.priorityLow,
+    night = VicuDarkColors.priority(priority) ?: VicuDarkColors.priorityLow,
 )
 
 // Action callbacks for deep linking
@@ -362,14 +361,14 @@ private fun WidgetTaskRow(task: WidgetTaskItem) {
                 modifier = GlanceModifier
                     .size(8.dp)
                     .cornerRadius(4.dp)
-                    .background(highPriorityColor),
+                    .background(priorityColor(task.priority)),
             ) {}
         } else if (task.priority == 2) {
             Box(
                 modifier = GlanceModifier
                     .size(8.dp)
                     .cornerRadius(4.dp)
-                    .background(medPriorityColor),
+                    .background(priorityColor(task.priority)),
             ) {}
         }
     }

@@ -120,7 +120,7 @@ fun AnytimeScreen(
                                 val projectColor = remember(row.project.hexColor) { parseHexColor(row.project.hexColor) }
                                 CollapsibleSection(
                                     title = row.project.title,
-                                    color = projectColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                                    dotColor = projectColor,
                                     taskCount = row.taskCount,
                                     isExpanded = row.isExpanded,
                                     onToggle = { viewModel.toggleProject(row.project.id) },

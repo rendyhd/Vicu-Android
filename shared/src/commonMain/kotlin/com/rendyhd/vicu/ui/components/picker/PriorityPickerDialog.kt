@@ -22,10 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.rendyhd.vicu.ui.theme.PriorityHigh
-import com.rendyhd.vicu.ui.theme.PriorityLow
-import com.rendyhd.vicu.ui.theme.PriorityMedium
-import com.rendyhd.vicu.ui.theme.PriorityUrgent
+import com.rendyhd.vicu.ui.theme.LocalVicuColors
 
 private data class PriorityOption(val value: Int, val label: String, val color: Color?)
 
@@ -35,12 +32,13 @@ fun PriorityPickerDialog(
     onPick: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val colors = LocalVicuColors.current
     val options = listOf(
         PriorityOption(0, "None", null),
-        PriorityOption(1, "Low", PriorityLow),
-        PriorityOption(2, "Medium", PriorityMedium),
-        PriorityOption(3, "High", PriorityHigh),
-        PriorityOption(4, "Urgent", PriorityUrgent),
+        PriorityOption(1, "Low", colors.priorityLow),
+        PriorityOption(2, "Medium", colors.priorityMedium),
+        PriorityOption(3, "High", colors.priorityHigh),
+        PriorityOption(4, "Urgent", colors.priorityUrgent),
     )
 
     AlertDialog(

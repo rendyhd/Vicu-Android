@@ -6,13 +6,16 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Icon
@@ -36,12 +39,14 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun CollapsibleSection(
     title: String,
-    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    /** The project colour as an 8 dp dot before the title; the text stays onSurfaceVariant. */
+    dotColor: Color? = null,
     taskCount: Int = 0,
     isExpanded: Boolean = true,
     onToggle: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
     val rotation by animateFloatAsState(
         targetValue = if (isExpanded) 90f else 0f,
         animationSpec = tween(durationMillis = 200),
@@ -75,6 +80,11 @@ fun CollapsibleSection(
             tint = color,
         )
         Spacer(modifier = Modifier.width(8.dp))
+        if (dotColor != null) {
+            // Decorative: the project is named by the title next to it.
+            Box(modifier = Modifier.size(8.dp).background(dotColor, CircleShape))
+            Spacer(modifier = Modifier.width(8.dp))
+        }
         Text(
             text = title.uppercase(),
             color = color,

@@ -110,9 +110,3 @@ val VicuDarkColorScheme: ColorScheme = darkColorScheme(
     onTertiaryFixed = Color(0xFF351000),
     onTertiaryFixedVariant = Color(0xFF7A3000),
 )
-
-// Priority colours of the current priority marks; the priority-mark card replaces them with roles.
-val PriorityUrgent = Color(0xFFFF3B30)
-val PriorityHigh = Color(0xFFFF9500)
-val PriorityMedium = Color(0xFFFFCC00)
-val PriorityLow = Color(0xFF007AFF)

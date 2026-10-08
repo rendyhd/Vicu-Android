@@ -7,7 +7,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -18,10 +17,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rendyhd.vicu.domain.repository.QuickDue
-import com.rendyhd.vicu.ui.theme.PriorityHigh
-import com.rendyhd.vicu.ui.theme.PriorityLow
-import com.rendyhd.vicu.ui.theme.PriorityMedium
-import com.rendyhd.vicu.ui.theme.PriorityUrgent
+import com.rendyhd.vicu.ui.theme.LocalVicuColors
+import com.rendyhd.vicu.ui.theme.VicuColors
 
 /** The smallest touch target Android accessibility guidance allows for something that is tapped. */
 internal val MIN_TOUCH_TARGET: Dp = 48.dp
@@ -104,27 +101,17 @@ internal fun priorityDescription(priority: Int): String? = when (priority) {
     else -> null
 }
 
-/**
- * The colour of a priority mark. The vivid colours of the dots read well on a dark surface; on a
- * light one the yellow and orange are too faint for text, so they are deepened.
- */
-internal fun priorityMarkColor(priority: Int, dark: Boolean): Color? = when (priority) {
-    1 -> if (dark) PriorityLow else Color(0xFF0066CC)
-    2 -> if (dark) PriorityMedium else Color(0xFF9A6B00)
-    3 -> if (dark) PriorityHigh else Color(0xFFB45309)
-    4, 5 -> if (dark) PriorityUrgent else Color(0xFFD70015)
-    else -> null
-}
+/** The colour of a priority mark: the priority role of the theme (4 and 5 are urgent), or null for none. */
+internal fun priorityMarkColor(priority: Int, colors: VicuColors): Color? = colors.priority(priority)
 
 /** The priority of a task as text ("!" to "!!!!!") with its spoken form; nothing for no priority. */
 @Composable
 internal fun PriorityMark(priority: Int, modifier: Modifier = Modifier) {
     val text = priorityMarkText(priority) ?: return
     val description = priorityDescription(priority) ?: return
-    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     Text(
         text = text,
-        color = priorityMarkColor(priority, dark) ?: return,
+        color = priorityMarkColor(priority, LocalVicuColors.current) ?: return,
         fontSize = 12.sp,
         fontWeight = FontWeight.Bold,
         maxLines = 1,

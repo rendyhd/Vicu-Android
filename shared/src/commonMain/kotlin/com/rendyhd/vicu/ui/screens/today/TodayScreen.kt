@@ -171,7 +171,7 @@ fun TodayScreen(
                             TodaySectionTitle(
                                 title = "Overdue",
                                 count = state.overdueGroups.sumOf { it.tasks.size },
-                                color = OverdueColor,
+                                color = MaterialTheme.colorScheme.error,
                             )
                         }
                         taskGroupItems(
@@ -232,8 +232,6 @@ fun TodayScreen(
     }
 }
 
-private val OverdueColor = Color(0xFFEF4444)
-
 /** "Overdue" / "Today": a section title above that section's project groups. */
 @Composable
 private fun TodaySectionTitle(title: String, count: Int, color: Color) {
@@ -271,8 +269,7 @@ private fun LazyListScope.taskGroupItems(
         item(key = "${keyPrefix}_header_${group.projectId}", contentType = "header") {
             CollapsibleSection(
                 title = group.title,
-                color = parseHexColor(group.hexColor)
-                    ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                dotColor = parseHexColor(group.hexColor),
                 taskCount = group.tasks.size,
                 isExpanded = group.isExpanded,
                 onToggle = { onToggleGroup(group.projectId) },

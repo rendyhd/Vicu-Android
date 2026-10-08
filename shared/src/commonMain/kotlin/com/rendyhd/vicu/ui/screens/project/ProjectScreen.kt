@@ -329,7 +329,7 @@ private fun LazyListScope.projectSectionItems(
             val sectionColor = parseHexColor(section.project.hexColor)
             CollapsibleSection(
                 title = section.project.title,
-                color = sectionColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                dotColor = sectionColor,
                 taskCount = totalTaskCount(section),
                 isExpanded = section.isExpanded,
                 onToggle = { onSectionToggle(section.project.id) },
