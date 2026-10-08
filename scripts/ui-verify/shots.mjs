@@ -187,6 +187,9 @@ async function a10FirstRun(ctx) {
   await step('set-up', async () => {
     const notes = await login({ tokenPath, onShot: (n) => shot(n) })
     for (const n of notes) console.log('  note:', n)
+    if (!notes.some((n) => n.startsWith('rationale sheet'))) warn('a10: no rationale sheet after setup')
+    else if (!notes.some((n) => n.startsWith('system permission prompt'))) warn('a10: no system prompt after the rationale sheet')
+    else console.log('  rationale sheet, then the system prompt, after setup')
   })
 }
 

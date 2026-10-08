@@ -70,19 +70,32 @@ async function waitFor(pred, what, ms = 25000) {
 const tapNode = (n, wait = 1200) => d.tap(n.cx, n.cy, wait)
 const textNode = (nodes, t) => nodes.find((n) => n.text === t)
 
-/** Dismiss system permission prompts and "not now" cards until the main screen shows. */
+/**
+ * Follow what shows after setup until the main screen is quiet: the notification rationale sheet
+ * ("Allow notifications" is tapped, the system prompt that follows is denied) and "not now" cards.
+ */
 async function settle(notes, onShot) {
-  for (let i = 0; i < 10; i++) {
+  let quiet = 0
+  for (let i = 0; i < 14; i++) {
     const nodes = d.dump()
-    if (bottomBarVisible(nodes)) return
     if (isPermissionDialog(nodes)) {
+      quiet = 0
       const texts = nodes.filter((n) => n.text).map((n) => n.text).slice(0, 4).join(' | ')
-      notes.push(`permission prompt after setup: ${texts}`)
-      onShot?.('setup-5-permission-prompt')
+      notes.push(`system permission prompt after setup: ${texts}`)
+      onShot?.('setup-6-permission-prompt')
       if (await denyPermissionPrompt(nodes)) continue
     }
-    const later = nodes.find((n) => n.clickable && /^(Not now|Skip|Later|Maybe later|No thanks|Dismiss)$/i.test(n.text))
-    if (later) { notes.push(`dismissed "${later.text}"`); onShot?.('setup-5-card'); await tapNode(later); continue }
+    const allow = nodes.find((n) => n.text === 'Allow notifications')
+    if (allow) {
+      quiet = 0
+      notes.push('rationale sheet shown after setup')
+      onShot?.('setup-5-rationale')
+      await tapNode(allow, 1500)
+      continue
+    }
+    const later = nodes.find((n) => /^(Not now|Skip|Later|Maybe later|No thanks|Dismiss)$/i.test(n.text))
+    if (later) { quiet = 0; notes.push(`dismissed "${later.text}"`); onShot?.('setup-5-card'); await tapNode(later); continue }
+    if (bottomBarVisible(nodes) && ++quiet >= 2) return
     await d.sleep(1000)
   }
   throw new Error('main screen did not show after setup')

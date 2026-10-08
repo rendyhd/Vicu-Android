@@ -366,8 +366,6 @@ fun VicuApp(
                         navController.navigate(InboxRoute) {
                             popUpTo(0) { inclusive = true }
                         }
-                        // The one place the app first asks for notifications: setup is done.
-                        notificationPermission.onSetupCompleted()
                     }
                 }
             }

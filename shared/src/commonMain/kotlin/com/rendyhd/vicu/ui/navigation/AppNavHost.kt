@@ -22,6 +22,8 @@ import com.rendyhd.vicu.ui.screens.setup.SetupScreen
 import com.rendyhd.vicu.ui.screens.tag.TagScreen
 import com.rendyhd.vicu.ui.screens.today.TodayScreen
 import com.rendyhd.vicu.ui.screens.upcoming.UpcomingScreen
+import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
+import org.koin.compose.koinInject
 
 @Composable
 fun AppNavHost(
@@ -33,6 +35,9 @@ fun AppNavHost(
     onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
+    // Setup finishes here (SetupScreen), not in VicuApp's auth effect: the session turns
+    // Authenticated at the token step, before the Inbox project is chosen.
+    val notificationPermission: NotificationPermissionCoordinator = koinInject()
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -48,6 +53,8 @@ fun AppNavHost(
                     navController.navigate(InboxRoute) {
                         popUpTo(0) { inclusive = true }
                     }
+                    // The one place the app first asks for notifications: setup is done.
+                    notificationPermission.onSetupCompleted()
                 },
             )
         }
