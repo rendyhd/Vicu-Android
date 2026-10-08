@@ -276,6 +276,18 @@ object DateDisplay {
         return format(context, instant.toLocalDateTime(zone), today, DueDates.isDateOnly(instant, zone), fmt)
     }
 
+    /** The short weekday of a day ("Wed"); the hint of a quick choice in the When sheet. */
+    fun formatWeekdayShort(date: LocalDate, fmt: DateDisplayFormat): String =
+        phrasesFor(fmt.locale).weekdayShort(LocalDateTime(date.year, date.monthNumber, date.dayOfMonth, 0, 0))
+
+    /** The short weekday and day of the month of a day ("Mon 12"). */
+    fun formatWeekdayDay(date: LocalDate, fmt: DateDisplayFormat): String =
+        phrasesFor(fmt.locale).weekdayDay(LocalDateTime(date.year, date.monthNumber, date.dayOfMonth, 0, 0))
+
+    /** The clock text of a time of day ("3:00 PM", "15:00"). */
+    fun formatTime(time: kotlinx.datetime.LocalTime, fmt: DateDisplayFormat): String =
+        phrasesFor(fmt.locale).time(LocalDateTime(2000, 1, 1, time.hour, time.minute), fmt.hour12)
+
     /** The short date with its year of a stored instant, read in [zone]; empty for no date. */
     fun formatDayMonthYear(isoDate: String?, zone: TimeZone, fmt: DateDisplayFormat): String {
         val instant = DateUtils.parseIsoDate(isoDate) ?: return ""

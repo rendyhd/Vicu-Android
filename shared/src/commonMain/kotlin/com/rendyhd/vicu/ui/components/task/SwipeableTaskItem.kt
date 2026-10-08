@@ -83,6 +83,11 @@ fun SwipeableTaskItem(
     val currentTask by rememberUpdatedState(task)
     val currentOnToggleDone by rememberUpdatedState(onToggleDone)
     val currentOnSchedule by rememberUpdatedState(onSchedule)
+    // The app opens the When sheet for a swipe to schedule; without it the row runs its own action.
+    val rowActions = LocalTaskRowActions.current
+    val currentSwipeSchedule by rememberUpdatedState<() -> Unit> {
+        if (rowActions?.swipeSchedule(currentTask.id) != true) currentOnSchedule()
+    }
     val requestToggleDone: () -> Unit = {
         if (completionNeedsSubtaskConfirmation(currentTask)) {
             showCompletionConfirmation = true
@@ -118,7 +123,7 @@ fun SwipeableTaskItem(
             if (draggedFraction >= 0.5f) {
                 when (value) {
                     SwipeToDismissBoxValue.StartToEnd -> currentRequestToggleDone()
-                    SwipeToDismissBoxValue.EndToStart -> currentOnSchedule()
+                    SwipeToDismissBoxValue.EndToStart -> currentSwipeSchedule()
                     SwipeToDismissBoxValue.Settled -> {}
                 }
             }

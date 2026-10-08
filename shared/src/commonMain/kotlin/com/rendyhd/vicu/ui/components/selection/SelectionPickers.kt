@@ -9,7 +9,7 @@ import androidx.compose.runtime.getValue
 import com.rendyhd.vicu.ui.components.picker.LabelPickerDialog
 import com.rendyhd.vicu.ui.components.picker.PriorityPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
-import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.picker.WhenSheet
 
 /** Dialog-based actions available from the multi-select overflow menu. */
 enum class SelectionAction {
@@ -50,7 +50,7 @@ fun SelectionPickers(
     }
 
     when (action) {
-        SelectionAction.SCHEDULE -> VicuDatePickerDialog(
+        SelectionAction.SCHEDULE -> WhenSheet(
             currentDate = null,
             onDateSelected = selectionVm::bulkSchedule,
             onClearDate = {},

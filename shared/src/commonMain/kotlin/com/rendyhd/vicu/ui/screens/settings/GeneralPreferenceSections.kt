@@ -486,7 +486,7 @@ internal fun LazyListScope.behaviorSection(
             @OptIn(ExperimentalMaterial3Api::class)
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 val options = listOf(
-                    com.rendyhd.vicu.data.local.ScheduleAction.DUE_TODAY to "Due today",
+                    com.rendyhd.vicu.data.local.ScheduleAction.DUE_TODAY to "Choose when",
                     com.rendyhd.vicu.data.local.ScheduleAction.PRIORITY_URGENT to "Urgent",
                 )
                 options.forEachIndexed { index, (action, label) ->

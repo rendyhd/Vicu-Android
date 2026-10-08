@@ -21,6 +21,12 @@ internal val MIN_TOUCH_TARGET: Dp = 48.dp
 interface TaskRowActions {
     /** Sets the due date of [taskId] to the end of [due]'s local day. */
     fun scheduleDue(taskId: Long, due: QuickDue)
+
+    /**
+     * A swipe to schedule on [taskId]. Returns true when the app took it (it opens the When sheet),
+     * false when the row should run its own configured action (the "Urgent" swipe setting).
+     */
+    fun swipeSchedule(taskId: Long): Boolean
 }
 
 val LocalTaskRowActions = staticCompositionLocalOf<TaskRowActions?> { null }

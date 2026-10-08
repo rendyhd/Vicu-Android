@@ -86,7 +86,7 @@ import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
 import com.rendyhd.vicu.ui.components.picker.RelationTaskPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.RecurrencePickerDialog
-import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.picker.WhenSheet
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.components.task.AnimatedCheckbox
@@ -850,7 +850,7 @@ fun TaskDetailScreen(
 
     // Picker dialogs
     if (showDatePicker) {
-        VicuDatePickerDialog(
+        WhenSheet(
             currentDate = state.task?.dueDate,
             onDateSelected = viewModel::setDueDate,
             onClearDate = viewModel::clearDueDate,

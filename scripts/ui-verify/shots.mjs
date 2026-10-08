@@ -9,7 +9,7 @@
 //
 // Captures land in out/<scenario>/<theme>-<step>.png. A step that cannot run prints FAIL and the
 // run exits 1; WARN lines are expectations the app does not meet yet and never fail the run.
-// Scenario ids follow the plan: a1..a12. Only baseline, a4, a8, a9, a10 and a11 run today; the
+// Scenario ids follow the plan: a1..a12. Only baseline, a4, a6, a8, a9, a10 and a11 run today; the
 // others are stubs that print STUB and pass.
 import * as d from './droid.mjs'
 import * as v from './nav.mjs'
@@ -43,8 +43,8 @@ function makeCtx(scenario, theme) {
  * the drag started. A right swipe past 50 percent completes the task as soon as it crosses (the
  * app commits on the crossing, not on release), so `undo` reopens it afterwards and checks that
  * the checkbox is clear again: the harness must leave the data as it found it. A left swipe past
- * 50 percent schedules the task on the crossing too and cannot be undone from here, so only the
- * partial (40 percent) left swipe is captured.
+ * 50 percent opens the When sheet on the crossing, so only the partial (40 percent) left swipe
+ * is captured here (a6 covers the sheet).
  */
 async function swipeShot(ctx, name, dir, fraction, { undo = false } = {}) {
   const row = v.firstRow(undefined, { plain: true })
@@ -217,6 +217,131 @@ async function a11FontScale(ctx) {
   }
 }
 
+/**
+ * A6: the When sheet (opened by a full swipe to the left) gives the same results as the desktop
+ * When panel (E5): "tomorrow 9am" is tomorrow 09:00, a calendar day is that day (date-only,
+ * local 23:59:59), "Next week" is the coming Monday. The due dates are read back from the server
+ * API (the local test server on this machine; the token from --token or the default .local folder).
+ * It creates three throwaway tasks due today and deletes them at the end; seeded tasks stay as they are.
+ */
+const API = 'http://localhost:3456/api/v2'
+
+async function a6WhenSheet(ctx) {
+  const { step, shot, warn } = ctx
+  const token = resolveToken(opt('token', DEFAULT_TOKEN_PATH))
+  if (!token) { console.log('SKIP a6: no API token (see --token)'); return }
+  const api = async (method, path, body) => {
+    const r = await fetch(API + path, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    if (!r.ok) throw new Error(`${method} ${path}: HTTP ${r.status}`)
+    const t = await r.text()
+    return t ? JSON.parse(t) : null
+  }
+
+  // Dates in the device's own zone (it can differ from this machine's).
+  const zone = d.sh('getprop persist.sys.timezone').trim() || 'UTC'
+  const parts = (instant) => Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      .formatToParts(instant).filter((p) => p.type !== 'literal').map((p) => [p.type, p.value]),
+  )
+  const local = (instant) => { const p = parts(instant); return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}` }
+  const ymd = (date) => local(date).slice(0, 10)
+  const today = new Date(`${ymd(new Date())}T12:00:00Z`) // noon UTC of the device's local date: whole days can be added
+  const plusDays = (n) => new Date(today.getTime() + n * 86400000)
+  const comingMonday = plusDays(((8 - today.getUTCDay()) % 7) || 7)
+  const picked = today.getUTCDate() < 20 ? plusDays(20 - today.getUTCDate()) : null // the 20th of this month, while it is ahead
+  const todayDateOnly = `${ymd(today)} 23:59:59`
+  const expect = {
+    text: `${ymd(plusDays(1))} 09:00:00`,
+    day: picked ? `${ymd(picked)} 23:59:59` : null,
+    week: `${ymd(comingMonday)} 23:59:59`,
+  }
+  // Today as a date-only due date: the instant whose device-local time is 23:59:59 of today.
+  const dueIso = (() => {
+    for (let h = -14; h <= 38; h++) {
+      const t = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()) + h * 3600000 + 59 * 60000 + 59000)
+      if (local(t) === todayDateOnly) return t.toISOString()
+    }
+    throw new Error('could not work out a date-only due date for today')
+  })()
+
+  const made = {}
+  const stamp = Date.now().toString(36).slice(-4)
+  const title = (k) => `zz a6 ${k} ${stamp}`
+  try {
+    for (const k of ['text', 'day', 'week']) {
+      const inbox = Number(opt('inbox', 47))
+      made[k] = (await api('POST', `/projects/${inbox}/tasks`, { title: title(k), due_date: dueIso })).id
+    }
+    const waitDue = async (k) => {
+      let got = ''
+      for (let i = 0; i < 20; i++) {
+        got = local(new Date((await api('GET', `/tasks/${made[k]}`)).due_date))
+        if (got !== todayDateOnly) return got
+        await d.sleep(1000)
+      }
+      return got
+    }
+    const check = (label, got, want) => {
+      if (got !== want) throw new Error(`${label}: server has ${got}, expected ${want}`)
+      console.log(`  ${label}: ${got}`)
+    }
+    const openSheet = async (k) => {
+      await v.nav('Today')
+      let row
+      for (let i = 0; i < 4 && !row; i++) {
+        if (i === 0) await d.swipe(540, 700, 540, 1700, 400, 3000) // pull to refresh
+        else await d.swipe(540, 1900, 540, 700, 400, 900)
+        row = v.taskRows().find((r) => r.title?.text === title(k))
+      }
+      if (!row) throw new Error(`throwaway task ${k} is not on Today`)
+      await d.swipe(Math.round(v.sc.width * 0.926), row.check.cy, Math.round(v.sc.width * 0.139), row.check.cy, 350, 2000)
+      if (!d.hasText('When')) throw new Error('the When sheet did not open on a swipe to the left')
+    }
+
+    await step('sheet', async () => { await openSheet('text'); shot('sheet') })
+    await step('text-tomorrow-9am', async () => {
+      const field = d.findNode((n) => /EditText/.test(n.class ?? ''), 'date and time field')
+      await d.tap(field.cx, field.cy, 700)
+      await d.clearField()
+      await d.type('tomorrow 9am')
+      await d.sleep(800)
+      shot('text-tomorrow-9am')
+      if (!d.dump().some((n) => /9:00 AM|09:00/.test(n.text ?? ''))) warn('a6: the value that was read is not shown')
+      await d.back() // the keyboard
+      await d.tapText('Done', { wait: 1500 })
+      check('tomorrow 9am', await waitDue('text'), expect.text)
+    })
+
+    await step('calendar-day', async () => {
+      if (!picked) { warn('a6: the 20th is past this month; the calendar-day step is skipped'); return }
+      await openSheet('day')
+      const label = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(picked)
+      const cell = (await v.scrollFind((n) => n.text === label, `calendar day ${label}`, 0.5)).n
+      await d.tap(cell.cx, cell.cy, 900)
+      shot('calendar-day')
+      const field = d.dump().find((n) => /EditText/.test(n.class ?? ''))
+      if (field && !/(^|\D)20(\D|$)/.test(field.text ?? '')) warn(`a6: the text did not follow the calendar (it reads "${field.text}")`)
+      await d.tapText('Done', { wait: 1500 })
+      check('calendar day', await waitDue('day'), expect.day)
+    })
+
+    await step('next-week', async () => {
+      await openSheet('week')
+      await d.tapDesc('Next week, ', { exact: false, wait: 1800 })
+      check('next week', await waitDue('week'), expect.week)
+    })
+  } finally {
+    for (const id of Object.values(made)) {
+      try { await api('DELETE', `/tasks/${id}`) } catch { console.log('  could not delete throwaway task', id) }
+    }
+    try { await v.home() } catch { /* best effort */ }
+  }
+}
+
 const stub = (id, wave) => Object.assign(async () => { stubs.push(id); console.log(`STUB ${id}: not implemented yet (plan wave ${wave})`) }, { isStub: true })
 
 // id, wave (from the plan's Android scenario table), run
@@ -227,7 +352,7 @@ const SCENARIOS = {
   a3: { wave: 4, run: stub('a3', 4), about: 'predictive back on the editor, container transform' },
   a4: { wave: 1, run: a4Upcoming, about: 'Upcoming day groups and sticky headers' },
   a5: { wave: 3, run: stub('a5', 3), about: 'quick add sheet with chips' },
-  a6: { wave: 3, run: stub('a6', 3), about: 'WhenSheet results' },
+  a6: { wave: 3, run: a6WhenSheet, about: 'WhenSheet: tomorrow 9am, a calendar day, Next week (throwaway tasks, read back from the server)' },
   a7: { wave: 4, run: stub('a7', 4), about: 'scroll Today: large title folds, FAB shrinks' },
   a8: { wave: 1, run: a8Colours, about: 'light, dark, device colours off and on' },
   a9: { wave: 2, run: a9A11y, about: 'a11y report on Today, Upcoming, editor, quick add, drawer' },

@@ -77,7 +77,7 @@ import com.rendyhd.vicu.ui.components.picker.PriorityPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.RecurrencePickerDialog
-import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.picker.WhenSheet
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.screens.taskentry.resolveEntryDueDate
@@ -437,7 +437,7 @@ fun TaskEntrySheet(
 
     // Picker dialogs
     if (showDatePicker) {
-        VicuDatePickerDialog(
+        WhenSheet(
             currentDate = state.dueDate,
             onDateSelected = viewModel::setDueDate,
             onClearDate = viewModel::clearDueDate,

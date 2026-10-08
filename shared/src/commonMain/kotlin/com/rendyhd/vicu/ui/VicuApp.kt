@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -50,12 +51,17 @@ import androidx.navigation.compose.rememberNavController
 import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.AuthState
+import com.rendyhd.vicu.data.local.BehaviorPrefs
+import com.rendyhd.vicu.data.local.BehaviorPrefsStore
+import com.rendyhd.vicu.data.local.ScheduleAction
 import com.rendyhd.vicu.domain.model.BottomBarSlot
 import com.rendyhd.vicu.domain.model.BottomBarSlotType
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.SharedContent
+import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
+import com.rendyhd.vicu.ui.components.picker.WhenSheet
 import com.rendyhd.vicu.ui.components.settings.NotificationPermissionSheet
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
@@ -102,11 +108,13 @@ import com.rendyhd.vicu.ui.navigation.toRoute
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailScreen
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailViewModel
 import com.rendyhd.vicu.util.AppMessages
+import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DayClock
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -241,11 +249,29 @@ fun VicuApp(
     // What a screen reader can do to a task row besides open it: the swipe gestures have no
     // equivalent for it, so the rows offer the quick due dates as actions.
     val taskRepository: TaskRepository = koinInject()
+    // A swipe to schedule opens the When sheet for that task (unless the swipe is set to "Urgent").
+    val behaviorPrefsStore: BehaviorPrefsStore = koinInject()
+    val behaviorPrefs by behaviorPrefsStore.getPrefs().collectAsStateWithLifecycle(initialValue = BehaviorPrefs())
+    val swipeOpensWhen by rememberUpdatedState(behaviorPrefs.scheduleAction == ScheduleAction.DUE_TODAY)
+    var whenSheetTask by remember { mutableStateOf<Task?>(null) }
     val taskRowActions = remember(taskRepository) {
         object : TaskRowActions {
             override fun scheduleDue(taskId: Long, due: QuickDue) {
                 scope.launch { taskRepository.scheduleDue(taskId, due) }
             }
+
+            override fun swipeSchedule(taskId: Long): Boolean {
+                if (!swipeOpensWhen) return false
+                scope.launch { whenSheetTask = taskRepository.getById(taskId).first() }
+                return true
+            }
+        }
+    }
+    // Only the due date is written, on the task as it is stored now.
+    fun setWhenDue(taskId: Long, dueDate: String) {
+        scope.launch {
+            val current = taskRepository.getById(taskId).first() ?: return@launch
+            taskRepository.update(current.copy(dueDate = dueDate))
         }
     }
 
@@ -590,6 +616,22 @@ fun VicuApp(
     }
 
     NotificationPermissionSheet(notificationPermission)
+
+    whenSheetTask?.let { target ->
+        // Outside the provider block around the screens, so it gets the day and the clock itself.
+        CompositionLocalProvider(
+            LocalClockDay provides clockDay,
+            LocalIs24Hour provides is24Hour,
+            LocalDateFormat provides dateFormat,
+        ) {
+            WhenSheet(
+                currentDate = target.dueDate,
+                onDateSelected = { dueDate -> setWhenDue(target.id, dueDate) },
+                onClearDate = { setWhenDue(target.id, Constants.NULL_DATE_STRING) },
+                onDismiss = { whenSheetTask = null },
+            )
+        }
+    }
 
     // New Custom List Dialog (from drawer)
     if (showNewListDialog) {
