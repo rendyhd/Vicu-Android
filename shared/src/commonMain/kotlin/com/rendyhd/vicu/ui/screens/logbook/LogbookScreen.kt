@@ -32,7 +32,10 @@ import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
-import com.rendyhd.vicu.ui.components.task.TaskItem
+import com.rendyhd.vicu.ui.components.section.SectionHeader
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
+import com.rendyhd.vicu.ui.components.shared.LocalToday
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +46,14 @@ fun LogbookScreen(
     viewModel: LogbookViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val today = LocalToday.current
+    val zone = LocalClockDay.current.zone
+    val dateFormat = LocalDateFormat.current
+    // Newest first, grouped by the day of the completion; the day and the zone come from the
+    // DayClock, so "Today" becomes "Yesterday" at midnight.
+    val groups = remember(state.tasks, today, zone, dateFormat) {
+        groupLogbookTasks(state.tasks, today, zone, dateFormat)
+    }
 
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
@@ -74,21 +85,28 @@ fun LogbookScreen(
                         )
                     }
                 } else {
-                    items(state.tasks, key = { it.id }, contentType = { "task" }) { task ->
-                        TaskItem(
-                            task = if (task.id in state.uncompletedTaskIds) task.copy(done = false) else task,
-                            onToggleDone = {
-                                if (task.id in state.uncompletedTaskIds) {
-                                    viewModel.undoUncomplete(task)
-                                } else {
-                                    viewModel.toggleDone(task)
-                                }
-                        },
-                        onClick = { onTaskClick(task.id) },
-                        onSubtaskToggleDone = viewModel::toggleDone,
-                        onSubtaskClick = { child -> onTaskClick(child.id) },
-                        modifier = Modifier.animateItem(),
-                        )
+                    groups.forEachIndexed { index, group ->
+                        if (group.title.isNotEmpty()) {
+                            item(key = "logbook_group_$index", contentType = "header") {
+                                SectionHeader(title = group.title)
+                            }
+                        }
+                        items(group.rows, key = { it.task.id }, contentType = { "task" }) { row ->
+                            val task = row.task
+                            LogbookRow(
+                                task = if (task.id in state.uncompletedTaskIds) task.copy(done = false) else task,
+                                time = row.time,
+                                onToggleDone = {
+                                    if (task.id in state.uncompletedTaskIds) {
+                                        viewModel.undoUncomplete(task)
+                                    } else {
+                                        viewModel.toggleDone(task)
+                                    }
+                                },
+                                onClick = { onTaskClick(task.id) },
+                                modifier = Modifier.animateItem(),
+                            )
+                        }
                     }
                     if (state.hasMore) {
                         item(key = "logbook-more", contentType = "more") {
