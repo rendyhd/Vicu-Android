@@ -322,6 +322,28 @@ class TaskDetailViewModelAutosaveTest {
         rig.close()
     }
 
+    @Test
+    fun `a save at dismissal, then another task opened before the screen is gone, saves once and keeps the new task`() = runTest {
+        val (rig, vm) = opened()
+        rig.tasks.put(task(43, "Other task"))
+
+        // The editor is dismissed: the save starts at once (the exit animation is only visuals).
+        vm.setPriority(4)
+        vm.saveIfChanged()
+        // Another task is opened while the old editor still fades out ...
+        vm.loadTask(43)
+        // ... and the old screen's late close saves again.
+        vm.saveIfChanged()
+        runCurrent()
+
+        assertEquals(1, rig.tasks.updates.size)
+        assertEquals(42L, rig.tasks.updates.single().id)
+        assertEquals(4, rig.tasks.updates.single().priority)
+        assertEquals(43L, vm.uiState.value.task?.id)
+        assertEquals("Other task", vm.uiState.value.task?.title)
+        rig.close()
+    }
+
     // --- failures ---
 
     @Test

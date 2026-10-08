@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui.screens.taskdetail
 
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
+import kotlin.coroutines.cancellation.CancellationException
 import com.rendyhd.vicu.ui.rememberImagePicker
 import com.rendyhd.vicu.ui.rememberFilePicker
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -137,6 +138,10 @@ fun TaskDetailScreen(
     viewModel: TaskDetailViewModel,
     /** Opens another task (a subtask) in this screen; edits made here are saved first. */
     onOpenTask: (Long) -> Unit = {},
+    /** The back gesture progress shared with [EditorOverlay]; null when the screen is shown without it. */
+    backState: EditorBackState? = null,
+    /** False while this editor is on its way out, so a second back goes on to the screen below. */
+    backEnabled: Boolean = true,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showDatePicker by remember { mutableStateOf(false) }
@@ -164,9 +169,16 @@ fun TaskDetailScreen(
         descriptionEditorController.flush()
         onOpenTask(subtaskId)
     }
+    // Set when the editor is dismissed. From then on its state belongs to the save already started:
+    // the exit animation only plays the visuals, and the view model may load another task before the
+    // screen leaves composition, so nothing of this editor is read back into it.
+    var dismissed by remember { mutableStateOf(false) }
     val dismissEditor = {
         descriptionEditorController.flush()
         if (state.descriptionConflict == null) {
+            // The save starts now, not when the exit animation ends and the screen is disposed.
+            viewModel.saveIfChanged()
+            dismissed = true
             onDismiss()
         } else {
             viewModel.requireDescriptionConflictResolution()
@@ -186,14 +198,14 @@ fun TaskDetailScreen(
     }
 
     LaunchedEffect(state.isDeleted) {
-        if (state.isDeleted) onDismiss()
+        if (state.isDeleted) { dismissed = true; onDismiss() }
     }
 
     // The view model also saves on its own shortly after the last edit. These two are the final
     // saves: going to the background (the process can be killed there without the screen ever
     // leaving composition) and closing the screen.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
-        descriptionEditorController.flush()
+        if (!dismissed) descriptionEditorController.flush()
         viewModel.saveIfChanged()
     }
 
@@ -201,7 +213,9 @@ fun TaskDetailScreen(
     // this exactly once.
     DisposableEffect(Unit) {
         onDispose {
-            descriptionEditorController.flush()
+            // A dismissed editor was flushed and saved at the moment of dismissal; flushing it now
+            // could write its text into whatever task the view model has loaded since.
+            if (!dismissed) descriptionEditorController.flush()
             viewModel.saveIfChanged()
         }
     }
@@ -210,7 +224,21 @@ fun TaskDetailScreen(
     // anchor-recovery bug (issuetracker.google.com/issues/486562294, fixed only in alpha Compose)
     // that made a scrollable child shake/spring on drag. A plain screen has no drag-to-dismiss, so
     // the whole class of bugs is gone. Dismiss via the close icon or system back.
-    BackHandler(onBack = dismissEditor)
+    // Predictive back: the editor follows the gesture (EditorOverlay scales and fades it by
+    // backState.progress); a cancelled gesture springs back. Without a gesture (a button press,
+    // three-button navigation) the flow ends at once and the editor just closes.
+    PredictiveBackHandler(enabled = backEnabled) { progress ->
+        try {
+            progress.collect { backState?.progress = it.progress }
+        } catch (e: CancellationException) {
+            backState?.let { scope.launch { it.springBack() } }
+            throw e
+        }
+        // With a description conflict the dialog opens instead of closing: back to rest.
+        val conflict = state.descriptionConflict != null
+        dismissEditor()
+        if (conflict) backState?.let { scope.launch { it.springBack() } }
+    }
 
     Surface(
         modifier = Modifier

@@ -107,6 +107,8 @@ import com.rendyhd.vicu.ui.navigation.navigateTopLevel
 import com.rendyhd.vicu.ui.navigation.routeKey
 import com.rendyhd.vicu.ui.navigation.startDestinationFor
 import com.rendyhd.vicu.ui.navigation.toRoute
+import com.rendyhd.vicu.ui.screens.taskdetail.EditorBackState
+import com.rendyhd.vicu.ui.screens.taskdetail.EditorOverlay
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailScreen
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailViewModel
 import com.rendyhd.vicu.util.AppMessages
@@ -633,12 +635,20 @@ fun VicuApp(
         val taskDetailVisible = showTaskDetailSheet &&
             !taskDetailUiState.isLoading &&
             taskDetailUiState.task?.id == taskDetailTaskId
-        if (taskDetailVisible) {
+        val editorBackState = remember { EditorBackState() }
+        EditorOverlay(
+            taskId = if (taskDetailVisible) taskDetailTaskId else null,
+            backState = editorBackState,
+            // Still open while it loads another task (a subtask): that change is instant.
+            stayOpen = { showTaskDetailSheet },
+        ) { editorTaskId, backEnabled ->
             TaskDetailScreen(
-                taskId = taskDetailTaskId,
+                taskId = editorTaskId,
                 onDismiss = { showTaskDetailSheet = false },
                 viewModel = taskDetailViewModel,
                 onOpenTask = onTaskClick,
+                backState = editorBackState,
+                backEnabled = backEnabled,
             )
         }
 
