@@ -162,8 +162,11 @@ Server filters use local-day boundaries converted to UTC; the client then filter
 - `nlp-corpus-v1.json` (`NlpCorpusTest`)
 - `routine-archive-v1.json` (`RoutineArchiveFixtureTest`, `RoutineMergeFixtureTest`)
 - `description-format-v1.json`
+- `design-tokens-v1.json` (the design-system values: `docs/design-system-v1.md`; `cross-app-semantics-v1.json` also holds the `completion` and `dateDisplay` vectors)
 
 When behavior changes, change the fixture first, in both repos, in the same release. Fixtures write local wall-clock times; tests convert them with an explicit zone, and the routine vectors run with each contract zone as the system zone.
+
+`docs/design-system-v1.md` is the design-system contract (colour roles and contrast, label chips, priority marks, motion, haptics). `SharedContractIdentityTest` compares all shared fixtures and docs with a desktop checkout next to this repo (skipped when absent; Gradle does not track those files, so use `--rerun` to force it).
 
 Rules that follow from the contract and are easy to break:
 
