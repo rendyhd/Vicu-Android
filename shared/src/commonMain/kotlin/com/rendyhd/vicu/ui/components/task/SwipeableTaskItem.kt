@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.ui.theme.VicuMotion
 import com.rendyhd.vicu.ui.components.section.ProjectMeta
 import com.rendyhd.vicu.util.unfinishedDescendants
 import kotlin.math.abs
@@ -293,7 +294,7 @@ private fun SwipeBackground(
             SwipeToDismissBoxValue.EndToStart -> scheduleBg
             SwipeToDismissBoxValue.Settled -> Color.Transparent
         },
-        animationSpec = tween(200),
+        animationSpec = tween(VicuMotion.fadeFastMs),
         label = "swipeBg",
     )
 

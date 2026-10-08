@@ -135,11 +135,13 @@ class SelectionViewModel(
 
     private suspend fun completeTasks(tasks: List<Task>, completions: CompletionHold?) {
         // Hold every row before the first request, so none of them vanishes while it is sent.
-        tasks.forEach { completions?.hold(it) }
+        val heldIds = tasks.filter { completions?.hold(it) == true }.mapTo(HashSet()) { it.id }
         val byId = tasks.associateBy { it.id }
         val outcomes = runBulk(tasks.map { it.id }) { taskRepository.toggleDone(byId.getValue(it)) }
         outcomes.filter { it.failed }.forEach { completions?.release(it.id) }
-        val completedIds = outcomes.filter { !it.failed }.map { it.id }
+        // A held row joins the completion toast when its hold ends ("3 completed", Undo); only
+        // rows that were not held on a screen (no list to keep them in) are announced here.
+        val completedIds = outcomes.filter { !it.failed && it.id !in heldIds }.map { it.id }
         finishBulk("complete", outcomes)
         if (completedIds.isNotEmpty()) {
             val count = completedIds.size

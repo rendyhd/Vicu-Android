@@ -11,6 +11,8 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
 import com.rendyhd.vicu.ui.screens.shared.buildTaskProjectGroups
 import com.rendyhd.vicu.data.sync.ScreenRefresher
@@ -42,6 +44,7 @@ class TagViewModel(
     private val labelRepository: LabelRepository,
     private val refresher: ScreenRefresher,
     navigationTicker: NavigationTicker = NavigationTicker(),
+    completionToast: CompletionToast = NoCompletionToast,
 ) : ViewModel() {
 
     private val labelId: Long = savedStateHandle["labelId"]!!
@@ -50,7 +53,7 @@ class TagViewModel(
     val uiState: StateFlow<TagUiState> = _uiState.asStateFlow()
 
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
-    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker, toast = completionToast)
 
     init {
         viewModelScope.launch {

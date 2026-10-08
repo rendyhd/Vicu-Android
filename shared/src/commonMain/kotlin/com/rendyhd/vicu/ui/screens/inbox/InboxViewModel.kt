@@ -10,6 +10,8 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.util.NetworkResult
@@ -50,6 +52,7 @@ class InboxViewModel(
     private val authManager: AuthManager,
     private val refresher: ScreenRefresher,
     navigationTicker: NavigationTicker = NavigationTicker(),
+    completionToast: CompletionToast = NoCompletionToast,
 ) : ViewModel() {
 
     companion object {
@@ -63,7 +66,7 @@ class InboxViewModel(
     private val _uiState = MutableStateFlow(InboxUiState())
     val uiState: StateFlow<InboxUiState> = _uiState.asStateFlow()
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
-    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker, toast = completionToast)
 
     init {
         viewModelScope.launch {

@@ -10,6 +10,8 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.ui.screens.shared.collectSearchRefresh
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.withoutNestedSubtasks
@@ -55,6 +57,7 @@ class SearchViewModel(
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
     navigationTicker: NavigationTicker = NavigationTicker(),
+    completionToast: CompletionToast = NoCompletionToast,
 ) : ViewModel() {
 
     /** The projects, so a row can name its own: the results mix them without headers. */
@@ -65,7 +68,7 @@ class SearchViewModel(
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
-    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker, toast = completionToast)
 
     /** What was typed, as typed. */
     private val typed = MutableStateFlow("")

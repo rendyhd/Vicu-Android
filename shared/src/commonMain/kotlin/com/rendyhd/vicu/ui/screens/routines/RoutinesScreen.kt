@@ -210,7 +210,7 @@ fun RoutinesScreen(
                         occurrence = occurrence,
                         onToggle = { viewModel.toggle(occurrence) },
                         onSkip = { viewModel.skip(occurrence) },
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp).animateItem(),
                     )
                 }
             }
@@ -226,7 +226,7 @@ fun RoutinesScreen(
                     onArchive = { viewModel.archive(routine, true) },
                     onDelete = { pendingDelete = routine },
                     onOpenHistory = { historyRoutine = routine },
-                    modifier = Modifier.padding(horizontal = 12.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp).animateItem(),
                 )
             }
 
@@ -240,7 +240,7 @@ fun RoutinesScreen(
                         onDelete = { pendingDelete = routine },
                         onOpenHistory = { historyRoutine = routine },
                         archived = true,
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp).animateItem(),
                     )
                 }
             }

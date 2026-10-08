@@ -149,6 +149,7 @@ fun SearchScreen(
                         onSubtaskToggleDone = viewModel::toggleDone,
                         onSubtaskClick = { child -> onTaskClick(child.id) },
                         rowView = rowView,
+                        modifier = Modifier.animateItem(),
                     )
                 }
                 if (state.completedResults.isNotEmpty()) {
@@ -163,6 +164,7 @@ fun SearchScreen(
                             onSubtaskToggleDone = viewModel::toggleDone,
                             onSubtaskClick = { child -> onTaskClick(child.id) },
                             rowView = rowView,
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }

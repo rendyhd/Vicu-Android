@@ -16,6 +16,8 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.domain.repository.customListSource
 import com.rendyhd.vicu.util.CustomListFilterBuilder
@@ -57,6 +59,7 @@ class CustomListViewModel(
     private val dayClock: DayClock,
     private val refresher: ScreenRefresher,
     navigationTicker: NavigationTicker = NavigationTicker(),
+    completionToast: CompletionToast = NoCompletionToast,
 ) : ViewModel() {
 
     private val listId: String = savedStateHandle["listId"]!!
@@ -65,7 +68,7 @@ class CustomListViewModel(
     val uiState: StateFlow<CustomListUiState> = _uiState.asStateFlow()
 
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
-    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker, toast = completionToast)
 
     val projects: StateFlow<List<Project>> = projectRepository.getAll()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())

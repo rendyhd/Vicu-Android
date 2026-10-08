@@ -9,7 +9,7 @@
 //
 // Captures land in out/<scenario>/<theme>-<step>.png. A step that cannot run prints FAIL and the
 // run exits 1; WARN lines are expectations the app does not meet yet and never fail the run.
-// Scenario ids follow the plan: a1..a12. Only baseline, a4, a6, a8, a9, a10 and a11 run today; the
+// Scenario ids follow the plan: a1..a12. Only baseline, a1, a4, a6, a8, a9, a10 and a11 run today; the
 // others are stubs that print STUB and pass.
 import * as d from './droid.mjs'
 import * as v from './nav.mjs'
@@ -648,12 +648,126 @@ async function editor37(ctx) {
   await d.back() // the editor
 }
 
+/**
+ * A1: ticking a checkbox in Today. Spring check and the 5 s hold (the row stays, struck through),
+ * then the row leaves and the snackbar says "Completed" with Undo for 6 s; two ticks close together
+ * merge into "2 completed"; Undo brings the rows back open (read back from the server). Creates
+ * throwaway tasks due now in the Inbox and deletes them at the end. The mid-animation frame is taken
+ * at animator scale 5 and the scale goes back to 1.
+ */
+async function a1Completing(ctx) {
+  const { step, shot } = ctx
+  const token = resolveToken(opt('token', DEFAULT_TOKEN_PATH))
+  if (!token) { console.log('SKIP a1: no API token (see --token)'); return }
+  const api = async (method, path, body) => {
+    const r = await fetch(API + path, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    if (!r.ok) throw new Error(`${method} ${path}: HTTP ${r.status}`)
+    const t = await r.text()
+    return t ? JSON.parse(t) : null
+  }
+  const stamp = Date.now().toString(36).slice(-4)
+  const title = (k) => `droid a1 ${k} ${stamp}`
+  const made = {}
+  const rowOf = (k) => v.taskRows().find((r) => r.title?.text === title(k))
+  const snack = (nodes = d.dump()) => nodes.find((n) => /^(Completed|\d+ completed)$/.test(n.text ?? ''))
+  const serverDone = async (k) => (await api('GET', `/tasks/${made[k]}`)).done
+  const waitFor = async (pred, what, ms = 9000) => {
+    const t0 = Date.now()
+    while (Date.now() - t0 < ms) { const r = pred(); if (r) return r; await d.sleep(250) }
+    throw new Error(`timed out: ${what}`)
+  }
+  const refreshToday = async (k) => {
+    await v.nav('Today')
+    for (let i = 0; i < 4 && !rowOf(k); i++) {
+      if (i === 0) await d.swipe(540, 700, 540, 1700, 400, 3000) // pull to refresh
+      else await d.swipe(540, 1900, 540, 700, 400, 900)
+    }
+    if (!rowOf(k)) throw new Error(`throwaway task ${k} is not on Today`)
+  }
+  try {
+    for (const k of ['one', 'two', 'three']) {
+      const inbox = Number(opt('inbox', 47))
+      made[k] = (await api('POST', `/projects/${inbox}/tasks`, { title: title(k), due_date: new Date().toISOString() })).id
+    }
+    await refreshToday('one')
+
+    // A dump of the screen takes about 2 s, so the timeline is counted from the tap and each dump is
+    // started early enough to be taken inside the window it is checking.
+    let tapAt = 0
+    const until = async (ms) => { const wait = tapAt + ms - Date.now(); if (wait > 0) await d.sleep(wait) }
+
+    await step('tick-spring', async () => {
+      const cb = rowOf('one').check
+      d.animScale(5) // hold the spring and the drawn check long enough to capture
+      tapAt = Date.now()
+      await d.tap(cb.cx, cb.cy, 300)
+      shot('tick-mid')
+      d.animScale(1)
+      await until(1200)
+      const now = rowOf('one') // a dump, taken while the row is still held
+      if (!now) throw new Error('the row left before the hold ended')
+      if (!now.check.checked) throw new Error('the checkbox is not checked after the tap')
+      shot('held')
+    })
+
+    await step('leaves-and-snackbar', async () => {
+      await until(5700) // the hold is 5 s; the snackbar then stays 6 s
+      shot('snackbar')
+      const nodes = d.dump()
+      if (nodes.some((n) => n.text === title('one'))) throw new Error('the row is still on screen after the hold')
+      const s = snack(nodes)
+      if (!s) throw new Error('no "Completed" snackbar after the hold')
+      if (s.text !== 'Completed') throw new Error(`the snackbar says "${s.text}"`)
+      const undo = nodes.find((n) => n.text === 'Undo' || n['content-desc'] === 'Undo')
+      if (!undo) throw new Error('the snackbar has no Undo')
+      await d.tap(undo.cx, undo.cy, 1500)
+      const back = await waitFor(() => rowOf('one'), 'the row to come back after Undo', 8000)
+      if (back.check.checked) throw new Error('the row came back still checked')
+      for (let i = 0; i < 10 && (await serverDone('one')); i++) await d.sleep(1000)
+      if (await serverDone('one')) throw new Error('the server still has the task done after Undo')
+      shot('undone')
+    })
+
+    await step('merged-count', async () => {
+      await refreshToday('two')
+      const first = rowOf('two').check
+      tapAt = Date.now()
+      await d.tap(first.cx, first.cy, 1000)
+      const second = rowOf('three').check
+      await d.tap(second.cx, second.cy, 100)
+      await until(9000) // the second row leaves 5 s after its tap (about 3.5 s in); the toast then reads "2 completed"
+      const nodes = d.dump()
+      shot('merged')
+      const s = snack(nodes)
+      if (s?.text !== '2 completed') throw new Error(`the snackbar says "${s?.text}"`)
+      const undo = nodes.find((n) => n.text === 'Undo' || n['content-desc'] === 'Undo')
+      if (!undo) throw new Error('the snackbar has no Undo')
+      await d.tap(undo.cx, undo.cy, 1500)
+      await waitFor(() => rowOf('two') && rowOf('three'), 'both rows to come back after Undo', 8000)
+      for (const k of ['two', 'three']) for (let i = 0; i < 10 && (await serverDone(k)); i++) await d.sleep(1000)
+      if ((await serverDone('two')) || (await serverDone('three'))) throw new Error('the server still has a task done after Undo')
+      console.log('  Undo reopened both tasks')
+    })
+  } finally {
+    d.animScale(1)
+    for (const id of Object.values(made)) {
+      try { await api('DELETE', `/tasks/${id}`) } catch (e) { console.log('  could not delete throwaway task', id, e.message) }
+    }
+    // The app still holds the deleted rows until it syncs: pull to refresh so no ghost row stays behind.
+    try { await v.nav('Today'); await d.swipe(540, 700, 540, 1700, 400, 3000); await v.home() } catch { /* best effort */ }
+  }
+}
+
 const stub = (id, wave) => Object.assign(async () => { stubs.push(id); console.log(`STUB ${id}: not implemented yet (plan wave ${wave})`) }, { isStub: true })
 
 // id, wave (from the plan's Android scenario table), run
 const SCENARIOS = {
   baseline: { wave: 0, run: baseline, about: 'Inbox, Today, Upcoming, Anytime, drawer, project, tag, Logbook, Review, Settings, editor, quick add, date picker, swipes, search' },
-  a1: { wave: 4, run: stub('a1', 4), about: 'tick a checkbox in Today: spring, hold, snackbar, Undo' },
+  a1: { wave: 4, run: a1Completing, about: 'tick a checkbox in Today: spring, hold, snackbar, Undo' },
   a2: { wave: 4, run: stub('a2', 4), about: 'swipe to 40 and 60 percent, armed pop, WhenSheet' },
   a3: { wave: 4, run: stub('a3', 4), about: 'predictive back on the editor, container transform' },
   rings: { wave: 3, run: rings, about: 'drawer project progress rings and the number of done-count requests' },

@@ -15,6 +15,8 @@ import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
 import com.rendyhd.vicu.ui.screens.shared.buildTaskProjectGroups
 import com.rendyhd.vicu.util.DayClock
@@ -58,13 +60,14 @@ class TodayViewModel(
     private val refresher: ScreenRefresher,
     private val dayClock: DayClock,
     navigationTicker: NavigationTicker = NavigationTicker(),
+    completionToast: CompletionToast = NoCompletionToast,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TodayUiState())
     val uiState: StateFlow<TodayUiState> = _uiState.asStateFlow()
 
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
-    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker, toast = completionToast)
 
     private companion object {
         /** [CompletionHold] list scopes: a row keeps its place within its own section. */

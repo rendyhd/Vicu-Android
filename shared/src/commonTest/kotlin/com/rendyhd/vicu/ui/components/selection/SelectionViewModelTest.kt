@@ -152,7 +152,7 @@ class SelectionViewModelTest {
     }
 
     @Test
-    fun `completed rows are held on the screen and let go again by the undo`() = runTest {
+    fun `completed rows are held on the screen and announced by the completion toast, not here`() = runTest {
         val rig = rig(1, 2, 3)
         val hold = CompletionHold(backgroundScope)
         hold.merge(listOf(1L, 2L, 3L).map { rig.tasks.current(it)!! })
@@ -162,10 +162,7 @@ class SelectionViewModelTest {
         rig.vm.bulkComplete(hold)
         runCurrent()
         assertEquals(setOf(1L, 2L), hold.state.value.keys)
-
-        rig.received.single().onAction?.invoke()
-        runCurrent()
-        assertTrue(hold.state.value.isEmpty())
+        assertTrue(rig.received.isEmpty(), "the toast speaks when the hold ends")
     }
 
     @Test
@@ -181,7 +178,7 @@ class SelectionViewModelTest {
         runCurrent()
 
         assertEquals(
-            listOf("Could not complete 1 of 3 tasks: boom", "2 tasks completed"),
+            listOf("Could not complete 1 of 3 tasks: boom"),
             rig.received.map { it.text },
         )
         assertEquals(setOf(2L), rig.vm.selectedIds.value, "only the failed task stays selected")

@@ -26,8 +26,10 @@ data class HeldRow(val task: Task, val scope: Long, val index: Int, val changed:
  * screen. Completing a task changes the stored task at once, so a list that shows open tasks
  * would drop the row immediately; this holds a copy so the checkbox feels the same as it always
  * did: the row stays, struck through, and a second tap undoes it. The hold ends after
- * [holdMillis], when the user undoes the change or goes to another destination (the
- * [navigationTicker]; a rotation does not end it), or when the change fails ([release]).
+ * [holdMillis] (the contract's 5 s), when the user undoes the change or goes to another
+ * destination (the [navigationTicker]; a rotation does not end it), or when the change fails
+ * ([release]). A row whose hold ends by time or navigation collapses: it leaves the list and is
+ * handed to [toast], which shows "Completed, Undo" (docs/cross-app-semantics-v1.md section 7).
  *
  * Use one instance per screen. A screen passes each list it shows through [merge]; lists that
  * are shown several times (a project and its sub-project sections) give each its own [merge]
@@ -37,6 +39,7 @@ class CompletionHold(
     private val scope: CoroutineScope,
     private val holdMillis: Long = DEFAULT_HOLD_MILLIS,
     navigationTicker: NavigationTicker? = null,
+    private val toast: CompletionToast = NoCompletionToast,
 ) {
     private val _state = MutableStateFlow<Map<Long, HeldRow>>(emptyMap())
 
@@ -81,7 +84,7 @@ class CompletionHold(
         timers.remove(task.id)?.cancel()
         timers[task.id] = scope.launch {
             delay(holdMillis)
-            release(task.id)
+            collapse(task.id)
         }
         return true
     }
@@ -102,11 +105,20 @@ class CompletionHold(
         _state.update { it - taskId }
     }
 
-    /** The user left the screen: nothing is held any longer. */
+    /** The user left the screen: nothing is held any longer, and the completed rows collapse. */
     fun releaseAll() {
+        val collapsing = _state.value.filterValues { it.changed }.keys.sorted()
         timers.values.forEach { it.cancel() }
         timers.clear()
         _state.value = emptyMap()
+        collapsing.forEach(toast::collapsed)
+    }
+
+    /** The hold of a completed row ended: it leaves the list and joins the toast. */
+    private fun collapse(taskId: Long) {
+        val completed = _state.value[taskId]?.changed == true
+        release(taskId)
+        if (completed) toast.collapsed(taskId)
     }
 
     /**
@@ -140,7 +152,18 @@ class CompletionHold(
     }
 
     companion object {
-        /** Long enough to notice the change and tap the checkbox again to undo it. */
-        const val DEFAULT_HOLD_MILLIS = 5_000L
+        /** How long a completed row stays in its list (the contract's `completion.holdMs`). */
+        const val HOLD_MILLIS = 5_000L
+
+        /** How long the "Completed, Undo" toast stays (`completion.toastMs`). */
+        const val TOAST_MILLIS = 6_000L
+
+        /** The toast's action label (`completion.toast.action`). */
+        const val TOAST_ACTION = "Undo"
+
+        /** "Completed" for one task, "{n} completed" for two or more (`completion.toast`). */
+        fun toastText(count: Int): String = if (count <= 1) "Completed" else "$count completed"
+
+        const val DEFAULT_HOLD_MILLIS = HOLD_MILLIS
     }
 }

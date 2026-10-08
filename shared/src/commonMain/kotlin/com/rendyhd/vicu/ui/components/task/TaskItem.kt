@@ -3,8 +3,6 @@ package com.rendyhd.vicu.ui.components.task
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -75,6 +73,7 @@ import com.rendyhd.vicu.domain.repository.QuickDue
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.theme.LocalVicuColors
+import com.rendyhd.vicu.ui.theme.VicuMotion
 import com.rendyhd.vicu.ui.theme.VicuChipShape
 import com.rendyhd.vicu.ui.components.section.ProjectMeta
 import com.rendyhd.vicu.util.DateContext
@@ -86,6 +85,8 @@ import com.rendyhd.vicu.util.TaskLinkParser
 import com.rendyhd.vicu.util.parseHexArgb
 import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.util.subtaskProgress
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import com.rendyhd.vicu.util.unfinishedDescendants
 
 
@@ -487,6 +488,9 @@ private fun InlineSubtaskTree(
     }
 }
 
+/** The circle starts a completion this much smaller and springs to full size. */
+private const val CHECK_POP_FROM = 0.8f
+
 /**
  * The round completion checkbox. Its touch target is [MIN_TOUCH_TARGET] square whatever the size of
  * the drawn circle ([circleSize]); to a screen reader it is a checkbox named [contentDescription]
@@ -516,17 +520,23 @@ fun AnimatedCheckbox(
         if (done == shownDone) return@LaunchedEffect
         shownDone = done
         if (done) {
-            // Animate in: fill → checkmark → bounce
-            fillProgress.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
-            checkProgress.animateTo(1f, tween(durationMillis = 300))
-            scaleAnim.animateTo(1.15f, tween(durationMillis = 100))
-            scaleAnim.animateTo(0.95f, tween(durationMillis = 100))
-            scaleAnim.animateTo(1f, tween(durationMillis = 200))
+            // Animate in: the circle springs up to size (the pop token) while it fills and the
+            // check is drawn. At animator scale 0 every one of these ends at once.
+            coroutineScope {
+                launch {
+                    scaleAnim.snapTo(CHECK_POP_FROM)
+                    scaleAnim.animateTo(1f, VicuMotion.pop.spec())
+                }
+                launch { fillProgress.animateTo(1f, tween(durationMillis = VicuMotion.fadeBaseMs)) }
+                launch { checkProgress.animateTo(1f, tween(durationMillis = VicuMotion.checkDrawMs)) }
+            }
         } else {
             // Animate out: instant reset
             scaleAnim.snapTo(1f)
-            checkProgress.animateTo(0f, tween(durationMillis = 150))
-            fillProgress.animateTo(0f, tween(durationMillis = 200))
+            coroutineScope {
+                launch { checkProgress.animateTo(0f, tween(durationMillis = VicuMotion.fadeFastMs)) }
+                launch { fillProgress.animateTo(0f, tween(durationMillis = VicuMotion.fadeFastMs)) }
+            }
         }
     }
 
@@ -534,7 +544,7 @@ fun AnimatedCheckbox(
     val primaryColor = MaterialTheme.colorScheme.primary
     val fillColor by animateColorAsState(
         targetValue = if (done) primaryColor else Color.Transparent,
-        animationSpec = tween(durationMillis = 300),
+        animationSpec = tween(durationMillis = VicuMotion.fadeBaseMs),
         label = "checkboxFill",
     )
     val checkColor = Color.White
@@ -547,8 +557,8 @@ fun AnimatedCheckbox(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 role = Role.Checkbox,
-                onValueChange = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onValueChange = { checked ->
+                    haptic.performHapticFeedback(if (checked) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
                     onToggle()
                 },
             )
@@ -581,7 +591,7 @@ fun AnimatedCheckbox(
                 if (currentFill > 0.01f) {
                     drawCircle(
                         color = fillColor,
-                        radius = radius * currentFill,
+                        radius = radius * currentFill.coerceAtMost(1f),
                         center = center,
                     )
                 }

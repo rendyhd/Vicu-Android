@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -118,6 +119,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal data class BottomNavItem(
     val label: String,
@@ -280,13 +282,33 @@ fun VicuApp(
     // closed). Shown in a snackbar above everything, including the full-screen editor.
     val appMessages: AppMessages = koinInject()
     val snackbarHostState = remember { SnackbarHostState() }
+    val accessibility = LocalAccessibilityManager.current
     LaunchedEffect(appMessages) {
         appMessages.messages.collectLatest { message ->
-            val result = snackbarHostState.showSnackbar(
-                message = message.text,
-                actionLabel = message.actionLabel,
-                duration = SnackbarDuration.Long,
-            )
+            val millis = message.durationMillis
+            val result = if (millis == null) {
+                snackbarHostState.showSnackbar(
+                    message = message.text,
+                    actionLabel = message.actionLabel,
+                    duration = SnackbarDuration.Long,
+                )
+            } else {
+                // A message with its own time (the completion toast): the time runs out here, and an
+                // accessibility service that asks for longer gets it, as it does for the built-in durations.
+                val timeout = accessibility?.calculateRecommendedTimeoutMillis(
+                    originalTimeoutMillis = millis,
+                    containsIcons = false,
+                    containsText = true,
+                    containsControls = message.actionLabel != null,
+                ) ?: millis
+                withTimeoutOrNull(timeout) {
+                    snackbarHostState.showSnackbar(
+                        message = message.text,
+                        actionLabel = message.actionLabel,
+                        duration = SnackbarDuration.Indefinite,
+                    )
+                } ?: SnackbarResult.Dismissed
+            }
             if (result == SnackbarResult.ActionPerformed) message.onAction?.invoke()
         }
     }

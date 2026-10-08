@@ -221,6 +221,7 @@ fun ProjectScreen(
                             project = project,
                             enabled = !selectionActive,
                             onClick = { onProjectClick(project.id) },
+                            modifier = Modifier.animateItem(),
                         )
                     }
 
@@ -280,9 +281,10 @@ private fun SubprojectRow(
     project: Project,
     enabled: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
