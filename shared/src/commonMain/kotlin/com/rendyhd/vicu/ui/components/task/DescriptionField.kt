@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -57,6 +58,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.rendyhd.vicu.ui.imagePasteReceiver
@@ -95,6 +97,8 @@ internal fun DescriptionField(
     modifier: Modifier = Modifier,
     pendingImages: Map<String, String> = emptyMap(),
     onRemovePending: (uuid: String) -> Unit = {},
+    /** The editor's own screen: notes read as plain text, with no label and no outline. */
+    plain: Boolean = false,
 ) {
     val (externalHtml, allImageRefs) = remember(value) { ImageTokens.parseValue(value) }
     val latestOnValueChange = rememberUpdatedState(onValueChange)
@@ -205,15 +209,17 @@ internal fun DescriptionField(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            text = "Description",
-            style = MaterialTheme.typography.labelMedium,
-            color = if (editorFocused) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
+        if (!plain) {
+            Text(
+                text = "Description",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (editorFocused) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
         if (session.isImportBlocked) {
             Surface(
                 modifier = Modifier
@@ -249,21 +255,33 @@ internal fun DescriptionField(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 144.dp, max = 210.dp)
+                    .then(
+                        if (plain) {
+                            Modifier.height(plainNotesHeight(externalHtml))
+                        } else {
+                            Modifier.heightIn(min = 144.dp, max = 210.dp)
+                        },
+                    )
                     .onGloballyPositioned {
                         editorController.updateEditorBounds(it.boundsInRoot())
                     }
-                    .border(
-                        width = 1.dp,
-                        color = if (editorFocused) {
-                            MaterialTheme.colorScheme.primary
+                    .then(
+                        if (plain) {
+                            Modifier
                         } else {
-                            MaterialTheme.colorScheme.outline
+                            Modifier.border(
+                                width = 1.dp,
+                                color = if (editorFocused) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                            )
                         },
-                        shape = RoundedCornerShape(12.dp),
                     ),
                 shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surface,
+                color = if (plain) Color.Transparent else MaterialTheme.colorScheme.surface,
             ) {
                 CascadeEditor(
                     stateHolder = session.stateHolder,
@@ -276,8 +294,7 @@ internal fun DescriptionField(
                     slashCommand = SlashCommandSlot.None,
                     linkPopup = LinkPopupSlot.None,
                     config = editorConfig,
-                    modifier = Modifier
-                        .fillMaxSize()
+                    modifier = (if (plain) Modifier.fillMaxWidth() else Modifier.fillMaxSize())
                         .padding(horizontal = 4.dp, vertical = 2.dp)
                         .imagePasteReceiver { uri ->
                             editorController.flush()
@@ -516,4 +533,24 @@ private fun BoxScope.RemoveBadge(onClick: () -> Unit) {
                 .padding(3.dp),
         )
     }
+}
+
+/**
+ * The height of the notes on the editor's own screen: about the text they hold (the editor is a
+ * scrolling list and would otherwise fill the space it is given), at least one empty line and at
+ * most [MAX_PLAIN_NOTES_DP] before it scrolls inside.
+ */
+internal fun plainNotesHeight(html: String): Dp = plainNotesHeightDp(html).dp
+
+internal const val MIN_PLAIN_NOTES_DP = 72
+internal const val MAX_PLAIN_NOTES_DP = 320
+
+internal fun plainNotesHeightDp(html: String): Int {
+    val lines = html
+        .replace(Regex("(?i)<br\\s*/?>|</(p|li|h[1-6]|div|blockquote|pre)>"), "\n")
+        .replace(Regex("<[^>]*>"), "")
+        .split('\n')
+        .filter { it.isNotBlank() }
+        .sumOf { (it.length + 39) / 40 }
+    return (lines * 28 + 28).coerceIn(MIN_PLAIN_NOTES_DP, MAX_PLAIN_NOTES_DP)
 }

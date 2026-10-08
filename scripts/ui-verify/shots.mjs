@@ -537,6 +537,74 @@ async function a5QuickAdd(ctx) {
   await draftCleanup()
 }
 
+/**
+ * The task editor (card 3.7): a back arrow and Done, the headline, the notes as plain text, one row
+ * of property chips in the desktop order, and the footer "Created <date>. Saved as you type."
+ * Opens a seeded task that has several properties set, changes nothing.
+ */
+async function editor37(ctx) {
+  const { step, shot, warn } = ctx
+  const want = ['Due date', 'Priority', 'Labels', 'Subtasks', 'Reminder', 'Recurrence', 'Project', 'Add attachment', 'More']
+  await step('open', async () => {
+    await v.nav('Today')
+    // The seeded task with notes, a date, a priority, a label and subtasks; else the first row.
+    let target = null
+    try { target = (await v.scrollFind((x) => x.text === 'Draft Q4 roadmap', 'Draft Q4 roadmap', 0.5)).n } catch { /* fall back */ }
+    if (!target) target = v.taskRows().find((r) => r.title)?.title
+    if (!target) throw new Error('no task row to open')
+    console.log('  task:', target.text)
+    await d.tap(target.cx, target.cy, 2200)
+    shot('editor-top')
+  })
+  await step('bar', async () => {
+    const nodes = d.dump()
+    for (const desc of ['Back']) if (!nodes.some((n) => n['content-desc'] === desc)) throw new Error(`no "${desc}" button`)
+    if (!nodes.some((n) => n.text === 'Done')) throw new Error('no Done button')
+    if (nodes.some((n) => n['content-desc'] === 'Close')) throw new Error('the X is still there')
+  })
+  await step('chips-in-desktop-order', async () => {
+    const nodes = d.dump()
+    const found = []
+    for (const w of want) {
+      // "Reminder"/"Recurrence" cover both the set form and the "+" form of the chip
+      const n = nodes.find((x) => {
+        const c = x['content-desc'] ?? ''
+        if (w === 'Reminder') return /^(Add reminder|Reminders:)/.test(c)
+        if (w === 'Recurrence') return /^(Set recurrence|Recurrence:)/.test(c)
+        if (w === 'Subtasks') return /^(Add subtask|Subtasks:)/.test(c)
+        if (w === 'Labels') return /^(Add label|Labels:)/.test(c)
+        if (w === 'Due date') return /^(Add due date|Due date:)/.test(c)
+        if (w === 'Priority') return /^(Set priority|Priority:)/.test(c)
+        return c.startsWith(w)
+      })
+      if (!n) throw new Error(`no ${w} chip`)
+      found.push({ w, y: n.cy, x: n.x1 })
+    }
+    // Reading order: rows top to bottom, then left to right (within a row, y differs by a few px).
+    const row = (y) => Math.round(y / v.px(24))
+    const order = [...found].sort((a, b) => row(a.y) - row(b.y) || a.x - b.x).map((f) => f.w)
+    if (order.join() !== want.join()) throw new Error(`chip order is ${order.join(', ')}; expected ${want.join(', ')}`)
+    const small = nodes.filter((n) => n.clickable && /chip|Add|Set|Project:|Due date|Priority|Labels|Subtasks|Reminders|Recurrence|More/.test(n['content-desc'] ?? '') && n.h < v.px(47))
+    for (const s of small) warn(`editor: ${s['content-desc']} is ${(s.h / v.sc.scale).toFixed(0)} dp tall`)
+  })
+  await step('footer', async () => {
+    const { n } = await v.scrollFind((x) => /Saved as you type\.$/.test(x.text ?? ''), 'footer', 0.5)
+    shot('editor-footer')
+    if (!/^(Created [^.]*\. )?Saved as you type\.$/.test(n.text)) throw new Error(`footer reads "${n.text}"`)
+    console.log(`  footer: ${n.text}`)
+  })
+  await step('more-menu', async () => {
+    await d.swipe(540, 700, 540, 1700, 300, 700) // back to the top
+    await d.swipe(540, 700, 540, 1700, 300, 700)
+    await d.tapDesc('More', { wait: 900 })
+    shot('editor-more')
+    const t = d.dump().map((n) => n.text)
+    for (const item of ['Add relation', 'Delete task']) if (!t.includes(item)) throw new Error(`More has no "${item}"`)
+    await d.back() // the menu
+  })
+  await d.back() // the editor
+}
+
 const stub = (id, wave) => Object.assign(async () => { stubs.push(id); console.log(`STUB ${id}: not implemented yet (plan wave ${wave})`) }, { isStub: true })
 
 // id, wave (from the plan's Android scenario table), run
@@ -549,6 +617,7 @@ const SCENARIOS = {
   a5: { wave: 3, run: a5QuickAdd, about: 'compact quick add: chips in words, the date once, + Notes grows it, a picked chip wins over the text' },
   a6: { wave: 3, run: a6WhenSheet, about: 'WhenSheet: tomorrow 9am, a calendar day, Next week (throwaway tasks, read back from the server)' },
   clock24: { wave: 3, run: clock24, about: 'device on the 24-hour clock: editor, When sheet and quick add show 15:00, never PM' },
+  editor: { wave: 3, run: editor37, about: 'the task editor: back and Done, headline, one row of property chips in the desktop order, footer' },
   a7: { wave: 4, run: stub('a7', 4), about: 'scroll Today: large title folds, FAB shrinks' },
   a8: { wave: 1, run: a8Colours, about: 'light, dark, device colours off and on' },
   a9: { wave: 2, run: a9A11y, about: 'a11y report on Today, Upcoming, editor, quick add, drawer' },

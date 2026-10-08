@@ -4,7 +4,27 @@ import androidx.activity.compose.BackHandler
 import com.rendyhd.vicu.ui.rememberImagePicker
 import com.rendyhd.vicu.ui.rememberFilePicker
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.rendyhd.vicu.ui.components.task.LabelChip
+import com.rendyhd.vicu.ui.components.task.checklistLabel
+import com.rendyhd.vicu.util.subtaskProgress
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -129,6 +149,8 @@ fun TaskDetailScreen(
     var subtaskInput by remember { mutableStateOf("") }
     var showSubtaskInput by remember { mutableStateOf(false) }
     var showRelationPicker by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     val relationSearchResults by viewModel.relationSearchResults.collectAsStateWithLifecycle()
     val isDarkTheme = isSystemInDarkTheme()
     var titleFieldValue by remember(taskId) {
@@ -198,11 +220,15 @@ fun TaskDetailScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Edit task") },
+                    title = {},
                     navigationIcon = {
                         IconButton(onClick = dismissEditor) {
-                            Icon(Icons.Default.Close, contentDescription = "Close")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
+                    },
+                    actions = {
+                        // Edits are saved as you type; Done only leaves.
+                        TextButton(onClick = dismissEditor) { Text("Done") }
                     },
                 )
             },
@@ -232,6 +258,7 @@ fun TaskDetailScreen(
             }
 
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
@@ -239,21 +266,21 @@ fun TaskDetailScreen(
                     .imePadding(),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-            // Title
+            // The headline: the title reads as the task, not as a form field.
             item(key = "title") {
                 var fieldSize by remember { mutableStateOf(IntSize.Zero) }
                 Column {
                     Row(verticalAlignment = Alignment.Top) {
-                        // Completes or reopens the task itself (not only its subtasks); the 4 dp
-                        // centres the circle on the first line of the title field.
+                        // Completes or reopens the task itself (not only its subtasks); the 8 dp
+                        // centres the circle on the first line of the headline.
                         AnimatedCheckbox(
                             done = task.done,
                             onToggle = viewModel::requestToggleDone,
-                            contentDescription = "Done",
-                            modifier = Modifier.padding(top = 4.dp),
+                            contentDescription = "Complete task",
+                            modifier = Modifier.padding(top = 2.dp),
                         )
                         Box(modifier = Modifier.weight(1f)) {
-                            OutlinedTextField(
+                            BasicTextField(
                                 value = titleFieldValue,
                                 onValueChange = { newValue ->
                                     // One line: Enter must not insert a break, and pasted text loses its.
@@ -271,13 +298,15 @@ fun TaskDetailScreen(
                                     }
                                     viewModel.updateTitle(clean)
                                 },
-                                placeholder = { Text("Task title") },
-                                maxLines = 3,
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 8.dp)
                                     .onSizeChanged { fieldSize = it },
-                                textStyle = MaterialTheme.typography.titleMedium,
-                                shape = RoundedCornerShape(12.dp),
+                                textStyle = MaterialTheme.typography.headlineSmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                maxLines = 3,
                                 keyboardOptions = KeyboardOptions(
                                     capitalization = KeyboardCapitalization.Sentences,
                                     imeAction = ImeAction.Done,
@@ -287,6 +316,18 @@ fun TaskDetailScreen(
                                     tokens = state.parseResult?.tokens ?: emptyList(),
                                     isDarkTheme = isDarkTheme,
                                 ),
+                                decorationBox = { inner ->
+                                    Box {
+                                        if (titleFieldValue.text.isEmpty()) {
+                                            Text(
+                                                text = "Task title",
+                                                style = MaterialTheme.typography.headlineSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        inner()
+                                    }
+                                },
                             )
 
                             NlpAutocompleteDropdown(
@@ -308,6 +349,7 @@ fun TaskDetailScreen(
                         }
                     }
 
+                    // What the title says that is not applied yet (it is applied when the task is saved).
                     val parseResult = state.parseResult
                     if (parseResult != null && parseResult.tokens.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -320,7 +362,7 @@ fun TaskDetailScreen(
                 }
             }
 
-            // Description
+            // Notes, as plain text under the headline
             item(key = "description") {
                 DescriptionField(
                     value = task.description,
@@ -331,6 +373,7 @@ fun TaskDetailScreen(
                     onRemoveImageAttachment = viewModel::deleteAttachment,
                     onImagePasted = viewModel::addImageAttachment,
                     editorController = descriptionEditorController,
+                    plain = true,
                 )
                 if (state.descriptionConflict != null) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -367,226 +410,200 @@ fun TaskDetailScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Compact edit actions
+            // One row of property chips, in the order of the desktop card bar: date, priority,
+            // labels, checklist, reminders, repeat, project, attachments, More. A property that is
+            // not set is a quiet "+ Name" that opens the same picker.
             item(key = "task_actions") {
-                val hasDueDate = task.dueDate.isNotBlank() && !DateUtils.isNullDate(task.dueDate)
                 val clockDay = LocalClockDay.current
                 val dateFormat = LocalDateFormat.current
+                val hasDueDate = task.dueDate.isNotBlank() && !DateUtils.isNullDate(task.dueDate)
                 val dueDateLabel = if (hasDueDate) {
                     DateDisplay.formatDue(DateContext.CHIP, task.dueDate, clockDay.date, clockDay.zone, dateFormat)
                 } else {
                     null
                 }
-                val knownProjectName = state.allProjects.find { it.id == task.projectId }?.title
-                val projectName = knownProjectName ?: "No project"
+                val overdue = hasDueDate && DateUtils.isOverdue(task.dueDate, clockDay.date, clockDay.zone)
                 val priorityLabel = priorityName(task.priority)
                 val recurrenceLabel = DateUtils.formatRecurrence(task.repeatAfter, task.repeatMode)
+                val reminderText = if (task.reminders.isEmpty()) "" else ReminderFormat.summary(task.reminders, dateFormat)
+                val projectName = state.allProjects.find { it.id == task.projectId }?.title ?: "No project"
+                val (doneSubtasks, totalSubtasks) = remember(task.relatedTasks) { task.subtaskProgress() }
+                var showMore by remember { mutableStateOf(false) }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
-                    TaskDetailActionButton(
-                        icon = Icons.Default.Sell,
-                        contentDescription = if (task.labels.isEmpty()) {
-                            "Add label"
-                        } else {
-                            "Edit labels, ${task.labels.size} selected"
-                        },
-                        isActive = task.labels.isNotEmpty(),
-                        onClick = { showLabelPicker = true },
-                    )
-                    TaskDetailActionButton(
-                        icon = Icons.Default.CalendarToday,
-                        contentDescription = dueDateLabel?.let { "Due date: $it" } ?: "Add due date",
-                        isActive = hasDueDate,
+                    PropertyChip(
+                        set = hasDueDate,
+                        emphasis = overdue,
+                        text = dueDateLabel ?: "Date",
+                        description = dueDateLabel?.let { "Due date: $it" } ?: "Add due date",
                         onClick = { showDatePicker = true },
                     )
-                    TaskDetailActionButton(
-                        icon = Icons.Default.Notifications,
-                        contentDescription = if (task.reminders.isEmpty()) {
-                            "Add reminder"
-                        } else {
-                            "Reminders: ${ReminderFormat.summary(task.reminders, dateFormat)}"
-                        },
-                        isActive = task.reminders.isNotEmpty(),
-                        onClick = { showReminderPicker = true },
-                    )
-                    TaskDetailActionButton(
-                        icon = Icons.Default.Folder,
-                        contentDescription = "Project: $projectName",
-                        isActive = task.projectId > 0,
-                        onClick = { showProjectPicker = true },
-                    )
-                    TaskDetailActionButton(
-                        icon = Icons.Default.Flag,
-                        contentDescription = priorityLabel?.let { "Priority: $it" } ?: "Set priority",
-                        isActive = priorityLabel != null,
+                    PropertyChip(
+                        set = priorityLabel != null,
+                        text = priorityLabel ?: "Priority",
+                        description = priorityLabel?.let { "Priority: $it" } ?: "Set priority",
                         onClick = { showPriorityPicker = true },
                     )
-                    TaskDetailActionButton(
-                        icon = Icons.Default.Repeat,
-                        contentDescription = if (recurrenceLabel.isBlank()) {
-                            "Set recurrence"
+                    PropertyChip(
+                        set = task.labels.isNotEmpty(),
+                        text = "Label",
+                        description = if (task.labels.isEmpty()) {
+                            "Add label"
                         } else {
-                            "Recurrence: $recurrenceLabel"
+                            "Labels: ${task.labels.joinToString(", ") { it.title }}"
                         },
-                        isActive = recurrenceLabel.isNotBlank(),
+                        onClick = { showLabelPicker = true },
+                    ) {
+                        task.labels.forEach { label ->
+                            LabelChip(title = label.title, hexColor = label.hexColor, modifier = Modifier.widthIn(max = 140.dp))
+                        }
+                    }
+                    PropertyChip(
+                        set = totalSubtasks > 0,
+                        text = if (totalSubtasks > 0) checklistLabel(doneSubtasks, totalSubtasks) else "Checklist",
+                        description = if (totalSubtasks > 0) {
+                            "Subtasks: $doneSubtasks of $totalSubtasks completed"
+                        } else {
+                            "Add subtask"
+                        },
+                        onClick = {
+                            showSubtaskInput = true
+                            scope.launch { listState.animateScrollToItem(SUBTASKS_ITEM_INDEX) }
+                        },
+                    )
+                    PropertyChip(
+                        set = task.reminders.isNotEmpty(),
+                        text = if (task.reminders.isEmpty()) "Reminder" else reminderText,
+                        description = if (task.reminders.isEmpty()) "Add reminder" else "Reminders: $reminderText",
+                        onClick = { showReminderPicker = true },
+                    )
+                    PropertyChip(
+                        set = recurrenceLabel.isNotBlank(),
+                        text = if (recurrenceLabel.isBlank()) "Repeat" else recurrenceLabel,
+                        description = if (recurrenceLabel.isBlank()) "Set recurrence" else "Recurrence: $recurrenceLabel",
                         onClick = { showRecurrencePicker = true },
                     )
-                    TaskDetailActionButton(
-                        icon = Icons.Default.AttachFile,
-                        contentDescription = if (state.attachments.isEmpty()) {
+                    // A task always has a project, so this one is always a chip.
+                    PropertyChip(
+                        set = true,
+                        text = projectName,
+                        description = "Project: $projectName",
+                        onClick = { showProjectPicker = true },
+                    )
+                    PropertyChip(
+                        set = state.attachments.isNotEmpty(),
+                        text = if (state.attachments.isEmpty()) "" else state.attachments.size.toString(),
+                        description = if (state.attachments.isEmpty()) {
                             "Add attachment"
                         } else {
                             "Add attachment, ${state.attachments.size} attached"
                         },
-                        isActive = state.attachments.isNotEmpty(),
                         onClick = filePickerLauncher,
+                        icon = Icons.Default.AttachFile,
                     )
-                }
-                // The icons only say what can be set; these say what is set, as text.
-                Spacer(modifier = Modifier.height(8.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    val values = taskDetailValues(
-                        dueText = dueDateLabel,
-                        dueOverdue = hasDueDate && DateUtils.isOverdue(task.dueDate, clockDay.date, clockDay.zone),
-                        projectName = knownProjectName,
-                        priority = task.priority,
-                        recurrence = recurrenceLabel,
-                        reminders = if (task.reminders.isEmpty()) "" else ReminderFormat.summary(task.reminders, dateFormat),
-                    )
-                    values.forEach { value ->
-                        val tint = if (value.emphasis) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                    Box {
+                        PropertyChip(
+                            set = false,
+                            text = "",
+                            description = "More",
+                            onClick = { showMore = true },
+                            icon = Icons.Default.MoreHoriz,
+                        )
+                        DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Add relation") },
+                                onClick = {
+                                    showMore = false
+                                    viewModel.setRelationSearchQuery("")
+                                    showRelationPicker = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete task", color = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    showMore = false
+                                    viewModel.requestDeleteTask()
+                                },
+                            )
                         }
-                        AssistChip(
-                            onClick = {
-                                when (value.field) {
-                                    DetailField.DUE_DATE -> showDatePicker = true
-                                    DetailField.PROJECT -> showProjectPicker = true
-                                    DetailField.PRIORITY -> showPriorityPicker = true
-                                    DetailField.RECURRENCE -> showRecurrencePicker = true
-                                    DetailField.REMINDERS -> showReminderPicker = true
-                                }
-                            },
-                            label = { Text(value.text, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            leadingIcon = {
-                                Icon(value.field.icon(), contentDescription = null, modifier = Modifier.size(16.dp))
-                            },
-                            colors = AssistChipDefaults.assistChipColors(
-                                labelColor = tint,
-                                leadingIconContentColor = tint,
-                            ),
-                            modifier = Modifier.semantics { contentDescription = value.description },
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // Subtasks: listed when there are some, or once "+ Checklist" asked for the input
+            if (state.subtasks.isNotEmpty() || showSubtaskInput) {
+                item(key = "divider_subtasks") {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text("Subtasks", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+
+                // Subtasks
+                items(state.subtasks, key = { "subtask_${it.id}" }, contentType = { "subtask" }) { subtask ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClickLabel = "Open subtask") { openSubtask(subtask.id) }
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = subtask.done,
+                            onCheckedChange = { viewModel.requestToggleSubtaskDone(subtask) },
+                            modifier = Modifier.semantics { contentDescription = subtask.title },
+                        )
+                        Text(
+                            text = subtask.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textDecoration = if (subtask.done) TextDecoration.LineThrough else null,
+                            color = if (subtask.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-            }
 
-            // Assigned labels remain visible; the icon row opens the picker.
-            if (task.labels.isNotEmpty()) {
-                item(key = "labels") {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        task.labels.forEach { label ->
-                            val labelColor = parseHexColor(label.hexColor)
-                                ?: MaterialTheme.colorScheme.secondaryContainer
-
-                            Surface(
-                                shape = MaterialTheme.shapes.small,
-                                color = labelColor.copy(alpha = 0.2f),
-                            ) {
-                                Text(
-                                    text = label.title,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = labelColor,
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
-
-            // Divider
-            item(key = "divider_subtasks") {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Text("Subtasks", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-
-            // Subtasks
-            items(state.subtasks, key = { "subtask_${it.id}" }, contentType = { "subtask" }) { subtask ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClickLabel = "Open subtask") { openSubtask(subtask.id) }
-                        .padding(vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(
-                        checked = subtask.done,
-                        onCheckedChange = { viewModel.requestToggleSubtaskDone(subtask) },
-                        modifier = Modifier.semantics { contentDescription = subtask.title },
-                    )
-                    Text(
-                        text = subtask.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        textDecoration = if (subtask.done) TextDecoration.LineThrough else null,
-                        color = if (subtask.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-
-            // Add subtask
-            item(key = "add_subtask") {
-                if (showSubtaskInput) {
-                    OutlinedTextField(
-                        value = subtaskInput,
-                        onValueChange = { subtaskInput = it },
-                        placeholder = { Text("Subtask title") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.Sentences,
-                            imeAction = ImeAction.Done,
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onDone = {
-                                if (subtaskInput.isNotBlank()) {
-                                    viewModel.createSubtask(subtaskInput.trim())
+                // Add subtask
+                item(key = "add_subtask") {
+                    if (showSubtaskInput) {
+                        OutlinedTextField(
+                            value = subtaskInput,
+                            onValueChange = { subtaskInput = it },
+                            placeholder = { Text("Subtask title") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.Sentences,
+                                imeAction = ImeAction.Done,
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    if (subtaskInput.isNotBlank()) {
+                                        viewModel.createSubtask(subtaskInput.trim())
+                                        subtaskInput = ""
+                                    }
+                                },
+                            ),
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    showSubtaskInput = false
                                     subtaskInput = ""
+                                }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Cancel")
                                 }
                             },
-                        ),
-                        trailingIcon = {
-                            IconButton(onClick = {
-                                showSubtaskInput = false
-                                subtaskInput = ""
-                            }) {
-                                Icon(Icons.Default.Close, contentDescription = "Cancel")
-                            }
-                        },
-                    )
-                } else {
-                    TextButton(onClick = { showSubtaskInput = true }) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add subtask")
+                        )
+                    } else {
+                        TextButton(onClick = { showSubtaskInput = true }) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Add subtask")
+                        }
                     }
                 }
             }
@@ -636,17 +653,6 @@ fun TaskDetailScreen(
                     }
                 }
             }
-            item(key = "add_relation") {
-                TextButton(onClick = {
-                    viewModel.setRelationSearchQuery("")
-                    showRelationPicker = true
-                }) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Add relation")
-                }
-            }
-
             if (visibleAttachments.isNotEmpty()) {
                 item(key = "divider_attachments") {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -712,36 +718,22 @@ fun TaskDetailScreen(
                 }
             }
 
-            // Created date (read-only; data already round-trips)
-            if (!DateUtils.isNullDate(task.created)) {
-                item(key = "created") {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Created ${DateDisplay.formatDayMonthYear(task.created, LocalClockDay.current.zone, LocalDateFormat.current)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            // The footer: when it was made, and that nothing needs saving.
+            item(key = "footer") {
+                Spacer(modifier = Modifier.height(16.dp))
+                val created = if (DateUtils.isNullDate(task.created)) {
+                    ""
+                } else {
+                    "Created ${DateDisplay.formatDayMonthYear(task.created, LocalClockDay.current.zone, LocalDateFormat.current)}. "
                 }
+                Text(
+                    text = "${created}Saved as you type.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(24.dp))
             }
 
-            // Delete task button
-            item(key = "delete") {
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    onClick = viewModel::requestDeleteTask,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    ),
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Delete task")
-                }
-            }
 
             // Error display
             if (state.error != null) {
@@ -932,35 +924,58 @@ fun TaskDetailScreen(
     }
 }
 
-/** The icon the action row uses for the same part of the task. */
-private fun DetailField.icon(): ImageVector = when (this) {
-    DetailField.DUE_DATE -> Icons.Default.CalendarToday
-    DetailField.PROJECT -> Icons.Default.Folder
-    DetailField.PRIORITY -> Icons.Default.Flag
-    DetailField.RECURRENCE -> Icons.Default.Repeat
-    DetailField.REMINDERS -> Icons.Default.Notifications
-}
+/** Where the subtasks section starts in the editor's list: after the headline, the notes and the chips. */
+private const val SUBTASKS_ITEM_INDEX = 3
 
+/**
+ * A property chip of the editor's one row (design review 3.7): the value in words when [set], a
+ * quiet "+ Name" when not. [content] replaces the text (the labels draw their own chips); [icon]
+ * is for the icon-only chips (attachments, More). The touch target is 48 dp whatever the chip's size.
+ */
 @Composable
-private fun TaskDetailActionButton(
-    icon: ImageVector,
-    contentDescription: String,
-    isActive: Boolean,
+private fun PropertyChip(
+    set: Boolean,
+    text: String,
+    description: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    emphasis: Boolean = false,
+    icon: ImageVector? = null,
+    content: (@Composable RowScope.() -> Unit)? = null,
 ) {
-    IconButton(
+    val scheme = MaterialTheme.colorScheme
+    val color = when {
+        emphasis -> scheme.error
+        set -> scheme.onSurface
+        else -> scheme.onSurfaceVariant
+    }
+    Surface(
         onClick = onClick,
-        modifier = Modifier.size(40.dp),
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .semantics { contentDescription = description },
+        shape = MaterialTheme.shapes.small,
+        color = Color.Transparent,
+        contentColor = color,
+        border = if (set) BorderStroke(1.dp, if (emphasis) scheme.error.copy(alpha = 0.5f) else scheme.outlineVariant) else null,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(21.dp),
-            tint = if (isActive) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
+        Row(
+            modifier = Modifier.heightIn(min = 32.dp).padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (icon != null) Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            if (content != null && set) {
+                content()
+            } else if (text.isNotEmpty()) {
+                Text(
+                    text = if (set) text else "+ $text",
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 220.dp),
+                )
+            }
+        }
     }
 }
