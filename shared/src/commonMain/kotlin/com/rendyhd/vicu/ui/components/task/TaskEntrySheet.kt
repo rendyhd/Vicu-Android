@@ -2,6 +2,7 @@ package com.rendyhd.vicu.ui.components.task
 
 import com.rendyhd.vicu.ui.rememberImagePicker
 import org.koin.compose.koinInject
+import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
 import com.rendyhd.vicu.util.PlatformFiles
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
@@ -106,6 +107,7 @@ fun TaskEntrySheet(
     var showProjectPicker by remember { mutableStateOf(false) }
     var showLabelPicker by remember { mutableStateOf(false) }
     var showReminderPicker by remember { mutableStateOf(false) }
+    val notificationPermission = koinInject<NotificationPermissionCoordinator>()
     var showPriorityPicker by remember { mutableStateOf(false) }
     var showRecurrencePicker by remember { mutableStateOf(false) }
 
@@ -464,7 +466,11 @@ fun TaskEntrySheet(
     if (showReminderPicker) {
         ReminderPickerDialog(
             reminders = state.reminders,
-            onAddReminder = viewModel::addReminder,
+            onAddReminder = { reminder ->
+                viewModel.addReminder(reminder)
+                // A reminder needs notifications: ask now if the permission is missing.
+                notificationPermission.onFeatureEnabled()
+            },
             onRemoveReminder = viewModel::removeReminder,
             onDismiss = { showReminderPicker = false },
             onEditReminder = viewModel::editReminder,

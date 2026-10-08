@@ -2,7 +2,6 @@ package com.rendyhd.vicu
 
 import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -10,7 +9,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.rendyhd.vicu.auth.AuthDebugLog
@@ -22,6 +20,7 @@ import com.rendyhd.vicu.data.local.ThemePrefsStore
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.SharedContent
 import com.rendyhd.vicu.notification.DailySummaryScheduler
+import com.rendyhd.vicu.permission.AndroidNotificationPermissionPlatform
 import com.rendyhd.vicu.ui.VicuApp
 import com.rendyhd.vicu.ui.navigation.ViewTarget
 import com.rendyhd.vicu.worker.PeriodicSyncScheduler
@@ -47,6 +46,7 @@ class MainActivity : ComponentActivity() {
     private val themePrefsStore: ThemePrefsStore by inject()
     private val notificationPrefsStore: NotificationPrefsStore by inject()
     private val dailySummaryScheduler: DailySummaryScheduler by inject()
+    private val notificationPermissionPlatform: AndroidNotificationPermissionPlatform by inject()
 
     private val _initialTaskId = MutableStateFlow<Long?>(null)
     private val _showTaskEntry = MutableStateFlow(false)
@@ -54,9 +54,13 @@ class MainActivity : ComponentActivity() {
     private val _navigateToView = MutableStateFlow<ViewTarget?>(null)
     private val _sharedContent = MutableStateFlow<SharedContent?>(null)
 
+    private val launchNotificationPermissionRequest: () -> Unit = {
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* no-op: we schedule alarms regardless */ }
+    ) { /* no-op: alarms are scheduled regardless; Settings re-checks the state on resume */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,7 +73,9 @@ class MainActivity : ComponentActivity() {
         // it again would reopen a share, a task or a widget "add" the user had already finished
         // with; what was in progress comes back through the saved state instead.
         if (savedInstanceState == null) handleIntent(intent)
-        requestNotificationPermission()
+        // The notification permission is not asked for here: the shared coordinator asks after setup
+        // or when a reminder or summary is turned on (see NotificationPermissionCoordinator).
+        notificationPermissionPlatform.attach(launchNotificationPermissionRequest)
 
         lifecycleScope.launch {
             val storedUrl = authManager.getVikunjaUrl()
@@ -163,6 +169,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         AuthDebugLog.lifecycle("onDestroy (isFinishing=$isFinishing)")
+        notificationPermissionPlatform.detach(launchNotificationPermissionRequest)
         super.onDestroy()
     }
 
@@ -239,16 +246,6 @@ class MainActivity : ComponentActivity() {
         } catch (_: SecurityException) {
             // Not all URIs support persistable permissions — that's OK,
             // the temporary grant from the share intent is sufficient.
-        }
-    }
-
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
         }
     }
 }

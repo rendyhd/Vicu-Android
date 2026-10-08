@@ -19,6 +19,7 @@ import com.rendyhd.vicu.util.AppDispatchers
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.BuildInfo
+import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.data.sync.CarrierFinder
@@ -50,6 +51,7 @@ val databaseModule = module {
     single { LabelOrderPrefsStore(createDataStore(get(), "label_order_prefs")) }
     single { LogbookPrefsStore(createDataStore(get(), "logbook_prefs")) }
     single { NlpPrefsStore(createDataStore(get(), "nlp_prefs")) }
+    single { NotificationPermissionStore(createDataStore(get(), "notification_permission")) }
     single { NotificationPrefsStore(createDataStore(get(), "notification_prefs")) }
     single { ProjectSectionPrefsStore(createDataStore(get(), "project_section_prefs")) }
     single { ReminderAlarmRegistry(createDataStore(get(), "reminder_alarm_registry"), get()) }
@@ -199,6 +201,7 @@ val commonModule = module {
     single { AppDispatchers() }
     single<TimeSource> { SystemTimeSource }
     single { DayClock(scope = get(), time = get()) }
+    single { NotificationPermissionCoordinator(platform = get(), store = get(), scope = get()) }
     single {
         LocalDataWiper(
             dao = get(),

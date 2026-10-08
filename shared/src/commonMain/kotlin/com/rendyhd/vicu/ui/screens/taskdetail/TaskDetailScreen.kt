@@ -96,6 +96,8 @@ import com.rendyhd.vicu.ui.components.task.rememberDescriptionEditorController
 import com.rendyhd.vicu.ui.components.task.NlpAutocompleteDropdown
 import com.rendyhd.vicu.ui.components.task.NlpVisualTransformation
 import com.rendyhd.vicu.ui.components.task.ParseChipRow
+import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
+import org.koin.compose.koinInject
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.descendantsDepthFirst
@@ -119,6 +121,7 @@ fun TaskDetailScreen(
     var showProjectPicker by remember { mutableStateOf(false) }
     var showLabelPicker by remember { mutableStateOf(false) }
     var showReminderPicker by remember { mutableStateOf(false) }
+    val notificationPermission: NotificationPermissionCoordinator = koinInject()
     var showPriorityPicker by remember { mutableStateOf(false) }
     var showRecurrencePicker by remember { mutableStateOf(false) }
     var subtaskInput by remember { mutableStateOf("") }
@@ -883,7 +886,11 @@ fun TaskDetailScreen(
     if (showReminderPicker) {
         ReminderPickerDialog(
             reminders = state.task?.reminders ?: emptyList(),
-            onAddReminder = viewModel::addReminder,
+            onAddReminder = { reminder ->
+                viewModel.addReminder(reminder)
+                // A reminder needs notifications: ask now if the permission is missing.
+                notificationPermission.onFeatureEnabled()
+            },
             onRemoveReminder = viewModel::removeReminder,
             onDismiss = { showReminderPicker = false },
             onEditReminder = viewModel::editReminder,

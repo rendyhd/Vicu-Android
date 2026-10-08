@@ -56,6 +56,8 @@ import com.rendyhd.vicu.domain.model.BottomBarSlotType
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.SharedContent
+import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
+import com.rendyhd.vicu.ui.components.settings.NotificationPermissionSheet
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
@@ -183,6 +185,7 @@ fun VicuApp(
     // Each move to another destination tells the screens' view models, so a multi-selection ends
     // with the list it was made in. The entry shown at start (or after a rotation) is not a move.
     val navigationTicker: NavigationTicker = koinInject()
+    val notificationPermission: NotificationPermissionCoordinator = koinInject()
     LaunchedEffect(navController) {
         navController.currentBackStackEntryFlow
             .map { it.id }
@@ -363,6 +366,8 @@ fun VicuApp(
                         navController.navigate(InboxRoute) {
                             popUpTo(0) { inclusive = true }
                         }
+                        // The one place the app first asks for notifications: setup is done.
+                        notificationPermission.onSetupCompleted()
                     }
                 }
             }
@@ -572,6 +577,8 @@ fun VicuApp(
                 .padding(bottom = if (showBottomBar && !taskDetailVisible) 80.dp else 0.dp),
         )
     }
+
+    NotificationPermissionSheet(notificationPermission)
 
     // New Custom List Dialog (from drawer)
     if (showNewListDialog) {
