@@ -81,6 +81,28 @@ class CarrierFinder(
     fun knownProjects(spec: CarrierSpec, server: String): Map<Long, Long> =
         seenProjects[flightKeyOf(spec.kind, server)].orEmpty()
 
+    /** Kind and server of the carriers already looked up for [knownProjects] in this process. */
+    private val warmed = HashSet<String>()
+
+    /**
+     * Makes [knownProjects] complete after a cold start: when carriers of [spec] are remembered
+     * for [server] but none has been read in this process yet, one [find] reads them (a request per
+     * remembered carrier). Nothing when none is remembered; a failure is ignored and tried again next time.
+     */
+    suspend fun ensureKnown(spec: CarrierSpec, server: String) {
+        val key = flightKeyOf(spec.kind, server)
+        if (seenProjects[key] != null || mutex.withLock { key in warmed }) return
+        if (store.get(server, spec.kind).ids.isEmpty()) return
+        try {
+            find(spec, server)
+            mutex.withLock { warmed += key }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Logger.w(TAG, "Could not read the ${spec.kind} carriers for the project counts: ${e.message}")
+        }
+    }
+
     /** Every carrier of [spec] on [server], ascending by id. */
     suspend fun find(spec: CarrierSpec, server: String): List<TaskDto> = mutex.withLock {
         val state = store.get(server, spec.kind)

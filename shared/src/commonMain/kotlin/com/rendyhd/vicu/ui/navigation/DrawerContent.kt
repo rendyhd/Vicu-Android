@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -518,6 +519,10 @@ private fun ProjectItem(
                             contentDescription = projectToggleDescription(project.title, row.expanded),
                         )
                     }
+                } else if (progress != null) {
+                    // The room of the open/close button, so the rings of an area row and of its
+                    // projects are one column.
+                    Spacer(Modifier.width(48.dp))
                 }
             }
         }

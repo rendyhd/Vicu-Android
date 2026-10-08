@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -280,61 +281,67 @@ fun TaskEntrySheet(
             fun tint(source: FieldSource?, type: TokenType): Color? =
                 if (source == FieldSource.TEXT) tokenChipColor(type, isDarkTheme) else null
 
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                // When: the one place the date is shown.
-                val hasDate = fields.dueDate.isNotBlank()
-                TaskEntryChip(
-                    label = if (hasDate) {
-                        DateDisplay.formatDue(DateContext.CHIP, fields.dueDate, day.date, day.zone, dateFormat)
-                    } else {
-                        "When"
-                    },
-                    onClick = { showDatePicker = true },
-                    tint = tint(fields.dueSource, TokenType.DATE),
-                    clearDescription = if (hasDate) "Clear date" else null,
-                    onClear = if (hasDate) viewModel::clearDueDate else null,
-                )
+            // One row: the chips scroll sideways when they say values, "+ Notes" stays at its end.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // When: the one place the date is shown.
+                    val hasDate = fields.dueDate.isNotBlank()
+                    TaskEntryChip(
+                        label = if (hasDate) {
+                            DateDisplay.formatDue(DateContext.CHIP, fields.dueDate, day.date, day.zone, dateFormat)
+                        } else {
+                            "When"
+                        },
+                        onClick = { showDatePicker = true },
+                        tint = tint(fields.dueSource, TokenType.DATE),
+                        clearDescription = if (hasDate) "Clear date" else null,
+                        onClear = if (hasDate) viewModel::clearDueDate else null,
+                    )
 
-                val projectTitle = state.allProjects.find { it.id == fields.projectId }?.title ?: "Project"
-                TaskEntryChip(
-                    label = entryProjectChipLabel(fields, projectTitle, state.title, parseResult),
-                    onClick = { showProjectPicker = true },
-                    tint = if (fields.parsedProjectName != null) tokenChipColor(TokenType.PROJECT, isDarkTheme) else null,
-                )
+                    val projectTitle = state.allProjects.find { it.id == fields.projectId }?.title ?: "Project"
+                    TaskEntryChip(
+                        label = entryProjectChipLabel(fields, projectTitle, state.title, parseResult),
+                        onClick = { showProjectPicker = true },
+                        tint = if (fields.parsedProjectName != null) tokenChipColor(TokenType.PROJECT, isDarkTheme) else null,
+                    )
 
-                val pickedLabels = state.allLabels.filter { it.id in state.selectedLabelIds }.map { it.title }
-                val parsedLabels = parseResult?.labels.orEmpty()
-                val labelWords = entryLabelsWords(pickedLabels, parsedLabels)
-                TaskEntryChip(
-                    label = labelWords ?: "Tags",
-                    onClick = { showLabelPicker = true },
-                    tint = if (parsedLabels.isNotEmpty()) tokenChipColor(TokenType.LABEL, isDarkTheme) else null,
-                    clearDescription = if (labelWords != null) "Clear tags" else null,
-                    onClear = if (labelWords != null) viewModel::clearLabels else null,
-                )
+                    val pickedLabels = state.allLabels.filter { it.id in state.selectedLabelIds }.map { it.title }
+                    val parsedLabels = parseResult?.labels.orEmpty()
+                    val labelWords = entryLabelsWords(pickedLabels, parsedLabels)
+                    TaskEntryChip(
+                        label = labelWords ?: "Tags",
+                        onClick = { showLabelPicker = true },
+                        tint = if (parsedLabels.isNotEmpty()) tokenChipColor(TokenType.LABEL, isDarkTheme) else null,
+                        clearDescription = if (labelWords != null) "Clear tags" else null,
+                        onClear = if (labelWords != null) viewModel::clearLabels else null,
+                    )
 
-                val priorityName = entryPriorityName(fields.priority)
-                TaskEntryChip(
-                    label = priorityName ?: "Priority",
-                    onClick = { showPriorityPicker = true },
-                    tint = tint(fields.prioritySource, TokenType.PRIORITY),
-                    clearDescription = if (priorityName != null) "Clear priority" else null,
-                    onClear = if (priorityName != null) ({ viewModel.setPriority(0) }) else null,
-                )
+                    val priorityName = entryPriorityName(fields.priority)
+                    TaskEntryChip(
+                        label = priorityName ?: "Priority",
+                        onClick = { showPriorityPicker = true },
+                        tint = tint(fields.prioritySource, TokenType.PRIORITY),
+                        clearDescription = if (priorityName != null) "Clear priority" else null,
+                        onClear = if (priorityName != null) ({ viewModel.setPriority(0) }) else null,
+                    )
 
-                if (!showNotes) {
-                    // A repeat or a reminder that is already set stays in view while the sheet is small.
-                    if (fields.recurrenceSource != null) {
-                        RecurrenceChip(fields.recurrence, fields.recurrenceSource, isDarkTheme, viewModel) {
-                            showRecurrencePicker = true
+                    if (!showNotes) {
+                        // A repeat or a reminder that is already set stays in view while the sheet is small.
+                        if (fields.recurrenceSource != null) {
+                            RecurrenceChip(fields.recurrence, fields.recurrenceSource, isDarkTheme, viewModel) {
+                                showRecurrencePicker = true
+                            }
                         }
-                    }
-                    if (state.reminders.isNotEmpty()) {
-                        ReminderChip(state.reminders.size) { showReminderPicker = true }
-                    }
+                        if (state.reminders.isNotEmpty()) {
+                            ReminderChip(state.reminders.size) { showReminderPicker = true }
+                        }
+                }
+                }
+                if (!showNotes) {
+                    Spacer(modifier = Modifier.width(8.dp))
                     TaskEntryChip(label = "+ Notes", onClick = { notesOpen = true })
                 }
             }

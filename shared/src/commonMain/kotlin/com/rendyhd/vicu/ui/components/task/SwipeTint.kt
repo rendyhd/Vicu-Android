@@ -2,8 +2,8 @@ package com.rendyhd.vicu.ui.components.task
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.luminance
 import com.rendyhd.vicu.ui.theme.VicuColorRole
+import com.rendyhd.vicu.ui.theme.contrastRatio
 
 /**
  * The colours of the swipe on a task row (docs/design-system-v1.md, section 7 and the swipe card of
@@ -50,11 +50,4 @@ object SwipeTint {
     }
 
     const val MIN_CONTRAST = 4.5
-
-    /** WCAG contrast ratio of two opaque colours. */
-    fun contrastRatio(a: Color, b: Color): Double {
-        val la = a.luminance().toDouble()
-        val lb = b.luminance().toDouble()
-        return (maxOf(la, lb) + 0.05) / (minOf(la, lb) + 0.05)
-    }
 }

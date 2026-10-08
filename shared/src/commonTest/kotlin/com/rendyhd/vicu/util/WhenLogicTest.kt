@@ -33,6 +33,22 @@ class WhenLogicTest {
     }
 
     @Test
+    fun `next mon reads as the coming Monday, date-only, and weekend alone reads as nothing`() {
+        assertEquals(WhenValue(LocalDate(2026, 10, 12), null), parse("next mon")!!.value)
+        assertEquals(WhenValue(LocalDate(2026, 10, 12), null), parse("next monday")!!.value)
+        // The weekend is a quick choice of the sheet, not something the text parser reads.
+        assertNull(parse("weekend"))
+        assertEquals(WhenValue(LocalDate(2026, 10, 10), LocalTime(15, 0)), parse("saturday 3pm")!!.value)
+    }
+
+    @Test
+    fun `this weekend is words, not a date (the parser spec), so only the quick choice sets it`() {
+        assertNull(parse("this weekend"))
+        assertNull(parse("plan the weekend"))
+        assertEquals(LocalDate(2026, 10, 10), WhenLogic.quickChoices(thursday).first { it.id == WhenQuickChoice.Id.WEEKEND }.date)
+    }
+
+    @Test
     fun `a day without a time reads as date-only`() {
         assertEquals(WhenValue(LocalDate(2026, 10, 9), null), parse("tomorrow")!!.value)
         assertEquals(WhenValue(LocalDate(2026, 10, 20), LocalTime(15, 0)), parse("oct 20 at 3pm")!!.value)

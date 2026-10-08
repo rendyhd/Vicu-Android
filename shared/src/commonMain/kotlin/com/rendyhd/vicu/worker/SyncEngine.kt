@@ -180,7 +180,10 @@ class SyncEngine(
             throw e
         } finally {
             platformHooks.updateWidgets()
-            projectCounts?.invalidate()
+            // The cached done counts only go stale when this run sent something: what the phone
+            // holds of a project (the cache's signature) already changes with every task a refresh
+            // brings in, but a queued completion only reaches the server's total now.
+            if (run.attempted.isNotEmpty()) projectCounts?.invalidate()
         }
 
         return !run.hasRetriableFailures

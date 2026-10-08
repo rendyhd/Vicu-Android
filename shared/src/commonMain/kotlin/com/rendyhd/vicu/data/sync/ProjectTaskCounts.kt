@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * How many tasks of a project are done, for the drawer's progress rings (decision 11; the desktop
@@ -21,7 +22,8 @@ import kotlin.time.Duration.Companion.minutes
  * it knows about off. It is kept for [ttl] per server and project, and for as long as the
  * `signature` the caller passes (what the phone holds of the project) is the same: a task that
  * is completed, reopened or removed changes the signature and so asks again. [invalidate] drops
- * the cache (after a sync). Questions that overlap share one request, and a request is not
+ * the cache (after a sync that sent something). A read that failed is remembered for [failureTtl] and
+ * answers null meanwhile. Questions that overlap share one request, and a request is not
  * cancelled when the question that started it is.
  */
 class ProjectTaskCounts(
@@ -30,6 +32,8 @@ class ProjectTaskCounts(
     private val time: TimeSource,
     private val scope: CoroutineScope,
     private val ttl: Duration = 10.minutes,
+    /** How long a failed read is remembered, so a screen that asks again and again does not retry in a loop. */
+    private val failureTtl: Duration = 60.seconds,
 ) {
     private companion object {
         const val TAG = "ProjectTaskCounts"
@@ -42,6 +46,7 @@ class ProjectTaskCounts(
     private val lock = Mutex()
     private val cache = HashMap<Key, Entry>()
     private val flights = HashMap<Key, Flight>()
+    private val failedAtMs = HashMap<Key, Long>()
 
     // Bumped by invalidate(): an answer asked for before it is not cached.
     private var generation = 0
@@ -59,6 +64,9 @@ class ProjectTaskCounts(
                     return entry.total
                 }
             }
+            failedAtMs[key]?.let { failedAt ->
+                if (nowMs - failedAt in 0 until failureTtl.inWholeMilliseconds) return null
+            }
             val running = flights[key]?.takeIf { it.signature == signature }
             val flight = running ?: Flight(signature, scope.async { fetch(projectId) }).also { flights[key] = it }
             flight to generation
@@ -68,8 +76,13 @@ class ProjectTaskCounts(
         val total = flight.request.await()
         lock.withLock {
             if (flights[key] === flight) flights.remove(key)
-            if (total != null && startedIn == generation) {
-                cache[key] = Entry(total, time.now().toEpochMilliseconds(), signature)
+            if (startedIn == generation) {
+                if (total != null) {
+                    cache[key] = Entry(total, time.now().toEpochMilliseconds(), signature)
+                    failedAtMs.remove(key)
+                } else {
+                    failedAtMs[key] = time.now().toEpochMilliseconds()
+                }
             }
         }
         return total
@@ -80,6 +93,7 @@ class ProjectTaskCounts(
         lock.withLock {
             generation++
             cache.clear()
+            failedAtMs.clear()
             flights.clear()
         }
     }

@@ -13,10 +13,21 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.theme.ensureContrast
 import com.rendyhd.vicu.util.ProjectProgress
 
 private val RingSize = 16.dp
-private val RingStroke = 2.dp
+private val RingStroke = 2.5.dp
+
+/** A started project always shows at least this much of the ring, so one task of many is still seen. */
+private const val MIN_SWEEP_DEGREES = 28f
+
+/** The fill must read at this contrast on the drawer, whatever the colour of the project. */
+private const val MIN_FILL_CONTRAST = 3.0
+
+/** The ring fill: [color], moved towards [onSurface] only as far as it takes to read at 3:1 on every one of [surfaces]. */
+internal fun ringFillColor(color: Color, onSurface: Color, surfaces: List<Color>): Color =
+    ensureContrast(color, onSurface, surfaces, MIN_FILL_CONTRAST)
 
 /**
  * A small ring that fills clockwise from the top as a project's tasks get done; a finished
@@ -32,6 +43,12 @@ fun ProgressRing(
     trackColor: Color = MaterialTheme.colorScheme.outlineVariant,
 ) {
     val label = progress.label
+    // The drawer's own colour, and the colour of its selected row.
+    val fill = ringFillColor(
+        color = color,
+        onSurface = MaterialTheme.colorScheme.onSurface,
+        surfaces = listOf(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.colorScheme.secondaryContainer),
+    )
     Canvas(
         modifier = modifier
             .size(RingSize)
@@ -51,9 +68,9 @@ fun ProgressRing(
         )
         if (progress.fraction > 0f) {
             drawArc(
-                color = color,
+                color = fill,
                 startAngle = -90f,
-                sweepAngle = 360f * progress.fraction,
+                sweepAngle = (360f * progress.fraction).coerceAtLeast(MIN_SWEEP_DEGREES),
                 useCenter = false,
                 topLeft = topLeft,
                 size = arc,

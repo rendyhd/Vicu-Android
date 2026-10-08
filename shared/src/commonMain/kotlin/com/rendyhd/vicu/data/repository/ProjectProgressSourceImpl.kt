@@ -16,7 +16,9 @@ import kotlinx.serialization.json.Json
  * The open side of a project's progress comes from Room, the done side from one cached request
  * ([ProjectTaskCounts]) minus the hidden tasks that are done tasks of the project but not the
  * user's: the routine carriers the phone holds, the synced custom list carrier and the routine
- * archive parts this process has seen. All of those are known without a request.
+ * archive parts this process has seen. All of those are known without a request, apart from the
+ * custom list carrier after a cold start (read once, by the ids remembered) and archive parts,
+ * which are only known once the routines screen has loaded them.
  */
 class ProjectProgressSourceImpl(
     private val taskDao: TaskDao,
@@ -44,6 +46,8 @@ class ProjectProgressSourceImpl(
         // Main routine carriers (and any archive part that happens to be cached).
         taskDao.getDoneMetadataRefs().forEach { projectOfTask[it.id] = it.projectId }
         val server = authManager.getVikunjaUrl().orEmpty()
+        // A cold start has read no carrier yet: read the remembered ones once.
+        carrierFinder.ensureKnown(CarrierSpec.CUSTOM_LISTS, server)
         carrierFinder.knownProjects(CarrierSpec.CUSTOM_LISTS, server).forEach { (id, project) -> projectOfTask[id] = project }
 
         // An archive part lives in the project of its routine's main carrier.

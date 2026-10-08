@@ -17,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * The done count behind a drawer progress ring: one request for a page of one task, the envelope's
@@ -134,7 +135,7 @@ class ProjectTaskCountsTest {
     }
 
     @Test
-    fun `a failure is no answer and is not remembered`() = runTest {
+    fun `a failure is no answer, is remembered for a minute and then asked again`() = runTest {
         var failing = true
         val rig = rig(backgroundScope) {
             if (failing) HttpStatusCode.ServiceUnavailable to """{"title":"down","status":503}""" else null
@@ -142,8 +143,27 @@ class ProjectTaskCountsTest {
 
         assertNull(rig.counts.doneTotal(7))
         failing = false
+        // Inside the minute nothing is asked, so a screen that recomposes does not retry in a loop.
+        assertNull(rig.counts.doneTotal(7))
+        assertNull(rig.counts.doneTotal(7))
+        assertEquals(1, rig.requests.size)
+
+        rig.time.advance(61.seconds)
         assertEquals(5L, rig.counts.doneTotal(7))
         assertEquals(2, rig.requests.size)
+    }
+
+    @Test
+    fun `invalidate also ends the memory of a failure`() = runTest {
+        var failing = true
+        val rig = rig(backgroundScope) {
+            if (failing) HttpStatusCode.ServiceUnavailable to """{"title":"down","status":503}""" else null
+        }
+
+        assertNull(rig.counts.doneTotal(7))
+        failing = false
+        rig.counts.invalidate()
+        assertEquals(5L, rig.counts.doneTotal(7))
     }
 
     @Test
