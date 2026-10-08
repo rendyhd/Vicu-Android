@@ -1,7 +1,10 @@
 package com.rendyhd.vicu.ui.screens.upcoming
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,8 +29,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
-import com.rendyhd.vicu.ui.components.section.CollapsibleSection
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
 import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
@@ -37,7 +45,6 @@ import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
-import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,7 +105,7 @@ fun UpcomingScreen(
                 .padding(padding),
         ) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                if (state.projectGroups.isEmpty() && !state.isLoading) {
+                if (state.days.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(
                             icon = Icons.Outlined.CalendarMonth,
@@ -107,46 +114,37 @@ fun UpcomingScreen(
                         )
                     }
                 } else {
-                    state.projectGroups.forEach { group ->
-                        item(key = "header_${group.projectId}", contentType = "header") {
-                            CollapsibleSection(
-                                title = group.title,
-                                color = parseHexColor(group.hexColor)
-                                    ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                                taskCount = group.tasks.size,
-                                isExpanded = group.isExpanded,
-                                onToggle = { viewModel.toggleProject(group.projectId) },
-                            )
+                    state.days.forEach { day ->
+                        stickyHeader(key = "day_${day.date}", contentType = "header") {
+                            UpcomingDayHeader(label = day.label)
                         }
-                        if (group.isExpanded) {
-                            items(group.tasks, key = { it.id }, contentType = { "task" }) { task ->
-                                val displayTask =
-                                    if (task.id in state.completedTaskIds) task.copy(done = true) else task
-                                SwipeableTaskItem(
-                                    task = displayTask,
-                                    onToggleDone = {
-                                        if (task.id in state.completedTaskIds) {
-                                            viewModel.undoComplete(task)
-                                        } else {
-                                            viewModel.toggleDone(task)
-                                        }
-                                    },
-                                    onClick = {
-                                        if (selectionActive) {
-                                            selectionVm.toggle(task.id)
-                                        } else {
-                                            onTaskClick(task.id)
-                                        }
-                                    },
-                                    onSubtaskToggleDone = viewModel::toggleDone,
-                                    onSubtaskClick = { child -> onTaskClick(child.id) },
-                                    onSchedule = { viewModel.scheduleTask(task.id) },
-                                    selectionActive = selectionActive,
-                                    selected = task.id in selectedIds,
-                                    onLongClick = { selectionVm.toggle(task.id) },
-                                    modifier = Modifier.animateItem(),
-                                )
-                            }
+                        items(day.tasks, key = { it.id }, contentType = { "task" }) { task ->
+                            val displayTask =
+                                if (task.id in state.completedTaskIds) task.copy(done = true) else task
+                            SwipeableTaskItem(
+                                task = displayTask,
+                                onToggleDone = {
+                                    if (task.id in state.completedTaskIds) {
+                                        viewModel.undoComplete(task)
+                                    } else {
+                                        viewModel.toggleDone(task)
+                                    }
+                                },
+                                onClick = {
+                                    if (selectionActive) {
+                                        selectionVm.toggle(task.id)
+                                    } else {
+                                        onTaskClick(task.id)
+                                    }
+                                },
+                                onSubtaskToggleDone = viewModel::toggleDone,
+                                onSubtaskClick = { child -> onTaskClick(child.id) },
+                                onSchedule = { viewModel.scheduleTask(task.id) },
+                                selectionActive = selectionActive,
+                                selected = task.id in selectedIds,
+                                onLongClick = { selectionVm.toggle(task.id) },
+                                modifier = Modifier.animateItem(),
+                            )
                         }
                     }
                 }
@@ -174,4 +172,27 @@ fun UpcomingScreen(
             viewModel.clearError()
         }
     }
+}
+
+/** The heading of one day, pinned to the top of the list while that day's tasks scroll under it. */
+@Composable
+private fun UpcomingDayHeader(label: String, modifier: Modifier = Modifier) {
+    Text(
+        text = label.uppercase(),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
+            .heightIn(min = 40.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            // The visible text is upper case, which a screen reader may spell out.
+            .semantics(mergeDescendants = true) {
+                heading()
+                contentDescription = label
+            },
+    )
 }
