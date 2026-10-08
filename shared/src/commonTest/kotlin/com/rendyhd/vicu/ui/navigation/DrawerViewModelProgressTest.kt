@@ -214,6 +214,56 @@ class DrawerViewModelProgressTest {
     }
 
     @Test
+    fun `a count that could not be read is asked for again while the drawer stays open`() = runTest {
+        val source = source().also { it.doneByProject[1L] = null }
+        val rig = rig(source)
+        rig.viewModel.setProgressRows(setOf(1L, 2L))
+        settle()
+        assertEquals(setOf(2L), rig.progress.keys)
+
+        // The server answers now.
+        source.doneByProject[1L] = 3L
+        advanceTimeBy(PROGRESS_RETRY_MS + 1)
+        runCurrent()
+
+        assertEquals(setOf(1L, 2L), rig.progress.keys, "the missing ring came back without reopening the drawer")
+        assertEquals(listOf(1L, 2L, 1L), rig.source.asked.map { it.first }, "only the failed row was asked again")
+        rig.close()
+    }
+
+    @Test
+    fun `a failed read is not retried once the drawer is closed`() = runTest {
+        val source = source().also { it.doneByProject[1L] = null }
+        val rig = rig(source)
+        rig.viewModel.setProgressRows(setOf(1L))
+        settle()
+
+        rig.viewModel.setProgressRows(emptySet())
+        advanceTimeBy(PROGRESS_RETRY_MS * 3)
+        runCurrent()
+
+        assertEquals(listOf(1L), rig.source.asked.map { it.first })
+        rig.close()
+    }
+
+    @Test
+    fun `a sync that sent changes makes the open drawer ask again`() = runTest {
+        val rig = rig(source())
+        rig.viewModel.setProgressRows(setOf(1L, 2L))
+        settle()
+        rig.source.asked.clear()
+        // The server's total moved (a completion reached it); nothing the phone holds changed.
+        rig.source.doneByProject[1L] = 6L
+
+        rig.source.invalidated.value += 1
+        settle()
+
+        assertEquals(setOf(1L, 2L), rig.source.asked.map { it.first }.toSet())
+        assertEquals(ProjectProgress(done = 6, total = 8), rig.progress[1L])
+        rig.close()
+    }
+
+    @Test
     fun `a project without any task has no ring`() = runTest {
         val source = FakeProjectProgressSource(doneByProject = mutableMapOf(5L to 0L))
         val rig = rig(source)

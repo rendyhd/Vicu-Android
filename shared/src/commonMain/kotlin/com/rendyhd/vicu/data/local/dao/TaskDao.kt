@@ -232,6 +232,14 @@ interface TaskDao {
     @Query("SELECT id FROM tasks WHERE done = 0 OR id < 0")
     suspend fun getOpenOrLocalOnlyIds(): List<Long>
 
+    /**
+     * How many of the server's tasks (positive ids) the cache holds as open, hidden carriers
+     * included: the same set a full reconcile lists with `done = false`. The refresh compares it
+     * with the server's total to notice a deletion without listing anything.
+     */
+    @Query("SELECT COUNT(*) FROM tasks WHERE done = 0 AND id > 0")
+    suspend fun countOpenServerTasks(): Int
+
     /** Completed tasks of the server (positive ids) finished after [doneAt], for the Logbook's page-one reconcile. */
     @Query(
         """

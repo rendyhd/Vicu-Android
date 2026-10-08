@@ -34,6 +34,8 @@ class ProjectProgressSourceImpl(
             rows.associate { it.projectId to ProjectTally(open = it.open, doneOnPhone = it.doneOnPhone) }
         }
 
+    override fun invalidations(): Flow<Int> = counts.invalidations
+
     override suspend fun doneCount(projectId: Long, tally: ProjectTally): Long? {
         val total = counts.doneTotal(projectId, tally) ?: return null
         val hidden = hiddenDone()[projectId] ?: 0

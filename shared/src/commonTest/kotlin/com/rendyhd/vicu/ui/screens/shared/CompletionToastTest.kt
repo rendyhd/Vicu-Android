@@ -106,6 +106,63 @@ class CompletionToastTest {
     }
 
     @Test
+    fun `Undo on a snackbar an accessibility service kept longer still reopens the tasks it names`() = runTest {
+        val rig = rig()
+        listOf(1L, 2L).forEach { rig.tasks.put(task(it)) }
+        rig.toast.collapsed(1)
+        rig.toast.collapsed(2)
+        runCurrent()
+
+        // The machine's own six seconds are long over; the snackbar is still on screen.
+        rig.time.millis += 25_000
+        rig.received.last().onAction?.invoke()
+        runCurrent()
+
+        assertEquals(setOf(1L, 2L), rig.tasks.setDoneCalls.map { it.first }.toSet())
+        assertTrue(rig.tasks.setDoneCalls.none { it.second })
+    }
+
+    @Test
+    fun `a task completed, reopened elsewhere and completed again gets a toast again`() = runTest {
+        val rig = rig()
+
+        rig.toast.collapsed(1)
+        // The toast ran out; the task is reopened from the detail sheet (nothing tells the toast).
+        rig.time.millis += CompletionHold.TOAST_MILLIS + 1_000
+        rig.toast.collapsed(1)
+        runCurrent()
+
+        assertEquals(listOf("Completed", "Completed"), rig.received.map { it.text })
+    }
+
+    @Test
+    fun `completing the same task again inside the window is not counted twice`() = runTest {
+        val rig = rig()
+
+        rig.toast.collapsed(1)
+        rig.time.millis += 2_000
+        rig.toast.collapsed(1)
+        runCurrent()
+
+        assertEquals(listOf("Completed", "Completed"), rig.received.map { it.text })
+    }
+
+    @Test
+    fun `after Undo a new completion of the same task is announced`() = runTest {
+        val rig = rig()
+        rig.tasks.put(task(1))
+        rig.toast.collapsed(1)
+        runCurrent()
+        rig.received.last().onAction?.invoke()
+        runCurrent()
+
+        rig.toast.collapsed(1)
+        runCurrent()
+
+        assertEquals(listOf("Completed", "Completed"), rig.received.map { it.text })
+    }
+
+    @Test
     fun `leaving the screen collapses the held rows into one toast`() = runTest {
         val rig = rig()
         val hold = CompletionHold(backgroundScope, toast = rig.toast)

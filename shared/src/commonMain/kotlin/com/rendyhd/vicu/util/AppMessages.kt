@@ -49,3 +49,14 @@ class AppMessages {
         const val BUFFER_SIZE = 16
     }
 }
+
+/**
+ * Says so in the app-wide snackbar when a write the user made was refused ("Could not schedule
+ * the task: ..."); the repository has already rolled the change back. Returns whether it posted.
+ * For writes started from places that have no error state of their own (a sheet, a row action).
+ */
+fun AppMessages.postIfRefused(result: NetworkResult<*>, doing: String): Boolean {
+    if (result !is NetworkResult.Error) return false
+    post("Could not $doing: ${result.message}")
+    return true
+}

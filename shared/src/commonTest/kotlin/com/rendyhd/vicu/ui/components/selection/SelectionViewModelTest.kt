@@ -6,11 +6,13 @@ import com.rendyhd.vicu.ui.FakeProjectRepository
 import com.rendyhd.vicu.ui.FakeTaskRepository
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.ui.screens.shared.CompletionToastCenter
 import com.rendyhd.vicu.util.AppMessage
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.FixedTimeSource
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.SchedulerTimeSource
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +52,7 @@ class SelectionViewModelTest {
         val received: MutableList<AppMessage>,
         val labels: FakeLabelRepository,
         val navigation: NavigationTicker,
+        val toast: CompletionToastCenter,
     )
 
     private fun TestScope.rig(vararg ids: Long): Rig {
@@ -60,6 +63,12 @@ class SelectionViewModelTest {
         backgroundScope.launch { messages.messages.collect { received += it } }
         val labels = FakeLabelRepository()
         val navigation = NavigationTicker()
+        val toast = CompletionToastCenter(
+            messages,
+            tasks,
+            SchedulerTimeSource(testScheduler, Instant.parse("2026-10-06T21:30:00Z"), TimeZone.UTC),
+            backgroundScope,
+        )
         val vm = SelectionViewModel(
             taskRepository = tasks,
             projectRepository = FakeProjectRepository(),
@@ -72,8 +81,9 @@ class SelectionViewModelTest {
                 ticking = false,
             ),
             navigationTicker = navigation,
+            completionToast = toast,
         )
-        return Rig(tasks, vm, received, labels, navigation)
+        return Rig(tasks, vm, received, labels, navigation, toast)
     }
 
     private fun Rig.select(vararg ids: Long) = ids.forEach { vm.toggle(it) }
@@ -130,9 +140,9 @@ class SelectionViewModelTest {
         assertEquals(setOf(1L, 2L, 3L), rig.tasks.toggled.toSet())
         assertTrue(listOf(1L, 2L, 3L).all { rig.tasks.current(it)!!.done })
         assertEquals(emptySet(), rig.vm.selectedIds.value)
-        assertEquals(1, rig.received.size)
-        assertEquals("3 tasks completed", rig.received.single().text)
-        assertEquals("Undo", rig.received.single().actionLabel)
+        // The rows join the one app-wide toast; the snackbar shows the newest message.
+        assertEquals("3 completed", rig.received.last().text)
+        assertTrue(rig.received.all { it.actionLabel == "Undo" })
     }
 
     @Test
@@ -143,7 +153,7 @@ class SelectionViewModelTest {
         rig.vm.bulkComplete()
         runCurrent()
 
-        rig.received.single().onAction?.invoke()
+        rig.received.last().onAction?.invoke()
         runCurrent()
 
         assertEquals(setOf(1L, 2L, 3L), rig.tasks.setDoneCalls.map { it.first }.toSet())
@@ -163,6 +173,31 @@ class SelectionViewModelTest {
         runCurrent()
         assertEquals(setOf(1L, 2L), hold.state.value.keys)
         assertTrue(rig.received.isEmpty(), "the toast speaks when the hold ends")
+    }
+
+    @Test
+    fun `rows the screen holds and rows it does not hold end up in one toast whose Undo covers them all`() = runTest {
+        val rig = rig(1, 2, 3)
+        val hold = CompletionHold(backgroundScope, toast = rig.toast)
+        // Task 3 is not a row of this screen (a subtask inside its parent's row, say).
+        hold.merge(listOf(1L, 2L).map { rig.tasks.current(it)!! })
+        rig.select(1, 2, 3)
+        runCurrent()
+
+        rig.vm.bulkComplete(hold)
+        runCurrent()
+        assertEquals(listOf("Completed"), rig.received.map { it.text }, "the unheld row is announced now")
+
+        advanceTimeBy(CompletionHold.HOLD_MILLIS + 1)
+        runCurrent()
+        assertEquals("3 completed", rig.received.last().text, "the held rows join when their hold ends")
+        assertTrue(rig.received.none { it.text.contains("tasks completed") }, "no second kind of message")
+
+        rig.received.last().onAction?.invoke()
+        runCurrent()
+
+        assertEquals(setOf(1L, 2L, 3L), rig.tasks.setDoneCalls.map { it.first }.toSet())
+        assertTrue(listOf(1L, 2L, 3L).none { rig.tasks.current(it)!!.done })
     }
 
     @Test

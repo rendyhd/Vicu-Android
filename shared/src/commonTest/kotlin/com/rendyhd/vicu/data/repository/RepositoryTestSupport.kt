@@ -170,6 +170,9 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     override suspend fun getOpenOrLocalOnlyIds(): List<Long> =
         lock.withLock { rows.values.filter { !it.done || it.id < 0 }.map { it.id } }
 
+    override suspend fun countOpenServerTasks(): Int =
+        lock.withLock { rows.values.count { !it.done && it.id > 0 } }
+
     override suspend fun getCompletedAfter(doneAt: String): List<TaskEntity> = lock.withLock {
         rows.values.filter { it.done && it.id > 0 && it.doneAt != "" && it.doneAt != "0001-01-01T00:00:00Z" && it.doneAt > doneAt }
     }

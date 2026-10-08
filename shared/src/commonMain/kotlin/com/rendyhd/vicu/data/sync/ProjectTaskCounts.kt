@@ -7,6 +7,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.Duration
@@ -50,6 +54,15 @@ class ProjectTaskCounts(
 
     // Bumped by invalidate(): an answer asked for before it is not cached.
     private var generation = 0
+
+    private val _invalidations = MutableStateFlow(0)
+
+    /**
+     * Counts [invalidate] calls. A screen that keeps its own record of what it already asked
+     * (the drawer's rings) watches it, because a sync that sent something makes every earlier
+     * answer stale without any change to the tasks the phone holds.
+     */
+    val invalidations: StateFlow<Int> = _invalidations.asStateFlow()
 
     /** The done tasks the server holds for [projectId], or null when that cannot be read. */
     suspend fun doneTotal(projectId: Long, signature: Any? = null): Long? {
@@ -96,6 +109,7 @@ class ProjectTaskCounts(
             failedAtMs.clear()
             flights.clear()
         }
+        _invalidations.update { it + 1 }
     }
 
     private suspend fun fetch(projectId: Long): Long? = try {

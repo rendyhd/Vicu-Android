@@ -59,6 +59,9 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.ui.theme.VicuMotion
 import com.rendyhd.vicu.ui.components.section.ProjectMeta
@@ -128,13 +131,9 @@ fun SwipeableTaskItem(
     // on a device, so the deprecated overload stays until then.
     @Suppress("DEPRECATION")
     val dismissState = rememberSwipeToDismissBoxState(
-        positionalThreshold = { totalDistance -> totalDistance * 0.5f },
+        positionalThreshold = { totalDistance -> totalDistance * SwipeCommit.FRACTION },
         confirmValueChange = { value ->
-            val draggedFraction = rowRefs.dismissState
-                ?.let { state -> runCatching { abs(state.requireOffset()) }.getOrNull() }
-                ?.let { offset -> if (rowRefs.widthPx > 0f) offset / rowRefs.widthPx else 0f }
-                ?: 0f
-            if (draggedFraction >= 0.5f) {
+            if (SwipeCommit.committed(rowRefs.draggedFraction())) {
                 when (value) {
                     SwipeToDismissBoxValue.StartToEnd -> currentRequestToggleDone()
                     SwipeToDismissBoxValue.EndToStart -> currentSwipeSchedule()
@@ -147,13 +146,14 @@ fun SwipeableTaskItem(
     )
     SideEffect { rowRefs.dismissState = dismissState }
 
-    // One haptic per crossing of the commit point (edge-triggered via targetValue).
+    // One haptic per crossing of the commit point, the same one the action checks above: the row
+    // dragged half its width. The target value flips earlier (at the swipe's own threshold, or on a
+    // flick) and would buzz for a gesture that then does nothing.
     LaunchedEffect(dismissState) {
-        snapshotFlow { dismissState.targetValue }
-            .collect { target ->
-                if (target != SwipeToDismissBoxValue.Settled) {
-                    haptic.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
-                }
+        snapshotFlow { rowRefs.draggedFraction() }
+            .commitCrossings()
+            .collect { committed ->
+                if (committed) haptic.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
             }
     }
 
@@ -257,7 +257,30 @@ fun SwipeableTaskItem(
 private class SwipeRowRefs {
     var widthPx: Float = 0f
     var dismissState: SwipeToDismissBoxState? = null
+
+    /** How far the row is dragged, as a fraction of its width; 0 when either is unknown. */
+    fun draggedFraction(): Float {
+        val offset = dismissState?.let { state -> runCatching { state.requireOffset() }.getOrNull() } ?: return 0f
+        return SwipeCommit.fraction(offset, widthPx)
+    }
 }
+
+/** Where a swipe commits: the action runs, and the haptic fires, once the row is dragged this far. */
+internal object SwipeCommit {
+    const val FRACTION = 0.5f
+
+    fun fraction(offsetPx: Float, widthPx: Float): Float =
+        if (widthPx > 0f && !offsetPx.isNaN()) abs(offsetPx) / widthPx else 0f
+
+    fun committed(fraction: Float): Boolean = fraction >= FRACTION
+}
+
+/**
+ * Whether the drag is past the commit point, once per change: `true` when it crosses over, `false`
+ * when it comes back. A drag that hovers on either side says nothing more.
+ */
+internal fun Flow<Float>.commitCrossings(): Flow<Boolean> =
+    map { SwipeCommit.committed(it) }.distinctUntilChanged()
 
 /**
  * Completing an open task that still has unfinished subtasks asks first, because completing the

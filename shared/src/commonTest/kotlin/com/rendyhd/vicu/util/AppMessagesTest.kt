@@ -64,4 +64,14 @@ class AppMessagesTest {
         assertEquals(null, message.actionLabel)
         assertEquals(null, message.onAction)
     }
+
+    @Test
+    fun `a refused write is said in the snackbar and a successful one is not`() = runTest {
+        val messages = AppMessages()
+
+        assertEquals(false, messages.postIfRefused(NetworkResult.Success(Unit), "schedule the task"))
+        assertEquals(true, messages.postIfRefused(NetworkResult.Error("boom"), "schedule the task"))
+
+        assertEquals("Could not schedule the task: boom", messages.messages.first().text)
+    }
 }

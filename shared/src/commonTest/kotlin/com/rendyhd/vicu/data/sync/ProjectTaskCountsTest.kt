@@ -113,6 +113,17 @@ class ProjectTaskCountsTest {
     }
 
     @Test
+    fun `every invalidate is counted so a screen that remembers its questions can ask again`() = runTest {
+        val rig = rig(backgroundScope)
+        assertEquals(0, rig.counts.invalidations.value)
+
+        rig.counts.invalidate()
+        rig.counts.invalidate()
+
+        assertEquals(2, rig.counts.invalidations.value)
+    }
+
+    @Test
     fun `invalidate makes the next question ask again`() = runTest {
         val rig = rig(backgroundScope)
         rig.counts.doneTotal(7)

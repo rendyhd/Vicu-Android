@@ -58,9 +58,12 @@ class SharedRefreshPathTest {
 
         repositoryOver(h).refreshAll()
 
+        // The delta, then the one-task page whose total says whether anything was deleted.
         val screenRequests = server.lists().drop(afterSync)
-        assertEquals(1, screenRequests.size)
-        assertTrue(screenRequests.single().filter!!.startsWith("updated >= "), screenRequests.toString())
+        assertEquals(2, screenRequests.size, screenRequests.toString())
+        assertTrue(screenRequests.first().filter!!.startsWith("updated >= "), screenRequests.toString())
+        assertEquals("done = false", screenRequests.last().filter)
+        assertEquals("1", screenRequests.last().param("per_page"), "a count, not a listing")
         h.close()
     }
 
@@ -74,7 +77,7 @@ class SharedRefreshPathTest {
         h.engine.performSync()
 
         val syncRequests = server.lists().drop(afterScreen)
-        assertTrue(syncRequests.none { it.filter == "done = false" })
+        assertTrue(syncRequests.none { it.filter == "done = false" && it.param("per_page") != "1" }, "no listing of the open tasks")
         assertFalse(syncRequests.isEmpty(), "the sync still asks what changed")
         h.close()
     }

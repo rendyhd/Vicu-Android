@@ -16,7 +16,12 @@ class FakeProjectProgressSource(
     val tallies = MutableStateFlow(initial)
     val asked = mutableListOf<Pair<Long, ProjectTally>>()
 
+    /** Bumped by a test to say a sync made every earlier answer stale. */
+    val invalidated = MutableStateFlow(0)
+
     override fun observeTallies(): Flow<Map<Long, ProjectTally>> = tallies
+
+    override fun invalidations(): Flow<Int> = invalidated
 
     override suspend fun doneCount(projectId: Long, tally: ProjectTally): Long? {
         asked += projectId to tally

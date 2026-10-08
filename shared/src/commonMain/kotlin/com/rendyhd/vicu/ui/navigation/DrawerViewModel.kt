@@ -29,6 +29,8 @@ import com.rendyhd.vicu.util.ReviewState
 import com.rendyhd.vicu.util.planDropAmong
 import com.rendyhd.vicu.util.projectProgress
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -54,6 +56,12 @@ internal const val PENDING_ORDER_TIMEOUT_MS = 2_000L
 
 /** Changes to a project's tasks are settled for this long before its progress ring asks the server again. */
 internal const val PROGRESS_SETTLE_MS = 250L
+
+/**
+ * A ring whose count could not be read is asked for again after this long while the drawer stays
+ * open (a little over the source's own memory of a failure, which answers null until it passes).
+ */
+internal const val PROGRESS_RETRY_MS = 61_000L
 
 data class DrawerUiState(
     /** The projects to list (no Inbox, nothing archived) as a tree, at any depth. */
@@ -161,6 +169,11 @@ class DrawerViewModel(
     /** What was asked for each project since the drawer was last opened: ask again only when it changes. */
     private val asked = HashMap<Long, ProjectTally>()
 
+    /** Bumped to look at the rows again without any change to the tasks (a failed read is due a retry). */
+    private val progressRecheck = MutableStateFlow(0)
+    private var progressRetry: Job? = null
+    private var seenInvalidations = 0
+
     /**
      * The progress ring of every project that has one: done tasks out of all of them. The open
      * side follows the local database, the done side is one cached request per project, made
@@ -183,6 +196,15 @@ class DrawerViewModel(
         progressRows.value = projectIds
     }
 
+    /** One retry timer at a time, however many rings failed. */
+    private fun scheduleProgressRetry() {
+        if (progressRetry?.isActive == true) return
+        progressRetry = viewModelScope.launch {
+            delay(PROGRESS_RETRY_MS)
+            progressRecheck.update { it + 1 }
+        }
+    }
+
     init {
         viewModelScope.launch {
             progressRows
@@ -190,10 +212,21 @@ class DrawerViewModel(
                     if (rows.isEmpty()) {
                         emptyFlow()
                     } else {
-                        tallies.filterNotNull().debounce(PROGRESS_SETTLE_MS).map { rows to it }
+                        // The settle delay applies to changes of the tasks only; a sync that sent
+                        // something, or a retry, looks again at once.
+                        combine(
+                            tallies.filterNotNull().debounce(PROGRESS_SETTLE_MS),
+                            progressSource.invalidations(),
+                            progressRecheck,
+                        ) { tallies, invalidations, _ -> Triple(rows, tallies, invalidations) }
                     }
                 }
-                .collect { (rows, tallies) ->
+                .collect { (rows, tallies, invalidations) ->
+                    // Everything asked before a sync that sent changes is stale: ask for it all again.
+                    if (invalidations != seenInvalidations) {
+                        seenInvalidations = invalidations
+                        asked.clear()
+                    }
                     for (projectId in rows) {
                         val tally = tallies[projectId] ?: ProjectTally.EMPTY
                         if (asked[projectId] == tally) continue
@@ -206,7 +239,14 @@ class DrawerViewModel(
                             } catch (e: Exception) {
                                 null
                             }
-                            if (count != null) doneCounts.update { it + (projectId to count) }
+                            if (count != null) {
+                                doneCounts.update { it + (projectId to count) }
+                            } else if (asked[projectId] == tally) {
+                                // Not read (offline, server trouble): forget the question so the next
+                                // look, a retry or a change, asks again instead of keeping a missing ring.
+                                asked.remove(projectId)
+                                scheduleProgressRetry()
+                            }
                         }
                     }
                 }

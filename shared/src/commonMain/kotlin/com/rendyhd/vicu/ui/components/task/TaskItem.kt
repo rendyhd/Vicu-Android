@@ -547,7 +547,8 @@ fun AnimatedCheckbox(
         animationSpec = tween(durationMillis = VicuMotion.fadeBaseMs),
         label = "checkboxFill",
     )
-    val checkColor = Color.White
+    // The check sits on the primary fill, so it takes the role made for that (white is 1.7:1 on the dark primary).
+    val checkColor = MaterialTheme.colorScheme.onPrimary
 
     Box(
         modifier = modifier

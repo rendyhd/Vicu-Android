@@ -24,6 +24,10 @@ object NoCompletionToast : CompletionToast {
  * the 6 s clock restarts (the app scaffold shows only the newest message). Undo reopens every row
  * the message covers. A snackbar has no pointer or focus to pause it; the scaffold lengthens the
  * time when an accessibility service asks for more.
+ *
+ * The machine decides what the message says and covers; the message then carries its own task
+ * ids. The machine's toast ends after 6 s, but with an accessibility service the snackbar lasts
+ * longer, and Undo on it must still reopen the tasks it names.
  */
 class CompletionToastCenter(
     private val messages: AppMessages,
@@ -37,14 +41,20 @@ class CompletionToastCenter(
 
     override fun collapsed(taskId: Long) {
         val at = nowMillis()
+        // A row only collapses after a completion made now. One the machine still has as collapsed
+        // was reopened somewhere else since (the machine cannot see that) and completed again.
+        machine.forget(taskId, at)
         machine.collapseNow(taskId, at)
         val text = machine.snapshot(at).toast ?: return
-        messages.post(text, CompletionHold.TOAST_ACTION, CompletionHold.TOAST_MILLIS) { undo() }
+        val ids = machine.toastIds()
+        messages.post(text, CompletionHold.TOAST_ACTION, CompletionHold.TOAST_MILLIS) { undo(ids) }
     }
 
-    private fun undo() {
-        val ids = machine.undoToast(nowMillis())
+    /** Undo on the message that named [ids]: they are open again, so the machine forgets them too. */
+    private fun undo(ids: List<Long>) {
         if (ids.isEmpty()) return
+        val at = nowMillis()
+        ids.forEach { machine.forget(it, at) }
         scope.launch {
             val failed = ids.count { taskRepository.setDone(it, false) is NetworkResult.Error }
             if (failed > 0) {

@@ -115,6 +115,7 @@ import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.postIfRefused
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -254,6 +255,9 @@ fun VicuApp(
     // What a screen reader can do to a task row besides open it: the swipe gestures have no
     // equivalent for it, so the rows offer the quick due dates as actions.
     val taskRepository: TaskRepository = koinInject()
+    // Messages for outcomes nobody is looking at (an autosave that failed after the editor
+    // closed). Shown in a snackbar above everything, including the full-screen editor.
+    val appMessages: AppMessages = koinInject()
     // A swipe to schedule opens the When sheet for that task (unless the swipe is set to "Urgent").
     val behaviorPrefsStore: BehaviorPrefsStore = koinInject()
     val behaviorPrefs by behaviorPrefsStore.getPrefs().collectAsStateWithLifecycle(initialValue = BehaviorPrefs())
@@ -262,7 +266,7 @@ fun VicuApp(
     val taskRowActions = remember(taskRepository) {
         object : TaskRowActions {
             override fun scheduleDue(taskId: Long, due: QuickDue) {
-                scope.launch { taskRepository.scheduleDue(taskId, due) }
+                scope.launch { appMessages.postIfRefused(taskRepository.scheduleDue(taskId, due), "schedule the task") }
             }
 
             override val swipeScheduleLabel: String
@@ -278,14 +282,15 @@ fun VicuApp(
     // Only the due date is written, on the task as it is stored now.
     fun setWhenDue(taskId: Long, dueDate: String) {
         scope.launch {
-            val current = taskRepository.getById(taskId).first() ?: return@launch
-            taskRepository.update(current.copy(dueDate = dueDate))
+            val current = taskRepository.getById(taskId).first()
+            if (current == null) {
+                appMessages.post("Could not schedule the task: it is no longer available")
+                return@launch
+            }
+            appMessages.postIfRefused(taskRepository.update(current.copy(dueDate = dueDate)), "schedule the task")
         }
     }
 
-    // Messages for outcomes nobody is looking at (an autosave that failed after the editor
-    // closed). Shown in a snackbar above everything, including the full-screen editor.
-    val appMessages: AppMessages = koinInject()
     val snackbarHostState = remember { SnackbarHostState() }
     val accessibility = LocalAccessibilityManager.current
     LaunchedEffect(appMessages) {

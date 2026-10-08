@@ -28,6 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -81,7 +82,7 @@ fun TodayScreen(
 
     // All clear warms in only when Today had tasks during this visit and the last one has just gone.
     val hasContent = state.projectGroups.isNotEmpty() || state.overdueGroups.isNotEmpty() || state.routineDay.open.isNotEmpty()
-    var hadTasks by remember { mutableStateOf(false) }
+    var hadTasks by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(hasContent) { if (hasContent) hadTasks = true }
 
     val selectionVm: SelectionViewModel = koinViewModel()
