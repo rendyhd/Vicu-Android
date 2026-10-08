@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui.components.shared
 
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
@@ -15,6 +16,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
@@ -37,7 +39,21 @@ class VicuTopBarScroll @OptIn(ExperimentalMaterial3Api::class) internal construc
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun rememberVicuTopBarScroll(): VicuTopBarScroll = VicuTopBarScroll(TopAppBarDefaults.exitUntilCollapsedScrollBehavior())
+fun rememberVicuTopBarScroll(listState: LazyListState? = null): VicuTopBarScroll {
+    val behavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    if (listState != null) {
+        // A list that fits on the screen cannot be scrolled back, so a title folded earlier (the list was
+        // longer, rows were completed) would stay folded with nothing to open it again: open it.
+        val fits = !listState.canScrollBackward && !listState.canScrollForward
+        LaunchedEffect(fits) {
+            if (fits) {
+                behavior.state.heightOffset = 0f
+                behavior.state.contentOffset = 0f
+            }
+        }
+    }
+    return VicuTopBarScroll(behavior)
+}
 
 /**
  * The top bar of a screen. With [scroll] it is a large bar (bold 28 sp title that folds into the bar

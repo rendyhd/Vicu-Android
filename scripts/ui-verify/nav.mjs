@@ -35,7 +35,8 @@ export async function home() {
     }
     const nodes = d.dump()
     if (drawerOpen(nodes)) { await d.tap(sc.width - 20, Math.round(sc.height / 2), 900); continue }
-    if (bottomBarVisible(nodes)) return
+    // The selection bar keeps the bottom bar on screen: leave selection mode first.
+    if (bottomBarVisible(nodes) && !nodes.some((n) => /^\d+ selected$/.test(n.text ?? ''))) return
     await d.back()
   }
   throw new Error('could not get back to a bottom-bar destination')
@@ -44,7 +45,13 @@ export async function home() {
 /** Open a bottom-bar destination (Inbox, Today, Upcoming, Anytime). */
 export async function nav(label, wait = 2200) {
   await home()
-  const n = d.findNode((x) => x.text === label && inBottomBar(x), `bottom bar ${label}`)
+  let n
+  // A dump right after a launch or a selection ending can miss the bar for a moment.
+  for (let i = 0; i < 4 && !n; i++) {
+    n = d.dump().find((x) => x.text === label && inBottomBar(x))
+    if (!n) await d.sleep(1200)
+  }
+  if (!n) throw new Error(`not found: bottom bar ${label}`)
   await d.tap(n.cx, n.cy, wait)
 }
 
@@ -98,8 +105,14 @@ function sectionItems(nodes, header) {
 /** First project in the drawer (a child project when there is one, as it has a project screen of its own). `beforeTap` runs once the drawer shows it. */
 export async function drawerProject(wait = 2200, beforeTap, index = 0) {
   await openDrawer()
-  const { nodes } = await drawerFind((x) => x.text === 'PROJECTS', 'PROJECTS header')
-  const items = sectionItems(nodes, 'PROJECTS')
+  let { n: header, nodes } = await drawerFind((x) => x.text === 'PROJECTS', 'PROJECTS header')
+  let items = sectionItems(nodes, 'PROJECTS')
+  if (!items.length) {
+    // The section is remembered as collapsed: open it again.
+    await d.tap(header.cx, header.cy, 900)
+    ;({ nodes } = await drawerFind((x) => x.text === 'PROJECTS', 'PROJECTS header'))
+    items = sectionItems(nodes, 'PROJECTS')
+  }
   const children = items.filter((n) => n.x1 > px(76))
   const pick = children[index] ?? items[index] ?? items[0]
   if (!pick) throw new Error('no project in the drawer')

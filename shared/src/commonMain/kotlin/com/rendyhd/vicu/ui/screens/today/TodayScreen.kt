@@ -78,7 +78,7 @@ fun TodayScreen(
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
-    val topBarScroll = rememberVicuTopBarScroll()
+    val topBarScroll = rememberVicuTopBarScroll(listState)
 
     // All clear warms in only when Today had tasks during this visit and the last one has just gone.
     val hasContent = state.projectGroups.isNotEmpty() || state.overdueGroups.isNotEmpty() || state.routineDay.open.isNotEmpty()

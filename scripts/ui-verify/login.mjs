@@ -130,7 +130,7 @@ export async function login({ tokenPath = DEFAULT_TOKEN_PATH, server = DEFAULT_S
   const field = nodes.find((n) => n.class === 'android.widget.EditText')
   if (!field) throw new Error('no server URL field')
   await tapNode(field, 600)
-  await d.type(server)
+  await d.typeSlow(server, { chunk: 6, pause: 200 })
   await d.tapText('Continue', { wait: 1500 })
 
   // Step 2: pick the API token method.
@@ -145,7 +145,7 @@ export async function login({ tokenPath = DEFAULT_TOKEN_PATH, server = DEFAULT_S
   const tokenField = nodes.find((n) => n.class === 'android.widget.EditText')
   if (!tokenField) throw new Error('no API token field')
   await tapNode(tokenField, 600)
-  await d.type(token)
+  await d.typeSlow(token, { chunk: 8, pause: 200 })
   await d.key(d.KEY.ENTER, 1500)
 
   // The Go action may already have connected; otherwise press Connect.

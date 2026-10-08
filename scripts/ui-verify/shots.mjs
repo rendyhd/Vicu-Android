@@ -701,8 +701,9 @@ async function a1Completing(ctx) {
   }
   const refreshToday = async (k) => {
     await v.nav('Today')
-    for (let i = 0; i < 4 && !rowOf(k); i++) {
-      if (i === 0) await d.swipe(540, 700, 540, 1700, 400, 3000) // pull to refresh
+    // A pull to refresh on this emulator sometimes needs a second or third try; scroll after that.
+    for (let i = 0; i < 6 && !rowOf(k); i++) {
+      if (i < 3) await d.swipe(540, 700, 540, 1700, 400, 7000)
       else await d.swipe(540, 1900, 540, 700, 400, 900)
     }
     if (!rowOf(k)) throw new Error(`throwaway task ${k} is not on Today`)
@@ -735,8 +736,8 @@ async function a1Completing(ctx) {
 
     await step('leaves-and-snackbar', async () => {
       await until(5700) // the hold is 5 s; the snackbar then stays 6 s
+      const nodes = d.dump() // first: the snackbar lasts 6 s and a dump takes about 2 s on this emulator
       shot('snackbar')
-      const nodes = d.dump()
       if (nodes.some((n) => n.text === title('one'))) throw new Error('the row is still on screen after the hold')
       const s = snack(nodes)
       if (!s) throw new Error('no "Completed" snackbar after the hold')
@@ -876,6 +877,41 @@ async function a2Swipe(ctx) {
  * only its icon (still named "New task"); back at the top both are back.
  */
 async function a7LargeTitle(ctx) {
+  // The seeded Today can fit on one screen (plus the large title), and a drag on a list that cannot
+  // scroll is a tap on the row under it. Four throwaway tasks due now make it overflow.
+  const token = resolveToken(opt('token', DEFAULT_TOKEN_PATH))
+  const made = []
+  const api = async (method, path, body) => {
+    const r = await fetch(API + path, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    if (!r.ok) throw new Error(`${method} ${path}: HTTP ${r.status}`)
+    const t = await r.text()
+    return t ? JSON.parse(t) : null
+  }
+  try {
+    if (token) {
+      const stamp = Date.now().toString(36).slice(-4)
+      for (let i = 1; i <= 4; i++) {
+        made.push((await api('POST', `/projects/${Number(opt('inbox', 47))}/tasks`, { title: `droid a7 filler ${i} ${stamp}`, due_date: new Date().toISOString() })).id)
+      }
+      d.stop() // a cold start syncs (a drag on a list that does not scroll is a tap, so no pull to refresh)
+      await v.launch(6000)
+      for (let i = 0; i < 15 && !v.bottomBarVisible(d.dump()); i++) await d.sleep(1000)
+      await v.nav('Today', 2500)
+    }
+    await a7Steps(ctx)
+  } finally {
+    for (const id of made) {
+      try { await api('DELETE', `/tasks/${id}`) } catch (e) { console.log('  could not delete throwaway task', id, e.message) }
+    }
+    if (made.length) { try { d.stop(); await v.launch(6000); for (let i = 0; i < 15 && !v.bottomBarVisible(d.dump()); i++) await d.sleep(1000) } catch { /* best effort */ } }
+  }
+}
+
+async function a7Steps(ctx) {
   const { step, shot } = ctx
   const label = (n) => (n.text ?? n['content-desc'] ?? '')
   const fab = (nodes) => nodes.find((n) => n['content-desc'] === 'New task')
@@ -883,7 +919,9 @@ async function a7LargeTitle(ctx) {
   const subtitle = (nodes) => nodes.some((n) => /^(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, [A-Z][a-z]+ \d+/.test(label(n)))
   await step('top', async () => {
     await v.nav('Today')
-    await d.swipe(540, 1100, 540, 1500, 300, 1200) // up, short of a pull to refresh
+    await d.sleep(1200) // no drag down here: on a list already at its top it ends as a tap on the row under it
+    // On a slow emulator the drag can start as a long press on a row: leave the selection it made.
+    if (d.dump().some((n) => /^\d+ selected$/.test(n.text ?? ''))) { await d.back(); await d.sleep(800) }
     shot('top')
     const nodes = d.dump()
     if (fabWidthDp(nodes) < 100) throw new Error(`the FAB is not extended at the top (${fabWidthDp(nodes)} dp wide)`)
@@ -907,7 +945,8 @@ async function a7LargeTitle(ctx) {
     console.log(`  folded title at ${v.dp(title.y1).toFixed(0)} to ${v.dp(title.y2).toFixed(0)} dp`)
   })
   await step('back-to-top', async () => {
-    for (let i = 0; i < 4; i++) await d.swipe(540, 900, 540, 1700, 300, 600)
+    // Stop at the top: one more drag down there is a tap on the row under the finger.
+    for (let i = 0; i < 7 && fabWidthDp(d.dump()) < 100; i++) await d.swipe(540, 900, 540, 1700, 300, 600)
     await d.sleep(3500) // a pull to refresh may have started
     await d.sleep(1000)
     shot('back-to-top')
@@ -1079,10 +1118,18 @@ async function momentsSignature(ctx) {
       console.log('  section counts after:', headerCounts(d.dump()).join(', '))
       judgeMotion(ctx, 'count roll (section header)', before, mids, end, 0.0005)
       // Leave the data as it was: reopen the task while its row is still held on screen.
-      const cb = d.dump().find((n) => n.checkable && n['content-desc'] === row.desc)
+      // A slow emulator can be past the hold: the row has left and the snackbar offers Undo instead.
+      let nodes = d.dump()
+      const cb = nodes.find((n) => n.checkable && n['content-desc'] === row.desc)
       if (cb?.checked) await d.tap(cb.cx, cb.cy, 1500)
-      const again = d.dump().find((n) => n.checkable && n['content-desc'] === row.desc)
-      if (again?.checked) throw new Error(`could not reopen "${row.desc}"`)
+      else if (!cb) {
+        const undo = nodes.find((n) => n.text === 'Undo' || n['content-desc'] === 'Undo')
+        if (!undo) throw new Error(`the row "${row.desc}" left and there is no Undo: the task stays done`)
+        await d.tap(undo.cx, undo.cy, 2500)
+      }
+      nodes = d.dump()
+      const again = nodes.find((n) => n.checkable && n['content-desc'] === row.desc)
+      if (!again || again.checked) throw new Error(`could not reopen "${row.desc}"`)
     })
     await step('token-travels', async () => {
       await v.nav('Today', 1500)
