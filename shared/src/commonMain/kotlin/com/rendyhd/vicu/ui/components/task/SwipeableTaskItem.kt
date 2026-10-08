@@ -1,6 +1,19 @@
 package com.rendyhd.vicu.ui.components.task
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.outlined.PriorityHigh
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import com.rendyhd.vicu.ui.theme.LocalVicuColors
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -134,12 +147,12 @@ fun SwipeableTaskItem(
     )
     SideEffect { rowRefs.dismissState = dismissState }
 
-    // One haptic per threshold crossing (edge-triggered via targetValue).
+    // One haptic per crossing of the commit point (edge-triggered via targetValue).
     LaunchedEffect(dismissState) {
         snapshotFlow { dismissState.targetValue }
             .collect { target ->
                 if (target != SwipeToDismissBoxValue.Settled) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    haptic.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
                 }
             }
     }
@@ -204,7 +217,9 @@ fun SwipeableTaskItem(
         backgroundContent = {
             SwipeBackground(
                 dismissDirection = dismissState.dismissDirection,
-                progress = dismissState.progress,
+                offsetPx = runCatching { dismissState.requireOffset() }.getOrNull() ?: 0f,
+                widthPx = rowRefs.widthPx,
+                scheduleLabel = rowActions?.swipeScheduleLabel ?: "Schedule",
             )
         },
         enableDismissFromStartToEnd = !task.done && !gestureFromEdge,
@@ -276,51 +291,131 @@ private fun CompletionConfirmationDialog(
     )
 }
 
+/**
+ * What shows behind a row that is being swiped: the whole row tinted with the action's colour, a
+ * little deeper the further it goes, and in the strip the row has uncovered an icon and a word
+ * ("Complete", "Schedule"). At the commit point the strip turns to the full colour and the icon
+ * pops (the pop spring); the same gesture plays GestureThresholdActivate (see the caller).
+ * The distance is read from the row's offset, not from the state's progress, which reads 1 while
+ * the row springs back to rest.
+ */
 @Composable
 private fun SwipeBackground(
     dismissDirection: SwipeToDismissBoxValue,
-    progress: Float,
+    offsetPx: Float,
+    widthPx: Float,
+    scheduleLabel: String,
 ) {
-    // M3 color roles instead of hardcoded iOS green/orange, so the swipe backgrounds match
-    // the dynamic theme. Neither action is destructive, so NOT errorContainer.
-    val completeBg = MaterialTheme.colorScheme.tertiaryContainer
-    val onCompleteBg = MaterialTheme.colorScheme.onTertiaryContainer
-    val scheduleBg = MaterialTheme.colorScheme.secondaryContainer
-    val onScheduleBg = MaterialTheme.colorScheme.onSecondaryContainer
-
-    val bgColor by animateColorAsState(
-        targetValue = when (dismissDirection) {
-            SwipeToDismissBoxValue.StartToEnd -> completeBg
-            SwipeToDismissBoxValue.EndToStart -> scheduleBg
-            SwipeToDismissBoxValue.Settled -> Color.Transparent
-        },
+    val colors = LocalVicuColors.current
+    val surface = MaterialTheme.colorScheme.background
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    // The direction and distance of the last frame that had a swipe: the background fades out from
+    // there when the row has come back to rest, instead of vanishing.
+    val last = remember { SwipeFrame() }
+    if (dismissDirection != SwipeToDismissBoxValue.Settled) {
+        if (last.atRest) {
+            // A new swipe starts: forget the committed look of the last one.
+            last.atRest = false
+            last.committed = false
+        }
+        last.direction = dismissDirection
+        last.fraction = if (widthPx > 0f) (abs(offsetPx) / widthPx).coerceIn(0f, 1f) else 0f
+        // The swipe commits as it crosses the commit point and the row springs back at once: the
+        // committed look (full colour, popped icon) is kept while it does, until the row is at rest.
+        if (last.fraction >= SwipeTint.COMMIT) last.committed = true
+    } else {
+        last.atRest = true
+    }
+    val direction = last.direction
+    val fraction = if (last.committed) maxOf(last.fraction, SwipeTint.COMMIT) else last.fraction
+    val visible by animateFloatAsState(
+        targetValue = if (dismissDirection == SwipeToDismissBoxValue.Settled) 0f else 1f,
         animationSpec = tween(VicuMotion.fadeFastMs),
-        label = "swipeBg",
+        label = "swipeVisible",
     )
+    if (direction == SwipeToDismissBoxValue.Settled || visible <= 0f) return
 
-    // Reveal the action icon only once the drag is far enough to commit, so the background
-    // check doesn't collide with the row's own checkbox early in the gesture.
-    val showIcon = progress >= 0.5f
+    val complete = direction == SwipeToDismissBoxValue.StartToEnd
+    val role = if (complete) colors.swipeComplete else colors.swipeSchedule
+    val armed = fraction >= SwipeTint.COMMIT
+    val label = if (complete) "Complete" else scheduleLabel
+    val icon = when {
+        complete -> Icons.Outlined.Check
+        scheduleLabel == "Schedule" -> Icons.Outlined.CalendarMonth
+        else -> Icons.Outlined.PriorityHigh
+    }
 
-    Row(
+    // The icon springs up to size each time the swipe arms.
+    val pop = remember { Animatable(1f) }
+    LaunchedEffect(armed) {
+        if (armed) {
+            pop.snapTo(SWIPE_POP_FROM)
+            pop.animateTo(1f, VicuMotion.pop.spec())
+        } else {
+            pop.snapTo(1f)
+        }
+    }
+
+    // The tint follows the finger; the jump to the full colour at the commit point is a quick fade.
+    val strip by animateColorAsState(
+        targetValue = if (armed) role.color else Color.Transparent,
+        animationSpec = VicuMotion.fastEffectsSpec(),
+        label = "swipeStrip",
+    )
+    val labelColor by animateColorAsState(
+        targetValue = SwipeTint.labelColor(role, surface, onSurface, fraction),
+        animationSpec = VicuMotion.fastEffectsSpec(),
+        label = "swipeLabel",
+    )
+    val stripWidth = with(LocalDensity.current) { abs(offsetPx).toDp() }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(bgColor)
-            .padding(horizontal = 24.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = when (dismissDirection) {
-            SwipeToDismissBoxValue.EndToStart -> Arrangement.End
-            else -> Arrangement.Start
-        },
+            .alpha(visible)
+            .background(role.color.copy(alpha = SwipeTint.tintAlpha(fraction))),
     ) {
-        if (showIcon) {
-            when (dismissDirection) {
-                SwipeToDismissBoxValue.StartToEnd ->
-                    Icon(Icons.Outlined.Check, contentDescription = "Complete", tint = onCompleteBg)
-                SwipeToDismissBoxValue.EndToStart ->
-                    Icon(Icons.Outlined.CalendarMonth, contentDescription = "Schedule", tint = onScheduleBg)
-                SwipeToDismissBoxValue.Settled -> {}
+        Row(
+            modifier = Modifier
+                .align(if (complete) Alignment.CenterStart else Alignment.CenterEnd)
+                .width(stripWidth)
+                .fillMaxHeight()
+                .clipToBounds()
+                .background(strip)
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (complete) Arrangement.Start else Arrangement.End,
+        ) {
+            if (complete) {
+                SwipeIcon(icon, labelColor, pop.value)
+                Spacer(Modifier.width(8.dp))
+                SwipeWord(label, labelColor)
+            } else {
+                SwipeWord(label, labelColor)
+                Spacer(Modifier.width(8.dp))
+                SwipeIcon(icon, labelColor, pop.value)
             }
         }
     }
 }
+
+@Composable
+private fun SwipeIcon(icon: ImageVector, tint: Color, scale: Float) {
+    Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.scale(scale))
+}
+
+@Composable
+private fun SwipeWord(text: String, color: Color) {
+    Text(text = text, style = MaterialTheme.typography.labelLarge, color = color, maxLines = 1, softWrap = false)
+}
+
+/** The last frame of a swipe that had a direction, kept so the background can fade out after it and show the committed look while the row springs back. Not observable on purpose. */
+private class SwipeFrame {
+    var direction: SwipeToDismissBoxValue = SwipeToDismissBoxValue.Settled
+    var fraction: Float = 0f
+    var committed: Boolean = false
+    var atRest: Boolean = true
+}
+
+/** The icon starts a commit this much smaller and springs to full size. */
+private const val SWIPE_POP_FROM = 0.6f

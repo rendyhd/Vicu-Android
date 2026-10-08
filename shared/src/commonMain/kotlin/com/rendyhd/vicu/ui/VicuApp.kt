@@ -263,6 +263,9 @@ fun VicuApp(
                 scope.launch { taskRepository.scheduleDue(taskId, due) }
             }
 
+            override val swipeScheduleLabel: String
+                get() = if (swipeOpensWhen) "Schedule" else "Urgent"
+
             override fun swipeSchedule(taskId: Long): Boolean {
                 if (!swipeOpensWhen) return false
                 scope.launch { whenSheetTask = taskRepository.getById(taskId).first() }

@@ -27,6 +27,9 @@ interface TaskRowActions {
      * false when the row should run its own configured action (the "Urgent" swipe setting).
      */
     fun swipeSchedule(taskId: Long): Boolean
+
+    /** The word beside the icon of a swipe to schedule: "Schedule" when it opens the When sheet, "Urgent" for the other setting. */
+    val swipeScheduleLabel: String get() = "Schedule"
 }
 
 val LocalTaskRowActions = staticCompositionLocalOf<TaskRowActions?> { null }

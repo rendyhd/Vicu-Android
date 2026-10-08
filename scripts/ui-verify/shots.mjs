@@ -9,7 +9,7 @@
 //
 // Captures land in out/<scenario>/<theme>-<step>.png. A step that cannot run prints FAIL and the
 // run exits 1; WARN lines are expectations the app does not meet yet and never fail the run.
-// Scenario ids follow the plan: a1..a12. Only baseline, a1, a4, a6, a8, a9, a10 and a11 run today; the
+// Scenario ids follow the plan: a1..a12. Only baseline, a1, a2, a4, a6, a8, a9, a10 and a11 run today; the
 // others are stubs that print STUB and pass.
 import * as d from './droid.mjs'
 import * as v from './nav.mjs'
@@ -762,13 +762,102 @@ async function a1Completing(ctx) {
   }
 }
 
+/**
+ * A2: the swipe on a task row. Right to 40 percent (tinted row, icon and "Complete" in the strip),
+ * right to 60 percent (the strip goes full colour and the icon pops; the task completes), left to
+ * 40 percent, left past 50 percent (the When sheet opens, because the swipe setting is "Choose
+ * when"; with the setting on "Urgent" the swipe marks the task urgent instead). Captured while the
+ * finger is down, through motionevent. The left swipe starts at x=1000: x=1004 and further right is
+ * the system back-gesture zone. Uses two throwaway tasks due now in the Inbox, deleted at the end.
+ * The armed pop is captured at animator scale 5, which goes back to 1.
+ */
+async function a2Swipe(ctx) {
+  const { step, shot } = ctx
+  const token = resolveToken(opt('token', DEFAULT_TOKEN_PATH))
+  if (!token) { console.log('SKIP a2: no API token (see --token)'); return }
+  const api = async (method, path, body) => {
+    const r = await fetch(API + path, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    if (!r.ok) throw new Error(`${method} ${path}: HTTP ${r.status}`)
+    const t = await r.text()
+    return t ? JSON.parse(t) : null
+  }
+  const stamp = Date.now().toString(36).slice(-4)
+  const title = (k) => `droid a2 ${k} ${stamp}`
+  const made = {}
+  const rowOf = (k) => v.taskRows().find((r) => r.title?.text === title(k))
+  const serverDone = async (k) => (await api('GET', `/tasks/${made[k]}`)).done
+  const W = v.sc.width
+  try {
+    for (const k of ['right', 'left']) {
+      const inbox = Number(opt('inbox', 47))
+      made[k] = (await api('POST', `/projects/${inbox}/tasks`, { title: title(k), due_date: new Date().toISOString() })).id
+    }
+    if (!d.appInFront()) await v.launch(4000)
+    await v.nav('Today')
+    for (let i = 0; i < 4 && !(rowOf('right') && rowOf('left')); i++) {
+      if (i === 0) await d.swipe(540, 700, 540, 1700, 400, 3000) // pull to refresh
+      else await d.swipe(540, 1900, 540, 700, 400, 900)
+    }
+    if (!rowOf('right') || !rowOf('left')) throw new Error('the throwaway tasks are not on Today')
+
+    await step('right-40', async () => {
+      const y = rowOf('right').check.cy
+      const g = await d.holdGesture(300, y, 300 + Math.round(W * 0.4), y, 1, { steps: 8 })
+      shot('right-40')
+      await g.cancel(1200)
+      if (await serverDone('right')) throw new Error('a swipe to 40 percent completed the task')
+    })
+
+    await step('right-60-armed', async () => {
+      const y = rowOf('right').check.cy
+      d.animScale(5) // hold the icon pop long enough to capture
+      const g = await d.holdGesture(300, y, 300 + Math.round(W * 0.6), y, 1, { steps: 8 })
+      shot('right-60-armed')
+      await g.release(1500)
+      d.animScale(1)
+      await d.sleep(1500)
+      shot('right-60-released')
+      for (let i = 0; i < 10 && !(await serverDone('right')); i++) await d.sleep(1000)
+      if (!(await serverDone('right'))) throw new Error('a swipe past 50 percent did not complete the task')
+    })
+
+    await step('left-40', async () => {
+      const y = rowOf('left').check.cy
+      const g = await d.holdGesture(1000, y, 1000 - Math.round(W * 0.4), y, 1, { steps: 8 })
+      shot('left-40')
+      await g.cancel(1200)
+      if (d.hasText('When')) throw new Error('the When sheet opened at 40 percent')
+    })
+
+    await step('left-60-when-sheet', async () => {
+      const y = rowOf('left').check.cy
+      const g = await d.holdGesture(1000, y, 1000 - Math.round(W * 0.6), y, 1, { steps: 8 })
+      shot('left-60-armed')
+      await g.release(1800)
+      if (!d.hasText('When')) throw new Error('the When sheet did not open on a swipe past 50 percent to the left')
+      shot('left-60-when')
+      await d.back()
+    })
+  } finally {
+    d.animScale(1)
+    for (const id of Object.values(made)) {
+      try { await api('DELETE', `/tasks/${id}`) } catch (e) { console.log('  could not delete throwaway task', id, e.message) }
+    }
+    try { await v.nav('Today'); await d.swipe(540, 700, 540, 1700, 400, 3000); await v.home() } catch { /* best effort */ }
+  }
+}
+
 const stub = (id, wave) => Object.assign(async () => { stubs.push(id); console.log(`STUB ${id}: not implemented yet (plan wave ${wave})`) }, { isStub: true })
 
 // id, wave (from the plan's Android scenario table), run
 const SCENARIOS = {
   baseline: { wave: 0, run: baseline, about: 'Inbox, Today, Upcoming, Anytime, drawer, project, tag, Logbook, Review, Settings, editor, quick add, date picker, swipes, search' },
   a1: { wave: 4, run: a1Completing, about: 'tick a checkbox in Today: spring, hold, snackbar, Undo' },
-  a2: { wave: 4, run: stub('a2', 4), about: 'swipe to 40 and 60 percent, armed pop, WhenSheet' },
+  a2: { wave: 4, run: a2Swipe, about: 'swipe to 40 and 60 percent, armed pop, WhenSheet' },
   a3: { wave: 4, run: stub('a3', 4), about: 'predictive back on the editor, container transform' },
   rings: { wave: 3, run: rings, about: 'drawer project progress rings and the number of done-count requests' },
   a4: { wave: 1, run: a4Upcoming, about: 'Upcoming day groups and sticky headers' },
