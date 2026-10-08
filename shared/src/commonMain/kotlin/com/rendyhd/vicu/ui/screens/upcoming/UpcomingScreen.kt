@@ -2,6 +2,7 @@ package com.rendyhd.vicu.ui.screens.upcoming
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -35,6 +36,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
@@ -104,7 +106,7 @@ fun UpcomingScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.days.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(

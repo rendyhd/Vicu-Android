@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui.screens.search
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,6 +38,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.section.SectionHeader
 import com.rendyhd.vicu.ui.components.shared.EmptyState
@@ -108,6 +110,7 @@ fun SearchScreen(
                 .fillMaxSize()
                 .imePadding()
                 .padding(top = 4.dp),
+            contentPadding = PaddingValues(bottom = FabClearance),
         ) {
             if (state.query.isBlank()) {
                 item {

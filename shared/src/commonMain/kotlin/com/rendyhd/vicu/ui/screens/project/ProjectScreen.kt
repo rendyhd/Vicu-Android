@@ -3,6 +3,7 @@ package com.rendyhd.vicu.ui.screens.project
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,6 +45,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
@@ -146,7 +148,7 @@ fun ProjectScreen(
                 state.childProjects.isEmpty() &&
                 !hasAnyTask(state.sections)
 
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (allEmpty && !state.isLoading) {
                     item {
                         EmptyState(

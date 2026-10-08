@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui.screens.tag
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
@@ -95,7 +97,7 @@ fun TagScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.tasks.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(

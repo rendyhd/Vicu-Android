@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui.screens.anytime
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.ui.components.section.CollapsibleSection
@@ -100,7 +102,7 @@ fun AnytimeScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.rows.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(

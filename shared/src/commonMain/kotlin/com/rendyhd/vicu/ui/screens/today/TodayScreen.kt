@@ -2,6 +2,7 @@ package com.rendyhd.vicu.ui.screens.today
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.section.CollapsibleSection
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
@@ -125,6 +127,7 @@ fun TodayScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = FabClearance),
             ) {
                 // Finished routines (completed or skipped) are left out; the count still covers the day.
                 val openRoutines = state.routineDay.open

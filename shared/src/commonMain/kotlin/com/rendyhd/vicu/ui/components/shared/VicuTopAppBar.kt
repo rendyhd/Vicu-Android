@@ -15,7 +15,7 @@ import androidx.compose.runtime.Composable
 fun VicuTopAppBar(
     title: @Composable () -> Unit,
     onOpenDrawer: () -> Unit,
-    onNavigateToSearch: () -> Unit,
+    onNavigateToSearch: (() -> Unit)? = null,
     extraActions: @Composable (RowScope.() -> Unit)? = null,
 ) {
     TopAppBar(
@@ -27,8 +27,10 @@ fun VicuTopAppBar(
         },
         actions = {
             extraActions?.invoke(this)
-            IconButton(onClick = onNavigateToSearch) {
-                Icon(Icons.Default.Search, contentDescription = "Search")
+            if (onNavigateToSearch != null) {
+                IconButton(onClick = onNavigateToSearch) {
+                    Icon(Icons.Default.Search, contentDescription = "Search")
+                }
             }
         },
     )

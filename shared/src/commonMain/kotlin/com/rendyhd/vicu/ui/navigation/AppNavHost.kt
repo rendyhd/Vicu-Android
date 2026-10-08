@@ -167,7 +167,6 @@ fun AppNavHost(
         composable<SettingsRoute> {
             SettingsScreen(
                 onOpenDrawer = onOpenDrawer,
-                onNavigateToSearch = onNavigateToSearch,
             )
         }
     }
