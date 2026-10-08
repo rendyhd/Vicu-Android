@@ -35,10 +35,12 @@ import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,11 +60,14 @@ import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.ui.components.section.sectionStateDescription
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
+import com.rendyhd.vicu.ui.components.shared.ProgressRing
 import com.rendyhd.vicu.ui.components.shared.SmartListIdentity
 import com.rendyhd.vicu.ui.components.task.moveCustomActions
 import com.rendyhd.vicu.ui.theme.LocalVicuColors
+import com.rendyhd.vicu.util.ProjectProgress
 import com.rendyhd.vicu.util.moveIdBy
 import com.rendyhd.vicu.util.parseHexColor
+import kotlinx.coroutines.flow.distinctUntilChanged
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableLazyListState
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -76,6 +81,10 @@ private val ProjectIndent = 16.dp
  * many projects there are. Long-pressing a project, list or label drags it among the rows of its
  * own group (a project among its siblings); the drop is reported through the `onReorder` callbacks
  * with the ids of the group in their new order.
+ *
+ * A project row with tasks shows a [ProgressRing] from [projectProgress]. While [progressActive]
+ * (the drawer is open) the projects whose rows are on screen are reported through
+ * [onProgressRows], which is how the numbers are asked for: only for the rows that can be seen.
  */
 @Composable
 fun DrawerContent(
@@ -86,6 +95,9 @@ fun DrawerContent(
     onToggleLists: () -> Unit,
     onToggleTags: () -> Unit,
     onToggleProjectCollapsed: (projectId: Long) -> Unit = {},
+    projectProgress: Map<Long, ProjectProgress> = emptyMap(),
+    progressActive: Boolean = false,
+    onProgressRows: (Set<Long>) -> Unit = {},
     onCreateNewList: () -> Unit = {},
     onReorderProject: (movedId: Long, idsInNewOrder: List<Long>) -> Unit = { _, _ -> },
     onReorderList: (movedId: String, idsInNewOrder: List<String>) -> Unit = { _, _ -> },
@@ -128,6 +140,19 @@ fun DrawerContent(
                     ?.also { liveLabels = it } != null
         }
         if (moved) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
+
+    // The projects with a row on screen, reported while the drawer is open and as the list scrolls.
+    LaunchedEffect(progressActive, listState) {
+        if (!progressActive) {
+            onProgressRows(emptySet())
+            return@LaunchedEffect
+        }
+        snapshotFlow {
+            listState.layoutInfo.visibleItemsInfo.mapNotNullTo(HashSet()) { item ->
+                parseDrawerKey(item.key)?.takeIf { it.group == DrawerGroup.PROJECT }?.id?.toLongOrNull()
+            }
+        }.distinctUntilChanged().collect { onProgressRows(it) }
     }
 
     ModalDrawerSheet {
@@ -258,6 +283,7 @@ fun DrawerContent(
                         ) {
                             ProjectItem(
                                 row = row,
+                                progress = projectProgress[projectId],
                                 selected = currentRoute == "ProjectRoute/$projectId",
                                 onClick = { onNavigate(ProjectRoute(projectId)) },
                                 onToggleCollapsed = { onToggleProjectCollapsed(projectId) },
@@ -465,6 +491,7 @@ private fun LazyItemScope.DrawerReorderableRow(
 @Composable
 private fun ProjectItem(
     row: ProjectRow,
+    progress: ProjectProgress?,
     selected: Boolean,
     onClick: () -> Unit,
     onToggleCollapsed: () -> Unit,
@@ -472,14 +499,26 @@ private fun ProjectItem(
     onMoveDown: (() -> Unit)? = null,
 ) {
     val project = row.project
-    // Only a project with children gets the button; the badge slot is the trailing end of the row.
-    val toggle: (@Composable () -> Unit)? = if (row.hasChildren) {
+    val projectColor = parseHexColor(project.hexColor)
+    // The badge slot is the trailing end of the row: the progress ring of a project with tasks,
+    // then the open/close button of a project with children.
+    val badge: (@Composable () -> Unit)? = if (row.hasChildren || progress != null) {
         {
-            IconButton(onClick = onToggleCollapsed) {
-                Icon(
-                    imageVector = if (row.expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                    contentDescription = projectToggleDescription(project.title, row.expanded),
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (progress != null) {
+                    ProgressRing(
+                        progress = progress,
+                        color = projectColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (row.hasChildren) {
+                    IconButton(onClick = onToggleCollapsed) {
+                        Icon(
+                            imageVector = if (row.expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                            contentDescription = projectToggleDescription(project.title, row.expanded),
+                        )
+                    }
+                }
             }
         }
     } else {
@@ -491,10 +530,10 @@ private fun ProjectItem(
             Icon(
                 Icons.Outlined.Folder,
                 contentDescription = null,
-                tint = parseHexColor(project.hexColor) ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = projectColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
-        badge = toggle,
+        badge = badge,
         selected = selected,
         onClick = onClick,
         modifier = Modifier

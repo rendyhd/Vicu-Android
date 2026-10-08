@@ -437,6 +437,7 @@ fun VicuApp(
 
     val drawerViewModel: DrawerViewModel = koinViewModel()
     val drawerUiState by drawerViewModel.uiState.collectAsStateWithLifecycle()
+    val projectProgress by drawerViewModel.projectProgress.collectAsStateWithLifecycle()
     val fabAlignStart by drawerViewModel.fabAlignStart.collectAsStateWithLifecycle()
     val subtaskDisplayMode by drawerViewModel.subtaskDisplayMode.collectAsStateWithLifecycle()
 
@@ -491,6 +492,9 @@ fun VicuApp(
                     onToggleLists = drawerViewModel::toggleListsExpanded,
                     onToggleTags = drawerViewModel::toggleTagsExpanded,
                     onToggleProjectCollapsed = drawerViewModel::toggleProjectCollapsed,
+                    projectProgress = projectProgress,
+                    progressActive = drawerState.targetValue == DrawerValue.Open,
+                    onProgressRows = drawerViewModel::setProgressRows,
                     onCreateNewList = {
                         scope.launch { drawerState.close() }
                         showNewListDialog = true

@@ -65,6 +65,19 @@ class VikunjaApiService(
             filters.forEach { (key, value) -> parameter(key, value) }
         }.bodyOrThrow()
 
+    /**
+     * One page of the tasks of a single project (`GET projects/{id}/tasks`), without the subtask
+     * expansion, so [PaginatedResponse.total] counts every task the filter matches. The progress
+     * rings ask for a page of one and read only the total.
+     */
+    suspend fun getProjectTasksPage(
+        projectId: Long,
+        filters: Map<String, String> = emptyMap(),
+    ): PaginatedResponse<TaskDto> =
+        client.get("projects/$projectId/tasks") {
+            filters.forEach { (key, value) -> parameter(key, value) }
+        }.bodyOrThrow()
+
     suspend fun getAllTasks(
         filters: Map<String, String> = emptyMap(),
         expandSubtasks: Boolean = true,

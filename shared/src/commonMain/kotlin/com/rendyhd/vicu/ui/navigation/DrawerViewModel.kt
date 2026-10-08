@@ -13,7 +13,9 @@ import com.rendyhd.vicu.domain.model.BottomBarSlotType
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.domain.model.ProjectTally
 import com.rendyhd.vicu.domain.repository.LabelRepository
+import com.rendyhd.vicu.domain.repository.ProjectProgressSource
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.util.AppDispatchers
@@ -21,16 +23,22 @@ import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.DropPlan
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.PositionedId
+import com.rendyhd.vicu.util.ProjectProgress
 import com.rendyhd.vicu.util.ReviewMetadata
 import com.rendyhd.vicu.util.ReviewState
 import com.rendyhd.vicu.util.planDropAmong
+import com.rendyhd.vicu.util.projectProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -43,6 +51,9 @@ import kotlinx.datetime.LocalDate
 
 /** How long a drop is shown ahead of the stored order before the stored order is trusted again. */
 internal const val PENDING_ORDER_TIMEOUT_MS = 2_000L
+
+/** Changes to a project's tasks are settled for this long before its progress ring asks the server again. */
+internal const val PROGRESS_SETTLE_MS = 250L
 
 data class DrawerUiState(
     /** The projects to list (no Inbox, nothing archived) as a tree, at any depth. */
@@ -87,6 +98,7 @@ class DrawerViewModel(
     dayClock: com.rendyhd.vicu.util.DayClock,
     dispatchers: AppDispatchers,
     private val appMessages: AppMessages,
+    private val progressSource: ProjectProgressSource,
 ) : ViewModel() {
 
     /** Exposed for the app-root CompositionLocal that positions the FAB. */
@@ -132,6 +144,74 @@ class DrawerViewModel(
         buildDrawerState(sources, slots, reviewPrefs, labelOrder, today, routinesEnabled)
     }.flowOn(dispatchers.default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DrawerUiState())
+
+    // --- Project progress rings (decision 11) ---------------------------------------------------
+
+    /** The projects whose rows are on screen while the drawer is open; nothing is asked for any other. */
+    private val progressRows = MutableStateFlow<Set<Long>>(emptySet())
+
+    /** The open and cached done tasks per project; null until the first read. */
+    private val tallies: StateFlow<Map<Long, ProjectTally>?> = progressSource.observeTallies()
+        .flowOn(dispatchers.default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** The done tasks of a project as the server last said, hidden carriers left out. */
+    private val doneCounts = MutableStateFlow<Map<Long, Long>>(emptyMap())
+
+    /** What was asked for each project since the drawer was last opened: ask again only when it changes. */
+    private val asked = HashMap<Long, ProjectTally>()
+
+    /**
+     * The progress ring of every project that has one: done tasks out of all of them. The open
+     * side follows the local database, the done side is one cached request per project, made
+     * only for the rows on screen while the drawer is open (at most one request per project, and
+     * none while the cached count is fresh).
+     */
+    val projectProgress: StateFlow<Map<Long, ProjectProgress>> =
+        combine(tallies, doneCounts) { tallies, done ->
+            buildMap {
+                for ((projectId, count) in done) {
+                    projectProgress(count, tallies?.get(projectId)?.open ?: 0)?.let { put(projectId, it) }
+                }
+            }
+        }.flowOn(dispatchers.default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** The projects with a row on screen while the drawer is open; empty when it is closed. */
+    fun setProgressRows(projectIds: Set<Long>) {
+        if (projectIds.isEmpty()) asked.clear()
+        progressRows.value = projectIds
+    }
+
+    init {
+        viewModelScope.launch {
+            progressRows
+                .flatMapLatest { rows ->
+                    if (rows.isEmpty()) {
+                        emptyFlow()
+                    } else {
+                        tallies.filterNotNull().debounce(PROGRESS_SETTLE_MS).map { rows to it }
+                    }
+                }
+                .collect { (rows, tallies) ->
+                    for (projectId in rows) {
+                        val tally = tallies[projectId] ?: ProjectTally.EMPTY
+                        if (asked[projectId] == tally) continue
+                        asked[projectId] = tally
+                        launch {
+                            val count = try {
+                                progressSource.doneCount(projectId, tally)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                null
+                            }
+                            if (count != null) doneCounts.update { it + (projectId to count) }
+                        }
+                    }
+                }
+        }
+    }
 
     /** An order the user has just dropped, shown until the stored order shows it too. */
     private val pendingOrder = MutableStateFlow(PendingDrawerOrder())

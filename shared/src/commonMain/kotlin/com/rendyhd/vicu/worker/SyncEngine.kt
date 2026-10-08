@@ -24,6 +24,7 @@ import com.rendyhd.vicu.data.repository.TaskWriteGate
 import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.data.sync.ProjectRefresher
+import com.rendyhd.vicu.data.sync.ProjectTaskCounts
 import com.rendyhd.vicu.data.sync.TaskRefresher
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Task
@@ -86,6 +87,8 @@ class SyncEngine(
     private val tempIds: TempIdGenerator? = null,
     /** The repositories' per-task write lock; the swap of a created task takes it. */
     private val writeGate: TaskWriteGate? = null,
+    /** The done counts behind the drawer's progress rings; a sync may have changed them, so they are read again. */
+    private val projectCounts: ProjectTaskCounts? = null,
 ) {
     private val missing = MissingResourceCheck(api)
 
@@ -177,6 +180,7 @@ class SyncEngine(
             throw e
         } finally {
             platformHooks.updateWidgets()
+            projectCounts?.invalidate()
         }
 
         return !run.hasRetriableFailures

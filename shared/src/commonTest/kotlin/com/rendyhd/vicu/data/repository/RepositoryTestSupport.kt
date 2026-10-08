@@ -6,6 +6,8 @@ import androidx.datastore.preferences.core.emptyPreferences
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.ProjectDao
 import com.rendyhd.vicu.data.local.dao.StoredPosition
+import com.rendyhd.vicu.data.local.dao.MetadataTaskRef
+import com.rendyhd.vicu.data.local.dao.ProjectTallyRow
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.local.entity.ProjectEntity
@@ -98,6 +100,20 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
 
     override fun getRoutineCarriersFlow(): Flow<List<TaskEntity>> =
         flow { emit(lock.withLock { rows.values.toList() }.routineMetadata()) }
+
+    override fun observeProjectTallies(): Flow<List<ProjectTallyRow>> = flow {
+        emit(
+            lock.withLock {
+                rows.values.filter { !it.isMetadata }.groupBy { it.projectId }.map { (projectId, tasks) ->
+                    ProjectTallyRow(projectId, open = tasks.count { !it.done }, doneOnPhone = tasks.count { it.done })
+                }
+            },
+        )
+    }
+
+    override suspend fun getDoneMetadataRefs(): List<MetadataTaskRef> = lock.withLock {
+        rows.values.filter { it.isMetadata && it.done }.map { MetadataTaskRef(it.id, it.projectId) }
+    }
 
     override suspend fun getByIdsChunk(ids: List<Long>): List<TaskEntity> = lock.withLock {
         boundIdListSizes += ids.size

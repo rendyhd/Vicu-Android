@@ -70,6 +70,14 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE isMetadata = 0")
     fun getAllTasksFlow(): Flow<List<TaskEntity>>
 
+    /** Open and done task counts per project, for the drawer's progress rings (see [PROJECT_TALLIES_SQL]). */
+    @Query(PROJECT_TALLIES_SQL)
+    fun observeProjectTallies(): Flow<List<ProjectTallyRow>>
+
+    /** The hidden done tasks (carriers, archive parts) the phone holds: not the user's tasks, so not counted in a progress ring. */
+    @Query("SELECT id, projectId FROM tasks WHERE isMetadata = 1 AND done = 1")
+    suspend fun getDoneMetadataRefs(): List<MetadataTaskRef>
+
     @Query("SELECT * FROM tasks WHERE description LIKE '%<!-- vicu-routine:%'")
     fun getRoutineCarriersFlow(): Flow<List<TaskEntity>>
 

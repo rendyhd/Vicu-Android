@@ -146,6 +146,7 @@ class DrawerViewModelReorderTest {
             dayClock = DayClock(backgroundScope, time),
             dispatchers = AppDispatchers(Dispatchers.Unconfined),
             appMessages = messages,
+            progressSource = FakeProjectProgressSource(),
         )
         backgroundScope.launch { vm.uiState.collect { } }
         runCurrent()

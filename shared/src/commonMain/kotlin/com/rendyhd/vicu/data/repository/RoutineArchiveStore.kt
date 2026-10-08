@@ -50,6 +50,9 @@ class RoutineArchiveStore(
     fun cachedParts(routineId: String? = null): List<RoutineArchivePart> =
         known.values.filter { routineId == null || it.routineId == routineId }
 
+    /** The archive part tasks this process has seen, with the routine each belongs to; no request. */
+    fun knownPartRoutines(): Map<Long, String> = known.mapValues { it.value.routineId }
+
     /** The task as the server holds it right now (the freshest copy of a main carrier). */
     suspend fun fetchTask(taskId: Long): TaskDto = api.getTask(taskId)
 

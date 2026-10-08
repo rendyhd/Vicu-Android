@@ -16,6 +16,7 @@ import com.rendyhd.vicu.ui.FakeProjectRepository
 import com.rendyhd.vicu.ui.FakeTaskRepository
 import com.rendyhd.vicu.ui.fakeScreenRefresher
 import com.rendyhd.vicu.ui.navigation.DrawerViewModel
+import com.rendyhd.vicu.ui.navigation.FakeProjectProgressSource
 import com.rendyhd.vicu.ui.screens.anytime.AnytimeViewModel
 import com.rendyhd.vicu.ui.screens.inbox.InboxViewModel
 import com.rendyhd.vicu.ui.screens.review.ReviewViewModel
@@ -301,6 +302,7 @@ class InboxProjectFlowViewModelsTest {
             dayClock = DayClock(backgroundScope, time),
             dispatchers = AppDispatchers(Dispatchers.Unconfined),
             appMessages = AppMessages(),
+            progressSource = FakeProjectProgressSource(),
         )
     }
 

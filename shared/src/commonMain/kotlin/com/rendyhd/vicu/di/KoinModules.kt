@@ -25,6 +25,7 @@ import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.data.sync.CarrierFinder
 import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.data.sync.ProjectRefresher
+import com.rendyhd.vicu.data.sync.ProjectTaskCounts
 import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.data.sync.TaskRefresher
@@ -187,6 +188,24 @@ val repositoryModule = module {
 }
 
 val commonModule = module {
+    single {
+        ProjectTaskCounts(
+            api = get(),
+            serverKey = { get<AuthManager>().getVikunjaUrl() },
+            time = get(),
+            scope = get(),
+        )
+    }
+    single<ProjectProgressSource> {
+        ProjectProgressSourceImpl(
+            taskDao = get(),
+            counts = get(),
+            carrierFinder = get(),
+            archiveStore = get(),
+            authManager = get(),
+            json = get(),
+        )
+    }
     single { SyncStaleness() }
     single {
         ScreenRefresher(
@@ -268,6 +287,7 @@ val commonModule = module {
             positioner = get(),
             tempIds = get(),
             writeGate = get(),
+            projectCounts = get(),
         )
     }
 }

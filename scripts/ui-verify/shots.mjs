@@ -119,6 +119,49 @@ async function baseline(ctx) {
   })
 }
 
+/**
+ * 3.9b: the drawer with project progress rings, and what they cost. The debug app logs every request
+ * (tag KtorClient); the done counts are `projects/{id}/tasks?...per_page=1`. The first opening may
+ * ask once per project that has a row on screen, never twice for the same project; opening the drawer
+ * again inside ten minutes asks for nothing.
+ */
+async function rings(ctx) {
+  const { step, shot, warn } = ctx
+  const countRequests = () => {
+    const log = d.sh('logcat -d -v brief')
+    const ids = []
+    for (const line of log.split(/\r?\n/)) {
+      const m = line.match(/REQUEST: \S*\/projects\/(\d+)\/tasks\?\S*per_page=1(?!\d)/)
+      if (m) ids.push(Number(m[1]))
+    }
+    return ids
+  }
+  const ringNodes = () => d.dump().filter((n) => /\b\d+ of \d+ done\b/.test(`${n['content-desc'] ?? ''} ${n.text ?? ''}`))
+  await step('first-open', async () => {
+    await v.nav('Today')
+    d.sh('logcat -c')
+    await v.openDrawer(2500)
+    await d.sleep(2500)
+    shot('drawer')
+    const ids = countRequests()
+    const rows = ringNodes()
+    console.log(`  done-count requests: ${ids.length} (projects ${[...new Set(ids)].join(', ') || 'none'}); rings on screen: ${rows.length}`)
+    for (const n of rows.slice(0, 6)) console.log('   ', (n['content-desc'] || n.text || '').slice(0, 80))
+    if (new Set(ids).size !== ids.length) throw new Error('a project was asked for more than once')
+    if (!rows.length) warn('no progress ring on screen (no project with tasks, or the counts were not read)')
+    await v.closeDrawer()
+  })
+  await step('second-open', async () => {
+    d.sh('logcat -c')
+    await v.openDrawer(2500)
+    await d.sleep(1500)
+    const ids = countRequests()
+    console.log(`  done-count requests on the second opening: ${ids.length}`)
+    if (ids.length) warn(`the second opening asked for ${ids.length} done count(s) inside the cache window`)
+    await v.closeDrawer()
+  })
+}
+
 /** A4: Upcoming day groups, sticky from wave 1. */
 async function a4Upcoming(ctx) {
   const { step, shot, warn } = ctx
@@ -613,6 +656,7 @@ const SCENARIOS = {
   a1: { wave: 4, run: stub('a1', 4), about: 'tick a checkbox in Today: spring, hold, snackbar, Undo' },
   a2: { wave: 4, run: stub('a2', 4), about: 'swipe to 40 and 60 percent, armed pop, WhenSheet' },
   a3: { wave: 4, run: stub('a3', 4), about: 'predictive back on the editor, container transform' },
+  rings: { wave: 3, run: rings, about: 'drawer project progress rings and the number of done-count requests' },
   a4: { wave: 1, run: a4Upcoming, about: 'Upcoming day groups and sticky headers' },
   a5: { wave: 3, run: a5QuickAdd, about: 'compact quick add: chips in words, the date once, + Notes grows it, a picked chip wins over the text' },
   a6: { wave: 3, run: a6WhenSheet, about: 'WhenSheet: tomorrow 9am, a calendar day, Next week (throwaway tasks, read back from the server)' },
