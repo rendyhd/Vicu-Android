@@ -48,6 +48,8 @@ data class TodayUiState(
     val completedTaskIds: Set<Long> = emptySet(),
     /** Today's routines; empty when routines or their Today section are turned off. The screen lists [RoutineDay.open]. */
     val routineDay: RoutineDay = RoutineDay("", emptyList()),
+    /** The next open task due after today; what an emptied Today offers (see [nextUpcomingTask]). */
+    val nextUpcoming: Task? = null,
 )
 
 class TodayViewModel(
@@ -101,6 +103,11 @@ class TodayViewModel(
             routinesForToday.collect { day ->
                 _uiState.update { it.copy(routineDay = day) }
             }
+        }
+        viewModelScope.launch {
+            combine(taskRepository.getUpcomingTasks(), projectRepository.getAll(), dayClock.day) { tasks, projects, day ->
+                nextUpcomingTask(tasks, projects, day.date, day.zone)
+            }.distinctUntilChanged().collect { next -> _uiState.update { it.copy(nextUpcoming = next) } }
         }
         viewModelScope.launch {
             authManager.inboxProjectId.collectLatest { inboxId ->

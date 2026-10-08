@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.RollingCount
 import com.rendyhd.vicu.ui.theme.VicuMotion
 
 /** The two levels of a grouped list (docs/design-system-v1.md, section headers). */
@@ -132,8 +133,9 @@ fun SectionHeader(
         )
         if (count != null) {
             Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "$count",
+            // The count rolls by one when a task is completed or added (card 4.11b).
+            RollingCount(
+                value = count,
                 color = scheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelMedium,
             )

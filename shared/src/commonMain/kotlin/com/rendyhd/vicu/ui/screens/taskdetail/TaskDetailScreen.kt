@@ -16,7 +16,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.CompositionLocalProvider
+import com.rendyhd.vicu.ui.components.task.MIN_TOUCH_TARGET
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -977,32 +980,36 @@ private fun PropertyChip(
         set -> scheme.onSurface
         else -> scheme.onSurfaceVariant
     }
-    Surface(
-        onClick = onClick,
-        modifier = modifier
-            .minimumInteractiveComponentSize()
-            .semantics { contentDescription = description },
-        shape = MaterialTheme.shapes.small,
-        color = Color.Transparent,
-        contentColor = color,
-        border = if (set) BorderStroke(1.dp, if (emphasis) scheme.error.copy(alpha = 0.5f) else scheme.outlineVariant) else null,
-    ) {
-        Row(
-            modifier = Modifier.heightIn(min = 32.dp).padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+    // The chip is drawn 32 dp tall and its target is 48 dp: stated here (MIN_TOUCH_TARGET) rather
+    // than left to whatever minimum the theme provides.
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides MIN_TOUCH_TARGET) {
+        Surface(
+            onClick = onClick,
+            modifier = modifier
+                .minimumInteractiveComponentSize()
+                .semantics { contentDescription = description },
+            shape = MaterialTheme.shapes.small,
+            color = Color.Transparent,
+            contentColor = color,
+            border = if (set) BorderStroke(1.dp, if (emphasis) scheme.error.copy(alpha = 0.5f) else scheme.outlineVariant) else null,
         ) {
-            if (icon != null) Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-            if (content != null && set) {
-                content()
-            } else if (text.isNotEmpty()) {
-                Text(
-                    text = if (set) text else "+ $text",
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 220.dp),
-                )
+            Row(
+                modifier = Modifier.heightIn(min = 32.dp).padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (icon != null) Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                if (content != null && set) {
+                    content()
+                } else if (text.isNotEmpty()) {
+                    Text(
+                        text = if (set) text else "+ $text",
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 220.dp),
+                    )
+                }
             }
         }
     }

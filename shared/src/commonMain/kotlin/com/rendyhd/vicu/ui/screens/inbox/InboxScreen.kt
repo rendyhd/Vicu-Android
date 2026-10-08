@@ -69,7 +69,7 @@ fun InboxScreen(
         val toId = to.key as? Long
         if (fromId != null && toId != null && viewModel.onTaskMoved(fromId, toId)) {
             dragMoved = true
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            haptic.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick) // a reorder step (design-system-v1, haptics)
         }
     }
 

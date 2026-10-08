@@ -62,6 +62,7 @@ import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.ui.components.section.sectionStateDescription
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.ProgressRing
+import com.rendyhd.vicu.ui.components.shared.RollingCount
 import com.rendyhd.vicu.ui.components.shared.SmartListIdentity
 import com.rendyhd.vicu.ui.components.task.moveCustomActions
 import com.rendyhd.vicu.ui.theme.LocalVicuColors
@@ -140,7 +141,7 @@ fun DrawerContent(
                 moveItem(liveLabels ?: state.labels, source.id, target.id) { it.id.toString() }
                     ?.also { liveLabels = it } != null
         }
-        if (moved) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (moved) haptic.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick) // a reorder step (design-system-v1, haptics)
     }
 
     // The projects with a row on screen, reported while the drawer is open and as the list scrolls.
@@ -242,9 +243,11 @@ fun DrawerContent(
                             },
                             badge = {
                                 if (state.reviewOverdueCount > 0) {
-                                    Text(
-                                        state.reviewOverdueCount.toString(),
+                                    // Rolls by one when a review is done or one falls due (card 4.11b).
+                                    RollingCount(
+                                        value = state.reviewOverdueCount,
                                         color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.labelLarge,
                                     )
                                 }
                             },

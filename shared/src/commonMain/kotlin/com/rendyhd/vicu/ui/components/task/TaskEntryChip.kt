@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -34,10 +35,18 @@ internal fun TaskEntryChip(
     tint: Color? = null,
     clearDescription: String? = null,
     onClear: (() -> Unit)? = null,
+    /** The rectangle of the word in the title this chip's value was read from, in root coordinates; the chip travels out of it. */
+    tokenRect: (() -> Rect?)? = null,
 ) {
     val canClear = onClear != null && clearDescription != null
+    // A tint means the value was read from the title: then the chip travels out of that word.
+    val travelling = if (tokenRect != null) {
+        modifier.chipTravel(fromText = tint != null, tokenRect = tokenRect)
+    } else {
+        modifier
+    }
     if (!canClear) {
-        EntryChip(label, onClick, modifier, tint)
+        EntryChip(label, onClick, travelling, tint)
         return
     }
     // The clear button sits beside the chip, not inside it: a button of 48 dp (its touch target)
@@ -46,7 +55,7 @@ internal fun TaskEntryChip(
         EntryChip(
             label = label,
             onClick = onClick,
-            modifier = modifier.semantics {
+            modifier = travelling.semantics {
                 customActions = listOf(
                     CustomAccessibilityAction(clearDescription!!) {
                         onClear!!.invoke()

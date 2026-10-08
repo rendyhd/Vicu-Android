@@ -9,8 +9,10 @@
 //
 // Captures land in out/<scenario>/<theme>-<step>.png. A step that cannot run prints FAIL and the
 // run exits 1; WARN lines are expectations the app does not meet yet and never fail the run.
-// Scenario ids follow the plan: a1..a12. Only baseline, a1, a2, a4, a7, a6, a8, a9, a10 and a11 run today; the
+// Scenario ids follow the plan: a1..a12. Only baseline, a1, a2, a3, a4, a7, a6, a8, a9, a10 and a11 run today; the
 // others are stubs that print STUB and pass.
+import { readFileSync } from 'node:fs'
+import { PNG } from 'pngjs'
 import * as d from './droid.mjs'
 import * as v from './nav.mjs'
 import { DEFAULT_TOKEN_PATH, login, resolveToken } from './login.mjs'
@@ -913,6 +915,207 @@ async function a7LargeTitle(ctx) {
   })
 }
 
+/**
+ * Compares two captures below the status bar: the share of pixels that differ clearly (the sum of
+ * the three channel differences over 48). Used to tell whether a mid-animation frame shows a state
+ * that is neither the start nor the end of the animation.
+ */
+function pngDiff(fileA, fileB, fromY = 160) {
+  const a = PNG.sync.read(readFileSync(fileA))
+  const b = PNG.sync.read(readFileSync(fileB))
+  if (a.width !== b.width || a.height !== b.height) return 1
+  let n = 0
+  const rows = a.height - fromY
+  for (let y = fromY; y < a.height; y++) {
+    for (let x = 0; x < a.width; x++) {
+      const i = (y * a.width + x) * 4
+      if (Math.abs(a.data[i] - b.data[i]) + Math.abs(a.data[i + 1] - b.data[i + 1]) + Math.abs(a.data[i + 2] - b.data[i + 2]) > 48) n++
+    }
+  }
+  return n / (rows * a.width)
+}
+
+/**
+ * Judges one animation from its captures: `before` (rest, start), `mids` (frames taken while it
+ * runs, at animator scale 5 or with a held gesture) and `after` (rest, end). It is visible
+ * mid-way when some frame differs from both ends; frames identical to the start mean it had not
+ * moved, frames identical to the end mean it was already over. `minShare` is the share of the
+ * screen a frame must differ by; a small element (a digit, a chip) needs a smaller one than a screen.
+ */
+function judgeMotion(ctx, label, before, mids, after, minShare = 0.01) {
+  const pct = (x) => `${(x * 100).toFixed(1)}%`
+  const rows = mids.map((m) => ({ toBefore: pngDiff(m, before), toAfter: pngDiff(m, after) }))
+  rows.forEach((r, i) => console.log(`  ${label} frame ${i + 1}: differs from start ${pct(r.toBefore)}, from end ${pct(r.toAfter)}`))
+  console.log(`  ${label}: start and end differ by ${pct(pngDiff(before, after))}`)
+  const visible = rows.some((r) => r.toBefore > minShare && r.toAfter > minShare)
+  console.log(`${visible ? 'VISIBLE' : 'NOT VISIBLE'} ${label}: ${visible ? 'a mid frame shows a state between start and end' : 'every mid frame equals the start or the end'}`)
+  if (!visible) ctx.warn(`${label} is not visible mid-way`)
+  return visible
+}
+
+/**
+ * A3: the editor motion (4.5a) and the screen transitions (4.7). For each animation: the start, the
+ * end, and frames in between. The editor opens at animator scale 10 (fade and rise slowed tenfold);
+ * the predictive back gesture is held part-way on the left edge, then cancelled and released; a tab
+ * switch (fade-through) runs at scale 10; a project opened from the drawer (fade-through) and a move from
+ * one project to another (shared axis slide) run at scale 5. The scale is back at 1 at the end.
+ * Each capture takes a few hundred milliseconds, so the first frame of an animation is rarely its first moment.
+ * The judgement is by picture difference (see judgeMotion); look at the captures too.
+ */
+async function a3EditorAndTransitions(ctx) {
+  const { step, shot } = ctx
+  const frames = (name, n = 3) => { const out = []; for (let i = 1; i <= n; i++) out.push(shot(`${name}-mid${i}`)); return out }
+  const midY = Math.round(v.sc.height * 0.5)
+  const edgeHold = () => d.holdGesture(2, midY, Math.round(v.sc.width * 0.55), midY, 1, { steps: 10, stepMs: 50 })
+  let listBefore = null
+  try {
+    await step('editor-open', async () => {
+      await v.listWithRows()
+      await d.sleep(600)
+      listBefore = shot('editor-open-start')
+      const row = v.firstRow()
+      // Scale 10, not 5: a capture takes up to a second, and the editor's fade is over in about a second at scale 5.
+      d.animScale(10)
+      await d.tap(row.title.cx, row.title.cy, 0)
+      const mids = frames('editor-open', 6)
+      await d.sleep(5000)
+      const end = shot('editor-open-end')
+      d.animScale(1)
+      judgeMotion(ctx, 'editor open (fade and rise)', listBefore, mids, end)
+    })
+    await step('editor-rest', async () => { await d.sleep(800); shot('editor-rest') })
+    await step('editor-back-held', async () => {
+      const rest = shot('editor-back-start')
+      const g = await edgeHold()
+      const held = shot('editor-back-held')
+      await g.cancel(1800)
+      const cancelled = shot('editor-back-cancelled')
+      const k = pngDiff(rest, cancelled)
+      console.log(`  after the cancelled gesture the editor differs from rest by ${(k * 100).toFixed(1)}%`)
+      if (k > 0.02) throw new Error('the editor did not return to rest after a cancelled back gesture')
+      judgeMotion(ctx, 'editor follows the back gesture (held)', rest, [held], listBefore)
+    })
+    await step('editor-back-release', async () => {
+      const g = await edgeHold()
+      await g.release(2200)
+      shot('editor-back-released')
+      if (!v.bottomBarVisible(d.dump())) throw new Error('the back gesture did not return to the list')
+    })
+    await step('tab-switch', async () => {
+      await v.nav('Today', 2000)
+      const before = shot('tab-start')
+      const tab = d.dump().find((x) => x.text === 'Upcoming' && x.cy > v.sc.height * 0.9)
+      if (!tab) throw new Error('no Upcoming tab in the bottom bar')
+      d.animScale(10) // a capture can take most of a second: at scale 5 the whole fade can fall between two frames
+      await d.tap(tab.cx, tab.cy, 0)
+      const mids = frames('tab', 4)
+      await d.sleep(4000)
+      const end = shot('tab-end')
+      d.animScale(1)
+      judgeMotion(ctx, 'tab switch (fade-through)', before, mids, end)
+    })
+    await step('project-open', async () => {
+      await v.nav('Today', 2000)
+      let before = null
+      await v.drawerProject(0, async () => { before = shot('project-start'); d.animScale(5) })
+      const mids = frames('project', 4)
+      await d.sleep(3000)
+      const end = shot('project-end')
+      d.animScale(1)
+      judgeMotion(ctx, 'drawer to project (fade-through)', before, mids, end)
+    })
+    await step('project-to-project', async () => {
+      // Moving from one project to another is the shared axis slide (Today to a project is a fade-through).
+      let before = null
+      await v.drawerProject(0, async () => { before = shot('p2p-start'); d.animScale(5) }, 1)
+      const mids = frames('p2p', 4)
+      await d.sleep(3000)
+      const end = shot('p2p-end')
+      d.animScale(1)
+      judgeMotion(ctx, 'project to project (shared axis slide)', before, mids, end)
+    })
+    await step('project-back-held', async () => {
+      const rest = shot('project-back-start')
+      const g = await edgeHold()
+      const held = shot('project-back-held')
+      await g.cancel(1800)
+      const cancelled = shot('project-back-cancelled')
+      console.log(`  after the cancelled gesture the project differs from rest by ${(pngDiff(rest, cancelled) * 100).toFixed(1)}%`)
+      const moved = pngDiff(rest, held)
+      console.log(`${moved >= 0.01 ? 'VISIBLE' : 'NOT VISIBLE'} project follows the back gesture (held): ${(moved * 100).toFixed(1)}% of the pixels differ`)
+      if (moved < 0.01) ctx.warn('a3: the project screen does not follow a held back gesture')
+    })
+  } finally {
+    d.animScale(1)
+    try { await v.nav('Today', 1500) } catch { /* best effort */ }
+  }
+}
+
+/**
+ * 4.11b signature moments: a count that rolls, a token that travels into its chip, and Today's All
+ * clear. Each runs at animator scale 10 so a mid-way frame can be captured; the scale is back at 1
+ * (and the task reopened) at the end. All clear is only captured when Today happens to be empty:
+ * the scenario never changes the data to make it so.
+ */
+async function momentsSignature(ctx) {
+  const { step, shot, warn } = ctx
+  const frames = (name, n = 4) => { const out = []; for (let i = 1; i <= n; i++) out.push(shot(`${name}-mid${i}`)); return out }
+  const headerCounts = (nodes) => nodes
+    .map((n) => /^(Overdue|Today|Tomorrow|.+), (\d+) tasks?$/.exec(n['content-desc'] ?? ''))
+    .filter(Boolean)
+    .map((m) => `${m[1]} ${m[2]}`)
+  try {
+    await step('count-rolls', async () => {
+      await v.nav('Today', 2000)
+      const row = v.firstRow(undefined, { plain: true })
+      const before = shot('roll-start')
+      console.log('  section counts before:', headerCounts(d.dump()).join(', '))
+      d.animScale(10)
+      await d.tap(row.check.cx, row.check.cy, 0)
+      const mids = frames('roll')
+      await d.sleep(3000)
+      const end = shot('roll-end')
+      d.animScale(1)
+      console.log('  section counts after:', headerCounts(d.dump()).join(', '))
+      judgeMotion(ctx, 'count roll (section header)', before, mids, end, 0.0005)
+      // Leave the data as it was: reopen the task while its row is still held on screen.
+      const cb = d.dump().find((n) => n.checkable && n['content-desc'] === row.desc)
+      if (cb?.checked) await d.tap(cb.cx, cb.cy, 1500)
+      const again = d.dump().find((n) => n.checkable && n['content-desc'] === row.desc)
+      if (again?.checked) throw new Error(`could not reopen "${row.desc}"`)
+    })
+    await step('token-travels', async () => {
+      await v.nav('Today', 1500)
+      await d.tapDesc('New task', { wait: 1800 })
+      await d.clearField()
+      await d.typeSlow('Call Ana ')
+      await d.sleep(600)
+      const before = shot('token-start')
+      d.animScale(10)
+      await d.typeSlow('tomorrow', { pause: 60 })
+      const mids = frames('token')
+      await d.sleep(4000)
+      const end = shot('token-end')
+      d.animScale(1)
+      judgeMotion(ctx, 'token travels into its chip', before, mids, end, 0.002)
+      await d.clearField()
+      await d.back(); await d.back()
+    })
+    await step('all-clear', async () => {
+      await v.nav('Today', 2000)
+      if (d.hasText('All clear')) {
+        shot('all-clear')
+        console.log('  Today is empty:', d.list((n) => /All clear|Nothing is due|Next up/.test(`${n.text ?? ''}`)).join(' | '))
+      } else {
+        console.log('SKIP all-clear: Today has tasks (the scenario does not empty it)')
+      }
+    })
+  } finally {
+    d.animScale(1)
+    try { await v.home() } catch { /* best effort */ }
+  }
+}
+
 const stub = (id, wave) => Object.assign(async () => { stubs.push(id); console.log(`STUB ${id}: not implemented yet (plan wave ${wave})`) }, { isStub: true })
 
 // id, wave (from the plan's Android scenario table), run
@@ -920,7 +1123,7 @@ const SCENARIOS = {
   baseline: { wave: 0, run: baseline, about: 'Inbox, Today, Upcoming, Anytime, drawer, project, tag, Logbook, Review, Settings, editor, quick add, date picker, swipes, search' },
   a1: { wave: 4, run: a1Completing, about: 'tick a checkbox in Today: spring, hold, snackbar, Undo' },
   a2: { wave: 4, run: a2Swipe, about: 'swipe to 40 and 60 percent, armed pop, WhenSheet' },
-  a3: { wave: 4, run: stub('a3', 4), about: 'predictive back on the editor, container transform' },
+  a3: { wave: 4, run: a3EditorAndTransitions, about: 'editor open and predictive back, tab switch, project open: mid-way frames' },
   rings: { wave: 3, run: rings, about: 'drawer project progress rings and the number of done-count requests' },
   a4: { wave: 1, run: a4Upcoming, about: 'Upcoming day groups and sticky headers' },
   a5: { wave: 3, run: a5QuickAdd, about: 'compact quick add: chips in words, the date once, + Notes grows it, a picked chip wins over the text' },
@@ -928,6 +1131,7 @@ const SCENARIOS = {
   clock24: { wave: 3, run: clock24, about: 'device on the 24-hour clock: editor, When sheet and quick add show 15:00, never PM' },
   editor: { wave: 3, run: editor37, about: 'the task editor: back and Done, headline, one row of property chips in the desktop order, footer' },
   a7: { wave: 4, run: a7LargeTitle, about: 'scroll Today: large title folds, FAB shrinks' },
+  moments: { wave: 4, run: momentsSignature, about: '4.11b: a count rolls, a token travels into its chip, Today All clear (when empty)' },
   a8: { wave: 1, run: a8Colours, about: 'light, dark, device colours off and on' },
   a9: { wave: 2, run: a9A11y, about: 'a11y report on Today, Upcoming, editor, quick add, drawer' },
   a10: { wave: 1, run: a10FirstRun, about: 'pm clear, first launch, set up (signs the app out and in again)' },

@@ -53,7 +53,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 
@@ -182,6 +187,16 @@ fun TaskEntrySheet(
     val dateFormat = LocalDateFormat.current
     val fields = resolveEntryFields(state, day.zone)
     val parseResult = state.parseResult
+    // Where a parsed word sits in the title, in root coordinates: the chip that was read from it
+    // travels out of that spot (card 4.11b).
+    var titleBounds by remember { mutableStateOf<Rect?>(null) }
+    val textMeasurer = rememberTextMeasurer()
+    val titleStyle = MaterialTheme.typography.titleMedium
+    val textInset = with(LocalDensity.current) { TITLE_FIELD_TEXT_INSET_DP.dp.toPx() }
+    fun tokenRectOf(type: TokenType): Rect? {
+        val token = parseResult?.tokens?.firstOrNull { it.type == type } ?: return null
+        return titleTokenRect(textMeasurer, titleStyle, state.title, token, titleBounds, textInset)
+    }
     // Gate on the effective (parsed) title so NLP-only input like "#work !1" doesn't look enabled
     // and then silently no-op in save().
     val canSave = viewModel.effectiveTitle().isNotBlank() && !state.isSaving
@@ -230,7 +245,8 @@ fun TaskEntrySheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
-                            .onSizeChanged { fieldSize = it },
+                            .onSizeChanged { fieldSize = it }
+                            .onGloballyPositioned { titleBounds = it.boundsInRoot() },
                         textStyle = MaterialTheme.typography.titleMedium,
                         keyboardOptions = KeyboardOptions(
                             capitalization = KeyboardCapitalization.Sentences,
@@ -299,6 +315,7 @@ fun TaskEntrySheet(
                         tint = tint(fields.dueSource, TokenType.DATE),
                         clearDescription = if (hasDate) "Clear date" else null,
                         onClear = if (hasDate) viewModel::clearDueDate else null,
+                        tokenRect = { tokenRectOf(TokenType.DATE) },
                     )
 
                     val projectTitle = state.allProjects.find { it.id == fields.projectId }?.title ?: "Project"
@@ -306,6 +323,7 @@ fun TaskEntrySheet(
                         label = entryProjectChipLabel(fields, projectTitle, state.title, parseResult),
                         onClick = { showProjectPicker = true },
                         tint = if (fields.parsedProjectName != null) tokenChipColor(TokenType.PROJECT, isDarkTheme) else null,
+                        tokenRect = { tokenRectOf(TokenType.PROJECT) },
                     )
 
                     val pickedLabels = state.allLabels.filter { it.id in state.selectedLabelIds }.map { it.title }
@@ -317,6 +335,7 @@ fun TaskEntrySheet(
                         tint = if (parsedLabels.isNotEmpty()) tokenChipColor(TokenType.LABEL, isDarkTheme) else null,
                         clearDescription = if (labelWords != null) "Clear tags" else null,
                         onClear = if (labelWords != null) viewModel::clearLabels else null,
+                        tokenRect = { tokenRectOf(TokenType.LABEL) },
                     )
 
                     val priorityName = entryPriorityName(fields.priority)
@@ -326,12 +345,13 @@ fun TaskEntrySheet(
                         tint = tint(fields.prioritySource, TokenType.PRIORITY),
                         clearDescription = if (priorityName != null) "Clear priority" else null,
                         onClear = if (priorityName != null) ({ viewModel.setPriority(0) }) else null,
+                        tokenRect = { tokenRectOf(TokenType.PRIORITY) },
                     )
 
                     if (!showNotes) {
                         // A repeat or a reminder that is already set stays in view while the sheet is small.
                         if (fields.recurrenceSource != null) {
-                            RecurrenceChip(fields.recurrence, fields.recurrenceSource, isDarkTheme, viewModel) {
+                            RecurrenceChip(fields.recurrence, fields.recurrenceSource, isDarkTheme, viewModel, { tokenRectOf(TokenType.RECURRENCE) }) {
                                 showRecurrencePicker = true
                             }
                         }
@@ -371,7 +391,7 @@ fun TaskEntrySheet(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    RecurrenceChip(fields.recurrence, fields.recurrenceSource, isDarkTheme, viewModel) {
+                    RecurrenceChip(fields.recurrence, fields.recurrenceSource, isDarkTheme, viewModel, { tokenRectOf(TokenType.RECURRENCE) }) {
                         showRecurrencePicker = true
                     }
                     ReminderChip(state.reminders.size) { showReminderPicker = true }
@@ -477,6 +497,7 @@ private fun RecurrenceChip(
     source: FieldSource?,
     isDarkTheme: Boolean,
     viewModel: TaskEntryViewModel,
+    tokenRect: () -> Rect?,
     onClick: () -> Unit,
 ) {
     val set = source != null
@@ -486,6 +507,7 @@ private fun RecurrenceChip(
         tint = if (source == FieldSource.TEXT) tokenChipColor(TokenType.RECURRENCE, isDarkTheme) else null,
         clearDescription = if (set) "Clear repeat" else null,
         onClear = if (set) ({ viewModel.setRecurrence(RecurrenceValue.NONE) }) else null,
+        tokenRect = tokenRect,
     )
 }
 

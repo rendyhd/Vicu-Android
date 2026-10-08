@@ -11,8 +11,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.MaterialTheme
@@ -47,7 +45,6 @@ import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
 import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
 import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
-import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
@@ -72,6 +69,7 @@ fun TodayScreen(
     onNavigateToSearch: () -> Unit = {},
     onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     onOpenRoutines: () -> Unit = {},
+    onOpenUpcoming: () -> Unit = {},
     viewModel: TodayViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -80,6 +78,11 @@ fun TodayScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
     val topBarScroll = rememberVicuTopBarScroll()
+
+    // All clear warms in only when Today had tasks during this visit and the last one has just gone.
+    val hasContent = state.projectGroups.isNotEmpty() || state.overdueGroups.isNotEmpty() || state.routineDay.open.isNotEmpty()
+    var hadTasks by remember { mutableStateOf(false) }
+    LaunchedEffect(hasContent) { if (hasContent) hadTasks = true }
 
     val selectionVm: SelectionViewModel = koinViewModel()
     val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
@@ -174,11 +177,13 @@ fun TodayScreen(
                 if (state.projectGroups.isEmpty() && state.overdueGroups.isEmpty() &&
                     openRoutines.isEmpty() && !state.isLoading
                 ) {
-                    item {
-                        EmptyState(
-                            icon = Icons.Outlined.WbSunny,
-                            title = "All clear for today",
-                            subtitle = "Enjoy the rest of your day",
+                    item(key = "all_clear", contentType = "all_clear") {
+                        // Emptied after having had tasks in this visit: the last one was done.
+                        TodayAllClear(
+                            justCleared = hadTasks,
+                            nextUpcoming = state.nextUpcoming,
+                            onOpenUpcoming = onOpenUpcoming,
+                            modifier = Modifier.fillParentMaxSize(),
                         )
                     }
                 } else {

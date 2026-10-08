@@ -79,6 +79,7 @@ fun AppNavHost(
                 onNavigateToSearch = onNavigateToSearch,
                 onShowTaskEntry = onShowTaskEntry,
                 onOpenRoutines = { navController.navigate(RoutinesRoute) { launchSingleTop = true } },
+                onOpenUpcoming = { navController.navigateTopLevel(UpcomingRoute) },
             )
         }
         composable<UpcomingRoute> {

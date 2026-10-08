@@ -163,6 +163,24 @@ class TodayViewModelOverdueTest {
     }
 
     @Test
+    fun `the next upcoming task is the first of the nearest day and follows the day`() = runTest {
+        val zone = TimeZone.of("Europe/Amsterdam")
+        val rig = rig("2026-10-06T10:00:00", zone)
+        rig.tasks.todayTasks.value = emptyList()
+        rig.tasks.upcomingTasks.value = listOf(
+            Task(id = 21, title = "Later", projectId = 10, dueDate = local("2026-10-09T23:59:59", zone).toString()),
+            Task(id = 22, title = "Sooner", projectId = 11, dueDate = local("2026-10-07T23:59:59", zone).toString()),
+        )
+        runCurrent()
+        assertEquals(22L, rig.vm.uiState.value.nextUpcoming?.id)
+
+        rig.tasks.upcomingTasks.value = emptyList()
+        runCurrent()
+        assertEquals(null, rig.vm.uiState.value.nextUpcoming)
+        rig.authScope.cancel()
+    }
+
+    @Test
     fun `at midnight today's tasks move to the Overdue section`() = runTest {
         val zone = TimeZone.of("Europe/Amsterdam")
         val rig = rig("2026-10-06T23:30:00", zone)

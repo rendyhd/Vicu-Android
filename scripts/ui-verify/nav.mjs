@@ -95,13 +95,15 @@ function sectionItems(nodes, header) {
   return items
 }
 
-/** First project in the drawer (a child project when there is one, as it has a project screen of its own). */
-export async function drawerProject(wait = 2200) {
+/** First project in the drawer (a child project when there is one, as it has a project screen of its own). `beforeTap` runs once the drawer shows it. */
+export async function drawerProject(wait = 2200, beforeTap, index = 0) {
   await openDrawer()
   const { nodes } = await drawerFind((x) => x.text === 'PROJECTS', 'PROJECTS header')
   const items = sectionItems(nodes, 'PROJECTS')
-  const pick = items.find((n) => n.x1 > px(76)) ?? items[0]
+  const children = items.filter((n) => n.x1 > px(76))
+  const pick = children[index] ?? items[index] ?? items[0]
   if (!pick) throw new Error('no project in the drawer')
+  if (beforeTap) await beforeTap() // a3 slows the animations here, after the drawer is open
   await d.tap(pick.cx, pick.cy, wait)
   return pick.text
 }
