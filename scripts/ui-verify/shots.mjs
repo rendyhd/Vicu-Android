@@ -4,6 +4,7 @@
 //   node shots.mjs --wave 1 --theme dark                 (every scenario the plan lists for wave 1)
 //   node shots.mjs --list
 //   options: --token <path>   token file or .local folder (the a10 scenario signs in again)
+//            --run <name>     write to out/<name>-<scenario>/ instead of out/<scenario>/ (keeps out/baseline intact)
 //            --query <text>   search text for the search step (default "the")
 //
 // Captures land in out/<scenario>/<theme>-<step>.png. A step that cannot run prints FAIL and the
@@ -25,7 +26,7 @@ const stubs = []
 // ---- helpers shared by scenarios ----------------------------------------------------------------
 
 function makeCtx(scenario, theme) {
-  const outDir = d.setOutDir(scenario)
+  const outDir = d.setOutDir(opt('run') ? `${opt('run')}-${scenario}` : scenario)
   return {
     theme,
     outDir,

@@ -6,6 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 import com.rendyhd.vicu.data.local.ThemeMode
 
@@ -35,6 +36,10 @@ fun VicuTheme(
         colorScheme = colorScheme,
         typography = Typography,
         shapes = VicuShapes,
-        content = content
-    )
+    ) {
+        CompositionLocalProvider(
+            LocalVicuColors provides if (darkTheme) VicuDarkColors else VicuLightColors,
+            content = content,
+        )
+    }
 }

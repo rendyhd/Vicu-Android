@@ -21,7 +21,10 @@ import kotlin.test.assertTrue
  */
 class AndroidContrastTest {
 
-    private val themes = listOf("light" to VicuLightColorScheme, "dark" to VicuDarkColorScheme)
+    private val themes = listOf(
+        Triple("light", VicuLightColorScheme, VicuLightColors),
+        Triple("dark", VicuDarkColorScheme, VicuDarkColors),
+    )
 
     private fun linear(c: Float): Double {
         val v = c.toDouble()
@@ -40,13 +43,32 @@ class AndroidContrastTest {
     private fun themeColor(obj: JsonObject, theme: String): Color =
         DesignTokensFixture.parseHex(obj.getValue(theme).jsonPrimitive.content)
 
-    private fun resolve(ref: String, theme: String, scheme: ColorScheme): Color = when {
+    private fun resolve(ref: String, theme: String, scheme: ColorScheme, colors: VicuColors): Color = when {
         ref.startsWith("colorScheme.") ->
             scheme.roles()[ref.removePrefix("colorScheme.")] ?: error("unknown colour scheme role in the fixture: $ref")
         ref.startsWith("custom.") -> {
             val parts = ref.removePrefix("custom.").split('.')
-            val custom = DesignTokensFixture.android.getValue("custom").jsonObject.getValue(parts[0]).jsonObject
-            if (parts.size == 1) themeColor(custom, theme) else themeColor(custom.getValue(parts[1]).jsonObject, theme)
+            val role = when (parts[0]) {
+                "dueToday" -> colors.dueToday
+                "done" -> colors.done
+                "swipeComplete" -> colors.swipeComplete
+                "swipeSchedule" -> colors.swipeSchedule
+                else -> error("unknown custom colour in the fixture: $ref")
+            }
+            when (parts.getOrNull(1)) {
+                null -> role.color
+                "on" -> role.onColor
+                "container" -> role.container
+                "onContainer" -> role.onContainer
+                else -> error("unknown custom colour part: $ref")
+            }
+        }
+        ref.startsWith("role.priority.") -> when (ref.removePrefix("role.priority.")) {
+            "low" -> colors.priorityLow
+            "medium" -> colors.priorityMedium
+            "high" -> colors.priorityHigh
+            "urgent" -> colors.priorityUrgent
+            else -> error("unknown priority role: $ref")
         }
         ref.startsWith("role.") -> {
             val roles = DesignTokensFixture.root.getValue("roles").jsonObject
@@ -55,13 +77,13 @@ class AndroidContrastTest {
         else -> error("unknown contrast reference: $ref")
     }
 
-    private fun background(element: JsonElement, theme: String, scheme: ColorScheme): Pair<String, Color> =
+    private fun background(element: JsonElement, theme: String, scheme: ColorScheme, colors: VicuColors): Pair<String, Color> =
         when (element) {
-            is JsonPrimitive -> element.content to resolve(element.content, theme, scheme)
+            is JsonPrimitive -> element.content to resolve(element.content, theme, scheme, colors)
             is JsonObject -> {
                 val tintRef = element.getValue("tint").jsonPrimitive.content
-                val tint = resolve(tintRef, theme, scheme)
-                val over = resolve(element.getValue("over").jsonPrimitive.content, theme, scheme)
+                val tint = resolve(tintRef, theme, scheme, colors)
+                val over = resolve(element.getValue("over").jsonPrimitive.content, theme, scheme, colors)
                 val alpha = element.getValue("alpha").jsonPrimitive.double
                 "$alpha tint of $tintRef" to tint.copy(alpha = alpha.toFloat()).compositeOver(over)
             }
@@ -77,10 +99,10 @@ class AndroidContrastTest {
             val p = pair.jsonObject
             val name = p.getValue("name").jsonPrimitive.content
             val min = p.getValue("min").jsonPrimitive.double
-            for ((theme, scheme) in themes) {
-                val fg = resolve(p.getValue("fg").jsonPrimitive.content, theme, scheme)
+            for ((theme, scheme, colors) in themes) {
+                val fg = resolve(p.getValue("fg").jsonPrimitive.content, theme, scheme, colors)
                 for (entry in p.getValue("bg").jsonArray) {
-                    val (label, bg) = background(entry, theme, scheme)
+                    val (label, bg) = background(entry, theme, scheme, colors)
                     val r = ratio(fg, bg)
                     assertTrue(r >= min, "$name, $theme, on $label: $r < $min")
                     checked++
@@ -88,6 +110,38 @@ class AndroidContrastTest {
             }
         }
         assertTrue(checked > 100, "only $checked pairs were checked")
+    }
+
+    @Test
+    fun `due today, done, swipe and priority colours are readable where they are used`() {
+        for ((theme, scheme, colors) in themes) {
+            val surfaces = listOf(scheme.surface, scheme.surfaceContainerLowest, scheme.surfaceContainerLow)
+            for (surface in surfaces) {
+                assertTrue(ratio(colors.dueToday.color, surface) >= 4.5, "$theme dueToday on surface")
+                assertTrue(ratio(colors.done.color, surface) >= 4.5, "$theme done on surface")
+            }
+            val roles = listOf(
+                "dueToday" to colors.dueToday,
+                "done" to colors.done,
+                "swipeComplete" to colors.swipeComplete,
+                "swipeSchedule" to colors.swipeSchedule,
+            )
+            for ((name, role) in roles) {
+                assertTrue(ratio(role.onColor, role.color) >= 4.5, "$theme $name onColor")
+                assertTrue(ratio(role.onContainer, role.container) >= 4.5, "$theme $name onContainer")
+            }
+            val priorities = listOf(
+                "low" to colors.priorityLow,
+                "medium" to colors.priorityMedium,
+                "high" to colors.priorityHigh,
+                "urgent" to colors.priorityUrgent,
+            )
+            for ((name, color) in priorities) {
+                for (surface in surfaces + scheme.surfaceContainer) {
+                    assertTrue(ratio(color, surface) >= 4.5, "$theme priority $name on a surface")
+                }
+            }
+        }
     }
 
     @Test
