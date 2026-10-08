@@ -256,35 +256,13 @@ fun TaskItem(
                             }
                         }
                         if (subtaskCount > 0) {
-                            val expandable = displayMode == SubtaskDisplayMode.EXPANDABLE
                             Row(
-                                modifier = Modifier
-                                    .semantics(mergeDescendants = true) {
-                                        contentDescription = "$completedSubtasks of $subtaskCount subtasks completed"
-                                    }
-                                    .then(
-                                        if (expandable) {
-                                            // Compose widens the tap area of a clickable to 48 dp.
-                                            Modifier.clickable(
-                                                onClickLabel = if (subtasksExpanded) "Collapse subtasks" else "Expand subtasks",
-                                                role = Role.Button,
-                                            ) { subtasksExpanded = !subtasksExpanded }
-                                        } else {
-                                            Modifier
-                                        },
-                                    ),
+                                modifier = Modifier.semantics(mergeDescendants = true) {
+                                    contentDescription = "$completedSubtasks of $subtaskCount subtasks completed"
+                                },
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
-                                if (expandable) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                                        // The click label above says what a tap does.
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp).rotate(if (subtasksExpanded) 90f else 0f),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
                                 Icon(
                                     imageVector = Icons.Outlined.Checklist,
                                     contentDescription = null,
@@ -329,10 +307,30 @@ fun TaskItem(
             // The trailing cluster, level with the title: the due phrase, the reminder bell, the
             // priority mark last.
             Row(
-                modifier = Modifier.padding(top = 12.dp).heightIn(min = 24.dp),
+                modifier = Modifier.heightIn(min = MIN_TOUCH_TARGET),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                if (subtaskCount > 0 && displayMode == SubtaskDisplayMode.EXPANDABLE) {
+                    // The expand control of the checklist: a full 48 dp target, level with the title.
+                    Box(
+                        modifier = Modifier
+                            .size(MIN_TOUCH_TARGET)
+                            .clickable(
+                                onClickLabel = if (subtasksExpanded) "Collapse subtasks" else "Expand subtasks",
+                                role = Role.Button,
+                            ) { subtasksExpanded = !subtasksExpanded },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                            // The click label says what a tap does.
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp).rotate(if (subtasksExpanded) 90f else 0f),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 TaskLinkIcons(description = task.description)
                 if (!DateUtils.isNullDate(task.dueDate) && task.dueDate.isNotBlank()) {
                     TaskDueBadge(dueDate = task.dueDate, context = view.dateContext)

@@ -43,6 +43,8 @@ import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.section.SectionHeader
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.task.TaskItem
+import com.rendyhd.vicu.ui.components.task.RowView
+import com.rendyhd.vicu.ui.components.task.projectMetas
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +54,8 @@ fun SearchScreen(
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val projects by viewModel.projects.collectAsStateWithLifecycle()
+    val rowView = remember(projects) { RowView(projects = projectMetas(projects)) }
 
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
@@ -144,6 +148,7 @@ fun SearchScreen(
                         onClick = { onTaskClick(task.id) },
                         onSubtaskToggleDone = viewModel::toggleDone,
                         onSubtaskClick = { child -> onTaskClick(child.id) },
+                        rowView = rowView,
                     )
                 }
                 if (state.completedResults.isNotEmpty()) {
@@ -157,6 +162,7 @@ fun SearchScreen(
                             onClick = { onTaskClick(task.id) },
                             onSubtaskToggleDone = viewModel::toggleDone,
                             onSubtaskClick = { child -> onTaskClick(child.id) },
+                            rowView = rowView,
                         )
                     }
                 }

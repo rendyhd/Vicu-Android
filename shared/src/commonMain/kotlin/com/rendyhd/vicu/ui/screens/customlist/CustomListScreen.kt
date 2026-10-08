@@ -45,6 +45,8 @@ import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
+import com.rendyhd.vicu.ui.components.task.RowView
+import com.rendyhd.vicu.ui.components.task.projectMetas
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +63,7 @@ fun CustomListScreen(
 
     // Rows kept on screen after completing them are let go when the screen is left.
     val projects by viewModel.projects.collectAsStateWithLifecycle()
+    val rowView = remember(projects) { RowView(projects = projectMetas(projects)) }
     val labels by viewModel.labels.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var showEditDialog by remember { mutableStateOf(false) }
@@ -159,6 +162,7 @@ fun CustomListScreen(
                             selected = task.id in selectedIds,
                             onLongClick = { selectionVm.toggle(task.id) },
                             modifier = Modifier.animateItem(),
+                            rowView = rowView,
                         )
                     }
                 }

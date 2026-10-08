@@ -33,6 +33,21 @@ class RowAnatomyTest {
     }
 
     @Test
+    fun `a list that mixes projects names the project of each row from its lookup`() {
+        val view = RowView(projects = mapOf(7L to home))
+        assertEquals(home, rowProject(taskProjectId = 7, view = view, projectMeta = null))
+        assertNull(rowProject(taskProjectId = 9, view = view, projectMeta = null))
+    }
+
+    @Test
+    fun `a group of one still wins over the lookup and its own project is never named`() {
+        val other = ProjectMeta("Work", "#ff0000")
+        val view = RowView(projects = mapOf(7L to other))
+        assertEquals(home, rowProject(taskProjectId = 7, view = view, projectMeta = home))
+        assertNull(rowProject(taskProjectId = 7, view = view.copy(projectId = 7), projectMeta = null))
+    }
+
+    @Test
     fun `a tag view does not repeat its own tag`() {
         val labels = listOf(Label(id = 1, title = "errand"), Label(id = 2, title = "phone"))
         assertEquals(listOf(labels[1]), rowLabels(labels, RowView(labelId = 1)))
