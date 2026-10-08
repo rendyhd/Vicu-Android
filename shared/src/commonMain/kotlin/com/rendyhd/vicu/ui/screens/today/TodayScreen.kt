@@ -45,13 +45,15 @@ import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.ui.screens.routines.RoutineOccurrenceRow
 import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
-import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.parseHexColor
 
@@ -97,7 +99,7 @@ fun TodayScreen(
                         Column {
                             Text("Today")
                             Text(
-                                text = DateUtils.formatTodaySubtitle(LocalToday.current),
+                                text = DateDisplay.formatDay(DateContext.HEADER_FULL, LocalToday.current, LocalToday.current, LocalDateFormat.current),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

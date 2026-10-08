@@ -88,7 +88,7 @@ import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.RecurrencePickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
-import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.components.task.AnimatedCheckbox
 import com.rendyhd.vicu.ui.components.task.DescriptionField
 import com.rendyhd.vicu.ui.components.task.clearDescriptionEditorFocusOnHostTap
@@ -99,6 +99,8 @@ import com.rendyhd.vicu.ui.components.task.ParseChipRow
 import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
 import org.koin.compose.koinInject
 import com.rendyhd.vicu.util.Constants
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.descendantsDepthFirst
 import com.rendyhd.vicu.util.unfinishedDescendants
@@ -369,9 +371,9 @@ fun TaskDetailScreen(
             item(key = "task_actions") {
                 val hasDueDate = task.dueDate.isNotBlank() && !DateUtils.isNullDate(task.dueDate)
                 val clockDay = LocalClockDay.current
-                val is24Hour = LocalIs24Hour.current
+                val dateFormat = LocalDateFormat.current
                 val dueDateLabel = if (hasDueDate) {
-                    DateUtils.formatDueDate(task.dueDate, clockDay.date, is24Hour, clockDay.zone)
+                    DateDisplay.formatDue(DateContext.CHIP, task.dueDate, clockDay.date, clockDay.zone, dateFormat)
                 } else {
                     null
                 }
@@ -406,7 +408,7 @@ fun TaskDetailScreen(
                         contentDescription = if (task.reminders.isEmpty()) {
                             "Add reminder"
                         } else {
-                            "Reminders: ${ReminderFormat.summary(task.reminders)}"
+                            "Reminders: ${ReminderFormat.summary(task.reminders, dateFormat)}"
                         },
                         isActive = task.reminders.isNotEmpty(),
                         onClick = { showReminderPicker = true },
@@ -456,7 +458,7 @@ fun TaskDetailScreen(
                         projectName = knownProjectName,
                         priority = task.priority,
                         recurrence = recurrenceLabel,
-                        reminders = if (task.reminders.isEmpty()) "" else ReminderFormat.summary(task.reminders),
+                        reminders = if (task.reminders.isEmpty()) "" else ReminderFormat.summary(task.reminders, dateFormat),
                     )
                     values.forEach { value ->
                         val tint = if (value.emphasis) {
@@ -715,7 +717,7 @@ fun TaskDetailScreen(
                 item(key = "created") {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Created ${DateUtils.formatFullDate(task.created)}",
+                        text = "Created ${DateDisplay.formatDayMonthYear(task.created, LocalClockDay.current.zone, LocalDateFormat.current)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

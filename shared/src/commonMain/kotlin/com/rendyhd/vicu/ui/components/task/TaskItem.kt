@@ -70,9 +70,11 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.data.local.SubtaskDisplayMode
 import com.rendyhd.vicu.domain.repository.QuickDue
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
-import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.theme.LocalVicuColors
 import com.rendyhd.vicu.ui.theme.VicuChipShape
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.isRecurring
@@ -592,12 +594,12 @@ fun TaskDueBadge(
 ) {
     // Reading LocalClockDay makes the badge recompose when the day or the time zone changes.
     val day = LocalClockDay.current
-    val is24Hour = LocalIs24Hour.current
-    val badge = remember(dueDate, day, is24Hour) {
+    val dateFormat = LocalDateFormat.current
+    val badge = remember(dueDate, day, dateFormat) {
         DueBadge(
             isOverdue = DateUtils.isOverdue(dueDate, day.date, day.zone),
             isToday = DateUtils.isToday(dueDate, day.date, day.zone),
-            label = DateUtils.formatDueDate(dueDate, day.date, is24Hour, day.zone),
+            label = DateDisplay.formatDue(DateContext.ROW, dueDate, day.date, day.zone, dateFormat),
         )
     }
     val (isOverdue, isToday, label) = badge
@@ -623,7 +625,7 @@ fun TaskDueBadge(
     )
 }
 
-/** What a due badge shows, worked out once per (date, day, clock style). */
+/** What a due badge shows, worked out once per (date, day, locale and clock style). */
 private data class DueBadge(val isOverdue: Boolean, val isToday: Boolean, val label: String)
 
 @Composable

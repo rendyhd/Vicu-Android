@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -57,12 +58,12 @@ class UpcomingViewModelTest {
             Task(id = 2, title = "B", projectId = 1, dueDate = "2026-10-08T23:59:59Z"),
         )
         runCurrent()
-        assertEquals(listOf("Tomorrow", "Thursday"), vm.uiState.value.days.map { it.label })
+        assertEquals(listOf(LocalDate(2026, 10, 7), LocalDate(2026, 10, 8)), vm.uiState.value.days.map { it.date })
 
         advanceTimeBy(31.minutes)
         runCurrent()
 
-        assertEquals(listOf("Tomorrow"), vm.uiState.value.days.map { it.label })
+        assertEquals(listOf(LocalDate(2026, 10, 8)), vm.uiState.value.days.map { it.date })
         assertEquals(listOf(2L), vm.uiState.value.days.single().tasks.map { it.id })
     }
 }

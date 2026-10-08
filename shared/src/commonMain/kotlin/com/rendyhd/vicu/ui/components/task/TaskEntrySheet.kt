@@ -79,11 +79,13 @@ import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.RecurrencePickerDialog
 import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
-import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.screens.taskentry.resolveEntryDueDate
 import com.rendyhd.vicu.ui.components.shared.VicuDragHandle
 import com.rendyhd.vicu.ui.screens.taskentry.TaskEntryViewModel
 import com.rendyhd.vicu.ui.screens.taskentry.resolveTaskEntryRecurrence
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.parser.getPrefixes
 
@@ -263,7 +265,7 @@ fun TaskEntrySheet(
                 // Date chip. Shows the date that will be saved: picked by hand, else typed in the
                 // title, else the one the screen seeded (same resolution as save()).
                 val day = LocalClockDay.current
-                val is24Hour = LocalIs24Hour.current
+                val dateFormat = LocalDateFormat.current
                 val effectiveDueDate = resolveEntryDueDate(
                     dueDate = state.dueDate,
                     dueDateIsManual = state.dueDateIsManual,
@@ -273,7 +275,7 @@ fun TaskEntrySheet(
                 )
                 val hasDate = effectiveDueDate.isNotBlank() && !DateUtils.isNullDate(effectiveDueDate)
                 val dateLabel = if (hasDate) {
-                    DateUtils.formatDueDate(effectiveDueDate, day.date, is24Hour, day.zone)
+                    DateDisplay.formatDue(DateContext.CHIP, effectiveDueDate, day.date, day.zone, dateFormat)
                 } else "Date"
 
                 AssistChip(

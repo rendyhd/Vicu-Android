@@ -25,7 +25,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
-import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.DueDates
 
@@ -40,7 +42,7 @@ fun VicuDatePickerDialog(
     var showFullDatePicker by remember { mutableStateOf(false) }
     // Every date this dialog sets goes through DueDates: date-only, local 23:59:59 of the day.
     val day = LocalClockDay.current
-    val is24Hour = LocalIs24Hour.current
+    val dateFormat = LocalDateFormat.current
 
     if (showFullDatePicker) {
         // The Material picker works in UTC days: hand it the UTC midnight of the stored due date's
@@ -81,7 +83,7 @@ fun VicuDatePickerDialog(
                     val hasDate = currentDate != null && !DateUtils.isNullDate(currentDate)
                     if (hasDate) {
                         Text(
-                            text = "Current: ${DateUtils.formatDueDate(currentDate, day.date, is24Hour, day.zone)}",
+                            text = "Current: ${DateDisplay.formatDue(DateContext.CHIP, currentDate, day.date, day.zone, dateFormat)}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -89,7 +89,11 @@ import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import org.koin.compose.viewmodel.koinViewModel
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 
 private val HealthColor = Color(0xFF2E9D78)
 private val ChoreColor = Color(0xFF5576D1)
@@ -452,6 +456,8 @@ private fun RoutineHistoryDialog(
     val logged = history.filter { it.status != OccurrenceStatus.PENDING }
     val completed = logged.count { it.status == OccurrenceStatus.COMPLETED }
     val adherence = if (logged.isEmpty()) 0 else (completed * 100 / logged.size)
+    val historyToday = LocalToday.current
+    val dateFormat = LocalDateFormat.current
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier.fillMaxWidth().heightIn(max = 620.dp),
@@ -481,7 +487,11 @@ private fun RoutineHistoryDialog(
                                 )
                                 Spacer(Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(record.scheduledDate, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        runCatching { DateDisplay.formatDay(DateContext.CHIP, LocalDate.parse(record.scheduledDate), historyToday, dateFormat) }
+                                            .getOrDefault(record.scheduledDate),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
                                     Text(
                                         record.status.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
                                         style = MaterialTheme.typography.bodySmall,

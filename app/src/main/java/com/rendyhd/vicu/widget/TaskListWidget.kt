@@ -53,7 +53,13 @@ import com.rendyhd.vicu.ui.theme.VicuDarkColorScheme
 import com.rendyhd.vicu.ui.theme.VicuDarkColors
 import com.rendyhd.vicu.ui.theme.VicuLightColorScheme
 import com.rendyhd.vicu.ui.theme.VicuLightColors
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
+import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DateUtils
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.todayIn
 
 class TaskListWidget : GlanceAppWidget() {
 
@@ -359,9 +365,13 @@ private fun WidgetTaskRow(task: WidgetTaskItem) {
                 maxLines = 1,
             )
             // The time shows only when the due date has an explicit one, in the device's 12/24 hour style.
-            val dateLabel = DateUtils.formatDueDate(
+            val zone = TimeZone.currentSystemDefault()
+            val dateLabel = DateDisplay.formatDue(
+                DateContext.ROW,
                 task.dueDate,
-                is24Hour = DateFormat.is24HourFormat(LocalContext.current),
+                Clock.System.todayIn(zone),
+                zone,
+                DateDisplayFormat.system(DateFormat.is24HourFormat(LocalContext.current)),
             )
             if (dateLabel.isNotEmpty()) {
                 Text(

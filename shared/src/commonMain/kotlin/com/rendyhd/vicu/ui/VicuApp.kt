@@ -61,6 +61,7 @@ import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
 import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.rememberIs24HourFormat
@@ -101,6 +102,7 @@ import com.rendyhd.vicu.ui.navigation.toRoute
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailScreen
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailViewModel
 import com.rendyhd.vicu.util.AppMessages
+import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DayClock
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -234,6 +236,7 @@ fun VicuApp(
     val clockDay by dayClock.day.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { dayClock.refresh() }
     val is24Hour = rememberIs24HourFormat()
+    val dateFormat = remember(is24Hour) { DateDisplayFormat.system(is24Hour) }
 
     // What a screen reader can do to a task row besides open it: the swipe gestures have no
     // equivalent for it, so the rows offer the quick due dates as actions.
@@ -524,6 +527,7 @@ fun VicuApp(
                     LocalToday provides clockDay.date,
                     LocalClockDay provides clockDay,
                     LocalIs24Hour provides is24Hour,
+                    LocalDateFormat provides dateFormat,
                     LocalTaskRowActions provides taskRowActions,
                 ) {
                     AppNavHost(

@@ -37,13 +37,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.ui.components.shared.FabClearance
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
 import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
 import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
+import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
@@ -106,6 +110,8 @@ fun UpcomingScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            val today = LocalToday.current
+            val dateFormat = LocalDateFormat.current
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.days.isEmpty() && !state.isLoading) {
                     item {
@@ -118,7 +124,9 @@ fun UpcomingScreen(
                 } else {
                     state.days.forEach { day ->
                         stickyHeader(key = "day_${day.date}", contentType = "header") {
-                            UpcomingDayHeader(label = day.label)
+                            UpcomingDayHeader(
+                                label = DateDisplay.formatDay(DateContext.HEADER_DAY, day.date, today, dateFormat),
+                            )
                         }
                         items(day.tasks, key = { it.id }, contentType = { "task" }) { task ->
                             val displayTask =

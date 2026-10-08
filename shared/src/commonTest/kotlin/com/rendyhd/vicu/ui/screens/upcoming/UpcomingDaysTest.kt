@@ -115,15 +115,6 @@ class UpcomingDaysTest {
     }
 
     @Test
-    fun `labels read Tomorrow, then weekday names for a week, then the full date`() {
-        assertEquals("Tomorrow", upcomingDayLabel(LocalDate(2026, 10, 7), today))
-        assertEquals("Thursday", upcomingDayLabel(LocalDate(2026, 10, 8), today))
-        assertEquals("Monday", upcomingDayLabel(LocalDate(2026, 10, 12), today))
-        assertEquals("Wednesday, October 14", upcomingDayLabel(LocalDate(2026, 10, 14), today))
-        assertEquals("Friday, January 1", upcomingDayLabel(LocalDate(2027, 1, 1), today))
-    }
-
-    @Test
     fun `instants with different offsets order by the moment, not the text`() {
         val tasks = listOf(
             task(1, "2026-10-08T10:00:00+02:00"), // 08:00Z
