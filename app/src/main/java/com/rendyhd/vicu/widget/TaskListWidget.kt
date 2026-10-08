@@ -89,6 +89,24 @@ private val overdueColor = ColorProvider(
     night = VicuDarkColorScheme.error,
 )
 
+/** The vector drawable of a priority mark (docs/design-system-v1.md), or null when none is shown. */
+private fun priorityMarkDrawable(priority: Int): Int? = when (priority) {
+    1 -> R.drawable.ic_priority_bars_1
+    2 -> R.drawable.ic_priority_bars_2
+    3 -> R.drawable.ic_priority_bars_3
+    4, 5 -> R.drawable.ic_priority_urgent
+    else -> null
+}
+
+private fun priorityMarkDescription(priority: Int): String? = when (priority) {
+    1 -> "Low priority"
+    2 -> "Medium priority"
+    3 -> "High priority"
+    4 -> "Urgent priority"
+    5 -> "Do now priority"
+    else -> null
+}
+
 private fun priorityColor(priority: Int) = ColorProvider(
     day = VicuLightColors.priority(priority) ?: VicuLightColors.priorityLow,
     night = VicuDarkColors.priority(priority) ?: VicuDarkColors.priorityLow,
@@ -355,21 +373,14 @@ private fun WidgetTaskRow(task: WidgetTaskItem) {
                 )
             }
         }
-        // Priority indicator
-        if (task.priority >= 3) {
-            Box(
-                modifier = GlanceModifier
-                    .size(8.dp)
-                    .cornerRadius(4.dp)
-                    .background(priorityColor(task.priority)),
-            ) {}
-        } else if (task.priority == 2) {
-            Box(
-                modifier = GlanceModifier
-                    .size(8.dp)
-                    .cornerRadius(4.dp)
-                    .background(priorityColor(task.priority)),
-            ) {}
+        // Priority mark: the same shapes as the app (bars for low to high, a square for urgent), tinted by the priority role.
+        priorityMarkDrawable(task.priority)?.let { drawable ->
+            Image(
+                provider = ImageProvider(drawable),
+                contentDescription = priorityMarkDescription(task.priority),
+                modifier = GlanceModifier.size(14.dp),
+                colorFilter = ColorFilter.tint(priorityColor(task.priority)),
+            )
         }
     }
 }

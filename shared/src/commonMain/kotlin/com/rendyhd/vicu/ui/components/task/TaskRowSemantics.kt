@@ -1,23 +1,14 @@
 package com.rendyhd.vicu.ui.components.task
 
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.CustomAccessibilityAction
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.rendyhd.vicu.domain.repository.QuickDue
-import com.rendyhd.vicu.ui.theme.LocalVicuColors
 import com.rendyhd.vicu.ui.theme.VicuColors
 
 /** The smallest touch target Android accessibility guidance allows for something that is tapped. */
@@ -88,9 +79,6 @@ internal fun Modifier.taskRowCustomActions(actions: List<Pair<TaskRowAction, () 
         }
     }
 
-/** One exclamation mark per priority level, so the level never depends on colour alone. Null when unset. */
-internal fun priorityMarkText(priority: Int): String? = if (priority in 1..5) "!".repeat(priority) else null
-
 /** The spoken form of a priority, or null when there is none. */
 internal fun priorityDescription(priority: Int): String? = when (priority) {
     1 -> "Low priority"
@@ -103,21 +91,3 @@ internal fun priorityDescription(priority: Int): String? = when (priority) {
 
 /** The colour of a priority mark: the priority role of the theme (4 and 5 are urgent), or null for none. */
 internal fun priorityMarkColor(priority: Int, colors: VicuColors): Color? = colors.priority(priority)
-
-/** The priority of a task as text ("!" to "!!!!!") with its spoken form; nothing for no priority. */
-@Composable
-internal fun PriorityMark(priority: Int, modifier: Modifier = Modifier) {
-    val text = priorityMarkText(priority) ?: return
-    val description = priorityDescription(priority) ?: return
-    Text(
-        text = text,
-        color = priorityMarkColor(priority, LocalVicuColors.current) ?: return,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Bold,
-        maxLines = 1,
-        // The marks are read as the description, not as a run of exclamation points.
-        modifier = modifier
-            .padding(horizontal = 2.dp)
-            .clearAndSetSemantics { contentDescription = description },
-    )
-}

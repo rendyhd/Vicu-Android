@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Priority mark (docs/design-system-v1.md); white so the widget tints it with the priority role. Same 14 grid as the desktop. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="14dp"
+    android:height="14dp"
+    android:viewportWidth="14"
+    android:viewportHeight="14">
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M3,1h8a2,2 0 0 1 2,2v8a2,2 0 0 1 -2,2H3a2,2 0 0 1 -2,-2V3a2,2 0 0 1 2,-2zM6.25,3.25h1.5v5h-1.5zM6.1,10.5a0.9,0.9 0 1 0 1.8,0 0.9,0.9 0 1 0 -1.8,0z" />
+</vector>

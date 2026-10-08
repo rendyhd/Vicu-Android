@@ -52,6 +52,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -71,11 +72,12 @@ import com.rendyhd.vicu.domain.repository.QuickDue
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
 import com.rendyhd.vicu.ui.theme.LocalVicuColors
+import com.rendyhd.vicu.ui.theme.VicuChipShape
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.isRecurring
 import com.rendyhd.vicu.util.TaskLinkParser
-import com.rendyhd.vicu.util.parseHexColor
+import com.rendyhd.vicu.util.parseHexArgb
 import com.rendyhd.vicu.util.subtaskProgress
 import com.rendyhd.vicu.util.unfinishedDescendants
 
@@ -298,10 +300,10 @@ fun TaskItem(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     )
                 }
-                PriorityMark(priority = task.priority)
                 if (!DateUtils.isNullDate(task.dueDate) && task.dueDate.isNotBlank()) {
                     TaskDueBadge(dueDate = task.dueDate)
                 }
+                PriorityMark(priority = task.priority)
             }
         }
         AnimatedVisibility(
@@ -400,10 +402,10 @@ private fun InlineSubtaskTree(
                         )
                     }
                 }
-                PriorityMark(priority = child.priority)
                 if (!DateUtils.isNullDate(child.dueDate) && child.dueDate.isNotBlank()) {
                     TaskDueBadge(dueDate = child.dueDate)
                 }
+                PriorityMark(priority = child.priority)
                 if (total > 0) {
                     Row(
                         modifier = Modifier
@@ -630,16 +632,19 @@ fun LabelChip(
     hexColor: String,
     modifier: Modifier = Modifier,
 ) {
-    val primary = MaterialTheme.colorScheme.primary
-    val chipColor = remember(hexColor, primary) { parseHexColor(hexColor) ?: primary }
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val chip = remember(hexColor, isDark) { parseHexArgb(hexColor)?.let { labelChipColors(it, isDark) } }
 
+    // A full pill with no border; the text is the label colour moved until it reads on its own tint.
     Text(
         text = title,
         modifier = modifier
-            .background(chipColor.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 1.dp),
-        color = chipColor,
-        fontSize = 11.sp,
+            .background(chip?.fill ?: scheme.surfaceVariant, VicuChipShape)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        color = chip?.text ?: scheme.onSurfaceVariant,
+        style = MaterialTheme.typography.labelSmall,
         maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
     )
 }

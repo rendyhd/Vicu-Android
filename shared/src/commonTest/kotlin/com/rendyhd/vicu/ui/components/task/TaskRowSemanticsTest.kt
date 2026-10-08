@@ -63,20 +63,9 @@ class TaskRowSemanticsTest {
     }
 
     @Test
-    fun `priority is text, one mark per level, and nothing for no priority`() {
-        assertNull(priorityMarkText(0))
-        assertEquals("!", priorityMarkText(1))
-        assertEquals("!!!", priorityMarkText(3))
-        assertEquals("!!!!", priorityMarkText(4))
-        assertEquals("!!!!!", priorityMarkText(5), "Vikunja's 'do now' is not invisible")
-        assertNull(priorityMarkText(6))
-        assertNull(priorityMarkText(-1))
-    }
-
-    @Test
     fun `every priority that is marked is also described`() {
         for (priority in 0..7) {
-            assertEquals(priorityMarkText(priority) == null, priorityDescription(priority) == null, "priority $priority")
+            assertEquals(priorityMarkKind(priority) == null, priorityDescription(priority) == null, "priority $priority")
         }
         assertEquals("Urgent priority", priorityDescription(4))
         assertEquals("Do now priority", priorityDescription(5))
