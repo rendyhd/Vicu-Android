@@ -105,14 +105,14 @@ internal fun labelChipText(labelRgb: Int, dark: Boolean): Int {
     return candidate
 }
 
-/** The colours a label chip is drawn with. [fill] stays translucent so a selected row shows through it. */
+/** The colours a label chip is drawn with. [fill] is opaque: the 12% tint already composited over bg.page, so the contrast holds on any row background. */
 internal class LabelChipColors(val fill: Color, val text: Color)
 
 /** The chip colours of [labelRgb] (0xRRGGBB, alpha ignored) in a light or dark theme. */
 internal fun labelChipColors(labelRgb: Int, dark: Boolean): LabelChipColors {
     val rgb = labelRgb and 0xFFFFFF
     return LabelChipColors(
-        fill = Color(red(rgb), green(rgb), blue(rgb)).copy(alpha = LABEL_TINT_ALPHA.toFloat()),
+        fill = Color(0xFF000000.toInt() or labelChipTint(rgb, dark)),
         text = Color(0xFF000000.toInt() or labelChipText(rgb, dark)),
     )
 }

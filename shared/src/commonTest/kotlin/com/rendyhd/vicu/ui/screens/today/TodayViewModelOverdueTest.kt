@@ -178,21 +178,4 @@ class TodayViewModelOverdueTest {
         assertEquals(emptyList(), rig.vm.uiState.value.todayIds())
         rig.authScope.cancel()
     }
-
-    @Test
-    fun `the sections keep their own expansion state`() = runTest {
-        val zone = TimeZone.of("Europe/Amsterdam")
-        val rig = rig("2026-10-06T10:00:00", zone)
-        rig.tasks.todayTasks.value = dueTasks(zone)
-        runCurrent()
-
-        // Project 10 has tasks in both sections; collapsing it in Overdue leaves Today open.
-        rig.vm.toggleOverdueProject(10)
-        runCurrent()
-
-        val state = rig.vm.uiState.value
-        assertEquals(false, state.overdueGroups.first { it.projectId == 10L }.isExpanded)
-        assertEquals(true, state.projectGroups.first { it.projectId == 10L }.isExpanded)
-        rig.authScope.cancel()
-    }
 }

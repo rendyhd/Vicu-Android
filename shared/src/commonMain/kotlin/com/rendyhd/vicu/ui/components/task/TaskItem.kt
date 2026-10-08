@@ -39,6 +39,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -199,7 +200,10 @@ fun TaskItem(
             val hasMeta = metaProject != null || metaLabels.isNotEmpty() || parentTitle != null ||
                 subtaskCount > 0 || hasNotes || isRepeating || task.attachments.isNotEmpty()
             // Line 1 is the title, level with the checkbox; line 2 is the meta line, when there is one.
-            Column(modifier = Modifier.weight(1f).padding(vertical = 12.dp)) {
+            // The checklist is the row's expand control when subtasks expand inline: its 48 dp target
+            // takes the place of the bottom padding.
+            val expandable = subtaskCount > 0 && displayMode == SubtaskDisplayMode.EXPANDABLE
+            Column(modifier = Modifier.weight(1f).padding(top = 12.dp, bottom = if (expandable) 0.dp else 12.dp)) {
                 Text(
                     text = task.title,
                     style = MaterialTheme.typography.bodyLarge,
@@ -257,7 +261,18 @@ fun TaskItem(
                         }
                         if (subtaskCount > 0) {
                             Row(
-                                modifier = Modifier.semantics(mergeDescendants = true) {
+                                modifier = (
+                                    if (expandable) {
+                                        Modifier
+                                            .clickable(
+                                                onClickLabel = if (subtasksExpanded) "Collapse subtasks" else "Expand subtasks",
+                                                role = Role.Button,
+                                            ) { subtasksExpanded = !subtasksExpanded }
+                                            .minimumInteractiveComponentSize()
+                                    } else {
+                                        Modifier
+                                    }
+                                    ).semantics(mergeDescendants = true) {
                                     contentDescription = "$completedSubtasks of $subtaskCount subtasks completed"
                                 },
                                 verticalAlignment = Alignment.CenterVertically,
@@ -275,6 +290,15 @@ fun TaskItem(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                 )
+                                if (expandable) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                        // The click label says what a tap does.
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp).rotate(if (subtasksExpanded) 90f else 0f),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                         }
                         if (hasNotes) {
@@ -311,26 +335,6 @@ fun TaskItem(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (subtaskCount > 0 && displayMode == SubtaskDisplayMode.EXPANDABLE) {
-                    // The expand control of the checklist: a full 48 dp target, level with the title.
-                    Box(
-                        modifier = Modifier
-                            .size(MIN_TOUCH_TARGET)
-                            .clickable(
-                                onClickLabel = if (subtasksExpanded) "Collapse subtasks" else "Expand subtasks",
-                                role = Role.Button,
-                            ) { subtasksExpanded = !subtasksExpanded },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                            // The click label says what a tap does.
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp).rotate(if (subtasksExpanded) 90f else 0f),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
                 TaskLinkIcons(description = task.description)
                 if (!DateUtils.isNullDate(task.dueDate) && task.dueDate.isNotBlank()) {
                     TaskDueBadge(dueDate = task.dueDate, context = view.dateContext)

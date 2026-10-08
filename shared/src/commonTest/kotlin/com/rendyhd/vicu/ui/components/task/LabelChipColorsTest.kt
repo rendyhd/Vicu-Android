@@ -55,8 +55,13 @@ class LabelChipColorsTest {
     }
 
     @Test
-    fun `the fill is the label at 12 percent and the alpha of a stored colour is ignored`() {
-        val colors = labelChipColors(0x80FF4136.toInt(), dark = false)
-        assertEquals(Color(0xFFFF4136).copy(alpha = 0.12f), colors.fill)
+    fun `the fill is the opaque composite of 12 percent over bg page and the alpha of a stored colour is ignored`() {
+        for (dark in listOf(false, true)) {
+            val colors = labelChipColors(0x80FF4136.toInt(), dark = dark)
+            assertEquals(Color(0xFF000000.toInt() or labelChipTint(0xFF4136, dark)), colors.fill, "dark=$dark")
+            assertEquals(1f, colors.fill.alpha)
+        }
+        // 12% of FF4136 over white: the vector of the contract.
+        assertEquals(Color(0xFFFFE8E7), labelChipColors(0xFF4136, dark = false).fill)
     }
 }

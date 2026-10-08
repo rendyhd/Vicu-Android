@@ -2,15 +2,21 @@ package com.rendyhd.vicu.ui.screens.upcoming
 
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.DueDates
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 
-/** One local calendar day of the Upcoming list and its tasks in order; the screen phrases the heading. */
+/**
+ * One local calendar day of the Upcoming list and its tasks in order; the screen phrases the
+ * heading. [groups] is the same tasks per project (by project name, like the desktop), each group
+ * in the day's order.
+ */
 data class UpcomingDay(
     val date: LocalDate,
     val tasks: List<Task>,
+    val groups: List<TaskProjectGroup> = emptyList(),
 )
 
 /**
@@ -39,11 +45,26 @@ fun buildUpcomingDays(
         .groupBy({ it.first }, { it.second to it.third })
         .toSortedMap()
         .map { (date, rows) ->
-            UpcomingDay(
-                date = date,
-                tasks = rows
-                    .sortedWith(compareBy({ it.first }, { it.second.position }, { it.second.id }))
-                    .map { it.second },
+            val ordered = rows
+                .sortedWith(compareBy({ it.first }, { it.second.position }, { it.second.id }))
+                .map { it.second }
+            UpcomingDay(date = date, tasks = ordered, groups = groupByProject(ordered, projects))
+        }
+}
+
+/** The day's tasks per project, groups ordered by project name, tasks keeping the day's order. */
+private fun groupByProject(tasks: List<Task>, projects: List<Project>): List<TaskProjectGroup> {
+    val byId = projects.associateBy { it.id }
+    return tasks
+        .groupBy { it.projectId }
+        .map { (projectId, group) ->
+            val project = byId[projectId]
+            TaskProjectGroup(
+                projectId = projectId,
+                title = project?.title ?: "No project",
+                hexColor = project?.hexColor.orEmpty(),
+                tasks = group,
             )
         }
+        .sortedBy { it.title.lowercase() }
 }

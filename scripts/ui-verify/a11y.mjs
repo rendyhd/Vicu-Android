@@ -10,7 +10,7 @@
 //                      description lacks the title of its row
 //   small-target       a clickable or checkable node under 48 dp in width or height
 //                      (pixels divided by the density scale from `wm density`)
-// Findings are also written to out/a11y/<screen>.json.
+// Findings are also written to out/a11y/<screen>.json (scenario a9 of shots.mjs writes them to out/<run>-a9/).
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -61,12 +61,12 @@ export function audit(nodes) {
   return out
 }
 
-export function printFindings(name, findings) {
+/** Prints the findings and writes them to <dir>/<name>.json (default out/a11y). */
+export function printFindings(name, findings, dir = join(d.HERE, 'out', 'a11y')) {
   const by = {}
   for (const f of findings) (by[f.rule] ??= []).push(f)
   console.log(`-- ${name}: ${findings.length} finding(s)${Object.entries(by).map(([r, l]) => ` ${r}=${l.length}`).join('')}`)
   for (const f of findings) console.log(`   [${f.rule}] ${f.label} ${f.bounds}${f.detail ? `  ${f.detail}` : ''}`)
-  const dir = join(d.HERE, 'out', 'a11y')
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, `${name}.json`), JSON.stringify({ screen: name, density: sc.scale, findings }, null, 2) + '\n')
 }

@@ -36,6 +36,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.section.ProjectMeta
+import com.rendyhd.vicu.ui.components.section.SectionLevel
+import com.rendyhd.vicu.ui.components.section.showsGroupHeader
+import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.ui.components.section.SectionHeader
 import com.rendyhd.vicu.ui.components.section.openCount
 import com.rendyhd.vicu.ui.components.shared.FabClearance
@@ -136,34 +140,50 @@ fun UpcomingScreen(
                                     .background(MaterialTheme.colorScheme.background),
                             )
                         }
-                        items(day.tasks, key = { it.id }, contentType = { "task" }) { task ->
-                            val displayTask =
-                                if (task.id in state.completedTaskIds) task.copy(done = true) else task
-                            SwipeableTaskItem(
-                                task = displayTask,
-                                onToggleDone = {
-                                    if (task.id in state.completedTaskIds) {
-                                        viewModel.undoComplete(task)
-                                    } else {
-                                        viewModel.toggleDone(task)
-                                    }
-                                },
-                                onClick = {
-                                    if (selectionActive) {
-                                        selectionVm.toggle(task.id)
-                                    } else {
-                                        onTaskClick(task.id)
-                                    }
-                                },
-                                onSubtaskToggleDone = viewModel::toggleDone,
-                                onSubtaskClick = { child -> onTaskClick(child.id) },
-                                onSchedule = { viewModel.scheduleTask(task.id) },
-                                selectionActive = selectionActive,
-                                selected = task.id in selectedIds,
-                                onLongClick = { selectionVm.toggle(task.id) },
-                                modifier = Modifier.animateItem(),
-                                rowView = UpcomingRowView,
-                            )
+                        day.groups.forEach { group ->
+                            // A group of one task has no header: its project goes on the row's meta line.
+                            val hasHeader = showsGroupHeader(group.tasks.size)
+                            val projectMeta = if (hasHeader) null else ProjectMeta(group.title, group.hexColor)
+                            if (hasHeader) {
+                                item(key = "group_${day.date}_${group.projectId}", contentType = "header") {
+                                    SectionHeader(
+                                        title = group.title,
+                                        level = SectionLevel.TWO,
+                                        dotColor = parseHexColor(group.hexColor),
+                                        count = openCount(group.tasks, state.completedTaskIds),
+                                    )
+                                }
+                            }
+                            items(group.tasks, key = { it.id }, contentType = { "task" }) { task ->
+                                val displayTask =
+                                    if (task.id in state.completedTaskIds) task.copy(done = true) else task
+                                SwipeableTaskItem(
+                                    task = displayTask,
+                                    onToggleDone = {
+                                        if (task.id in state.completedTaskIds) {
+                                            viewModel.undoComplete(task)
+                                        } else {
+                                            viewModel.toggleDone(task)
+                                        }
+                                    },
+                                    onClick = {
+                                        if (selectionActive) {
+                                            selectionVm.toggle(task.id)
+                                        } else {
+                                            onTaskClick(task.id)
+                                        }
+                                    },
+                                    onSubtaskToggleDone = viewModel::toggleDone,
+                                    onSubtaskClick = { child -> onTaskClick(child.id) },
+                                    onSchedule = { viewModel.scheduleTask(task.id) },
+                                    selectionActive = selectionActive,
+                                    selected = task.id in selectedIds,
+                                    onLongClick = { selectionVm.toggle(task.id) },
+                                    modifier = Modifier.animateItem(),
+                                    rowView = UpcomingRowView,
+                                    projectMeta = projectMeta,
+                                )
+                            }
                         }
                     }
                 }

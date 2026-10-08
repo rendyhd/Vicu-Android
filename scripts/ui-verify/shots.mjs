@@ -193,14 +193,17 @@ async function a10FirstRun(ctx) {
   })
 }
 
-/** A9: accessibility report on the main screens (also available as a11y.mjs). */
+/** A9: accessibility report on the main screens (also available as a11y.mjs). Findings and a capture per screen go to the run folder. */
 async function a9A11y(ctx) {
-  await ctx.step('a11y-report', async () => {
-    for (const name of ['today', 'upcoming', 'editor', 'quick-add', 'drawer']) {
+  for (const name of ['today', 'upcoming', 'editor', 'quick-add', 'drawer']) {
+    await ctx.step(`a11y-${name}`, async () => {
       await v.SCREENS[name]()
-      printFindings(name, audit(d.dump()))
-    }
-  })
+      await d.sleep(800)
+      ctx.shot(name)
+      const findings = audit(d.dump())
+      printFindings(`${ctx.theme}-${name}`, findings, ctx.outDir)
+    })
+  }
 }
 
 /** A11: font scale 1.3 on Review, Today and the editor. */
@@ -342,6 +345,103 @@ async function a6WhenSheet(ctx) {
   }
 }
 
+/**
+ * The user's clock reaches every surface that shows a time: with the device on the 24-hour clock
+ * the task editor, the When sheet and the quick add sheet show 15:00 and never "3:00 PM". Creates
+ * one throwaway task due tomorrow at 15:00, deletes it through the app at the end (no ghost row
+ * is left in the cache) and puts the clock setting back.
+ */
+async function clock24(ctx) {
+  const { step, shot } = ctx
+  const token = resolveToken(opt('token', DEFAULT_TOKEN_PATH))
+  if (!token) { console.log('SKIP clock24: no API token (see --token)'); return }
+  const api = async (method, path, body) => {
+    const r = await fetch(API + path, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    if (!r.ok) throw new Error(`${method} ${path}: HTTP ${r.status}`)
+    const t = await r.text()
+    return t ? JSON.parse(t) : null
+  }
+  const zone = d.sh('getprop persist.sys.timezone').trim() || 'UTC'
+  const localStamp = (instant) => new Intl.DateTimeFormat('en-CA', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(instant)
+  const tomorrowKey = localStamp(new Date(Date.now() + 86400000)).slice(0, 10)
+  let due = null
+  for (let m = 0; m < 60 * 60 && !due; m += 15) {
+    const t = new Date(Math.floor(Date.now() / 900000) * 900000 + m * 60000)
+    if (localStamp(t) === `${tomorrowKey}, 15:00` || localStamp(t) === `${tomorrowKey} 15:00`) due = t
+  }
+  if (!due) throw new Error('could not work out tomorrow 15:00 in the device zone')
+
+  const was = d.sh('settings get system time_12_24').trim()
+  const stamp = Date.now().toString(36).slice(-4)
+  const title = `zz clock ${stamp}`
+  let id = null
+  try {
+    id = (await api('POST', `/projects/${Number(opt('inbox', 47))}/tasks`, { title, due_date: due.toISOString() })).id
+    d.sh('settings put system time_12_24 24')
+    d.stop()
+    await d.sleep(800)
+    await v.launch(4000)
+
+    const noMeridiem = (nodes) => !nodes.some((n) => /\b(AM|PM)\b/i.test(`${n.text ?? ''} ${n['content-desc'] ?? ''}`))
+    await step('editor', async () => {
+      await v.nav('Upcoming')
+      let row
+      for (let i = 0; i < 4 && !row; i++) {
+        if (i === 0) await d.swipe(540, 700, 540, 1700, 400, 3000)
+        else await d.swipe(540, 1900, 540, 700, 400, 900)
+        row = v.taskRows().find((r) => r.title?.text === title)
+      }
+      if (!row) throw new Error('throwaway task is not on Upcoming')
+      await d.tap(row.title.cx, row.title.cy, 2200)
+      shot('editor-24h')
+      const nodes = d.dump()
+      if (!nodes.some((n) => /15:00/.test(`${n.text ?? ''} ${n['content-desc'] ?? ''}`))) throw new Error('the editor does not show 15:00')
+      if (!noMeridiem(nodes)) throw new Error('the editor shows AM or PM on a 24-hour clock')
+    })
+    await step('when-sheet', async () => {
+      await d.tapDesc('Due date', { exact: false, wait: 1800 })
+      shot('when-24h')
+      const nodes = d.dump()
+      if (!nodes.some((n) => n.text === '15:00')) throw new Error('the When sheet has no 15:00 chip')
+      if (!noMeridiem(nodes)) throw new Error('the When sheet shows AM or PM on a 24-hour clock')
+      await d.back()
+    })
+    await step('quick-add', async () => {
+      await d.back() // the editor
+      await v.nav('Today')
+      await d.tapDesc('Add task', { wait: 1800 })
+      await d.clearField()
+      await d.typeSlow('Call Ana tomorrow 3pm')
+      await d.sleep(1200)
+      shot('quick-add-24h')
+      const nodes = d.dump()
+      if (!nodes.some((n) => /15:00/.test(`${n.text ?? ''} ${n['content-desc'] ?? ''}`))) throw new Error('the quick add sheet does not show 15:00')
+      if (!noMeridiem(nodes.filter((n) => !/Call Ana/.test(n.text ?? '')))) throw new Error('the quick add sheet shows AM or PM on a 24-hour clock')
+      await d.clearField()
+      await d.back(); await d.back()
+    })
+  } finally {
+    if (was && was !== 'null') d.sh(`settings put system time_12_24 ${was}`)
+    else d.sh('settings delete system time_12_24')
+    try {
+      // Deleted through the app so the cache drops it at once; the server copy goes either way.
+      await v.nav('Upcoming')
+      const row = v.taskRows().find((r) => r.title?.text === title)
+      if (row) {
+        await d.tap(row.title.cx, row.title.cy, 2000)
+        await d.tapText('Delete task', { wait: 1200 })
+        await d.tapText('Delete', { wait: 1800 })
+      }
+    } catch { /* the API delete below still removes it */ }
+    if (id) { try { await api('DELETE', `/tasks/${id}`) } catch { /* already gone */ } }
+    try { await v.home() } catch { /* best effort */ }
+  }
+}
+
 const stub = (id, wave) => Object.assign(async () => { stubs.push(id); console.log(`STUB ${id}: not implemented yet (plan wave ${wave})`) }, { isStub: true })
 
 // id, wave (from the plan's Android scenario table), run
@@ -353,6 +453,7 @@ const SCENARIOS = {
   a4: { wave: 1, run: a4Upcoming, about: 'Upcoming day groups and sticky headers' },
   a5: { wave: 3, run: stub('a5', 3), about: 'quick add sheet with chips' },
   a6: { wave: 3, run: a6WhenSheet, about: 'WhenSheet: tomorrow 9am, a calendar day, Next week (throwaway tasks, read back from the server)' },
+  clock24: { wave: 3, run: clock24, about: 'device on the 24-hour clock: editor, When sheet and quick add show 15:00, never PM' },
   a7: { wave: 4, run: stub('a7', 4), about: 'scroll Today: large title folds, FAB shrinks' },
   a8: { wave: 1, run: a8Colours, about: 'light, dark, device colours off and on' },
   a9: { wave: 2, run: a9A11y, about: 'a11y report on Today, Upcoming, editor, quick add, drawer' },

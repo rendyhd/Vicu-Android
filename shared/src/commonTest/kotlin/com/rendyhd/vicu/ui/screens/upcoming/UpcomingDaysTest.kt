@@ -124,4 +124,18 @@ class UpcomingDaysTest {
         assertEquals(listOf(1L, 2L), days.single().tasks.map { it.id })
         assertEquals(Instant.parse("2026-10-08T08:00:00Z"), Instant.parse("2026-10-08T10:00:00+02:00"))
     }
+
+    @Test
+    fun `a day is also grouped by project name, each group in the day's order`() {
+        val day = LocalDate(2026, 10, 8)
+        val tasks = listOf(
+            task(1, dateOnly(day, amsterdam), projectId = 2),
+            task(2, "2026-10-08T06:00:00Z", projectId = 1), // 08:00 local: first of the day
+            task(3, dateOnly(day, amsterdam), position = 1.0, projectId = 1),
+            task(4, dateOnly(day, amsterdam), position = 0.5, projectId = 2),
+        )
+        val groups = buildUpcomingDays(tasks, projects, today, amsterdam).single().groups
+        assertEquals(listOf("Home", "Work"), groups.map { it.title })
+        assertEquals(listOf(listOf(2L, 3L), listOf(1L, 4L)), groups.map { g -> g.tasks.map { it.id } })
+    }
 }

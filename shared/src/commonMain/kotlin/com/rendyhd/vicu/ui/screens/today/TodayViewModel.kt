@@ -113,42 +113,12 @@ class TodayViewModel(
                     buildTaskProjectGroups(completions.merge(overdue, OVERDUE_SCOPE), projects, inboxId) to
                         buildTaskProjectGroups(completions.merge(today, TODAY_SCOPE), projects, inboxId)
                 }.collect { (overdueGroups, todayGroups) ->
-                    _uiState.update { current ->
-                        // Preserve per-project expansion across refreshes, separately per section.
-                        current.copy(
-                            overdueGroups = overdueGroups.keepExpansion(current.overdueGroups),
-                            projectGroups = todayGroups.keepExpansion(current.projectGroups),
-                            isLoading = false,
-                        )
-                    }
+                    _uiState.update { it.copy(overdueGroups = overdueGroups, projectGroups = todayGroups, isLoading = false) }
                 }
             }
         }
         if (refresher.isStale()) refresh()
     }
-
-    fun toggleProject(projectId: Long) {
-        _uiState.update { state ->
-            state.copy(
-                projectGroups = state.projectGroups.map {
-                    if (it.projectId == projectId) it.copy(isExpanded = !it.isExpanded) else it
-                },
-            )
-        }
-    }
-
-    fun toggleOverdueProject(projectId: Long) {
-        _uiState.update { state ->
-            state.copy(
-                overdueGroups = state.overdueGroups.map {
-                    if (it.projectId == projectId) it.copy(isExpanded = !it.isExpanded) else it
-                },
-            )
-        }
-    }
-
-    private fun List<TaskProjectGroup>.keepExpansion(previous: List<TaskProjectGroup>): List<TaskProjectGroup> =
-        map { g -> g.copy(isExpanded = previous.find { it.projectId == g.projectId }?.isExpanded ?: true) }
 
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {

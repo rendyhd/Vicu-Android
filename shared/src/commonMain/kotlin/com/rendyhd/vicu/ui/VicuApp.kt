@@ -25,6 +25,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ProvidedValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -439,6 +440,18 @@ fun VicuApp(
     val fabAlignStart by drawerViewModel.fabAlignStart.collectAsStateWithLifecycle()
     val subtaskDisplayMode by drawerViewModel.subtaskDisplayMode.collectAsStateWithLifecycle()
 
+    // What every surface of the app is composed under, the sheets and dialogs as much as the
+    // screens: the current day and zone, the user's clock and the date phrasing, the row actions.
+    val appLocals = arrayOf<ProvidedValue<*>>(
+        LocalFabAlignStart provides fabAlignStart,
+        LocalSubtaskDisplayMode provides subtaskDisplayMode,
+        LocalToday provides clockDay.date,
+        LocalClockDay provides clockDay,
+        LocalIs24Hour provides is24Hour,
+        LocalDateFormat provides dateFormat,
+        LocalTaskRowActions provides taskRowActions,
+    )
+
     // Build dynamic bottom bar items from config
     val bottomNavItems = remember(
         drawerUiState.bottomBarSlots,
@@ -464,27 +477,29 @@ fun VicuApp(
         drawerState = drawerState,
         gesturesEnabled = enableDrawerGestures,
         drawerContent = {
-            DrawerContent(
-                state = drawerUiState,
-                currentRoute = currentRoute,
-                onNavigate = { route ->
-                    scope.launch { drawerState.close() }
-                    // Choosing the screen that is already open only closes the drawer: for a
-                    // project, tag or list it used to re-create the entry (scroll and view model).
-                    if (routeKey(route) != currentRoute) navController.navigateTopLevel(route)
-                },
-                onToggleProjects = drawerViewModel::toggleProjectsExpanded,
-                onToggleLists = drawerViewModel::toggleListsExpanded,
-                onToggleTags = drawerViewModel::toggleTagsExpanded,
-                onToggleProjectCollapsed = drawerViewModel::toggleProjectCollapsed,
-                onCreateNewList = {
-                    scope.launch { drawerState.close() }
-                    showNewListDialog = true
-                },
-                onReorderProject = drawerViewModel::reorderProject,
-                onReorderList = drawerViewModel::reorderCustomList,
-                onReorderLabel = drawerViewModel::reorderLabel,
-            )
+            CompositionLocalProvider(*appLocals) {
+                DrawerContent(
+                    state = drawerUiState,
+                    currentRoute = currentRoute,
+                    onNavigate = { route ->
+                        scope.launch { drawerState.close() }
+                        // Choosing the screen that is already open only closes the drawer: for a
+                        // project, tag or list it used to re-create the entry (scroll and view model).
+                        if (routeKey(route) != currentRoute) navController.navigateTopLevel(route)
+                    },
+                    onToggleProjects = drawerViewModel::toggleProjectsExpanded,
+                    onToggleLists = drawerViewModel::toggleListsExpanded,
+                    onToggleTags = drawerViewModel::toggleTagsExpanded,
+                    onToggleProjectCollapsed = drawerViewModel::toggleProjectCollapsed,
+                    onCreateNewList = {
+                        scope.launch { drawerState.close() }
+                        showNewListDialog = true
+                    },
+                    onReorderProject = drawerViewModel::reorderProject,
+                    onReorderList = drawerViewModel::reorderCustomList,
+                    onReorderLabel = drawerViewModel::reorderLabel,
+                )
+            }
         },
     ) {
         Scaffold(
@@ -547,15 +562,7 @@ fun VicuApp(
                     )
                 }
                 val navHostModifier = Modifier.weight(1f)
-                CompositionLocalProvider(
-                    LocalFabAlignStart provides fabAlignStart,
-                    LocalSubtaskDisplayMode provides subtaskDisplayMode,
-                    LocalToday provides clockDay.date,
-                    LocalClockDay provides clockDay,
-                    LocalIs24Hour provides is24Hour,
-                    LocalDateFormat provides dateFormat,
-                    LocalTaskRowActions provides taskRowActions,
-                ) {
+                CompositionLocalProvider(*appLocals) {
                     AppNavHost(
                         navController = navController,
                         startDestination = startDestination,
@@ -574,56 +581,52 @@ fun VicuApp(
         }
     }
 
-    // Task Entry Sheet
-    if (showTaskEntrySheet) {
-        TaskEntrySheet(
-            defaultProjectId = taskEntryDefaultProjectId,
-            defaultDueDate = taskEntryDefaultDueDate,
-            onDismiss = {
-                showTaskEntrySheet = false
-                taskEntryDefaultDueDate = null
-                pendingSharedContent = null
-            },
-            onTaskCreated = {
-                pendingSharedContent = null
-            },
-            sharedContent = pendingSharedContent,
-        )
-    }
+    // The sheets and dialogs sit beside the screens, not inside them: same providers.
+    CompositionLocalProvider(*appLocals) {
+        // Task Entry Sheet
+        if (showTaskEntrySheet) {
+            TaskEntrySheet(
+                defaultProjectId = taskEntryDefaultProjectId,
+                defaultDueDate = taskEntryDefaultDueDate,
+                onDismiss = {
+                    showTaskEntrySheet = false
+                    taskEntryDefaultDueDate = null
+                    pendingSharedContent = null
+                },
+                onTaskCreated = {
+                    pendingSharedContent = null
+                },
+                sharedContent = pendingSharedContent,
+            )
+        }
 
-    // Task Detail (full-screen edit)
-    val taskDetailVisible = showTaskDetailSheet &&
-        !taskDetailUiState.isLoading &&
-        taskDetailUiState.task?.id == taskDetailTaskId
-    if (taskDetailVisible) {
-        TaskDetailScreen(
-            taskId = taskDetailTaskId,
-            onDismiss = { showTaskDetailSheet = false },
-            viewModel = taskDetailViewModel,
-            onOpenTask = onTaskClick,
-        )
-    }
+        // Task Detail (full-screen edit)
+        val taskDetailVisible = showTaskDetailSheet &&
+            !taskDetailUiState.isLoading &&
+            taskDetailUiState.task?.id == taskDetailTaskId
+        if (taskDetailVisible) {
+            TaskDetailScreen(
+                taskId = taskDetailTaskId,
+                onDismiss = { showTaskDetailSheet = false },
+                viewModel = taskDetailViewModel,
+                onOpenTask = onTaskClick,
+            )
+        }
 
-    // App-level messages. Emitted after the editor so it draws above it.
-    Box(modifier = Modifier.fillMaxSize()) {
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = if (showBottomBar && !taskDetailVisible) 80.dp else 0.dp),
-        )
-    }
+        // App-level messages. Emitted after the editor so it draws above it.
+        Box(modifier = Modifier.fillMaxSize()) {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = if (showBottomBar && !taskDetailVisible) 80.dp else 0.dp),
+            )
+        }
 
-    NotificationPermissionSheet(notificationPermission)
+        NotificationPermissionSheet(notificationPermission)
 
-    whenSheetTask?.let { target ->
-        // Outside the provider block around the screens, so it gets the day and the clock itself.
-        CompositionLocalProvider(
-            LocalClockDay provides clockDay,
-            LocalIs24Hour provides is24Hour,
-            LocalDateFormat provides dateFormat,
-        ) {
+        whenSheetTask?.let { target ->
             WhenSheet(
                 currentDate = target.dueDate,
                 onDateSelected = { dueDate -> setWhenDue(target.id, dueDate) },
@@ -631,20 +634,20 @@ fun VicuApp(
                 onDismiss = { whenSheetTask = null },
             )
         }
-    }
 
-    // New Custom List Dialog (from drawer)
-    if (showNewListDialog) {
-        CustomListDialog(
-            projects = drawerUiState.allProjects,
-            labels = drawerUiState.labels,
-            onSave = { list ->
-                drawerViewModel.saveCustomList(list)
-                showNewListDialog = false
-                navController.navigate(CustomListRoute(list.id))
-            },
-            onDismiss = { showNewListDialog = false },
-            inboxProjectId = drawerUiState.inboxProjectId,
-        )
+        // New Custom List Dialog (from drawer)
+        if (showNewListDialog) {
+            CustomListDialog(
+                projects = drawerUiState.allProjects,
+                labels = drawerUiState.labels,
+                onSave = { list ->
+                    drawerViewModel.saveCustomList(list)
+                    showNewListDialog = false
+                    navController.navigate(CustomListRoute(list.id))
+                },
+                onDismiss = { showNewListDialog = false },
+                inboxProjectId = drawerUiState.inboxProjectId,
+            )
+        }
     }
 }

@@ -188,7 +188,6 @@ fun TodayScreen(
                         taskGroupItems(
                             groups = state.overdueGroups,
                             keyPrefix = "overdue",
-                            onToggleGroup = viewModel::toggleOverdueProject,
                             level = SectionLevel.TWO,
                             state = state,
                             viewModel = viewModel,
@@ -208,7 +207,6 @@ fun TodayScreen(
                     taskGroupItems(
                         groups = state.projectGroups,
                         keyPrefix = "today",
-                        onToggleGroup = viewModel::toggleProject,
                         // Without an Overdue section above, the projects are the top level of the list.
                         level = if (showSectionTitles) SectionLevel.TWO else SectionLevel.ONE,
                         state = state,
@@ -245,11 +243,10 @@ fun TodayScreen(
     }
 }
 
-/** One collapsible group per project with its task rows; keys carry [keyPrefix] so sections never collide. */
+/** One group per project with its task rows; keys carry [keyPrefix] so sections never collide. */
 private fun LazyListScope.taskGroupItems(
     groups: List<TaskProjectGroup>,
     keyPrefix: String,
-    onToggleGroup: (Long) -> Unit,
     level: SectionLevel,
     state: TodayUiState,
     viewModel: TodayViewModel,
@@ -269,42 +266,38 @@ private fun LazyListScope.taskGroupItems(
                     level = level,
                     dotColor = parseHexColor(group.hexColor),
                     count = openCount(group.tasks, state.completedTaskIds),
-                    isExpanded = group.isExpanded,
-                    onToggle = { onToggleGroup(group.projectId) },
                 )
             }
         }
-        if (group.isExpanded || !hasHeader) {
-            items(group.tasks, key = { it.id }, contentType = { "task" }) { task ->
-                val displayTask =
-                    if (task.id in state.completedTaskIds) task.copy(done = true) else task
-                SwipeableTaskItem(
-                    task = displayTask,
-                    onToggleDone = {
-                        if (task.id in state.completedTaskIds) {
-                            viewModel.undoComplete(task)
-                        } else {
-                            viewModel.toggleDone(task)
-                        }
-                    },
-                    onClick = {
-                        if (selectionActive) {
-                            selectionVm.toggle(task.id)
-                        } else {
-                            onTaskClick(task.id)
-                        }
-                    },
-                    onSubtaskToggleDone = viewModel::toggleDone,
-                    onSubtaskClick = { child -> onTaskClick(child.id) },
-                    onSchedule = { viewModel.scheduleTask(task.id) },
-                    selectionActive = selectionActive,
-                    selected = task.id in selectedIds,
-                    onLongClick = { selectionVm.toggle(task.id) },
-                    modifier = Modifier.animateItem(),
-                    projectMeta = projectMeta,
-                    rowView = TodayRowView,
-                )
-            }
+        items(group.tasks, key = { it.id }, contentType = { "task" }) { task ->
+            val displayTask =
+                if (task.id in state.completedTaskIds) task.copy(done = true) else task
+            SwipeableTaskItem(
+                task = displayTask,
+                onToggleDone = {
+                    if (task.id in state.completedTaskIds) {
+                        viewModel.undoComplete(task)
+                    } else {
+                        viewModel.toggleDone(task)
+                    }
+                },
+                onClick = {
+                    if (selectionActive) {
+                        selectionVm.toggle(task.id)
+                    } else {
+                        onTaskClick(task.id)
+                    }
+                },
+                onSubtaskToggleDone = viewModel::toggleDone,
+                onSubtaskClick = { child -> onTaskClick(child.id) },
+                onSchedule = { viewModel.scheduleTask(task.id) },
+                selectionActive = selectionActive,
+                selected = task.id in selectedIds,
+                onLongClick = { selectionVm.toggle(task.id) },
+                modifier = Modifier.animateItem(),
+                projectMeta = projectMeta,
+                rowView = TodayRowView,
+            )
         }
     }
 }
