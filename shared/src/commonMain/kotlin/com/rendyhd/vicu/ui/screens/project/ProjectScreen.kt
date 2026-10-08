@@ -59,6 +59,7 @@ import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.AddTaskButton
 import com.rendyhd.vicu.ui.components.task.ReorderableTaskRow
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
@@ -85,6 +86,7 @@ fun ProjectScreen(
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val topBarScroll = rememberVicuTopBarScroll()
 
     val haptic = LocalHapticFeedback.current
     // True once the current long-press drag has actually displaced the row. A lift that
@@ -109,6 +111,8 @@ fun ProjectScreen(
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
@@ -126,13 +130,14 @@ fun ProjectScreen(
                 VicuTopAppBar(
                     title = { Text(state.project?.title ?: "Project") },
                     onOpenDrawer = onOpenDrawer,
+                    scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
                 )
             }
         },
         floatingActionButton = {
             if (!selectionActive) {
-                VicuFab(onClick = { onShowTaskEntry(projectId, null) })
+                VicuFab(onClick = { onShowTaskEntry(projectId, null) }, expanded = !listState.canScrollBackward)
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,

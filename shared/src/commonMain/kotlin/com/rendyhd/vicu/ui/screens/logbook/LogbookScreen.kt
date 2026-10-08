@@ -32,6 +32,7 @@ import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.section.SectionHeader
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
@@ -58,11 +59,16 @@ fun LogbookScreen(
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
 
+    val topBarScroll = rememberVicuTopBarScroll()
+
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             VicuTopAppBar(
                 title = { Text("Logbook") },
                 onOpenDrawer = onOpenDrawer,
+                scroll = topBarScroll,
                 onNavigateToSearch = onNavigateToSearch,
             )
         },

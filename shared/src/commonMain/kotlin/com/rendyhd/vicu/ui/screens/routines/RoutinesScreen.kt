@@ -174,7 +174,7 @@ fun RoutinesScreen(
                     editorRoutine = null
                     showEditor = true
                 },
-                contentDescription = "Add routine",
+                label = "New routine",
             )
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,

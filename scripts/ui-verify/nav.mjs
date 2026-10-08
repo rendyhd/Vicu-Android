@@ -174,7 +174,7 @@ export const SCREENS = {
   logbook: () => drawer('Logbook'),
   settings: () => drawer('Settings'),
   editor: async () => { await listWithRows(); await openFirstTask() },
-  'quick-add': async () => { await nav('Today'); await d.tapDesc('Add task', { wait: 1500 }) },
+  'quick-add': async () => { await nav('Today'); await d.tapDesc('New task', { wait: 1500 }) },
 }
 
 /** Press a node whose description (or text) starts with one of `labels`, in that order of preference. */

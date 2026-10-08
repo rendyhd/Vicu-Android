@@ -41,6 +41,7 @@ import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.ui.components.task.RowView
 
@@ -59,6 +60,7 @@ fun TagScreen(
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val topBarScroll = rememberVicuTopBarScroll()
 
     val selectionVm: SelectionViewModel = koinViewModel()
     val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
@@ -67,6 +69,8 @@ fun TagScreen(
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
@@ -84,13 +88,14 @@ fun TagScreen(
                 VicuTopAppBar(
                     title = { Text(state.label?.title ?: "Label") },
                     onOpenDrawer = onOpenDrawer,
+                    scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
                 )
             }
         },
         floatingActionButton = {
             if (!selectionActive) {
-                VicuFab(onClick = { onShowTaskEntry(null, null) })
+                VicuFab(onClick = { onShowTaskEntry(null, null) }, expanded = !listState.canScrollBackward)
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,

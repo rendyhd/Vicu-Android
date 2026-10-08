@@ -44,6 +44,7 @@ import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.ui.components.task.RowView
 import com.rendyhd.vicu.ui.components.task.projectMetas
@@ -69,6 +70,7 @@ fun CustomListScreen(
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val topBarScroll = rememberVicuTopBarScroll()
 
     val selectionVm: SelectionViewModel = koinViewModel()
     val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
@@ -77,6 +79,8 @@ fun CustomListScreen(
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
@@ -94,6 +98,7 @@ fun CustomListScreen(
                 VicuTopAppBar(
                     title = { Text(state.customList?.name ?: "List") },
                     onOpenDrawer = onOpenDrawer,
+                    scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
                     extraActions = {
                         IconButton(onClick = { showEditDialog = true }) {
@@ -118,7 +123,7 @@ fun CustomListScreen(
                 val addToProject = state.customList?.filter?.addToProjectId?.takeIf { requested ->
                     requested != 0L && projects.any { it.id == requested && !it.isArchived }
                 }
-                VicuFab(onClick = { onShowTaskEntry(addToProject, null) })
+                VicuFab(onClick = { onShowTaskEntry(addToProject, null) }, expanded = !listState.canScrollBackward)
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,

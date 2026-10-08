@@ -9,7 +9,7 @@
 //
 // Captures land in out/<scenario>/<theme>-<step>.png. A step that cannot run prints FAIL and the
 // run exits 1; WARN lines are expectations the app does not meet yet and never fail the run.
-// Scenario ids follow the plan: a1..a12. Only baseline, a1, a2, a4, a6, a8, a9, a10 and a11 run today; the
+// Scenario ids follow the plan: a1..a12. Only baseline, a1, a2, a4, a7, a6, a8, a9, a10 and a11 run today; the
 // others are stubs that print STUB and pass.
 import * as d from './droid.mjs'
 import * as v from './nav.mjs'
@@ -93,7 +93,7 @@ async function baseline(ctx) {
   })
   await step('quick-add', async () => {
     await v.nav('Today')
-    await d.tapDesc('Add task', { wait: 1800 })
+    await d.tapDesc('New task', { wait: 1800 })
     await d.clearField() // the sheet keeps an unsent draft
     await d.typeSlow('Call Ana Saturday 3pm #Personal') // the sheet parses while you type
     await d.sleep(1200)
@@ -456,7 +456,7 @@ async function clock24(ctx) {
     await step('quick-add', async () => {
       await d.back() // the editor
       await v.nav('Today')
-      await d.tapDesc('Add task', { wait: 1800 })
+      await d.tapDesc('New task', { wait: 1800 })
       await d.clearField()
       await d.typeSlow('Call Ana tomorrow 3pm')
       await d.sleep(1200)
@@ -503,6 +503,18 @@ async function a5QuickAdd(ctx) {
   }
   const texts = (nodes) => nodes.filter((n) => n.text).map((n) => n.text)
   const titleField = (nodes) => nodes.find((n) => /EditText/.test(n.class ?? ''))
+  // The chips are one row that scrolls sideways ("+ Notes" stays at its end): a chip that is not in
+  // the first view is looked for after scrolling the row to the left.
+  const chipTexts = async (want) => {
+    let t = texts(d.dump())
+    if (t.includes(want)) return t
+    const notes = d.dump().find((n) => n.text === '+ Notes')
+    for (let i = 0; notes && i < 3 && !t.includes(want); i++) {
+      await d.swipe(760, notes.cy, 60, notes.cy, 350, 900)
+      t = texts(d.dump())
+    }
+    return t
+  }
   const draftCleanup = async () => {
     try {
       const field = titleField(d.dump())
@@ -513,7 +525,7 @@ async function a5QuickAdd(ctx) {
 
   await step('open', async () => {
     await v.nav('Today')
-    await d.tapDesc('Add task', { wait: 1800 })
+    await d.tapDesc('New task', { wait: 1800 })
     await d.clearField() // the sheet keeps an unsent draft
     await d.typeSlow('Call Ana Saturday 3pm #Personal')
     await d.sleep(1200)
@@ -530,12 +542,11 @@ async function a5QuickAdd(ctx) {
     }
     console.log(`  date chip: ${dateChips[0]}`)
     if (!t.includes('Personal')) throw new Error(`no "Personal" chip (texts: ${t.slice(0, 12).join(' | ')})`)
-    for (const name of ['When', 'Project', 'Tags', 'Priority']) {
-      if (name === 'When' || name === 'Project') continue // these hold values here
-      if (!t.includes(name)) warn(`a5: no "${name}" chip`)
-    }
     if (!t.includes('+ Notes')) throw new Error('no "+ Notes" chip')
     printFindings(`${ctx.theme}-compact`, audit(nodes), ctx.outDir) // reported, never failing
+    const scrolled = await chipTexts('Priority')
+    for (const name of ['Tags', 'Priority']) if (!scrolled.includes(name)) warn(`a5: no "${name}" chip, even after scrolling the row`)
+    await d.swipe(60, nodes.find((n) => n.text === '+ Notes').cy, 700, nodes.find((n) => n.text === '+ Notes').cy, 300, 600) // back
   })
 
   await step('compact', async () => {
@@ -557,13 +568,19 @@ async function a5QuickAdd(ctx) {
     // The text says !low; picking Urgent with the chip wins, and the chip then reads Urgent.
     const field = titleField(d.dump())
     await d.tap(field.cx, field.cy, 500)
-    await d.clearField()
+    // Ctrl+A does not always reach a field that is showing its autocomplete: clear until it is empty.
+    for (let i = 0; i < 4; i++) {
+      await d.clearField()
+      const now = titleField(d.dump())
+      if (!now?.text || now.text === 'New task') break
+    }
     await d.typeSlow('Call Ana !low')
     await d.sleep(900)
-    if (!texts(d.dump()).includes('Low')) throw new Error('the priority chip does not read Low for "!low"')
+    const lowTexts = await chipTexts('Low')
+    if (!lowTexts.includes('Low')) throw new Error(`the priority chip does not read Low for "!low" (texts: ${lowTexts.join(' | ')})`)
     await d.tapText('Low', { wait: 1200 })
     await d.tapText('Urgent', { wait: 1200 })
-    const t = texts(d.dump())
+    const t = await chipTexts('Urgent')
     shot('chip-rule')
     if (!t.includes('Urgent')) throw new Error('the priority chip does not read Urgent after picking it')
     if (t.includes('Low')) throw new Error('the typed "!low" still shows as a Low chip after picking Urgent')
@@ -851,6 +868,51 @@ async function a2Swipe(ctx) {
   }
 }
 
+/**
+ * A7: scrolling Today. At the top the title is large with the date under it and the FAB reads
+ * "New task"; after scrolling the title has folded into the bar (the date is gone) and the FAB is
+ * only its icon (still named "New task"); back at the top both are back.
+ */
+async function a7LargeTitle(ctx) {
+  const { step, shot } = ctx
+  const label = (n) => (n.text ?? n['content-desc'] ?? '')
+  const fab = (nodes) => nodes.find((n) => n['content-desc'] === 'New task')
+  const fabWidthDp = (nodes) => { const f = fab(nodes); return f ? v.dp(f.x2 - f.x1) : 0 }
+  const subtitle = (nodes) => nodes.some((n) => /^(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, [A-Z][a-z]+ \d+/.test(label(n)))
+  await step('top', async () => {
+    await v.nav('Today')
+    await d.swipe(540, 1100, 540, 1500, 300, 1200) // up, short of a pull to refresh
+    shot('top')
+    const nodes = d.dump()
+    if (fabWidthDp(nodes) < 100) throw new Error(`the FAB is not extended at the top (${fabWidthDp(nodes)} dp wide)`)
+    if (!subtitle(nodes)) throw new Error('the date is not under the large title at the top')
+    const title = nodes.find((n) => n.text === 'Today' && n.y1 < v.px(260))
+    if (!title) throw new Error('no title "Today" in the bar')
+    console.log(`  large title at ${v.dp(title.y1).toFixed(0)} to ${v.dp(title.y2).toFixed(0)} dp`)
+  })
+  await step('scrolled', async () => {
+    for (let i = 0; i < 3; i++) await d.swipe(540, 1700, 540, 500, 350, 700)
+    await d.sleep(800)
+    shot('scrolled')
+    const nodes = d.dump()
+    const w = fabWidthDp(nodes)
+    if (!fab(nodes)) throw new Error('the FAB has lost its name after scrolling')
+    if (w > 80) throw new Error(`the FAB is still extended after scrolling (${w} dp wide)`)
+    console.log(`  FAB ${w.toFixed(0)} dp wide`)
+    if (subtitle(nodes)) throw new Error('the date is still in the bar after the title folded')
+    const title = nodes.find((n) => n.text === 'Today' && n.y1 < v.px(260))
+    if (!title) throw new Error('no title "Today" in the folded bar')
+    console.log(`  folded title at ${v.dp(title.y1).toFixed(0)} to ${v.dp(title.y2).toFixed(0)} dp`)
+  })
+  await step('back-to-top', async () => {
+    for (let i = 0; i < 4; i++) await d.swipe(540, 900, 540, 1700, 300, 600)
+    await d.sleep(3500) // a pull to refresh may have started
+    await d.sleep(1000)
+    shot('back-to-top')
+    if (fabWidthDp(d.dump()) < 100) throw new Error('the FAB did not extend again at the top')
+  })
+}
+
 const stub = (id, wave) => Object.assign(async () => { stubs.push(id); console.log(`STUB ${id}: not implemented yet (plan wave ${wave})`) }, { isStub: true })
 
 // id, wave (from the plan's Android scenario table), run
@@ -865,7 +927,7 @@ const SCENARIOS = {
   a6: { wave: 3, run: a6WhenSheet, about: 'WhenSheet: tomorrow 9am, a calendar day, Next week (throwaway tasks, read back from the server)' },
   clock24: { wave: 3, run: clock24, about: 'device on the 24-hour clock: editor, When sheet and quick add show 15:00, never PM' },
   editor: { wave: 3, run: editor37, about: 'the task editor: back and Done, headline, one row of property chips in the desktop order, footer' },
-  a7: { wave: 4, run: stub('a7', 4), about: 'scroll Today: large title folds, FAB shrinks' },
+  a7: { wave: 4, run: a7LargeTitle, about: 'scroll Today: large title folds, FAB shrinks' },
   a8: { wave: 1, run: a8Colours, about: 'light, dark, device colours off and on' },
   a9: { wave: 2, run: a9A11y, about: 'a11y report on Today, Upcoming, editor, quick add, drawer' },
   a10: { wave: 1, run: a10FirstRun, about: 'pm clear, first launch, set up (signs the app out and in again)' },

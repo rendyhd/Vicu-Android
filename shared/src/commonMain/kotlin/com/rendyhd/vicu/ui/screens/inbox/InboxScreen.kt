@@ -38,6 +38,7 @@ import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.ReorderableTaskRow
 import com.rendyhd.vicu.util.isManuallyOrdered
 import com.rendyhd.vicu.util.moveOptions
@@ -57,6 +58,7 @@ fun InboxScreen(
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val topBarScroll = rememberVicuTopBarScroll()
 
     val haptic = LocalHapticFeedback.current
     // True once the current long-press drag has actually displaced the row; a lift that never
@@ -78,6 +80,8 @@ fun InboxScreen(
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
@@ -95,6 +99,7 @@ fun InboxScreen(
                 VicuTopAppBar(
                     title = { Text("Inbox") },
                     onOpenDrawer = onOpenDrawer,
+                    scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
                 )
             }
@@ -103,7 +108,7 @@ fun InboxScreen(
             // Only a standing notice (no usable Inbox) hides it; a failed refresh or completion
             // is a passing message and the user can still add a task.
             if (!selectionActive && state.notice == null) {
-                VicuFab(onClick = { onShowTaskEntry(state.inboxProjectId, null) })
+                VicuFab(onClick = { onShowTaskEntry(state.inboxProjectId, null) }, expanded = !listState.canScrollBackward)
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,

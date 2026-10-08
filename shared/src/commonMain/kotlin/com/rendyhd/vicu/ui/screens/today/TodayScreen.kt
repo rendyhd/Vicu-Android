@@ -54,6 +54,7 @@ import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.ui.components.task.TodayRowView
 import com.rendyhd.vicu.ui.screens.routines.RoutineOccurrenceRow
@@ -78,6 +79,7 @@ fun TodayScreen(
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val topBarScroll = rememberVicuTopBarScroll()
 
     val selectionVm: SelectionViewModel = koinViewModel()
     val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
@@ -86,6 +88,8 @@ fun TodayScreen(
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
@@ -104,14 +108,18 @@ fun TodayScreen(
                     title = {
                         Column {
                             Text("Today")
-                            Text(
-                                text = DateDisplay.formatDay(DateContext.HEADER_FULL, LocalToday.current, LocalToday.current, LocalDateFormat.current),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            // The date shows under the large title and goes once the title has folded into the bar.
+                            if (topBarScroll.collapsedFraction < 0.5f) {
+                                Text(
+                                    text = DateDisplay.formatDay(DateContext.HEADER_FULL, LocalToday.current, LocalToday.current, LocalDateFormat.current),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     },
                     onOpenDrawer = onOpenDrawer,
+                    scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
                 )
             }
@@ -119,7 +127,7 @@ fun TodayScreen(
         floatingActionButton = {
             if (!selectionActive) {
                 val day = LocalClockDay.current
-                VicuFab(onClick = { onShowTaskEntry(null, DueDates.today(day.date, day.zone).toString()) })
+                VicuFab(onClick = { onShowTaskEntry(null, DueDates.today(day.date, day.zone).toString()) }, expanded = !listState.canScrollBackward)
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
