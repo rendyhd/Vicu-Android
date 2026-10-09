@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working on the Vicu Android app.
 
 ## Project Overview
 
-**Vicu Android** - a native Android task manager powered by [Vikunja](https://vikunja.io/) as the backend. Kotlin, Compose Multiplatform UI and Material 3. It is the mobile companion to the Vicu desktop app (Electron + React + TypeScript) and the two apps ship together (both are 1.9.0 at the time of writing). Both talk to the same Vikunja server and must interpret synced data the same way (see "Cross-app contract").
+**Vicu Android** - a native Android task manager powered by [Vikunja](https://vikunja.io/) as the backend. Kotlin, Compose Multiplatform UI and Material 3. It is the mobile companion to the Vicu desktop app (Electron + React + TypeScript) and the two apps ship together (both are 1.10.0 at the time of writing). Both talk to the same Vikunja server and must interpret synced data the same way (see "Cross-app contract").
 
 **Design inspiration**: Things 3. Clean, minimal UI with generous whitespace, collapsible sections, circular animated checkboxes, and a prominent FAB (+) for quick task entry.
 
