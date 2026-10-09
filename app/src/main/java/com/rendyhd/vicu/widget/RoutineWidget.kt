@@ -63,10 +63,11 @@ class RoutineWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(setOf(COMPACT, LARGE))
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val colors = loadWidgetColors(context)
         provideContent {
             val prefs = currentState<Preferences>()
             val state = RoutineWidgetStateDefinition.parseState(prefs)
-            GlanceTheme {
+            GlanceTheme(colors = colors) {
                 if (androidx.glance.LocalSize.current.height < 120.dp) {
                     CompactRoutineWidget(state)
                 } else {

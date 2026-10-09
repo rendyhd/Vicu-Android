@@ -74,11 +74,12 @@ class TaskListWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(setOf(COMPACT, MEDIUM, LARGE))
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val colors = loadWidgetColors(context)
         provideContent {
             val prefs = currentState<androidx.datastore.preferences.core.Preferences>()
             val state = TaskWidgetStateDefinition.parseState(prefs)
 
-            GlanceTheme {
+            GlanceTheme(colors = colors) {
                 val size = androidx.glance.LocalSize.current
                 when {
                     size.width < 200.dp || size.height < 100.dp -> CompactWidget(state)

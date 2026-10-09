@@ -14,8 +14,12 @@ import com.rendyhd.vicu.R
 import com.rendyhd.vicu.notification.DailySummaryScheduler
 import com.rendyhd.vicu.notification.NotificationChannelManager
 import com.rendyhd.vicu.quicksettings.QuickAddTileService
+import com.rendyhd.vicu.widget.RoutineWidget
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
 import com.rendyhd.vicu.worker.SyncScheduler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class AndroidSettingsHooks(
     private val context: Context,
@@ -26,6 +30,7 @@ class AndroidSettingsHooks(
 
     override fun updateWidgets() {
         WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
+        CoroutineScope(Dispatchers.IO).launch { runCatching { RoutineWidget().updateAllWidgets(context) } }
     }
 
     override fun scheduleSync(enabled: Boolean) {

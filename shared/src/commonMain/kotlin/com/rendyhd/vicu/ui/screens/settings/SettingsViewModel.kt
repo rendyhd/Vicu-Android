@@ -283,7 +283,11 @@ class SettingsViewModel(
     }
 
     fun setUseDeviceColors(enabled: Boolean) {
-        viewModelScope.launch { themePrefsStore.setUseDeviceColors(enabled) }
+        viewModelScope.launch {
+            themePrefsStore.setUseDeviceColors(enabled)
+            // The widgets follow the same colours.
+            platformSettingsHooks.updateWidgets()
+        }
     }
 
     // --- NLP Parser ---
