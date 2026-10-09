@@ -10,6 +10,10 @@
 //                      description lacks the title of its row
 //   small-target       a clickable or checkable node under 48 dp in width or height
 //                      (pixels divided by the density scale from `wm density`)
+// A row that is only partly scrolled into view (cut by the screen edge or by the edge of the list or row that
+// scrolls it) shows a slice of itself in the dump: the slice is under 48 dp and its text can be out of view.
+// That is not a target a finger meets (scrolling shows the whole row), so such a node is listed as a note
+// (`findings.notes`, "clipped" in the json) and never as a finding.
 // Findings are also written to out/a11y/<screen>.json (scenario a9 of shots.mjs writes them to out/<run>-a9/).
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -30,10 +34,38 @@ function named(nodes, n) {
   return d.subtree(nodes, n).some((x) => (x.text && x.text.trim()) || (x['content-desc'] && x['content-desc'].trim()))
 }
 
-/** Findings for one dump: [{ rule, label, bounds, detail }]. */
+const EDGE_PX = 2
+
+/**
+ * Which edges of `n` are cut: it touches or crosses the screen edge or the edge of a scrolling ancestor, and is
+ * under 48 dp in that direction (a whole row never is). Returns e.g. ['bottom'], or [].
+ */
+function cutEdges(nodes, n) {
+  const small = (len) => len / sc.scale < MIN_DP - TOLERANCE_DP
+  const cut = new Set()
+  const boxes = [{ x1: 0, y1: 0, x2: sc.width, y2: sc.height }]
+  for (let p = n.parent; p >= 0; p = nodes[p].parent) if (nodes[p].scrollable && nodes[p].w > 0) boxes.push(nodes[p])
+  for (const b of boxes) {
+    if (small(n.h) && n.y2 >= b.y2 - EDGE_PX && n.y1 > b.y1 + EDGE_PX) cut.add('bottom')
+    if (small(n.h) && n.y1 <= b.y1 + EDGE_PX && n.y2 < b.y2 - EDGE_PX) cut.add('top')
+    if (small(n.w) && n.x2 >= b.x2 - EDGE_PX && n.x1 > b.x1 + EDGE_PX) cut.add('right')
+    if (small(n.w) && n.x1 <= b.x1 + EDGE_PX && n.x2 < b.x2 - EDGE_PX) cut.add('left')
+  }
+  return [...cut]
+}
+
+/** Findings for one dump: [{ rule, label, bounds, detail }]; the array's `notes` lists the clipped nodes left out. */
 export function audit(nodes) {
   const out = []
-  const add = (rule, n, detail) => out.push({ rule, label: label(n), bounds: n.bounds, detail })
+  out.notes = []
+  const add = (rule, n, detail) => {
+    const cut = cutEdges(nodes, n)
+    if (cut.length) {
+      if (!out.notes.some((x) => x.bounds === n.bounds)) out.notes.push({ label: label(n), bounds: n.bounds, detail: `${detail}, cut at the ${cut.join(' and ')} (partly scrolled out of view)` })
+      return
+    }
+    out.push({ rule, label: label(n), bounds: n.bounds, detail })
+  }
 
   for (const n of nodes) {
     if (!n.clickable || !visible(n)) continue
@@ -67,8 +99,10 @@ export function printFindings(name, findings, dir = join(d.HERE, 'out', 'a11y'))
   for (const f of findings) (by[f.rule] ??= []).push(f)
   console.log(`-- ${name}: ${findings.length} finding(s)${Object.entries(by).map(([r, l]) => ` ${r}=${l.length}`).join('')}`)
   for (const f of findings) console.log(`   [${f.rule}] ${f.label} ${f.bounds}${f.detail ? `  ${f.detail}` : ''}`)
+  const clipped = findings.notes ?? []
+  for (const c of clipped) console.log(`   (clipped, not a finding) ${c.label} ${c.bounds}  ${c.detail}`)
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, `${name}.json`), JSON.stringify({ screen: name, density: sc.scale, findings }, null, 2) + '\n')
+  writeFileSync(join(dir, `${name}.json`), JSON.stringify({ screen: name, density: sc.scale, findings, clipped }, null, 2) + '\n')
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

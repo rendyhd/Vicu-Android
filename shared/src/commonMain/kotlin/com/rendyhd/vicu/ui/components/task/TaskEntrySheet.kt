@@ -93,6 +93,9 @@ import com.rendyhd.vicu.util.RecurrenceValue
 import com.rendyhd.vicu.util.parser.TokenType
 import com.rendyhd.vicu.util.parser.getPrefixes
 
+/** From this font scale on the chips wrap onto more rows instead of scrolling sideways, so none is out of sight. */
+private const val ENTRY_CHIPS_WRAP_FONT_SCALE = 1.25f
+
 /**
  * The new-task sheet (design review 3.6): a compact sheet on the keyboard with the title (its
  * parsed words highlighted), one row of chips (When, Project, Tags, Priority) that say the value in
@@ -297,72 +300,89 @@ fun TaskEntrySheet(
             fun tint(source: FieldSource?, type: TokenType): Color? =
                 if (source == FieldSource.TEXT) tokenChipColor(type, isDarkTheme) else null
 
-            // One row: the chips scroll sideways when they say values, "+ Notes" stays at its end.
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(
-                    modifier = Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    // When: the one place the date is shown.
-                    val hasDate = fields.dueDate.isNotBlank()
-                    TaskEntryChip(
-                        label = if (hasDate) {
-                            DateDisplay.formatDue(DateContext.CHIP, fields.dueDate, day.date, day.zone, dateFormat)
-                        } else {
-                            "When"
-                        },
-                        onClick = { showDatePicker = true },
-                        tint = tint(fields.dueSource, TokenType.DATE),
-                        clearDescription = if (hasDate) "Clear date" else null,
-                        onClear = if (hasDate) viewModel::clearDueDate else null,
-                        tokenRect = { tokenRectOf(TokenType.DATE) },
-                    )
+            // One row: the chips scroll sideways when they say values, "+ Notes" stays at its end. With a
+            // large font the chips no longer fit side by side and the later ones would sit out of sight
+            // behind a scroll nobody can see, so they wrap onto more rows and every chip stays in view.
+            val wrapChips = LocalDensity.current.fontScale >= ENTRY_CHIPS_WRAP_FONT_SCALE
+            val entryChips: @Composable () -> Unit = {
+                // When: the one place the date is shown.
+                val hasDate = fields.dueDate.isNotBlank()
+                TaskEntryChip(
+                    label = if (hasDate) {
+                        DateDisplay.formatDue(DateContext.CHIP, fields.dueDate, day.date, day.zone, dateFormat)
+                    } else {
+                        "When"
+                    },
+                    onClick = { showDatePicker = true },
+                    tint = tint(fields.dueSource, TokenType.DATE),
+                    clearDescription = if (hasDate) "Clear date" else null,
+                    onClear = if (hasDate) viewModel::clearDueDate else null,
+                    tokenRect = { tokenRectOf(TokenType.DATE) },
+                )
 
-                    val projectTitle = state.allProjects.find { it.id == fields.projectId }?.title ?: "Project"
-                    TaskEntryChip(
-                        label = entryProjectChipLabel(fields, projectTitle, state.title, parseResult),
-                        onClick = { showProjectPicker = true },
-                        tint = if (fields.parsedProjectName != null) tokenChipColor(TokenType.PROJECT, isDarkTheme) else null,
-                        tokenRect = { tokenRectOf(TokenType.PROJECT) },
-                    )
+                val projectTitle = state.allProjects.find { it.id == fields.projectId }?.title ?: "Project"
+                TaskEntryChip(
+                    label = entryProjectChipLabel(fields, projectTitle, state.title, parseResult),
+                    onClick = { showProjectPicker = true },
+                    tint = if (fields.parsedProjectName != null) tokenChipColor(TokenType.PROJECT, isDarkTheme) else null,
+                    tokenRect = { tokenRectOf(TokenType.PROJECT) },
+                )
 
-                    val pickedLabels = state.allLabels.filter { it.id in state.selectedLabelIds }.map { it.title }
-                    val parsedLabels = parseResult?.labels.orEmpty()
-                    val labelWords = entryLabelsWords(pickedLabels, parsedLabels)
-                    TaskEntryChip(
-                        label = labelWords ?: "Tags",
-                        onClick = { showLabelPicker = true },
-                        tint = if (parsedLabels.isNotEmpty()) tokenChipColor(TokenType.LABEL, isDarkTheme) else null,
-                        clearDescription = if (labelWords != null) "Clear tags" else null,
-                        onClear = if (labelWords != null) viewModel::clearLabels else null,
-                        tokenRect = { tokenRectOf(TokenType.LABEL) },
-                    )
+                val pickedLabels = state.allLabels.filter { it.id in state.selectedLabelIds }.map { it.title }
+                val parsedLabels = parseResult?.labels.orEmpty()
+                val labelWords = entryLabelsWords(pickedLabels, parsedLabels)
+                TaskEntryChip(
+                    label = labelWords ?: "Tags",
+                    onClick = { showLabelPicker = true },
+                    tint = if (parsedLabels.isNotEmpty()) tokenChipColor(TokenType.LABEL, isDarkTheme) else null,
+                    clearDescription = if (labelWords != null) "Clear tags" else null,
+                    onClear = if (labelWords != null) viewModel::clearLabels else null,
+                    tokenRect = { tokenRectOf(TokenType.LABEL) },
+                )
 
-                    val priorityName = entryPriorityName(fields.priority)
-                    TaskEntryChip(
-                        label = priorityName ?: "Priority",
-                        onClick = { showPriorityPicker = true },
-                        tint = tint(fields.prioritySource, TokenType.PRIORITY),
-                        clearDescription = if (priorityName != null) "Clear priority" else null,
-                        onClear = if (priorityName != null) ({ viewModel.setPriority(0) }) else null,
-                        tokenRect = { tokenRectOf(TokenType.PRIORITY) },
-                    )
+                val priorityName = entryPriorityName(fields.priority)
+                TaskEntryChip(
+                    label = priorityName ?: "Priority",
+                    onClick = { showPriorityPicker = true },
+                    tint = tint(fields.prioritySource, TokenType.PRIORITY),
+                    clearDescription = if (priorityName != null) "Clear priority" else null,
+                    onClear = if (priorityName != null) ({ viewModel.setPriority(0) }) else null,
+                    tokenRect = { tokenRectOf(TokenType.PRIORITY) },
+                )
 
-                    if (!showNotes) {
-                        // A repeat or a reminder that is already set stays in view while the sheet is small.
-                        if (fields.recurrenceSource != null) {
-                            RecurrenceChip(fields.recurrence, fields.recurrenceSource, isDarkTheme, viewModel, { tokenRectOf(TokenType.RECURRENCE) }) {
-                                showRecurrencePicker = true
-                            }
-                        }
-                        if (state.reminders.isNotEmpty()) {
-                            ReminderChip(state.reminders.size) { showReminderPicker = true }
-                        }
-                }
-                }
                 if (!showNotes) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    TaskEntryChip(label = "+ Notes", onClick = { notesOpen = true })
+                    // A repeat or a reminder that is already set stays in view while the sheet is small.
+                    if (fields.recurrenceSource != null) {
+                        RecurrenceChip(fields.recurrence, fields.recurrenceSource, isDarkTheme, viewModel, { tokenRectOf(TokenType.RECURRENCE) }) {
+                            showRecurrencePicker = true
+                        }
+                    }
+                    if (state.reminders.isNotEmpty()) {
+                        ReminderChip(state.reminders.size) { showReminderPicker = true }
+                    }
+                }
+            }
+            if (wrapChips) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    entryChips()
+                    if (!showNotes) TaskEntryChip(label = "+ Notes", onClick = { notesOpen = true })
+                }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        entryChips()
+                    }
+                    if (!showNotes) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TaskEntryChip(label = "+ Notes", onClick = { notesOpen = true })
+                    }
                 }
             }
 

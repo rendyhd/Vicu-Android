@@ -9,9 +9,10 @@
 //
 // Captures land in out/<scenario>/<theme>-<step>.png. A step that cannot run prints FAIL and the
 // run exits 1; WARN lines are expectations the app does not meet yet and never fail the run.
-// Scenario ids follow the plan: a1..a12. Only baseline, a1, a2, a3, a4, a7, a6, a8, a9, a10 and a11 run today; the
+// Scenario ids follow the plan: a1..a12. Only baseline, a1, a2, a3, a4, a7, a6, a8, a9, a10, a11 and a12 run today; the
 // others are stubs that print STUB and pass.
-import { readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { PNG } from 'pngjs'
 import * as d from './droid.mjs'
 import * as v from './nav.mjs'
@@ -543,8 +544,11 @@ async function a5QuickAdd(ctx) {
       throw new Error(`the date chip reads "${dateChips[0]}", expected the coming Saturday ${dayOf(saturday)} at 3 PM`)
     }
     console.log(`  date chip: ${dateChips[0]}`)
-    if (!t.includes('Personal')) throw new Error(`no "Personal" chip (texts: ${t.slice(0, 12).join(' | ')})`)
-    if (!t.includes('+ Notes')) throw new Error('no "+ Notes" chip')
+    // At a large font the chips wrap (font scale 1.25 and up) or, below that, scroll: look for the chip
+    // after scrolling the row before calling it missing.
+    const withPersonal = t.includes('Personal') ? t : await chipTexts('Personal')
+    if (!withPersonal.includes('Personal')) throw new Error(`no "Personal" chip (texts: ${withPersonal.slice(0, 12).join(' | ')})`)
+    if (!withPersonal.includes('+ Notes')) throw new Error('no "+ Notes" chip')
     printFindings(`${ctx.theme}-compact`, audit(nodes), ctx.outDir) // reported, never failing
     const scrolled = await chipTexts('Priority')
     for (const name of ['Tags', 'Priority']) if (!scrolled.includes(name)) warn(`a5: no "${name}" chip, even after scrolling the row`)
@@ -1091,6 +1095,71 @@ async function a3EditorAndTransitions(ctx) {
 }
 
 /**
+ * The Vikunja API for one seeded task (found by its title among the open tasks), or null without a
+ * token or when it cannot be found. `done()` reads the server's state, `reopen()` sets done=false.
+ */
+async function serverTaskApi(title) {
+  const token = resolveToken(opt('token', DEFAULT_TOKEN_PATH))
+  if (!token) return null
+  const call = async (method, path, body) => {
+    const r = await fetch(API + path, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': method === 'PATCH' ? 'application/merge-patch+json' : 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    if (!r.ok) throw new Error(`${method} ${path}: HTTP ${r.status}`)
+    const t = await r.text()
+    return t ? JSON.parse(t) : null
+  }
+  try {
+    const q = new URLSearchParams({ filter: 'done = false', per_page: '1000' })
+    const body = await call('GET', `/tasks?${q}`)
+    const items = Array.isArray(body) ? body : (body?.items ?? [])
+    const found = items.filter((t) => t.title === title)
+    if (found.length !== 1) { console.log(`  server: ${found.length} open tasks titled "${title}", no API fallback`); return null }
+    const id = found[0].id
+    return {
+      id,
+      done: async () => Boolean((await call('GET', `/tasks/${id}`)).done),
+      reopen: () => call('PATCH', `/tasks/${id}`, { done: false }),
+    }
+  } catch (e) {
+    console.log(`  server lookup failed (${String(e.message).split('\n')[0]}), no API fallback`)
+    return null
+  }
+}
+
+/**
+ * After a tick the harness made: bring the task back open, by the checkbox while the row is held, by
+ * Undo once it has left, and last through the API (then pull to refresh). Throws only when the server
+ * still has the task done at the end (or, without a token, when the row did not come back).
+ */
+async function reopenAfterTick(row, server) {
+  const rowNode = () => d.dump().find((n) => n.checkable && n['content-desc'] === row.desc)
+  for (let i = 0; i < 6; i++) {
+    const nodes = d.dump()
+    const cb = nodes.find((n) => n.checkable && n['content-desc'] === row.desc)
+    if (cb && !cb.checked) break // open again (or never closed)
+    if (cb?.checked) await d.tap(cb.cx, cb.cy, 1500)
+    else {
+      const undo = nodes.find((n) => n.text === 'Undo' || n['content-desc'] === 'Undo')
+      if (undo) await d.tap(undo.cx, undo.cy, 2500)
+      else await d.sleep(1500) // the row is closing: taps are ignored until it has left
+    }
+  }
+  await d.sleep(800)
+  if (rowNode() && !rowNode().checked) { console.log(`  reopened "${row.desc}"`); return }
+  if (!server) throw new Error(`could not reopen "${row.desc}" (no API fallback)`)
+  if (await server.done()) {
+    console.log(`  the UI did not reopen "${row.desc}": reopened through the API`)
+    await server.reopen()
+  }
+  if (await server.done()) throw new Error(`the server still has "${row.desc}" done`)
+  await v.nav('Today', 1500)
+  for (let i = 0; i < 3 && !rowNode(); i++) await d.swipe(540, 700, 540, 1700, 400, 4000) // pull to refresh
+}
+
+/**
  * 4.11b signature moments: a count that rolls, a token that travels into its chip, and Today's All
  * clear. Each runs at animator scale 10 so a mid-way frame can be captured; the scale is back at 1
  * (and the task reopened) at the end. All clear is only captured when Today happens to be empty:
@@ -1107,29 +1176,28 @@ async function momentsSignature(ctx) {
     await step('count-rolls', async () => {
       await v.nav('Today', 2000)
       const row = v.firstRow(undefined, { plain: true })
-      const before = shot('roll-start')
-      console.log('  section counts before:', headerCounts(d.dump()).join(', '))
-      d.animScale(10)
-      await d.tap(row.check.cx, row.check.cy, 0)
-      const mids = frames('roll')
-      await d.sleep(3000)
-      const end = shot('roll-end')
-      d.animScale(1)
-      console.log('  section counts after:', headerCounts(d.dump()).join(', '))
-      judgeMotion(ctx, 'count roll (section header)', before, mids, end, 0.0005)
-      // Leave the data as it was: reopen the task while its row is still held on screen.
-      // A slow emulator can be past the hold: the row has left and the snackbar offers Undo instead.
-      let nodes = d.dump()
-      const cb = nodes.find((n) => n.checkable && n['content-desc'] === row.desc)
-      if (cb?.checked) await d.tap(cb.cx, cb.cy, 1500)
-      else if (!cb) {
-        const undo = nodes.find((n) => n.text === 'Undo' || n['content-desc'] === 'Undo')
-        if (!undo) throw new Error(`the row "${row.desc}" left and there is no Undo: the task stays done`)
-        await d.tap(undo.cx, undo.cy, 2500)
+      const server = await serverTaskApi(row.title.text) // null when there is no token: the UI is the only way back
+      let failure = null
+      try {
+        const before = shot('roll-start')
+        console.log('  section counts before:', headerCounts(d.dump()).join(', '))
+        d.animScale(10)
+        await d.tap(row.check.cx, row.check.cy, 0)
+        const mids = frames('roll')
+        await d.sleep(3000)
+        const end = shot('roll-end')
+        d.animScale(1)
+        console.log('  section counts after:', headerCounts(d.dump()).join(', '))
+        judgeMotion(ctx, 'count roll (section header)', before, mids, end, 0.0005)
+      } catch (e) {
+        failure = e
       }
-      nodes = d.dump()
-      const again = nodes.find((n) => n.checkable && n['content-desc'] === row.desc)
-      if (!again || again.checked) throw new Error(`could not reopen "${row.desc}"`)
+      d.animScale(1)
+      // Leave the data as it was, whatever happened above: the row is reopened on screen while it is held
+      // or through Undo once it has left; a row that is closing ignores taps, and the snackbar may be gone
+      // on a slow emulator. The last resort reopens the task through the API and refreshes the list.
+      await reopenAfterTick(row, server)
+      if (failure) throw failure
     })
     await step('token-travels', async () => {
       await v.nav('Today', 1500)
@@ -1163,6 +1231,194 @@ async function momentsSignature(ctx) {
   }
 }
 
+/**
+ * A12: Today in both apps. The seeded data decides what Today holds (desktop `seed.mjs`): Overdue with
+ * "Renew passport" and "Review pull request from Sam"; Today with "Call the plumber about the kitchen
+ * leak" (14:00) and the group Personal with the rows below it. This scenario reads Today from the top to the
+ * end by scrolling and asserts the same section headers and task titles in the same order as the seed implies
+ * (the order the desktop shows, `chrome-<theme>/baseline--today.png`), the project and label chips of the
+ * seeded rows, and the subtitle phrase of the contract (`header.full`, by the device locale). Rows of another
+ * run (an Inbox group) are skipped, never counted as a mismatch.
+ * It captures Today (top and end) and puts the newest desktop capture of Today for this theme beside it
+ * (`<theme>-desktop-today.png`, `<theme>-side-by-side.png`) so the two can be looked at together. The known,
+ * accepted differences are printed as NOTE lines.
+ */
+const A12_EXPECTED = [
+  { header: 'Overdue', count: 2 },
+  { title: 'Renew passport', project: 'Personal', labels: ['errand'] },
+  { title: 'Review pull request from Sam', project: 'Website redesign', labels: ['deep work'] },
+  { header: 'Today', count: 6 },
+  { title: 'Call the plumber about the kitchen leak', project: 'Home renovation', labels: ['call'] },
+  { header: 'Personal', count: 3 },
+  { title: 'Buy groceries', labels: ['errand'] },
+  { title: 'Water the plants' },
+  { title: 'Send the signed lease back to the landlord' },
+  { title: 'Draft Q4 roadmap', project: 'Q4 planning', labels: ['deep work'] },
+  { title: 'Book flights to Lisbon', project: 'Trip to Lisbon' },
+]
+
+/** Bilinear resize of a PNG to the given height (width follows); averages a grid of samples when shrinking. */
+function resizeToHeight(src, height) {
+  const width = Math.max(1, Math.round((src.width * height) / src.height))
+  const dst = new PNG({ width, height })
+  const sx = src.width / width
+  const sy = src.height / height
+  const nx = Math.max(1, Math.ceil(sx))
+  const ny = Math.max(1, Math.ceil(sy))
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let r = 0, g = 0, b = 0, a = 0
+      for (let j = 0; j < ny; j++) {
+        for (let i = 0; i < nx; i++) {
+          const fx = Math.min(src.width - 1, Math.max(0, (x + (i + 0.5) / nx) * sx - 0.5))
+          const fy = Math.min(src.height - 1, Math.max(0, (y + (j + 0.5) / ny) * sy - 0.5))
+          const x0 = Math.floor(fx), y0 = Math.floor(fy)
+          const x1 = Math.min(src.width - 1, x0 + 1), y1 = Math.min(src.height - 1, y0 + 1)
+          const tx = fx - x0, ty = fy - y0
+          for (const [px, py, w] of [[x0, y0, (1 - tx) * (1 - ty)], [x1, y0, tx * (1 - ty)], [x0, y1, (1 - tx) * ty], [x1, y1, tx * ty]]) {
+            const k = (py * src.width + px) * 4
+            r += src.data[k] * w; g += src.data[k + 1] * w; b += src.data[k + 2] * w; a += src.data[k + 3] * w
+          }
+        }
+      }
+      const o = (y * width + x) * 4
+      const n = nx * ny
+      dst.data[o] = r / n; dst.data[o + 1] = g / n; dst.data[o + 2] = b / n; dst.data[o + 3] = a / n
+    }
+  }
+  return dst
+}
+
+/** The newest desktop capture of Today for a theme: <desktop out>/<run folder naming the theme>/baseline--today.png. */
+function desktopTodayCapture(theme) {
+  const root = resolve(opt('desktop-out', join(d.REPO, '..', 'vicu', 'scripts', 'ui-verify', 'out')))
+  if (!existsSync(root)) return null
+  const found = []
+  for (const dir of readdirSync(root)) {
+    if (!new RegExp(`(^|[-_])${theme}($|[-_])`).test(dir)) continue
+    const file = join(root, dir, 'baseline--today.png')
+    if (existsSync(file)) found.push({ file, at: statSync(file).mtimeMs })
+  }
+  found.sort((a, b) => b.at - a.at)
+  return found[0]?.file ?? null
+}
+
+async function a12Today(ctx) {
+  const { step, shot, warn, theme, outDir } = ctx
+  const zone = d.sh('getprop persist.sys.timezone').trim() || 'UTC'
+  const locale = (d.sh('getprop persist.sys.locale').trim() || d.sh('getprop ro.product.locale').trim() || 'en-US').replace('_', '-')
+  const headerOf = (n) => /^(.+), (\d+) tasks?$/.exec(n['content-desc'] ?? '')
+  const seen = [] // keys in the order they were met: 'H:Today' or 'T:Buy groceries'
+  const info = {} // key -> details
+  const scrollTop = async () => { for (let i = 0; i < 4; i++) await d.swipe(540, 700, 540, 1900, 250, 500) }
+  /** Items on screen, top to bottom, added to `seen` when new. Returns how many were new. */
+  const collect = (nodes = d.dump()) => {
+    const items = []
+    for (const n of nodes) {
+      const h = headerOf(n)
+      if (h && n.x1 < v.px(60) && n.y1 > v.sc.height * 0.12) items.push({ y: n.y1, key: `H:${h[1]}`, header: h[1], count: Number(h[2]) })
+    }
+    for (const r of v.taskRows(nodes)) {
+      if (!r.title) continue
+      const text = r.title.text
+      const below = d.subtree(nodes, r.row)
+      const around = below.filter((x) => x.text && x.i !== r.title.i).map((x) => x.text)
+      const marks = below.map((x) => x['content-desc']).filter(Boolean)
+      items.push({ y: r.check.y1, key: `T:${text}`, title: text, around, marks })
+    }
+    items.sort((a, b) => a.y - b.y)
+    let added = 0
+    for (const it of items) {
+      if (!seen.includes(it.key)) { seen.push(it.key); added++ }
+      info[it.key] = { ...(info[it.key] ?? {}), ...it }
+    }
+    return added
+  }
+
+  await step('capture', async () => {
+    await v.nav('Today', 2200)
+    await scrollTop()
+    await d.sleep(3500) // the pull-to-refresh indicator of the swipes down goes away first
+    shot('today')
+    collect()
+    let stale = 0
+    for (let i = 0; i < 8 && stale < 2; i++) {
+      await d.swipe(540, Math.round(v.sc.height * 0.72), 540, Math.round(v.sc.height * 0.3), 500, 900)
+      stale = collect() ? 0 : stale + 1
+    }
+    shot('today-end')
+    await scrollTop()
+  })
+
+  await step('headers and titles in the seeded order', async () => {
+    const wanted = A12_EXPECTED.map((e) => (e.header ? `H:${e.header}` : `T:${e.title}`))
+    // Only what the seed implies; rows and groups of other runs (an Inbox group) do not count.
+    const got = seen.filter((k) => wanted.includes(k))
+    const same = got.length === wanted.length && got.every((k, i) => k === wanted[i])
+    console.log(`  on screen: ${seen.map((k) => k.slice(2)).join(' | ')}`)
+    if (!same) throw new Error(`expected ${wanted.map((k) => k.slice(2)).join(' | ')}; got ${got.map((k) => k.slice(2)).join(' | ')}`)
+    const extra = seen.filter((k) => !wanted.includes(k))
+    if (extra.length) warn(`a12: other rows on Today (not from the seed): ${extra.map((k) => k.slice(2)).join(', ')}`)
+    const inbox = info['H:Inbox']
+    for (const e of A12_EXPECTED) {
+      if (!e.header) continue
+      const h = info[`H:${e.header}`]
+      if (inbox && e.header === 'Today') { console.log(`  Today counts ${h.count} with the ${inbox.count} Inbox row(s) of another run: not compared`); continue }
+      if (h.count !== e.count) throw new Error(`header "${e.header}" counts ${h.count}, the seed implies ${e.count}`)
+    }
+  })
+
+  await step('row details from the seed', async () => {
+    for (const e of A12_EXPECTED) {
+      if (!e.title) continue
+      const it = info[`T:${e.title}`]
+      if (!it) throw new Error(`no row "${e.title}"`)
+      const text = it.around.join(' | ')
+      if (e.project && !text.includes(e.project)) throw new Error(`"${e.title}" does not name its project ${e.project} (${text})`)
+      for (const l of e.labels ?? []) if (!text.includes(l)) throw new Error(`"${e.title}" has no label chip "${l}" (${text})`)
+    }
+    // Priority marks: the urgent, high and medium rows carry one, as on the desktop.
+    const marks = (t) => (info[`T:${t}`]?.marks ?? []).join(' | ')
+    for (const [t, want] of [['Renew passport', /urgent/i], ['Send the signed lease back to the landlord', /urgent|do now/i], ['Draft Q4 roadmap', /high/i], ['Book flights to Lisbon', /medium/i]]) {
+      if (!want.test(marks(t))) warn(`a12: "${t}" has no priority mark reading ${want} (descriptions: ${marks(t) || 'none'})`)
+    }
+  })
+
+  await step('subtitle phrase', async () => {
+    const nodes = d.dump()
+    const titleNode = nodes.find((n) => n.text === 'Today' && n.y1 < v.sc.height * 0.25)
+    const when = nodes.find((n) => n.text && n.y1 > (titleNode?.y1 ?? 0) && n.y1 < v.sc.height * 0.25 && /\d/.test(n.text) && /day/i.test(n.text))
+    const now = new Date()
+    const phrase = (loc, us) => {
+      const p = Object.fromEntries(new Intl.DateTimeFormat(loc, { timeZone: zone, weekday: 'long', month: 'long', day: 'numeric' }).formatToParts(now).map((x) => [x.type, x.value]))
+      return us ? `${p.weekday}, ${p.month} ${p.day}` : `${p.weekday} ${p.day} ${p.month}`
+    }
+    const want = /^en-(GB|AU|NZ|IE|ZA)/.test(locale) ? phrase('en-GB', false) : phrase('en-US', true)
+    if (!when) throw new Error('no date subtitle under the "Today" title')
+    console.log(`  subtitle "${when.text}" (device locale ${locale})`)
+    if (when.text !== want) throw new Error(`the subtitle reads "${when.text}", the contract (header.full, ${locale}) says "${want}"`)
+    console.log('  NOTE the desktop phrases it by its own locale ("Thursday 8 October" for en-GB, "Thursday, October 8" for en-US): the same rule, not a mismatch')
+  })
+
+  await step('side by side with the desktop capture', async () => {
+    const mine = join(outDir, `${theme}-today.png`)
+    const theirs = desktopTodayCapture(theme)
+    if (!theirs) { warn(`a12: no desktop capture of Today for the ${theme} theme (looked for <desktop out>/*${theme}*/baseline--today.png; --desktop-out sets the folder)`); return }
+    copyFileSync(theirs, join(outDir, `${theme}-desktop-today.png`))
+    const a = resizeToHeight(PNG.sync.read(readFileSync(mine)), 1000)
+    const b = resizeToHeight(PNG.sync.read(readFileSync(theirs)), 1000)
+    const gap = 24
+    const out = new PNG({ width: a.width + gap + b.width, height: 1000 })
+    out.data.fill(128)
+    PNG.bitblt(a, out, 0, 0, a.width, a.height, 0, 0)
+    PNG.bitblt(b, out, 0, 0, b.width, b.height, a.width + gap, 0)
+    writeFileSync(join(outDir, `${theme}-side-by-side.png`), PNG.sync.write(out))
+    console.log(`  desktop capture: ${theirs}`)
+    console.log('  NOTE desktop shows an Inbox group with a grey dot when other runs left rows in the Inbox; Android shows the group only when it has rows')
+    console.log('  NOTE desktop reads its own clock setting ("14:00"); Android follows the device ("2:00 PM"); both read the same seed')
+  })
+}
+
 const stub = (id, wave) => Object.assign(async () => { stubs.push(id); console.log(`STUB ${id}: not implemented yet (plan wave ${wave})`) }, { isStub: true })
 
 // id, wave (from the plan's Android scenario table), run
@@ -1183,7 +1439,7 @@ const SCENARIOS = {
   a9: { wave: 2, run: a9A11y, about: 'a11y report on Today, Upcoming, editor, quick add, drawer' },
   a10: { wave: 1, run: a10FirstRun, about: 'pm clear, first launch, set up (signs the app out and in again)' },
   a11: { wave: 2, run: a11FontScale, about: 'font scale 1.3 on Review, Today, editor' },
-  a12: { wave: 6, run: stub('a12', 6), about: 'Today in both apps side by side' },
+  a12: { wave: 6, run: a12Today, about: 'Today from the seeded data: headers and titles in the seeded order, subtitle phrase, a capture beside the desktop one' },
 }
 const ALIASES = { 'a4-upcoming': 'a4', 'a8-colours': 'a8', 'a10-first-run': 'a10', 'a9-a11y': 'a9', 'a11-font-scale': 'a11' }
 

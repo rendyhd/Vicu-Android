@@ -42,16 +42,29 @@ export async function home() {
   throw new Error('could not get back to a bottom-bar destination')
 }
 
+/** The bottom-bar item for `label`: its text, or its description when the label is only announced. */
+const barItem = (nodes, label) => nodes.find((x) => inBottomBar(x) && (x.text === label || x['content-desc'] === label))
+
 /** Open a bottom-bar destination (Inbox, Today, Upcoming, Anytime). */
 export async function nav(label, wait = 2200) {
-  await home()
   let n
-  // A dump right after a launch or a selection ending can miss the bar for a moment.
-  for (let i = 0; i < 4 && !n; i++) {
-    n = d.dump().find((x) => x.text === label && inBottomBar(x))
-    if (!n) await d.sleep(1200)
+  let seen = []
+  // A dump right after a launch or a selection ending can miss the bar for a moment, and a screen
+  // that covers it (search with its keyboard, a sheet) can survive one trip through home(): look
+  // again, back out once more and look a third time before calling it missing.
+  for (let attempt = 0; attempt < 3 && !n; attempt++) {
+    await home()
+    for (let i = 0; i < 3 && !n; i++) {
+      const nodes = d.dump()
+      n = barItem(nodes, label)
+      if (!n) {
+        seen = nodes.filter((x) => inBottomBar(x) && (x.text || x['content-desc'])).map((x) => x.text || x['content-desc'])
+        await d.sleep(1000)
+      }
+    }
+    if (!n) await d.back()
   }
-  if (!n) throw new Error(`not found: bottom bar ${label}`)
+  if (!n) throw new Error(`not found: bottom bar ${label} (seen near the bottom: ${seen.slice(0, 8).join(' | ') || 'nothing'})`)
   await d.tap(n.cx, n.cy, wait)
 }
 
@@ -178,11 +191,17 @@ export async function listWithRows() {
   throw new Error('no task rows in Today, Inbox or Anytime')
 }
 
+/** Scroll the list on screen back to its top (a pull to refresh may start: wait for it to end). */
+export async function listToTop() {
+  for (let i = 0; i < 3; i++) await d.swipe(Math.round(sc.width / 2), Math.round(sc.height * 0.3), Math.round(sc.width / 2), Math.round(sc.height * 0.8), 250, 500)
+  await d.sleep(3000)
+}
+
 /** Named screens, each as the steps that reach it from anywhere. Used by a11y.mjs and scenario a9. */
 export const SCREENS = {
   inbox: () => nav('Inbox'),
   today: () => nav('Today'),
-  upcoming: () => nav('Upcoming'),
+  upcoming: async () => { await nav('Upcoming'); await listToTop() }, // the tab keeps its scroll position
   anytime: () => nav('Anytime'),
   drawer: () => openDrawer(),
   review: () => drawer('Review'),
