@@ -75,11 +75,14 @@ class AuthManagerRefreshTest {
     fun `a successful refresh clears the backoff before the next refresh is scheduled`() = runTest {
         val calls = Counter()
         val h = authHarness(backgroundScope) {
-            if (calls.increment() == 1) {
+            when (calls.increment()) {
                 // Unauthorized is terminal: it parks the backoff floor far in the future.
-                respondJson("{}", HttpStatusCode.Unauthorized)
-            } else {
-                respondJson("""{"token":"${jwtExpiringIn(600)}"}""")
+                1 -> respondJson("{}", HttpStatusCode.Unauthorized)
+                2 -> respondJson("""{"token":"${jwtExpiringIn(600)}"}""")
+                // The proactive refresh. Every success schedules the next one, and runTest skips
+                // those delays while awaitCondition polls on another dispatcher, so a success here
+                // would let a fourth call race the assertion. A 401 schedules nothing.
+                else -> respondJson("{}", HttpStatusCode.Unauthorized)
             }
         }
         h.storage.storeRefreshToken("r1")
