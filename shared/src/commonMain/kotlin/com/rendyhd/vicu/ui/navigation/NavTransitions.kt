@@ -6,7 +6,6 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.ui.unit.IntOffset
@@ -19,7 +18,7 @@ internal enum class TransitionScreen { Project, Search, Other }
 
 /** The two motions between screens (design-system-v1, section 6). */
 internal enum class NavTransitionKind {
-    /** Peers: the old screen fades out (90 ms), the new one fades in (210 ms) from scale 0.92. */
+    /** Peers: the old screen fades out (90 ms), the new one fades in (210 ms), no scale. */
     FadeThrough,
 
     /** Going into or out of something: both screens slide 30 dp along X and fade. */
@@ -42,9 +41,6 @@ private fun NavBackStackEntry.transitionScreen(): TransitionScreen = when {
 /** The shared axis distance in dp; the spring is move (320 ms), the fades are the page tokens. */
 internal const val SHARED_AXIS_DP = 30
 
-/** Scale the new screen of a fade-through grows from. */
-internal const val FADE_THROUGH_START_SCALE = 0.92f
-
 /**
  * The NavHost transitions. Navigation 2.9 plays the pop pair under the predictive back gesture,
  * so a back swipe scrubs the same motion in reverse.
@@ -66,10 +62,8 @@ internal class NavTransitions(private val axisPx: Int, private val rtl: Boolean 
     private val fadeOut = fadeOut(tween(VicuMotion.pageOutMs))
     private val fadeInLate = fadeIn(tween(VicuMotion.pageInMs, delayMillis = VicuMotion.pageOutMs))
 
-    private fun enterFadeThrough(): EnterTransition = fadeInLate + scaleIn(
-        initialScale = FADE_THROUGH_START_SCALE,
-        animationSpec = tween(VicuMotion.pageInMs, delayMillis = VicuMotion.pageOutMs),
-    )
+    /** Fade only: the new screen does not grow in, a zoom between tabs was disorienting. */
+    private fun enterFadeThrough(): EnterTransition = fadeInLate
 
     /** A screen arriving from the end side (going forward) or the start side (coming back). */
     private fun slideIn(forward: Boolean): EnterTransition = fadeInLate + slideInHorizontally(
