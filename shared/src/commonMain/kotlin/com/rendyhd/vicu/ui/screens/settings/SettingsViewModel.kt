@@ -17,6 +17,8 @@ import com.rendyhd.vicu.data.local.NotificationPrefs
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.ReviewPrefs
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
+import com.rendyhd.vicu.data.local.RoutinePrefsStore
+import com.rendyhd.vicu.data.local.RoutineVisibility
 import com.rendyhd.vicu.data.local.SyncCursorStore
 import com.rendyhd.vicu.data.local.SubprojectDisplayMode
 import com.rendyhd.vicu.data.local.SubtaskDisplayMode
@@ -35,6 +37,7 @@ import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.CustomListRepository
+import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.ui.screens.settings.PlatformSettingsHooks
@@ -77,6 +80,8 @@ data class SettingsUiState(
     val widgetContextNav: Boolean = true,
     // Review
     val reviewPrefs: ReviewPrefs = ReviewPrefs(),
+    // Routines
+    val routineVisibility: RoutineVisibility = RoutineVisibility(),
     // Logbook retention
     val logbookPrefs: LogbookPrefs = LogbookPrefs(),
     // Messages
@@ -137,6 +142,8 @@ class SettingsViewModel(
     private val widgetPrefsStore: WidgetPrefsStore,
     private val reviewPrefsStore: ReviewPrefsStore,
     private val logbookPrefsStore: LogbookPrefsStore,
+    private val routinePrefsStore: RoutinePrefsStore,
+    private val repositoryHooks: PlatformRepositoryHooks,
     private val pendingActionDao: PendingActionDao,
     private val networkMonitor: NetworkMonitor,
     private val sessionCleanup: SessionCleanup,
@@ -203,7 +210,13 @@ class SettingsViewModel(
         PrefsGroup(smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs)
     }
 
-    val uiState: StateFlow<SettingsUiState> = combine(content, sync, account, prefs) { c, s, a, p ->
+    val uiState: StateFlow<SettingsUiState> = combine(
+        content,
+        sync,
+        account,
+        prefs,
+        routinePrefsStore.visibility,
+    ) { c, s, a, p, routineVisibility ->
         SettingsUiState(
             username = a.userInfo.username,
             email = a.userInfo.email,
@@ -227,6 +240,7 @@ class SettingsViewModel(
             widgetSmartAdd = p.smartAdd,
             widgetContextNav = p.contextNav,
             reviewPrefs = p.reviewPrefs,
+            routineVisibility = routineVisibility,
             logbookPrefs = p.logbookPrefs,
             error = a.messages.first,
             successMessage = a.messages.second,
@@ -594,6 +608,20 @@ class SettingsViewModel(
 
     fun setReviewExcludeInbox(enabled: Boolean) {
         viewModelScope.launch { reviewPrefsStore.setExcludeInbox(enabled) }
+    }
+
+    // --- Routines ---
+
+    /** Turning routines off also cancels their reminders; turning them on plans them again. */
+    fun setRoutinesEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            routinePrefsStore.setEnabled(enabled)
+            repositoryHooks.routinesChanged()
+        }
+    }
+
+    fun setRoutinesShowInToday(show: Boolean) {
+        viewModelScope.launch { routinePrefsStore.setShowInToday(show) }
     }
 
     fun setInboxExcludeDated(enabled: Boolean) {

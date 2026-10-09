@@ -39,7 +39,8 @@ class RoutineAlarmScheduler(
 
     suspend fun rescheduleAll() {
         cancelAll()
-        if (!prefsStore.remindersEnabled.first()) return
+        // Paused from the Routines screen, or routines turned off in Settings.
+        if (!prefsStore.remindersEnabled.first() || !prefsStore.enabled.first()) return
 
         val timeZone = time.zone()
         val nowInstant = time.now()

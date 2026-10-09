@@ -1,11 +1,9 @@
 package com.rendyhd.vicu.ui.components.shared
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AllInclusive
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.Build
-import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FilterList
@@ -20,7 +18,6 @@ import androidx.compose.material.icons.outlined.Pets
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material.icons.outlined.Star
-import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material.icons.outlined.Work
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.rendyhd.vicu.domain.model.BottomBarSlot
@@ -57,9 +54,9 @@ object IconRegistry {
     private val ICON_MAP: Map<String, ImageVector> = PRESET_ICONS.associate { it.key to it.icon }
 
     private val SMART_LIST_ICONS: Map<BottomBarSlotType, ImageVector> = mapOf(
-        BottomBarSlotType.TODAY to Icons.Outlined.WbSunny,
-        BottomBarSlotType.UPCOMING to Icons.Outlined.CalendarMonth,
-        BottomBarSlotType.ANYTIME to Icons.Outlined.AllInclusive,
+        BottomBarSlotType.TODAY to SmartListIdentity.TODAY.icon,
+        BottomBarSlotType.UPCOMING to SmartListIdentity.UPCOMING.icon,
+        BottomBarSlotType.ANYTIME to SmartListIdentity.ANYTIME.icon,
     )
 
     private val TYPE_DEFAULT_ICONS: Map<BottomBarSlotType, ImageVector> = SMART_LIST_ICONS + mapOf(

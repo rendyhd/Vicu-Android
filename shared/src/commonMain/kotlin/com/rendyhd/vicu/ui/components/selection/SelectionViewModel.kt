@@ -10,6 +10,8 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DueDates
@@ -54,6 +56,8 @@ class SelectionViewModel(
     private val appScope: CoroutineScope,
     private val dayClock: DayClock,
     navigationTicker: NavigationTicker = NavigationTicker(),
+    /** Where completed rows that no screen holds go: the app-wide "Completed, Undo" toast. */
+    private val completionToast: CompletionToast = NoCompletionToast,
 ) : ViewModel() {
 
     init {
@@ -135,30 +139,16 @@ class SelectionViewModel(
 
     private suspend fun completeTasks(tasks: List<Task>, completions: CompletionHold?) {
         // Hold every row before the first request, so none of them vanishes while it is sent.
-        tasks.forEach { completions?.hold(it) }
+        val heldIds = tasks.filter { completions?.hold(it) == true }.mapTo(HashSet()) { it.id }
         val byId = tasks.associateBy { it.id }
         val outcomes = runBulk(tasks.map { it.id }) { taskRepository.toggleDone(byId.getValue(it)) }
         outcomes.filter { it.failed }.forEach { completions?.release(it.id) }
-        val completedIds = outcomes.filter { !it.failed }.map { it.id }
+        // A held row joins the completion toast when its hold ends; a row that was not held on a
+        // screen (no list to keep it in) joins it now. Both end up in the one app-wide toast
+        // ("3 completed"), whose Undo covers every task of the batch.
+        val completedIds = outcomes.filter { !it.failed && it.id !in heldIds }.map { it.id }
         finishBulk("complete", outcomes)
-        if (completedIds.isNotEmpty()) {
-            val count = completedIds.size
-            appMessages.post(
-                message = if (count == 1) "Task completed" else "$count tasks completed",
-                actionLabel = "Undo",
-                onAction = { undoBulkComplete(completedIds, completions) },
-            )
-        }
-    }
-
-    /** One undo for the whole batch: reopens exactly the tasks that were completed. */
-    private fun undoBulkComplete(taskIds: List<Long>, completions: CompletionHold?) {
-        appScope.launch {
-            taskIds.forEach { completions?.undoing(it) }
-            val outcomes = runBulk(taskIds) { taskRepository.setDone(it, false) }
-            taskIds.forEach { completions?.release(it) }
-            reportFailures("reopen", outcomes)
-        }
+        completedIds.forEach(completionToast::collapsed)
     }
 
     private fun rootSelection(
@@ -274,7 +264,10 @@ class SelectionViewModel(
     /**
      * Runs [action] for every id, [BULK_PARALLELISM] at a time. The actions only touch their own
      * task (the one shared row, a parent's list of subtasks, is updated under a lock in the
-     * repository), so they can overlap. An action that throws counts as a failure.
+     * repository), so the local work can overlap; the requests themselves leave one at a time,
+     * whatever task they are for (the API service holds one write at a time for the whole
+     * process: a SQLite server answers parallel writes with "database is locked"). An action
+     * that throws counts as a failure.
      */
     private suspend fun runBulk(
         ids: List<Long>,

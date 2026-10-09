@@ -160,3 +160,7 @@ fun hasAnyTask(sections: List<ProjectSection>): Boolean =
 /** Total tasks in [section] and all its descendant sections (for collapsed-section badges). */
 fun totalTaskCount(section: ProjectSection): Int =
     section.tasks.size + section.children.sumOf { totalTaskCount(it) }
+
+/** Open tasks in [section] and all its descendants: what a header counts. [completedIds] are rows completed on screen. */
+fun openTaskCount(section: ProjectSection, completedIds: Set<Long> = emptySet()): Int =
+    section.tasks.count { !it.done && it.id !in completedIds } + section.children.sumOf { openTaskCount(it, completedIds) }

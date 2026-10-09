@@ -30,6 +30,8 @@ import com.rendyhd.vicu.util.AndroidNetworkMonitor
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.util.PlatformFiles
 import com.rendyhd.vicu.util.AndroidPlatformFiles
+import com.rendyhd.vicu.permission.AndroidNotificationPermissionPlatform
+import com.rendyhd.vicu.permission.NotificationPermissionPlatform
 import com.rendyhd.vicu.ui.screens.settings.PlatformSettingsHooks
 import com.rendyhd.vicu.ui.screens.settings.AndroidSettingsHooks
 import io.ktor.client.engine.HttpClientEngine
@@ -84,6 +86,8 @@ val appModule = module {
     single<HttpClientEngine> { OkHttp.create() }
     single<PlatformFiles> { AndroidPlatformFiles(get()) }
     single<PlatformSettingsHooks> { AndroidSettingsHooks(androidContext(), get()) }
+    single { AndroidNotificationPermissionPlatform(androidContext()) }
+    single<NotificationPermissionPlatform> { get<AndroidNotificationPermissionPlatform>() }
 
     single { AlarmScheduler(androidContext(), get(), get(), get(), get(), get()) }
     single { RoutineAlarmScheduler(androidContext(), get(), get(), get()) }

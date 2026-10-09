@@ -21,8 +21,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
 import com.rendyhd.vicu.ui.components.settings.ExactAlarmBanner
 import com.rendyhd.vicu.ui.components.settings.NotificationsDisabledBanner
+import org.koin.compose.koinInject
 
 internal val REMINDER_OFFSET_OPTIONS = listOf(
     "None" to 0,
@@ -49,6 +51,12 @@ internal fun NotificationsTab(
     openDialog: (SettingsDialog) -> Unit,
     listState: LazyListState,
 ) {
+    val permission: NotificationPermissionCoordinator = koinInject()
+    // Turning one of these on is the moment to ask for the notification permission, if it is missing.
+    fun enabling(set: (Boolean) -> Unit): (Boolean) -> Unit = { on ->
+        set(on)
+        if (on) permission.onFeatureEnabled()
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         state = listState,
@@ -111,7 +119,7 @@ internal fun NotificationsTab(
                 label = "Task Reminders",
                 description = "Show notifications for task reminders",
                 checked = state.notificationPrefs.taskRemindersEnabled,
-                onCheckedChange = viewModel::setTaskRemindersEnabled,
+                onCheckedChange = enabling(viewModel::setTaskRemindersEnabled),
             )
         }
 
@@ -143,7 +151,7 @@ internal fun NotificationsTab(
                 label = "Enable Daily Summary",
                 description = "Get a daily digest of upcoming tasks",
                 checked = state.notificationPrefs.dailySummaryEnabled,
-                onCheckedChange = viewModel::setDailySummaryEnabled,
+                onCheckedChange = enabling(viewModel::setDailySummaryEnabled),
             )
         }
 
@@ -163,7 +171,7 @@ internal fun NotificationsTab(
                 label = "Afternoon Summary",
                 description = "A second daily digest in the afternoon",
                 checked = state.notificationPrefs.afternoonSummaryEnabled,
-                onCheckedChange = viewModel::setAfternoonSummaryEnabled,
+                onCheckedChange = enabling(viewModel::setAfternoonSummaryEnabled),
             )
         }
 

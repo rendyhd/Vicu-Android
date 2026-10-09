@@ -2,7 +2,10 @@ package com.rendyhd.vicu.ui.screens.anytime
 
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.ui.components.section.ProjectMeta
+import com.rendyhd.vicu.ui.components.section.showsGroupHeader
 import com.rendyhd.vicu.ui.screens.project.ProjectSection
+import com.rendyhd.vicu.ui.screens.project.openTaskCount
 import com.rendyhd.vicu.ui.screens.project.totalTaskCount
 
 /**
@@ -27,12 +30,14 @@ sealed interface AnytimeRow {
         val project: Project,
         override val depth: Int,
         val isExpanded: Boolean,
+        /** Open tasks in the project and everything below it. */
         val taskCount: Int,
     ) : AnytimeRow {
         override val key: String get() = "header_${project.id}"
     }
 
-    data class TaskRow(val task: Task, override val depth: Int) : AnytimeRow {
+    /** [projectMeta] is set when the task's group has no header (a group of one task). */
+    data class TaskRow(val task: Task, override val depth: Int, val projectMeta: ProjectMeta? = null) : AnytimeRow {
         override val key: String get() = "task_${task.id}"
     }
 }
@@ -93,14 +98,23 @@ fun buildAnytimeGroups(
     return groups.sortedBy { it.project.title.lowercase() }
 }
 
-/** The lazy list's rows for [groups], depth first; the children of a collapsed project are skipped. */
-fun flattenAnytimeGroups(groups: List<AnytimeProjectGroup>): List<AnytimeRow> {
+/**
+ * The lazy list's rows for [groups], depth first; the children of a collapsed project are skipped.
+ * A project holding a single task (counting finished ones) gets no header: that task carries the
+ * project on its row instead. [completedIds] are rows kept on screen after completing them; they
+ * do not count as open.
+ */
+fun flattenAnytimeGroups(groups: List<AnytimeProjectGroup>, completedIds: Set<Long> = emptySet()): List<AnytimeRow> {
     val rows = ArrayList<AnytimeRow>()
 
     fun addSection(section: ProjectSection, depth: Int) {
-        rows += AnytimeRow.Header(section.project, depth, section.isExpanded, totalTaskCount(section))
-        if (!section.isExpanded) return
-        section.tasks.forEach { rows += AnytimeRow.TaskRow(it, depth) }
+        val hasHeader = showsGroupHeader(totalTaskCount(section))
+        if (hasHeader) {
+            rows += AnytimeRow.Header(section.project, depth, section.isExpanded, openTaskCount(section, completedIds))
+            if (!section.isExpanded) return
+        }
+        val meta = if (hasHeader) null else ProjectMeta(section.project.title, section.project.hexColor)
+        section.tasks.forEach { rows += AnytimeRow.TaskRow(it, depth, meta) }
         section.children.forEach { addSection(it, depth + 1) }
     }
 

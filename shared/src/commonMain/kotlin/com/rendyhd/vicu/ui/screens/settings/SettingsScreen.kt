@@ -39,7 +39,6 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun SettingsScreen(
     onOpenDrawer: () -> Unit = {},
-    onNavigateToSearch: () -> Unit = {},
     viewModel: SettingsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -93,7 +92,6 @@ fun SettingsScreen(
             VicuTopAppBar(
                 title = { Text("Settings") },
                 onOpenDrawer = onOpenDrawer,
-                onNavigateToSearch = onNavigateToSearch,
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },

@@ -9,7 +9,7 @@ class GestureGuideTest {
 
     @Test
     fun `the swipe-left text follows the configured action`() {
-        assertEquals("Set the due date to today", swipeLeftDescription(ScheduleAction.DUE_TODAY))
+        assertEquals("Open the When sheet to choose a day and time", swipeLeftDescription(ScheduleAction.DUE_TODAY))
         assertEquals("Mark the task urgent (priority 4)", swipeLeftDescription(ScheduleAction.PRIORITY_URGENT))
     }
 

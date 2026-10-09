@@ -11,6 +11,10 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
+import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
+import com.rendyhd.vicu.ui.screens.shared.buildTaskProjectGroups
 import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.util.NetworkResult
@@ -25,6 +29,8 @@ import kotlinx.coroutines.launch
 data class TagUiState(
     val label: Label? = null,
     val tasks: List<Task> = emptyList(),
+    /** [tasks] grouped by project, the way the desktop Tag view shows them. */
+    val groups: List<TaskProjectGroup> = emptyList(),
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val error: String? = null,
@@ -38,6 +44,7 @@ class TagViewModel(
     private val labelRepository: LabelRepository,
     private val refresher: ScreenRefresher,
     navigationTicker: NavigationTicker = NavigationTicker(),
+    completionToast: CompletionToast = NoCompletionToast,
 ) : ViewModel() {
 
     private val labelId: Long = savedStateHandle["labelId"]!!
@@ -46,7 +53,7 @@ class TagViewModel(
     val uiState: StateFlow<TagUiState> = _uiState.asStateFlow()
 
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
-    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker, toast = completionToast)
 
     init {
         viewModelScope.launch {
@@ -68,9 +75,10 @@ class TagViewModel(
                 val filtered = tasks
                     .filter { task -> task.projectId in activeIds && task.labels.any { it.id == labelId } }
                     .withoutNestedSubtasks(hideChildrenOfCompletedParents = false)
-                completions.merge(filtered)
-            }.collect { filtered ->
-                _uiState.update { it.copy(tasks = filtered, isLoading = false) }
+                val shown = completions.merge(filtered)
+                shown to buildTaskProjectGroups(shown, projects, inboxId = null)
+            }.collect { (shown, groups) ->
+                _uiState.update { it.copy(tasks = shown, groups = groups, isLoading = false) }
             }
         }
         if (refresher.isStale()) refresh()

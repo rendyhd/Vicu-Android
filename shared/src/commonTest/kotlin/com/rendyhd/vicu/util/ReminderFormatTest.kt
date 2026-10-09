@@ -12,55 +12,57 @@ import kotlin.test.assertTrue
  */
 class ReminderFormatTest {
 
+    private val dateFormat = DateDisplayFormat(java.util.Locale.US, hour12 = true)
+
     private fun relative(seconds: Long, to: String) = TaskReminder(relativePeriod = seconds, relativeTo = to)
 
     @Test
     fun `reminders relative to the due date keep their labels`() {
-        assertEquals("At due time", ReminderFormat.format(relative(0, "due_date")))
-        assertEquals("5 minutes before", ReminderFormat.format(relative(-300, "due_date")))
-        assertEquals("15 minutes before", ReminderFormat.format(relative(-900, "due_date")))
-        assertEquals("1 hour before", ReminderFormat.format(relative(-3600, "due_date")))
-        assertEquals("1 day before", ReminderFormat.format(relative(-86_400, "due_date")))
+        assertEquals("At due time", ReminderFormat.format(relative(0, "due_date"), dateFormat))
+        assertEquals("5 minutes before", ReminderFormat.format(relative(-300, "due_date"), dateFormat))
+        assertEquals("15 minutes before", ReminderFormat.format(relative(-900, "due_date"), dateFormat))
+        assertEquals("1 hour before", ReminderFormat.format(relative(-3600, "due_date"), dateFormat))
+        assertEquals("1 day before", ReminderFormat.format(relative(-86_400, "due_date"), dateFormat))
     }
 
     @Test
     fun `a relative reminder without a date still means the due date`() {
-        assertEquals("At due time", ReminderFormat.format(relative(0, "")))
-        assertEquals("1 hour before", ReminderFormat.format(relative(-3600, "")))
+        assertEquals("At due time", ReminderFormat.format(relative(0, ""), dateFormat))
+        assertEquals("1 hour before", ReminderFormat.format(relative(-3600, ""), dateFormat))
     }
 
     @Test
     fun `a reminder relative to the start date names it`() {
-        assertEquals("At start", ReminderFormat.format(relative(0, "start_date")))
-        assertEquals("15 minutes before start", ReminderFormat.format(relative(-900, "start_date")))
-        assertEquals("1 hour after start", ReminderFormat.format(relative(3600, "start_date")))
+        assertEquals("At start", ReminderFormat.format(relative(0, "start_date"), dateFormat))
+        assertEquals("15 minutes before start", ReminderFormat.format(relative(-900, "start_date"), dateFormat))
+        assertEquals("1 hour after start", ReminderFormat.format(relative(3600, "start_date"), dateFormat))
     }
 
     @Test
     fun `a reminder relative to the end date names it`() {
-        assertEquals("At end", ReminderFormat.format(relative(0, "end_date")))
-        assertEquals("1 day before end", ReminderFormat.format(relative(-86_400, "end_date")))
-        assertEquals("30 minutes after end", ReminderFormat.format(relative(1_800, "end_date")))
+        assertEquals("At end", ReminderFormat.format(relative(0, "end_date"), dateFormat))
+        assertEquals("1 day before end", ReminderFormat.format(relative(-86_400, "end_date"), dateFormat))
+        assertEquals("30 minutes after end", ReminderFormat.format(relative(1_800, "end_date"), dateFormat))
     }
 
     @Test
     fun `other offsets are spelled out in the largest whole unit`() {
-        assertEquals("2 hours before", ReminderFormat.format(relative(-7_200, "due_date")))
-        assertEquals("90 minutes before", ReminderFormat.format(relative(-5_400, "due_date")))
-        assertEquals("2 days before", ReminderFormat.format(relative(-172_800, "due_date")))
-        assertEquals("30 minutes after", ReminderFormat.format(relative(1_800, "due_date")))
-        assertEquals("1 minute before", ReminderFormat.format(relative(-60, "due_date")))
+        assertEquals("2 hours before", ReminderFormat.format(relative(-7_200, "due_date"), dateFormat))
+        assertEquals("90 minutes before", ReminderFormat.format(relative(-5_400, "due_date"), dateFormat))
+        assertEquals("2 days before", ReminderFormat.format(relative(-172_800, "due_date"), dateFormat))
+        assertEquals("30 minutes after", ReminderFormat.format(relative(1_800, "due_date"), dateFormat))
+        assertEquals("1 minute before", ReminderFormat.format(relative(-60, "due_date"), dateFormat))
     }
 
     @Test
     fun `a date this version does not know is shown as it is, never as the due time`() {
-        assertEquals("At custom_date", ReminderFormat.format(relative(0, "custom_date")))
-        assertEquals("1 hour before custom_date", ReminderFormat.format(relative(-3600, "custom_date")))
+        assertEquals("At custom_date", ReminderFormat.format(relative(0, "custom_date"), dateFormat))
+        assertEquals("1 hour before custom_date", ReminderFormat.format(relative(-3600, "custom_date"), dateFormat))
     }
 
     @Test
     fun `an absolute time wins over the relative fields the server keeps next to it`() {
-        val text = ReminderFormat.format(TaskReminder(reminder = "2030-01-01T09:00:00Z", relativePeriod = -300, relativeTo = "start_date"))
+        val text = ReminderFormat.format(TaskReminder(reminder = "2030-01-01T09:00:00Z", relativePeriod = -300, relativeTo = "start_date"), dateFormat)
 
         assertNotEquals("5 minutes before start", text)
         assertTrue("2030" in text || "2029" in text, text)
@@ -68,8 +70,8 @@ class ReminderFormatTest {
 
     @Test
     fun `the summary of one reminder is its label and of several is a count`() {
-        assertEquals("", ReminderFormat.summary(emptyList()))
-        assertEquals("At start", ReminderFormat.summary(listOf(relative(0, "start_date"))))
-        assertEquals("2 reminders", ReminderFormat.summary(listOf(relative(0, "start_date"), relative(0, "end_date"))))
+        assertEquals("", ReminderFormat.summary(emptyList(), dateFormat))
+        assertEquals("At start", ReminderFormat.summary(listOf(relative(0, "start_date")), dateFormat))
+        assertEquals("2 reminders", ReminderFormat.summary(listOf(relative(0, "start_date"), relative(0, "end_date")), dateFormat))
     }
 }

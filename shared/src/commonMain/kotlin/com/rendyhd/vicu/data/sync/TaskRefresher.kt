@@ -49,6 +49,9 @@ data class CompletedPage(val loaded: Int, val hasMore: Boolean)
  *   arrives, but their history is never downloaded as such.
  * - A full reconcile also lists every open task, to notice the ones that were deleted, and runs
  *   on the first refresh, on request, after [FULL_RECONCILE_INTERVAL] and when the cursor is lost.
+ *   A delta cannot show a deletion, so every incremental refresh first asks the server for a page
+ *   of one open task and compares its `total` with the cached open rows; when they differ the
+ *   refresh becomes a full reconcile at once.
  * - [refreshMatching] merges the tasks a filter or search returns (search, custom lists) without
  *   deleting or moving the cursor.
  * - [loadCompletedPage] pages through completed tasks for the Logbook.
@@ -95,6 +98,14 @@ class TaskRefresher(
     private val mutex = Mutex()
     private val missing = MissingResourceCheck(api)
 
+    /**
+     * Server open total minus cached open rows, as the last full reconcile left it: zero, except
+     * for rows kept because of queued changes and for hidden tasks the cache does not store.
+     * Guarded by [mutex]. Unknown after a restart (0), so a nonzero difference costs one extra
+     * reconcile there, which then records it.
+     */
+    private var openOffset = 0L
+
     suspend fun requestFullReconcile() = cursorStore.requestFullReconcile()
 
     suspend fun refresh(forceFull: Boolean = false): Outcome = mutex.withLock {
@@ -104,7 +115,7 @@ class TaskRefresher(
         val since = state.tasksUpdatedSince?.let { DateUtils.parseIsoDate(it) }
         val full = forceFull || since == null || state.fullReconcileRequested ||
             isFullReconcileDue(state.lastFullReconcileMs, now)
-        if (full) reconcile(ticket, now) else incremental(ticket, checkNotNull(since))
+        if (full) reconcile(ticket, now) else incremental(ticket, checkNotNull(since), now)
     }
 
     private fun isFullReconcileDue(lastMs: Long, now: Instant): Boolean {
@@ -116,7 +127,7 @@ class TaskRefresher(
 
     // ---- incremental ---------------------------------------------------------------------------
 
-    private suspend fun incremental(ticket: SyncCursorStore.Ticket, since: Instant): Outcome {
+    private suspend fun incremental(ticket: SyncCursorStore.Ticket, since: Instant, now: Instant): Outcome {
         val from = Instant.fromEpochSeconds(since.epochSeconds - OVERLAP_SECONDS)
         val dtos = api.getAllTasks(mapOf("filter" to "updated >= '$from'"), expandSubtasks = false)
         val acc = Accumulator()
@@ -125,7 +136,33 @@ class TaskRefresher(
         val newest = (dtos.mapNotNull { DateUtils.parseIsoDate(it.updated) } + since).max()
         cursorStore.commit(ticket, newest.toString())
         Logger.d(TAG, "Incremental refresh: ${dtos.size} tasks changed since $from, ${acc.changed} differed from the cache")
+        // A delta never lists a deletion. After it has brought in every completion and creation
+        // (which change the cached open rows too), one request for a page of one open task tells
+        // whether the server still holds as many open tasks as the cache does. When it does not,
+        // something was deleted: the full reconcile removes it now instead of at the next daily one.
+        if (openSetDiffers()) {
+            Logger.d(TAG, "The server's open task count differs from the cache's: full reconcile")
+            val full = reconcile(ticket, now)
+            return full.copy(changed = full.changed + acc.changed)
+        }
         return Outcome(full = false, changed = acc.changed, removed = 0, carriersAuthoritative = false)
+    }
+
+    /**
+     * True when the server's number of open tasks is not the cache's plus [openOffset], the
+     * difference the last reconcile left (rows with queued changes, open hidden tasks the cache
+     * does not keep). A probe that cannot be answered says nothing and counts as "same".
+     */
+    private suspend fun openSetDiffers(): Boolean {
+        val total = try {
+            api.getTasksPage(mapOf("filter" to "done = false", "per_page" to "1"), expandSubtasks = false).total
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: Exception) {
+            Logger.w(TAG, "Could not count the open tasks on the server: ${e.message}")
+            return false
+        }
+        return total - taskDao.countOpenServerTasks() != openOffset
     }
 
     // ---- full reconcile ---------------------------------------------------------------------------
@@ -175,6 +212,7 @@ class TaskRefresher(
         val carriersAuthoritative = carriers.isNotEmpty() || unlisted.isEmpty()
 
         finish(acc)
+        openOffset = open.size - taskDao.countOpenServerTasks().toLong()
         cursorStore.commit(ticket, newest?.toString(), fullReconcileAtMs = now.toEpochMilliseconds())
         Logger.d(TAG, "Full reconcile: ${open.size} open tasks, ${carriers.size} routine carriers, ${acc.changed} changed, ${acc.removed} removed")
         return Outcome(full = true, changed = acc.changed, removed = acc.removed, carriersAuthoritative = carriersAuthoritative)

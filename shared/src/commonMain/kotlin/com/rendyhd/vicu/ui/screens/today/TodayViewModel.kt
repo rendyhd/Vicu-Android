@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.data.local.RoutinePrefsStore
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.model.RoutineDay
@@ -14,6 +15,8 @@ import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
 import com.rendyhd.vicu.ui.screens.shared.buildTaskProjectGroups
 import com.rendyhd.vicu.util.DayClock
@@ -27,7 +30,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -40,7 +46,10 @@ data class TodayUiState(
     val isRefreshing: Boolean = false,
     val error: String? = null,
     val completedTaskIds: Set<Long> = emptySet(),
+    /** Today's routines; empty when routines or their Today section are turned off. The screen lists [RoutineDay.open]. */
     val routineDay: RoutineDay = RoutineDay("", emptyList()),
+    /** The next open task due after today; what an emptied Today offers (see [nextUpcomingTask]). */
+    val nextUpcoming: Task? = null,
 )
 
 class TodayViewModel(
@@ -48,17 +57,19 @@ class TodayViewModel(
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
     private val routineRepository: RoutineRepository,
+    routinePrefsStore: RoutinePrefsStore,
     private val authManager: AuthManager,
     private val refresher: ScreenRefresher,
     private val dayClock: DayClock,
     navigationTicker: NavigationTicker = NavigationTicker(),
+    completionToast: CompletionToast = NoCompletionToast,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TodayUiState())
     val uiState: StateFlow<TodayUiState> = _uiState.asStateFlow()
 
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
-    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker, toast = completionToast)
 
     private companion object {
         /** [CompletionHold] list scopes: a row keeps its place within its own section. */
@@ -66,11 +77,18 @@ class TodayViewModel(
         const val OVERDUE_SCOPE = 1L
     }
 
-    /** The routines of the current day; switches to the new day at midnight. */
+    /**
+     * The routines of the current day; switches to the new day at midnight. Nothing while
+     * routines, or their place in Today, are turned off in Settings.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val routinesForToday = dayClock.today.flatMapLatest { date ->
-        routineRepository.observeDay(date.toString())
-    }
+    private val routinesForToday = combine(
+        dayClock.today,
+        routinePrefsStore.visibility.map { it.inToday }.distinctUntilChanged(),
+    ) { date, shown -> date to shown }
+        .flatMapLatest { (date, shown) ->
+            if (shown) routineRepository.observeDay(date.toString()) else flowOf(RoutineDay(date.toString(), emptyList()))
+        }
 
     init {
         viewModelScope.launch {
@@ -87,6 +105,11 @@ class TodayViewModel(
             }
         }
         viewModelScope.launch {
+            combine(taskRepository.getUpcomingTasks(), projectRepository.getAll(), dayClock.day) { tasks, projects, day ->
+                nextUpcomingTask(tasks, projects, day.date, day.zone)
+            }.distinctUntilChanged().collect { next -> _uiState.update { it.copy(nextUpcoming = next) } }
+        }
+        viewModelScope.launch {
             authManager.inboxProjectId.collectLatest { inboxId ->
                 combine(
                     taskRepository.getTodayTasks(),
@@ -100,42 +123,12 @@ class TodayViewModel(
                     buildTaskProjectGroups(completions.merge(overdue, OVERDUE_SCOPE), projects, inboxId) to
                         buildTaskProjectGroups(completions.merge(today, TODAY_SCOPE), projects, inboxId)
                 }.collect { (overdueGroups, todayGroups) ->
-                    _uiState.update { current ->
-                        // Preserve per-project expansion across refreshes, separately per section.
-                        current.copy(
-                            overdueGroups = overdueGroups.keepExpansion(current.overdueGroups),
-                            projectGroups = todayGroups.keepExpansion(current.projectGroups),
-                            isLoading = false,
-                        )
-                    }
+                    _uiState.update { it.copy(overdueGroups = overdueGroups, projectGroups = todayGroups, isLoading = false) }
                 }
             }
         }
         if (refresher.isStale()) refresh()
     }
-
-    fun toggleProject(projectId: Long) {
-        _uiState.update { state ->
-            state.copy(
-                projectGroups = state.projectGroups.map {
-                    if (it.projectId == projectId) it.copy(isExpanded = !it.isExpanded) else it
-                },
-            )
-        }
-    }
-
-    fun toggleOverdueProject(projectId: Long) {
-        _uiState.update { state ->
-            state.copy(
-                overdueGroups = state.overdueGroups.map {
-                    if (it.projectId == projectId) it.copy(isExpanded = !it.isExpanded) else it
-                },
-            )
-        }
-    }
-
-    private fun List<TaskProjectGroup>.keepExpansion(previous: List<TaskProjectGroup>): List<TaskProjectGroup> =
-        map { g -> g.copy(isExpanded = previous.find { it.projectId == g.projectId }?.isExpanded ?: true) }
 
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {

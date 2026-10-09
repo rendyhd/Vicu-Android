@@ -10,6 +10,7 @@ import com.rendyhd.vicu.MainActivity
 import com.rendyhd.vicu.putViewTarget
 import com.rendyhd.vicu.ui.navigation.ViewTarget
 import com.rendyhd.vicu.R
+import com.rendyhd.vicu.data.local.RoutinePrefsStore
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.repository.RoutineRepository
 import kotlinx.coroutines.flow.first
@@ -28,6 +29,7 @@ class RoutineAlarmReceiver : BroadcastReceiver(), KoinComponent {
     }
 
     private val repository: RoutineRepository by inject()
+    private val prefsStore: RoutinePrefsStore by inject()
 
     override fun onReceive(context: Context, intent: Intent) {
         val routineId = intent.getStringExtra(EXTRA_ROUTINE_ID) ?: return
@@ -38,6 +40,8 @@ class RoutineAlarmReceiver : BroadcastReceiver(), KoinComponent {
         val followUp = intent.getBooleanExtra(EXTRA_FOLLOW_UP, false)
 
         val occurrence = runBlocking {
+            // An alarm left over from before routines were turned off stays quiet.
+            if (!prefsStore.enabled.first()) return@runBlocking null
             repository.observeDay(date).first().occurrences.firstOrNull { it.key == key }
         } ?: return
         if (occurrence.status == OccurrenceStatus.COMPLETED || occurrence.status == OccurrenceStatus.SKIPPED) return

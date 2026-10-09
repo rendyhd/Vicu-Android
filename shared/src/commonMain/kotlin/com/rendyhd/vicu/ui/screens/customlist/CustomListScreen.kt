@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui.screens.customlist
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +33,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
@@ -42,7 +44,10 @@ import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
+import com.rendyhd.vicu.ui.components.task.RowView
+import com.rendyhd.vicu.ui.components.task.projectMetas
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,11 +64,13 @@ fun CustomListScreen(
 
     // Rows kept on screen after completing them are let go when the screen is left.
     val projects by viewModel.projects.collectAsStateWithLifecycle()
+    val rowView = remember(projects) { RowView(projects = projectMetas(projects)) }
     val labels by viewModel.labels.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val topBarScroll = rememberVicuTopBarScroll(listState)
 
     val selectionVm: SelectionViewModel = koinViewModel()
     val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
@@ -72,6 +79,8 @@ fun CustomListScreen(
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
@@ -89,6 +98,7 @@ fun CustomListScreen(
                 VicuTopAppBar(
                     title = { Text(state.customList?.name ?: "List") },
                     onOpenDrawer = onOpenDrawer,
+                    scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
                     extraActions = {
                         IconButton(onClick = { showEditDialog = true }) {
@@ -113,7 +123,7 @@ fun CustomListScreen(
                 val addToProject = state.customList?.filter?.addToProjectId?.takeIf { requested ->
                     requested != 0L && projects.any { it.id == requested && !it.isArchived }
                 }
-                VicuFab(onClick = { onShowTaskEntry(addToProject, null) })
+                VicuFab(onClick = { onShowTaskEntry(addToProject, null) }, expanded = !listState.canScrollBackward)
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
@@ -126,7 +136,7 @@ fun CustomListScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.tasks.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(
@@ -157,6 +167,7 @@ fun CustomListScreen(
                             selected = task.id in selectedIds,
                             onLongClick = { selectionVm.toggle(task.id) },
                             modifier = Modifier.animateItem(),
+                            rowView = rowView,
                         )
                     }
                 }

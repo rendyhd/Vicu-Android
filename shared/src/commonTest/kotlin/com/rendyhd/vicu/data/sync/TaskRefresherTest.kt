@@ -88,8 +88,10 @@ class TaskRefresherTest {
 
         assertFalse(outcome.full)
         // The cursor was 09:00:00; five seconds of overlap cover a write that raced the last fetch.
-        assertEquals(listOf("updated >= '2026-10-06T08:59:55Z'"), h.server.lists().map { it.filter })
-        assertEquals(1, h.server.requests.size, "one request, no probes and no label or carrier queries")
+        // After it, a page of one open task tells whether anything was deleted (its total).
+        assertEquals(listOf("updated >= '2026-10-06T08:59:55Z'", "done = false"), h.server.lists().map { it.filter })
+        assertEquals("1", h.server.lists().last().param("per_page"))
+        assertEquals(2, h.server.requests.size, "the count probe and the delta, no label or carrier queries")
         assertEquals("A edited", h.taskDao.entity(1)!!.title)
         assertEquals(true, h.taskDao.entity(3)!!.done, "a task completed elsewhere arrives as completed")
         assertEquals("2026-10-06T10:30:00Z", h.cursorStore.begin().cursor.tasksUpdatedSince)
@@ -109,14 +111,87 @@ class TaskRefresherTest {
     }
 
     @Test
-    fun `an incremental refresh never deletes anything`() = runTest {
+    fun `an incremental refresh does not list anything or delete while the open counts agree`() = runTest {
+        val h = harness()
+        h.refresher.refresh()
+        h.server.requests.clear()
+        h.server.put(1, "A edited", updated = "2026-10-06T10:00:00Z")
+
+        val outcome = h.refresher.refresh()
+
+        assertFalse(outcome.full)
+        assertEquals(0, outcome.removed)
+        assertEquals(listOf(1L, 2L, 4L), h.localIds())
+        assertTrue(h.server.lists().none { it.filter == "done = false" && it.param("per_page") != "1" }, "no listing of the open tasks")
+    }
+
+    // ---- deletions on the server are noticed by the open count ------------------------------------
+
+    @Test
+    fun `a task deleted on the server leaves the cache at the next refresh, not a day later`() = runTest {
         val h = harness()
         h.refresher.refresh()
         h.server.remove(2)
+        h.time.advance(5.minutes)
 
+        val outcome = h.refresher.refresh()
+
+        assertTrue(outcome.full, "the count differs, so this refresh reconciled")
+        assertEquals(1, outcome.removed)
+        assertNull(h.taskDao.entity(2), "no ghost row")
+        assertEquals(listOf(1L, 4L), h.localIds())
+    }
+
+    @Test
+    fun `after the reconcile the next refresh is incremental again`() = runTest {
+        val h = harness()
+        h.refresher.refresh()
+        h.server.remove(2)
         h.refresher.refresh()
 
-        assertEquals(listOf(1L, 2L, 4L), h.localIds())
+        assertFalse(h.refresher.refresh().full)
+    }
+
+    @Test
+    fun `a task created or completed elsewhere arrives by the delta and does not trigger a reconcile`() = runTest {
+        val h = harness()
+        h.refresher.refresh()
+        h.server.put(5, "New elsewhere", updated = "2026-10-06T12:30:00Z")
+        h.server.put(2, "B done elsewhere", done = true, updated = "2026-10-06T12:31:00Z")
+
+        val outcome = h.refresher.refresh()
+
+        assertFalse(outcome.full, "the delta already moved the cached open count to the server's")
+        assertNotNull(h.taskDao.entity(5))
+        assertEquals(true, h.taskDao.entity(2)!!.done, "a completion elsewhere stays a completed row")
+    }
+
+    @Test
+    fun `a standing difference the reconcile cannot remove does not make every refresh a reconcile`() = runTest {
+        // A task with a queued change is kept although the server no longer lists it: the counts
+        // differ by one for as long as the change waits, and the refresh must not loop on that.
+        val h = harness()
+        h.refresher.refresh()
+        h.queueTaskAction(2)
+        h.server.remove(2)
+        assertTrue(h.refresher.refresh().full, "the first look at the difference reconciles")
+
+        assertFalse(h.refresher.refresh().full)
+        assertFalse(h.refresher.refresh().full)
+        assertNotNull(h.taskDao.entity(2), "the queued change keeps its row")
+    }
+
+    @Test
+    fun `a count probe that cannot be answered does not fail or reconcile the refresh`() = runTest {
+        val h = harness()
+        h.refresher.refresh()
+        h.server.override = { req ->
+            if (req.filter == "done = false") respond("", HttpStatusCode.ServiceUnavailable) else null
+        }
+
+        val outcome = h.refresher.refresh()
+
+        assertFalse(outcome.full)
     }
 
     @Test
@@ -154,15 +229,12 @@ class TaskRefresherTest {
     fun `a full reconcile runs after a day and not before`() = runTest {
         val h = harness()
         h.refresher.refresh()
-        h.server.remove(2)
 
         h.time.advance(23.hours + 50.minutes)
         assertFalse(h.refresher.refresh().full)
-        assertNotNull(h.taskDao.entity(2), "no deletion sweep yet")
 
         h.time.advance(11.minutes)
         assertTrue(h.refresher.refresh().full)
-        assertNull(h.taskDao.entity(2), "the daily reconcile removes what the server no longer has")
     }
 
     @Test

@@ -46,6 +46,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import com.rendyhd.vicu.data.local.RoutinePrefsStore
 
 /**
  * Dragging in the drawer: the new order shows at once, is saved through the repositories, and a
@@ -139,11 +140,13 @@ class DrawerViewModelReorderTest {
             authManager = auth,
             bottomBarPrefsStore = BottomBarPrefsStore(InMemoryPreferencesDataStore()),
             reviewPrefsStore = ReviewPrefsStore(InMemoryPreferencesDataStore()),
+            routinePrefsStore = RoutinePrefsStore(InMemoryPreferencesDataStore()),
             labelOrderPrefsStore = labelOrder,
             behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
             dayClock = DayClock(backgroundScope, time),
             dispatchers = AppDispatchers(Dispatchers.Unconfined),
             appMessages = messages,
+            progressSource = FakeProjectProgressSource(),
         )
         backgroundScope.launch { vm.uiState.collect { } }
         runCurrent()

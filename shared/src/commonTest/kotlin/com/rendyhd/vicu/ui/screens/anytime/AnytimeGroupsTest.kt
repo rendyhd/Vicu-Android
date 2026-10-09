@@ -122,7 +122,30 @@ class AnytimeGroupsTest {
                 is AnytimeRow.TaskRow -> "T${it.task.id}@${it.depth}"
             }
         }
-        assertEquals(listOf("H1@0", "T10@0", "H2@1", "T11@1", "H3@2", "T12@2"), summary)
+        // The grandchild holds a single task, so it gets no header (its project goes on the row).
+        assertEquals(listOf("H1@0", "T10@0", "H2@1", "T11@1", "T12@2"), summary)
+        assertEquals("Grandchild", assertIs<AnytimeRow.TaskRow>(rows.last()).projectMeta?.title)
+        assertEquals(null, assertIs<AnytimeRow.TaskRow>(rows[1]).projectMeta)
+    }
+
+    @Test
+    fun `a project with one task has no header and names itself on the row`() {
+        val rows = flattenAnytimeGroups(buildAnytimeGroups(listOf(project(1, "Solo")), listOf(task(10, 1)), emptySet()))
+
+        val row = assertIs<AnytimeRow.TaskRow>(rows.single())
+        assertEquals("Solo", row.projectMeta?.title)
+    }
+
+    @Test
+    fun `a header counts open tasks only, not the ones completed on screen`() {
+        val projects = listOf(project(1, "Root"))
+        val tasks = listOf(task(10, 1), task(11, 1), task(12, 1))
+
+        val rows = flattenAnytimeGroups(buildAnytimeGroups(projects, tasks, emptySet()), completedIds = setOf(11L))
+
+        assertEquals(2, assertIs<AnytimeRow.Header>(rows.first()).taskCount)
+        // The completed row stays in place: the group still has its header.
+        assertEquals(4, rows.size)
     }
 
     @Test

@@ -82,13 +82,18 @@ import com.rendyhd.vicu.domain.model.RoutineOccurrenceRecord
 import com.rendyhd.vicu.domain.model.RoutinePeriod
 import com.rendyhd.vicu.domain.model.RoutineSchedule
 import com.rendyhd.vicu.domain.model.RoutineSlot
+import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.copyPlainText
 import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import org.koin.compose.viewmodel.koinViewModel
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 
 private val HealthColor = Color(0xFF2E9D78)
 private val ChoreColor = Color(0xFF5576D1)
@@ -99,6 +104,11 @@ fun RoutinesScreen(
     onNavigateToSearch: () -> Unit = {},
     viewModel: RoutinesViewModel = koinViewModel(),
 ) {
+    val routinesEnabled by viewModel.routinesEnabled.collectAsStateWithLifecycle()
+    if (!routinesEnabled) {
+        RoutinesTurnedOff(onOpenDrawer, onNavigateToSearch)
+        return
+    }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val remindersEnabled by viewModel.remindersEnabled.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -164,7 +174,7 @@ fun RoutinesScreen(
                     editorRoutine = null
                     showEditor = true
                 },
-                contentDescription = "Add routine",
+                label = "New routine",
             )
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
@@ -200,7 +210,7 @@ fun RoutinesScreen(
                         occurrence = occurrence,
                         onToggle = { viewModel.toggle(occurrence) },
                         onSkip = { viewModel.skip(occurrence) },
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp).animateItem(),
                     )
                 }
             }
@@ -216,7 +226,7 @@ fun RoutinesScreen(
                     onArchive = { viewModel.archive(routine, true) },
                     onDelete = { pendingDelete = routine },
                     onOpenHistory = { historyRoutine = routine },
-                    modifier = Modifier.padding(horizontal = 12.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp).animateItem(),
                 )
             }
 
@@ -230,7 +240,7 @@ fun RoutinesScreen(
                         onDelete = { pendingDelete = routine },
                         onOpenHistory = { historyRoutine = routine },
                         archived = true,
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp).animateItem(),
                     )
                 }
             }
@@ -446,6 +456,8 @@ private fun RoutineHistoryDialog(
     val logged = history.filter { it.status != OccurrenceStatus.PENDING }
     val completed = logged.count { it.status == OccurrenceStatus.COMPLETED }
     val adherence = if (logged.isEmpty()) 0 else (completed * 100 / logged.size)
+    val historyToday = LocalToday.current
+    val dateFormat = LocalDateFormat.current
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier.fillMaxWidth().heightIn(max = 620.dp),
@@ -475,7 +487,11 @@ private fun RoutineHistoryDialog(
                                 )
                                 Spacer(Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(record.scheduledDate, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        runCatching { DateDisplay.formatDay(DateContext.CHIP, LocalDate.parse(record.scheduledDate), historyToday, dateFormat) }
+                                            .getOrDefault(record.scheduledDate),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
                                     Text(
                                         record.status.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
                                         style = MaterialTheme.typography.bodySmall,
@@ -769,4 +785,25 @@ private fun routineSummary(routine: Routine): String {
     }
     val times = definition.slots.joinToString(" + ") { periodLabel(it.period) }
     return listOf(schedule, times).filter { it.isNotBlank() }.joinToString(" · ")
+}
+
+/** What the screen shows while routines are turned off in Settings. */
+@Composable
+private fun RoutinesTurnedOff(onOpenDrawer: () -> Unit, onNavigateToSearch: () -> Unit) {
+    Scaffold(
+        topBar = {
+            VicuTopAppBar(
+                title = { Text("Routines") },
+                onOpenDrawer = onOpenDrawer,
+                onNavigateToSearch = onNavigateToSearch,
+            )
+        },
+    ) { padding ->
+        EmptyState(
+            icon = Icons.Outlined.FavoriteBorder,
+            title = "Routines are turned off",
+            subtitle = "Turn them on in Settings to track health and home routines",
+            modifier = Modifier.padding(padding),
+        )
+    }
 }

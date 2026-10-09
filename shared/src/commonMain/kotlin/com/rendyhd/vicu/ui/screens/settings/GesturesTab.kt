@@ -38,7 +38,7 @@ import com.rendyhd.vicu.data.local.ScheduleAction
 
 /** What swiping a task to the left does under the chosen "Swipe to schedule" setting. */
 internal fun swipeLeftDescription(action: ScheduleAction): String = when (action) {
-    ScheduleAction.DUE_TODAY -> "Set the due date to today"
+    ScheduleAction.DUE_TODAY -> "Open the When sheet to choose a day and time"
     ScheduleAction.PRIORITY_URGENT -> "Mark the task urgent (priority 4)"
 }
 

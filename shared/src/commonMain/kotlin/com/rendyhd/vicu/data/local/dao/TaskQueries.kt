@@ -30,6 +30,25 @@ internal const val INBOX_TASKS_SQL = """
     ORDER BY position ASC, created ASC, id ASC
 """
 
+/**
+ * Per project: the open tasks and the done tasks the phone holds, hidden carrier and archive
+ * tasks left out (the drawer's progress rings). A project with no task here has no row.
+ */
+internal const val PROJECT_TALLIES_SQL = """
+    SELECT projectId,
+           SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END) AS open,
+           SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS doneOnPhone
+    FROM tasks
+    WHERE isMetadata = 0
+    GROUP BY projectId
+"""
+
+/** One row of [PROJECT_TALLIES_SQL]. */
+data class ProjectTallyRow(val projectId: Long, val open: Int, val doneOnPhone: Int)
+
+/** A hidden carrier or archive task the phone holds, and the project it lives in. */
+data class MetadataTaskRef(val id: Long, val projectId: Long)
+
 /** A task's stored list-view position, as [TaskDao.getStoredPositionsChunk] returns it. */
 data class StoredPosition(val id: Long, val position: Double)
 

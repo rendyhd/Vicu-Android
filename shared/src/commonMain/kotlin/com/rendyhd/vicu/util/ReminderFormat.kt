@@ -2,30 +2,22 @@ package com.rendyhd.vicu.util
 
 import com.rendyhd.vicu.domain.model.TaskReminder
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toJavaLocalDate
-import kotlinx.datetime.toJavaLocalTime
 import kotlinx.datetime.toLocalDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 object ReminderFormat {
-    private val dateFmt = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.getDefault())
-    private val timeFmt = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
-
-    /** Absolute reminder time, in the user's local timezone. */
-    fun formatAbsolute(dateStr: String): String {
+    /** Absolute reminder time, in the user's local timezone and the app's date style ("Jan 1, 2030, 9:00 AM"). */
+    fun formatAbsolute(dateStr: String, fmt: DateDisplayFormat): String {
         val instant = DateUtils.parseIsoDate(dateStr) ?: return dateStr
-        val zoned = instant.toLocalDateTime(TimeZone.currentSystemDefault())
-        return "${zoned.date.toJavaLocalDate().format(dateFmt)} ${zoned.time.toJavaLocalTime().format(timeFmt)}"
+        return DateDisplay.formatAbsolute(instant.toLocalDateTime(TimeZone.currentSystemDefault()), fmt)
     }
 
     /**
      * Human label for a reminder: an absolute time, or what a relative one counts from, such as
      * "15 minutes before" (the due date), "At start" or "1 day before end".
      */
-    fun format(reminder: TaskReminder): String {
+    fun format(reminder: TaskReminder, fmt: DateDisplayFormat): String {
         if (reminder.reminder.isNotBlank() && !DateUtils.isNullDate(reminder.reminder)) {
-            return formatAbsolute(reminder.reminder)
+            return formatAbsolute(reminder.reminder, fmt)
         }
         return formatRelative(reminder.relativePeriod, reminder.relativeTo)
     }
@@ -59,9 +51,9 @@ object ReminderFormat {
     private fun plural(count: Long, unit: String): String = if (count == 1L) "1 $unit" else "$count ${unit}s"
 
     /** Summary for a row: the single reminder's label, or "N reminders" when there are several. */
-    fun summary(reminders: List<TaskReminder>): String = when (reminders.size) {
+    fun summary(reminders: List<TaskReminder>, fmt: DateDisplayFormat): String = when (reminders.size) {
         0 -> ""
-        1 -> format(reminders.first())
+        1 -> format(reminders.first(), fmt)
         else -> "${reminders.size} reminders"
     }
 }

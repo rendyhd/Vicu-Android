@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui.screens.tag
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +26,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.rendyhd.vicu.ui.components.section.ProjectMeta
+import com.rendyhd.vicu.ui.components.section.SectionHeader
+import com.rendyhd.vicu.ui.components.section.openCount
+import com.rendyhd.vicu.ui.components.section.showsGroupHeader
+import com.rendyhd.vicu.ui.components.shared.FabClearance
+import com.rendyhd.vicu.util.parseHexColor
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
@@ -34,7 +41,9 @@ import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
+import com.rendyhd.vicu.ui.components.task.RowView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,6 +60,7 @@ fun TagScreen(
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val topBarScroll = rememberVicuTopBarScroll(listState)
 
     val selectionVm: SelectionViewModel = koinViewModel()
     val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
@@ -59,6 +69,8 @@ fun TagScreen(
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
@@ -76,13 +88,14 @@ fun TagScreen(
                 VicuTopAppBar(
                     title = { Text(state.label?.title ?: "Label") },
                     onOpenDrawer = onOpenDrawer,
+                    scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
                 )
             }
         },
         floatingActionButton = {
             if (!selectionActive) {
-                VicuFab(onClick = { onShowTaskEntry(null, null) })
+                VicuFab(onClick = { onShowTaskEntry(null, null) }, expanded = !listState.canScrollBackward)
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
@@ -95,7 +108,7 @@ fun TagScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.tasks.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(
@@ -104,28 +117,44 @@ fun TagScreen(
                         )
                     }
                 } else {
-                    items(state.tasks, key = { it.id }, contentType = { "task" }) { task ->
-                        val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
-                        SwipeableTaskItem(
-                            task = displayTask,
-                            onToggleDone = {
-                                if (task.id in state.completedTaskIds) {
-                                    viewModel.undoComplete(task)
-                                } else {
-                                    viewModel.toggleDone(task)
-                                }
-                            },
-                            onClick = {
-                                if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id)
-                            },
-                            onSubtaskToggleDone = viewModel::toggleDone,
-                            onSubtaskClick = { child -> onTaskClick(child.id) },
-                            onSchedule = { viewModel.scheduleTask(task.id) },
-                            selectionActive = selectionActive,
-                            selected = task.id in selectedIds,
-                            onLongClick = { selectionVm.toggle(task.id) },
-                            modifier = Modifier.animateItem(),
-                        )
+                    state.groups.forEach { group ->
+                        // A group of one task has no header: its project goes on the row's meta line.
+                        val hasHeader = showsGroupHeader(group.tasks.size)
+                        val projectMeta = if (hasHeader) null else ProjectMeta(group.title, group.hexColor)
+                        if (hasHeader) {
+                            item(key = "group_${group.projectId}", contentType = "header") {
+                                SectionHeader(
+                                    title = group.title,
+                                    dotColor = parseHexColor(group.hexColor),
+                                    count = openCount(group.tasks, state.completedTaskIds),
+                                )
+                            }
+                        }
+                        items(group.tasks, key = { it.id }, contentType = { "task" }) { task ->
+                            val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
+                            SwipeableTaskItem(
+                                task = displayTask,
+                                onToggleDone = {
+                                    if (task.id in state.completedTaskIds) {
+                                        viewModel.undoComplete(task)
+                                    } else {
+                                        viewModel.toggleDone(task)
+                                    }
+                                },
+                                onClick = {
+                                    if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id)
+                                },
+                                onSubtaskToggleDone = viewModel::toggleDone,
+                                onSubtaskClick = { child -> onTaskClick(child.id) },
+                                onSchedule = { viewModel.scheduleTask(task.id) },
+                                selectionActive = selectionActive,
+                                selected = task.id in selectedIds,
+                                onLongClick = { selectionVm.toggle(task.id) },
+                                modifier = Modifier.animateItem(),
+                                projectMeta = projectMeta,
+                                rowView = RowView(labelId = labelId),
+                            )
+                        }
                     }
                 }
             }

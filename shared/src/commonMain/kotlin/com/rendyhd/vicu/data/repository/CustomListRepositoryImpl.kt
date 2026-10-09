@@ -176,7 +176,7 @@ class CustomListRepositoryImpl(
             reminders = emptyList(),
         ))
         writeCarrier(task.id, document)
-        carrierFinder.remember(CarrierSpec.CUSTOM_LISTS, serverKey(), task.id)
+        carrierFinder.remember(CarrierSpec.CUSTOM_LISTS, serverKey(), task.id, projectId)
         return task.id
     }
 

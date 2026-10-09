@@ -31,6 +31,7 @@ import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.RoutineEnvelope
 import com.rendyhd.vicu.util.SqlLike
 import com.rendyhd.vicu.util.withoutNestedSubtasks
+import com.rendyhd.vicu.worker.MissingResourceCheck
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -81,6 +82,74 @@ class TaskRepositoryImpl(
 
         /** Completed tasks fetched per Logbook page. */
         const val LOGBOOK_PAGE_SIZE = 50
+
+        /** How many repeating completions are remembered for Undo; an Undo comes seconds later. */
+        private const val MAX_REMEMBERED_ADVANCES = 32
+
+        /** Shown when a change is refused because the task was deleted on the server. */
+        private const val TASK_DELETED_ELSEWHERE = "This task was deleted on another device"
+    }
+
+    private val missing = MissingResourceCheck(api)
+
+    /**
+     * A repeating task as it was before its completion, and as the server returned it (still
+     * open, with its dates moved on). Undo of that completion has to move the dates back: the
+     * task is open already, so reopening it would change nothing.
+     */
+    private class AdvancedTask(val before: Task, val after: Task)
+
+    private val advancedMutex = Mutex()
+    private val advanced = LinkedHashMap<Long, AdvancedTask>()
+
+    /**
+     * Remembers the completion of a repeating task: the server answered a completion with a task
+     * that is still open and whose dates or reminders moved on.
+     */
+    private suspend fun noteAdvanced(before: Task, after: Task) {
+        if (before.done || after.done) return
+        val moved = before.dueDate != after.dueDate || before.startDate != after.startDate ||
+            before.endDate != after.endDate || before.reminders != after.reminders
+        if (!moved) return
+        advancedMutex.withLock {
+            advanced.remove(before.id)
+            advanced[before.id] = AdvancedTask(before, after)
+            while (advanced.size > MAX_REMEMBERED_ADVANCES) advanced.remove(advanced.keys.first())
+        }
+    }
+
+    /**
+     * Undo of a repeating task's completion: puts the dates and reminders back with a merge patch.
+     * Null when this is not such a task, or when it was edited since (then its dates are the
+     * user's, not the completion's).
+     */
+    private suspend fun undoAdvance(current: Task): NetworkResult<Task>? {
+        val entry = advancedMutex.withLock { advanced.remove(current.id) } ?: return null
+        val unchanged = current.dueDate == entry.after.dueDate && current.startDate == entry.after.startDate &&
+            current.endDate == entry.after.endDate && current.reminders == entry.after.reminders
+        if (!unchanged) return null
+        return update(
+            current.copy(
+                dueDate = entry.before.dueDate,
+                startDate = entry.before.startDate,
+                endDate = entry.before.endDate,
+                reminders = entry.before.reminders,
+            ),
+        )
+    }
+
+    /**
+     * A change to [taskId] was refused with [e]. When that says the task no longer exists on the
+     * server (a 404 the server's task-missing code or a second look confirms), the cached row is a
+     * ghost left by a deletion on another device: remove it. Returns whether it was removed.
+     */
+    private suspend fun dropIfDeleted(taskId: Long, e: Exception): Boolean {
+        if (e !is VikunjaApiException || e.httpStatus != 404) return false
+        if (!missing.taskGone(taskId, e)) return false
+        platformHooks.cancelAlarm(taskId)
+        taskDao.deleteById(taskId)
+        platformHooks.updateWidgets()
+        return true
     }
 
     private val completionBatchesMutex = Mutex()
@@ -395,8 +464,12 @@ class TaskRepositoryImpl(
                 NetworkResult.Success(task)
             },
             refused = { e ->
-                previous?.let { taskDao.upsert(it) }
-                NetworkResult.Error(e.message ?: "Failed to update task")
+                if (dropIfDeleted(task.id, e)) {
+                    NetworkResult.Error(TASK_DELETED_ELSEWHERE)
+                } else {
+                    previous?.let { taskDao.upsert(it) }
+                    NetworkResult.Error(e.message ?: "Failed to update task")
+                }
             },
         )
     }
@@ -828,6 +901,7 @@ class TaskRepositoryImpl(
                 val responseEntity = with(taskMapper) { responseDto.toEntity() }
                 taskDao.upsert(responseEntity)
                 val result = with(taskMapper) { responseEntity.toDomain() }
+                if (targetDone) noteAdvanced(current, result)
                 updateParentDoneReferences(result, responseDto.done, parentTaskId)
                 if (result.done) platformHooks.cancelAlarm(subtask.id) else platformHooks.scheduleAlarm(result)
                 platformHooks.updateWidgets()
@@ -835,9 +909,13 @@ class TaskRepositoryImpl(
             },
             queue = queue,
             refused = { e ->
-                cached?.let { taskDao.upsert(it) }
-                updateParentDoneReferences(current, current.done, parentTaskId)
-                NetworkResult.Error(e.message ?: "Failed to update subtask")
+                if (dropIfDeleted(subtask.id, e)) {
+                    NetworkResult.Error(TASK_DELETED_ELSEWHERE)
+                } else {
+                    cached?.let { taskDao.upsert(it) }
+                    updateParentDoneReferences(current, current.done, parentTaskId)
+                    NetworkResult.Error(e.message ?: "Failed to update subtask")
+                }
             },
         )
     }
@@ -947,7 +1025,11 @@ class TaskRepositoryImpl(
     override suspend fun setDone(taskId: Long, done: Boolean): NetworkResult<Task> {
         val current = taskDao.getByIdSync(currentId(taskId))?.let { with(taskMapper) { it.toDomain() } }
             ?: return NetworkResult.Error("Task $taskId is not in the local cache")
-        if (current.done == done) return NetworkResult.Success(current)
+        if (current.done == done) {
+            // A repeating task comes back from its completion open: undoing it moves its dates back.
+            if (!done) undoAdvance(current)?.let { return it }
+            return NetworkResult.Success(current)
+        }
         // The task is not in the requested state, so flipping it reaches that state; this goes
         // through the same path (subtask cascade, queueing) as completing from a list.
         return toggleTaskTree(current)
@@ -1025,6 +1107,7 @@ class TaskRepositoryImpl(
                 // Lists keep the row on screen themselves for a moment (CompletionHold).
                 taskDao.upsert(responseEntity)
                 val result = with(taskMapper) { responseEntity.toDomain() }
+                if (targetDone) noteAdvanced(current, result)
                 updateParentDoneReferences(toggled, responseDto.done)
                 if (result.done) {
                     platformHooks.cancelAlarm(task.id)
@@ -1035,7 +1118,13 @@ class TaskRepositoryImpl(
                 NetworkResult.Success(result)
             },
             queue = queue,
-            refused = { e -> NetworkResult.Error(e.message ?: "Failed to toggle task") },
+            refused = { e ->
+                if (dropIfDeleted(task.id, e)) {
+                    NetworkResult.Error(TASK_DELETED_ELSEWHERE)
+                } else {
+                    NetworkResult.Error(e.message ?: "Failed to toggle task")
+                }
+            },
         )
     }
 

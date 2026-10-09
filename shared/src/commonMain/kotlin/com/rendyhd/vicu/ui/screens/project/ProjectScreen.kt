@@ -3,6 +3,7 @@ package com.rendyhd.vicu.ui.screens.project
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,10 +45,12 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
-import com.rendyhd.vicu.ui.components.section.CollapsibleSection
+import com.rendyhd.vicu.ui.components.section.SectionHeader
+import com.rendyhd.vicu.ui.components.section.SectionLevel
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
 import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
@@ -56,6 +59,7 @@ import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.AddTaskButton
 import com.rendyhd.vicu.ui.components.task.ReorderableTaskRow
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
@@ -82,6 +86,7 @@ fun ProjectScreen(
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val topBarScroll = rememberVicuTopBarScroll(listState)
 
     val haptic = LocalHapticFeedback.current
     // True once the current long-press drag has actually displaced the row. A lift that
@@ -95,7 +100,7 @@ fun ProjectScreen(
         val toId = to.key as? Long
         if (fromId != null && toId != null && viewModel.onTaskMoved(fromId, toId)) {
             dragMoved = true
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            haptic.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick) // a reorder step (design-system-v1, haptics)
         }
     }
 
@@ -106,6 +111,8 @@ fun ProjectScreen(
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
@@ -123,13 +130,14 @@ fun ProjectScreen(
                 VicuTopAppBar(
                     title = { Text(state.project?.title ?: "Project") },
                     onOpenDrawer = onOpenDrawer,
+                    scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
                 )
             }
         },
         floatingActionButton = {
             if (!selectionActive) {
-                VicuFab(onClick = { onShowTaskEntry(projectId, null) })
+                VicuFab(onClick = { onShowTaskEntry(projectId, null) }, expanded = !listState.canScrollBackward)
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
@@ -146,7 +154,7 @@ fun ProjectScreen(
                 state.childProjects.isEmpty() &&
                 !hasAnyTask(state.sections)
 
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (allEmpty && !state.isLoading) {
                     item {
                         EmptyState(
@@ -218,6 +226,7 @@ fun ProjectScreen(
                             project = project,
                             enabled = !selectionActive,
                             onClick = { onProjectClick(project.id) },
+                            modifier = Modifier.animateItem(),
                         )
                     }
 
@@ -277,9 +286,10 @@ private fun SubprojectRow(
     project: Project,
     enabled: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -327,10 +337,12 @@ private fun LazyListScope.projectSectionItems(
     sections.forEach { section ->
         item(key = "section_${section.project.id}", contentType = "header") {
             val sectionColor = parseHexColor(section.project.hexColor)
-            CollapsibleSection(
+            // A sub-project inside the project being viewed: a level 2 header with its dot.
+            SectionHeader(
                 title = section.project.title,
-                color = sectionColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                taskCount = totalTaskCount(section),
+                level = SectionLevel.TWO,
+                dotColor = sectionColor,
+                count = openTaskCount(section, completedTaskIds),
                 isExpanded = section.isExpanded,
                 onToggle = { onSectionToggle(section.project.id) },
                 modifier = Modifier.padding(start = (depth * 16).dp),

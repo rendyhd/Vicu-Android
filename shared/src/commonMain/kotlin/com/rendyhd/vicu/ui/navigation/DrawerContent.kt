@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,17 +21,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.AllInclusive
-import androidx.compose.material.icons.outlined.Autorenew
-import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,10 +36,12 @@ import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,19 +61,18 @@ import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.ui.components.section.sectionStateDescription
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
+import com.rendyhd.vicu.ui.components.shared.ProgressRing
+import com.rendyhd.vicu.ui.components.shared.RollingCount
+import com.rendyhd.vicu.ui.components.shared.SmartListIdentity
 import com.rendyhd.vicu.ui.components.task.moveCustomActions
+import com.rendyhd.vicu.ui.theme.LocalVicuColors
+import com.rendyhd.vicu.util.ProjectProgress
 import com.rendyhd.vicu.util.moveIdBy
 import com.rendyhd.vicu.util.parseHexColor
+import kotlinx.coroutines.flow.distinctUntilChanged
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableLazyListState
 import sh.calvin.reorderable.rememberReorderableLazyListState
-
-private val SmartListTodayColor = Color(0xFFEAB308)
-private val SmartListUpcomingColor = Color(0xFF3B82F6)
-private val SmartListAnytimeColor = Color(0xFF8B5CF6)
-private val SmartListLogbookColor = Color(0xFF16A34A)
-private val SmartListReviewColor = Color(0xFF8B5CF6)
-private val HealthColor = Color(0xFF2E9D78)
 
 /** How far each level of the project tree is moved in. */
 private val ProjectIndent = 16.dp
@@ -87,6 +83,10 @@ private val ProjectIndent = 16.dp
  * many projects there are. Long-pressing a project, list or label drags it among the rows of its
  * own group (a project among its siblings); the drop is reported through the `onReorder` callbacks
  * with the ids of the group in their new order.
+ *
+ * A project row with tasks shows a [ProgressRing] from [projectProgress]. While [progressActive]
+ * (the drawer is open) the projects whose rows are on screen are reported through
+ * [onProgressRows], which is how the numbers are asked for: only for the rows that can be seen.
  */
 @Composable
 fun DrawerContent(
@@ -97,6 +97,9 @@ fun DrawerContent(
     onToggleLists: () -> Unit,
     onToggleTags: () -> Unit,
     onToggleProjectCollapsed: (projectId: Long) -> Unit = {},
+    projectProgress: Map<Long, ProjectProgress> = emptyMap(),
+    progressActive: Boolean = false,
+    onProgressRows: (Set<Long>) -> Unit = {},
     onCreateNewList: () -> Unit = {},
     onReorderProject: (movedId: Long, idsInNewOrder: List<Long>) -> Unit = { _, _ -> },
     onReorderList: (movedId: String, idsInNewOrder: List<String>) -> Unit = { _, _ -> },
@@ -104,6 +107,7 @@ fun DrawerContent(
 ) {
     val haptic = LocalHapticFeedback.current
     val listState = rememberLazyListState()
+    val identity = LocalVicuColors.current.identity
 
     // While a row is dragged, its group is drawn in the order being made. At the drop the view
     // model takes over: it keeps the new order on show until the stored order says the same.
@@ -137,7 +141,20 @@ fun DrawerContent(
                 moveItem(liveLabels ?: state.labels, source.id, target.id) { it.id.toString() }
                     ?.also { liveLabels = it } != null
         }
-        if (moved) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (moved) haptic.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick) // a reorder step (design-system-v1, haptics)
+    }
+
+    // The projects with a row on screen, reported while the drawer is open and as the list scrolls.
+    LaunchedEffect(progressActive, listState) {
+        if (!progressActive) {
+            onProgressRows(emptySet())
+            return@LaunchedEffect
+        }
+        snapshotFlow {
+            listState.layoutInfo.visibleItemsInfo.mapNotNullTo(HashSet()) { item ->
+                parseDrawerKey(item.key)?.takeIf { it.group == DrawerGroup.PROJECT }?.id?.toLongOrNull()
+            }
+        }.distinctUntilChanged().collect { onProgressRows(it) }
     }
 
     ModalDrawerSheet {
@@ -156,8 +173,8 @@ fun DrawerContent(
                         item(key = "smart_today", contentType = "smart") {
                             SmartListItem(
                                 label = "Today",
-                                icon = Icons.Outlined.WbSunny,
-                                iconTint = SmartListTodayColor,
+                                icon = SmartListIdentity.TODAY.icon,
+                                iconTint = SmartListIdentity.TODAY.color(identity),
                                 selected = currentRoute == "TodayRoute",
                                 onClick = { onNavigate(TodayRoute) },
                             )
@@ -167,8 +184,8 @@ fun DrawerContent(
                         item(key = "smart_upcoming", contentType = "smart") {
                             SmartListItem(
                                 label = "Upcoming",
-                                icon = Icons.Outlined.CalendarMonth,
-                                iconTint = SmartListUpcomingColor,
+                                icon = SmartListIdentity.UPCOMING.icon,
+                                iconTint = SmartListIdentity.UPCOMING.color(identity),
                                 selected = currentRoute == "UpcomingRoute",
                                 onClick = { onNavigate(UpcomingRoute) },
                             )
@@ -178,8 +195,8 @@ fun DrawerContent(
                         item(key = "smart_anytime", contentType = "smart") {
                             SmartListItem(
                                 label = "Anytime",
-                                icon = Icons.Outlined.AllInclusive,
-                                iconTint = SmartListAnytimeColor,
+                                icon = SmartListIdentity.ANYTIME.icon,
+                                iconTint = SmartListIdentity.ANYTIME.color(identity),
                                 selected = currentRoute == "AnytimeRoute",
                                 onClick = { onNavigate(AnytimeRoute) },
                             )
@@ -192,21 +209,24 @@ fun DrawerContent(
                     if (displaced.isEmpty()) Spacer(Modifier.height(12.dp))
                     SmartListItem(
                         label = "Logbook",
-                        icon = Icons.Outlined.CheckCircle,
-                        iconTint = SmartListLogbookColor,
+                        icon = SmartListIdentity.LOGBOOK.icon,
+                        iconTint = SmartListIdentity.LOGBOOK.color(identity),
                         selected = currentRoute == "LogbookRoute",
                         onClick = { onNavigate(LogbookRoute) },
                     )
                 }
 
-                item(key = "smart_routines", contentType = "smart") {
-                    SmartListItem(
-                        label = "Routines",
-                        icon = Icons.Outlined.FavoriteBorder,
-                        iconTint = HealthColor,
-                        selected = currentRoute == "RoutinesRoute",
-                        onClick = { onNavigate(RoutinesRoute) },
-                    )
+                // Routines; hidden when they are turned off in Settings
+                if (state.routinesEnabled) {
+                    item(key = "smart_routines", contentType = "smart") {
+                        SmartListItem(
+                            label = "Routines",
+                            icon = SmartListIdentity.ROUTINES.icon,
+                            iconTint = SmartListIdentity.ROUTINES.color(identity),
+                            selected = currentRoute == "RoutinesRoute",
+                            onClick = { onNavigate(RoutinesRoute) },
+                        )
+                    }
                 }
 
                 // Review (with overdue badge); hidden when the feature is disabled
@@ -216,16 +236,18 @@ fun DrawerContent(
                             label = { Text("Review") },
                             icon = {
                                 Icon(
-                                    Icons.Outlined.Autorenew,
+                                    SmartListIdentity.REVIEW.icon,
                                     contentDescription = null,
-                                    tint = SmartListReviewColor,
+                                    tint = SmartListIdentity.REVIEW.color(identity),
                                 )
                             },
                             badge = {
                                 if (state.reviewOverdueCount > 0) {
-                                    Text(
-                                        state.reviewOverdueCount.toString(),
-                                        color = SmartListReviewColor,
+                                    // Rolls by one when a review is done or one falls due (card 4.11b).
+                                    RollingCount(
+                                        value = state.reviewOverdueCount,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.labelLarge,
                                     )
                                 }
                             },
@@ -265,6 +287,7 @@ fun DrawerContent(
                         ) {
                             ProjectItem(
                                 row = row,
+                                progress = projectProgress[projectId],
                                 selected = currentRoute == "ProjectRoute/$projectId",
                                 onClick = { onNavigate(ProjectRoute(projectId)) },
                                 onToggleCollapsed = { onToggleProjectCollapsed(projectId) },
@@ -472,6 +495,7 @@ private fun LazyItemScope.DrawerReorderableRow(
 @Composable
 private fun ProjectItem(
     row: ProjectRow,
+    progress: ProjectProgress?,
     selected: Boolean,
     onClick: () -> Unit,
     onToggleCollapsed: () -> Unit,
@@ -479,14 +503,30 @@ private fun ProjectItem(
     onMoveDown: (() -> Unit)? = null,
 ) {
     val project = row.project
-    // Only a project with children gets the button; the badge slot is the trailing end of the row.
-    val toggle: (@Composable () -> Unit)? = if (row.hasChildren) {
+    val projectColor = parseHexColor(project.hexColor)
+    // The badge slot is the trailing end of the row: the progress ring of a project with tasks,
+    // then the open/close button of a project with children.
+    val badge: (@Composable () -> Unit)? = if (row.hasChildren || progress != null) {
         {
-            IconButton(onClick = onToggleCollapsed) {
-                Icon(
-                    imageVector = if (row.expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                    contentDescription = projectToggleDescription(project.title, row.expanded),
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (progress != null) {
+                    ProgressRing(
+                        progress = progress,
+                        color = projectColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (row.hasChildren) {
+                    IconButton(onClick = onToggleCollapsed) {
+                        Icon(
+                            imageVector = if (row.expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                            contentDescription = projectToggleDescription(project.title, row.expanded),
+                        )
+                    }
+                } else if (progress != null) {
+                    // The room of the open/close button, so the rings of an area row and of its
+                    // projects are one column.
+                    Spacer(Modifier.width(48.dp))
+                }
             }
         }
     } else {
@@ -498,10 +538,10 @@ private fun ProjectItem(
             Icon(
                 Icons.Outlined.Folder,
                 contentDescription = null,
-                tint = parseHexColor(project.hexColor) ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = projectColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
-        badge = toggle,
+        badge = badge,
         selected = selected,
         onClick = onClick,
         modifier = Modifier

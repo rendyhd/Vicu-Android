@@ -1,6 +1,8 @@
 package com.rendyhd.vicu.ui.components.task
 
-import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
+import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.parser.TokenType
 import kotlinx.datetime.LocalDate
@@ -30,55 +32,61 @@ class ParseChipTextTest {
         Locale.setDefault(savedLocale)
     }
 
+    private val gb24 = DateDisplayFormat(Locale.UK, hour12 = false)
+    private val us12 = DateDisplayFormat(Locale.US, hour12 = true)
+
     @Test
     fun `a time keeps its minutes`() {
         val due = LocalDateTime(2026, 10, 8, 15, 30)
-        assertEquals("Tomorrow 15:30", formatDateChip(due, hasTime = true, today = today, is24Hour = true))
-        assertTrue("3:30" in formatDateChip(due, hasTime = true, today = today, is24Hour = false))
+        assertEquals("Thu 8 Oct, 15:30", formatDateChip(due, hasTime = true, today = today, dateFormat = gb24))
+        assertEquals("Thu, Oct 8, 3:30 PM", formatDateChip(due, hasTime = true, today = today, dateFormat = us12))
     }
 
     @Test
     fun `times just after midnight and just before it are shown`() {
         assertEquals(
-            "Today 23:45",
-            formatDateChip(LocalDateTime(2026, 10, 7, 23, 45), hasTime = true, today = today, is24Hour = true),
+            "Wed 7 Oct, 23:45",
+            formatDateChip(LocalDateTime(2026, 10, 7, 23, 45), hasTime = true, today = today, dateFormat = gb24),
         )
         assertEquals(
-            "Today 00:05",
-            formatDateChip(LocalDateTime(2026, 10, 7, 0, 5), hasTime = true, today = today, is24Hour = true),
+            "Wed 7 Oct, 00:05",
+            formatDateChip(LocalDateTime(2026, 10, 7, 0, 5), hasTime = true, today = today, dateFormat = gb24),
+        )
+        assertEquals(
+            "Wed, Oct 7, 12:05 AM",
+            formatDateChip(LocalDateTime(2026, 10, 7, 0, 5), hasTime = true, today = today, dateFormat = us12),
         )
     }
 
     @Test
     fun `a date without a time shows no time, even at midnight`() {
         assertEquals(
-            "Today",
-            formatDateChip(LocalDateTime(2026, 10, 7, 0, 0), hasTime = false, today = today, is24Hour = true),
+            "Wed 7 Oct",
+            formatDateChip(LocalDateTime(2026, 10, 7, 0, 0), hasTime = false, today = today, dateFormat = gb24),
         )
         assertEquals(
-            "Oct 20",
-            formatDateChip(LocalDateTime(2026, 10, 20, 0, 0), hasTime = false, today = today, is24Hour = true),
+            "Tue 20 Oct",
+            formatDateChip(LocalDateTime(2026, 10, 20, 0, 0), hasTime = false, today = today, dateFormat = gb24),
         )
     }
 
     @Test
-    fun `a date after tomorrow is named the way the task list names it`() {
-        fun chip(date: LocalDateTime, hasTime: Boolean = false) =
-            formatDateChip(date, hasTime = hasTime, today = today, is24Hour = true)
+    fun `a chip always names the weekday date, never a relative word`() {
+        fun chip(date: LocalDateTime, hasTime: Boolean = false, format: DateDisplayFormat = gb24) =
+            formatDateChip(date, hasTime = hasTime, today = today, dateFormat = format)
 
         // "Call Ana about Saturday" typed on a Wednesday used to show "2026-10-10".
-        assertEquals("Sat", chip(LocalDateTime(2026, 10, 10, 23, 59, 59)))
-        assertEquals("Sat 15:00", chip(LocalDateTime(2026, 10, 10, 15, 0), hasTime = true))
-        assertEquals("Tue", chip(LocalDateTime(2026, 10, 13, 23, 59, 59)))
-        // A week ahead is the same weekday as today, so it is a date.
-        assertEquals("Oct 14", chip(LocalDateTime(2026, 10, 14, 23, 59, 59)))
-        assertEquals("Jan 15, 2027", chip(LocalDateTime(2027, 1, 15, 23, 59, 59)))
-        assertEquals("Yesterday", chip(LocalDateTime(2026, 10, 6, 23, 59, 59)))
+        assertEquals("Sat 10 Oct", chip(LocalDateTime(2026, 10, 10, 23, 59, 59)))
+        assertEquals("Sat 10 Oct, 15:00", chip(LocalDateTime(2026, 10, 10, 15, 0), hasTime = true))
+        assertEquals("Sat, Oct 10, 3:00 PM", chip(LocalDateTime(2026, 10, 10, 15, 0), hasTime = true, format = us12))
+        assertEquals("Tue 13 Oct", chip(LocalDateTime(2026, 10, 13, 23, 59, 59)))
+        assertEquals("Fri 15 Jan 2027", chip(LocalDateTime(2027, 1, 15, 23, 59, 59)))
+        assertEquals("Tue 6 Oct", chip(LocalDateTime(2026, 10, 6, 23, 59, 59)))
     }
 
     @Test
     fun `the chip names a date the same way as the date chip of the sheet`() {
-        // The sheet's date chip shows the stored value with DateUtils.formatDueDate.
+        // The sheet's date chip shows the stored value with DateDisplay.formatDue.
         val zone = TimeZone.of("Europe/Amsterdam")
         val parsed = listOf(
             LocalDateTime(2026, 10, 7, 23, 59, 59) to false,
@@ -88,13 +96,13 @@ class ParseChipTextTest {
             LocalDateTime(2026, 10, 16, 23, 59, 59) to false,
             LocalDateTime(2027, 3, 3, 14, 0) to true,
         )
-        for (is24Hour in listOf(true, false)) {
+        for (format in listOf(gb24, us12)) {
             for ((date, hasTime) in parsed) {
                 val stored = DueDates.fromParsed(date, hasTime, zone).toString()
                 assertEquals(
-                    DateUtils.formatDueDate(stored, today, is24Hour, zone),
-                    formatDateChip(date, hasTime, today, is24Hour),
-                    "$date hasTime=$hasTime is24Hour=$is24Hour",
+                    DateDisplay.formatDue(DateContext.CHIP, stored, today, zone, format),
+                    formatDateChip(date, hasTime, today, format),
+                    "$date hasTime=$hasTime $format",
                 )
             }
         }

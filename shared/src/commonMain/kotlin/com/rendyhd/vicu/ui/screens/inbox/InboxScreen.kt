@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui.screens.inbox
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
@@ -36,6 +38,7 @@ import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.ReorderableTaskRow
 import com.rendyhd.vicu.util.isManuallyOrdered
 import com.rendyhd.vicu.util.moveOptions
@@ -55,6 +58,7 @@ fun InboxScreen(
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val topBarScroll = rememberVicuTopBarScroll(listState)
 
     val haptic = LocalHapticFeedback.current
     // True once the current long-press drag has actually displaced the row; a lift that never
@@ -65,7 +69,7 @@ fun InboxScreen(
         val toId = to.key as? Long
         if (fromId != null && toId != null && viewModel.onTaskMoved(fromId, toId)) {
             dragMoved = true
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            haptic.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick) // a reorder step (design-system-v1, haptics)
         }
     }
 
@@ -76,6 +80,8 @@ fun InboxScreen(
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
@@ -93,6 +99,7 @@ fun InboxScreen(
                 VicuTopAppBar(
                     title = { Text("Inbox") },
                     onOpenDrawer = onOpenDrawer,
+                    scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
                 )
             }
@@ -101,7 +108,7 @@ fun InboxScreen(
             // Only a standing notice (no usable Inbox) hides it; a failed refresh or completion
             // is a passing message and the user can still add a task.
             if (!selectionActive && state.notice == null) {
-                VicuFab(onClick = { onShowTaskEntry(state.inboxProjectId, null) })
+                VicuFab(onClick = { onShowTaskEntry(state.inboxProjectId, null) }, expanded = !listState.canScrollBackward)
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
@@ -116,7 +123,7 @@ fun InboxScreen(
         ) {
             // Which rows can move a place (for a screen reader, which cannot drag): one pass.
             val moves = remember(state.tasks) { moveOptions(state.tasks) }
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.tasks.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(

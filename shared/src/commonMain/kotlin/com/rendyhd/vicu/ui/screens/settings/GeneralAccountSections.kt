@@ -155,8 +155,8 @@ internal fun LazyListScope.appearanceSection(
 
     item(key = "use_device_colors") {
         SwitchRow(
-            label = "Use device colors",
-            description = "Match Android's wallpaper-based Material You palette (Android 12+)",
+            label = "Use device colours",
+            description = "Follow your wallpaper's Material You palette instead of the Vicu colours (Android 12 and later)",
             checked = useDeviceColors,
             onCheckedChange = viewModel::setUseDeviceColors,
         )

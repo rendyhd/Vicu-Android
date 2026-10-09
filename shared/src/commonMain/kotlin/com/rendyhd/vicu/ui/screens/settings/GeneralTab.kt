@@ -31,6 +31,7 @@ internal fun GeneralTab(
         bottomBarSection(state, viewModel, openDialog)
         widgetSection(state, viewModel)
         reviewSection(state, viewModel, openDialog)
+        routinesSection(state, viewModel)
         inboxSection(state, viewModel)
         logbookSection(state, viewModel, openDialog)
         inputParsingSection(state, viewModel)

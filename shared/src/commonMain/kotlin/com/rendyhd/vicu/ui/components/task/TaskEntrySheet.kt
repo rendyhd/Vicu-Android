@@ -2,6 +2,7 @@ package com.rendyhd.vicu.ui.components.task
 
 import com.rendyhd.vicu.ui.rememberImagePicker
 import org.koin.compose.koinInject
+import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
 import com.rendyhd.vicu.util.PlatformFiles
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,24 +26,19 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Flag
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.Sell
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -56,6 +53,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 
@@ -63,9 +66,6 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.semantics.CustomAccessibilityAction
-import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
@@ -76,16 +76,33 @@ import com.rendyhd.vicu.ui.components.picker.PriorityPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.RecurrencePickerDialog
-import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.picker.WhenSheet
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
-import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
-import com.rendyhd.vicu.ui.screens.taskentry.resolveEntryDueDate
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.components.shared.VicuDragHandle
+import com.rendyhd.vicu.ui.screens.taskentry.FieldSource
 import com.rendyhd.vicu.ui.screens.taskentry.TaskEntryViewModel
-import com.rendyhd.vicu.ui.screens.taskentry.resolveTaskEntryRecurrence
+import com.rendyhd.vicu.ui.screens.taskentry.entryLabelsWords
+import com.rendyhd.vicu.ui.screens.taskentry.entryPriorityName
+import com.rendyhd.vicu.ui.screens.taskentry.entryProjectChipLabel
+import com.rendyhd.vicu.ui.screens.taskentry.resolveEntryFields
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.RecurrenceValue
+import com.rendyhd.vicu.util.parser.TokenType
 import com.rendyhd.vicu.util.parser.getPrefixes
 
+/** From this font scale on the chips wrap onto more rows instead of scrolling sideways, so none is out of sight. */
+private const val ENTRY_CHIPS_WRAP_FONT_SCALE = 1.25f
+
+/**
+ * The new-task sheet (design review 3.6): a compact sheet on the keyboard with the title (its
+ * parsed words highlighted), one row of chips (When, Project, Tags, Priority) that say the value in
+ * words, and "+ Notes", which grows the sheet with the description, Repeat and Reminder. A chip shows
+ * what the parser read from the title unless the user set that chip with its picker, in which case
+ * the chip wins and its token loses the highlight ([resolveEntryFields]); the date shows once.
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TaskEntrySheet(
@@ -106,8 +123,14 @@ fun TaskEntrySheet(
     var showProjectPicker by remember { mutableStateOf(false) }
     var showLabelPicker by remember { mutableStateOf(false) }
     var showReminderPicker by remember { mutableStateOf(false) }
+    val notificationPermission = koinInject<NotificationPermissionCoordinator>()
     var showPriorityPicker by remember { mutableStateOf(false) }
     var showRecurrencePicker by remember { mutableStateOf(false) }
+
+    // "+ Notes" grows the sheet. A draft that already has notes or files keeps it grown.
+    var notesOpen by rememberSaveable { mutableStateOf(false) }
+    val showNotes = notesOpen || state.description.isNotBlank() ||
+        state.pendingAttachmentUris.isNotEmpty() || state.pendingImages.isNotEmpty()
 
     // TextFieldValue for cursor position tracking (needed for autocomplete)
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
@@ -151,6 +174,7 @@ fun TaskEntrySheet(
             val keepOpen = state.keepEntryOpen
             viewModel.reset()
             textFieldValue = TextFieldValue("")
+            notesOpen = false
             if (keepOpen) {
                 // Mass-add: stay open and re-focus for the next task.
                 focusRequester.requestFocus()
@@ -160,8 +184,39 @@ fun TaskEntrySheet(
         }
     }
 
+    // What the task is going to get, and what each chip says (the title's highlights, the chips and
+    // the save all read the same fields).
+    val day = LocalClockDay.current
+    val dateFormat = LocalDateFormat.current
+    val fields = resolveEntryFields(state, day.zone)
+    val parseResult = state.parseResult
+    // Where a parsed word sits in the title, in root coordinates: the chip that was read from it
+    // travels out of that spot (card 4.11b).
+    var titleBounds by remember { mutableStateOf<Rect?>(null) }
+    val textMeasurer = rememberTextMeasurer()
+    val titleStyle = MaterialTheme.typography.titleMedium
+    val textInset = with(LocalDensity.current) { TITLE_FIELD_TEXT_INSET_DP.dp.toPx() }
+    fun tokenRectOf(type: TokenType): Rect? {
+        val token = parseResult?.tokens?.firstOrNull { it.type == type } ?: return null
+        return titleTokenRect(textMeasurer, titleStyle, state.title, token, titleBounds, textInset)
+    }
+    // Gate on the effective (parsed) title so NLP-only input like "#work !1" doesn't look enabled
+    // and then silently no-op in save().
+    val canSave = viewModel.effectiveTitle().isNotBlank() && !state.isSaving
+    val save = {
+        descriptionEditorController.flush()
+        viewModel.save()
+    }
+
+    // Closing a sheet that has no title drops what was picked on its chips: a draft is the text,
+    // and a pick without one would otherwise stop the next title from being read.
+    val dismiss = {
+        if (state.title.isBlank()) viewModel.reset()
+        onDismiss()
+    }
+
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = dismiss,
         sheetState = sheetState,
         // Cascade owns vertical scrolling while its editor is active. Temporarily
         // disable anchored-sheet gestures so the two nested scroll systems do not
@@ -175,216 +230,192 @@ fun TaskEntrySheet(
                 .clearDescriptionEditorFocusOnHostTap(descriptionEditorController)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 16.dp)
+                .padding(bottom = 12.dp)
                 .imePadding(),
         ) {
-            // Title field with NLP highlighting and autocomplete
-            var fieldSize by remember { mutableStateOf(IntSize.Zero) }
-            Box {
-                OutlinedTextField(
-                    value = textFieldValue,
-                    onValueChange = { newValue ->
-                        textFieldValue = newValue
-                        viewModel.setTitle(newValue.text)
-                    },
-                    placeholder = { Text("New task") },
-                    maxLines = 3,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester)
-                        .onSizeChanged { fieldSize = it },
-                    textStyle = MaterialTheme.typography.titleMedium,
-                    keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.Sentences,
-                        imeAction = ImeAction.Next,
-                    ),
-                    visualTransformation = NlpVisualTransformation(
-                        tokens = state.parseResult?.tokens ?: emptyList(),
-                        isDarkTheme = isDarkTheme,
-                    ),
-                )
+            // The title with its parsed words highlighted, and the send button next to it.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                var fieldSize by remember { mutableStateOf(IntSize.Zero) }
+                Box(modifier = Modifier.weight(1f)) {
+                    TextField(
+                        value = textFieldValue,
+                        onValueChange = { newValue ->
+                            textFieldValue = newValue
+                            viewModel.setTitle(newValue.text)
+                        },
+                        placeholder = { Text("New task", style = MaterialTheme.typography.titleMedium) },
+                        maxLines = 3,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                            .onSizeChanged { fieldSize = it }
+                            .onGloballyPositioned { titleBounds = it.boundsInRoot() },
+                        textStyle = MaterialTheme.typography.titleMedium,
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Sentences,
+                            imeAction = ImeAction.Send,
+                        ),
+                        keyboardActions = KeyboardActions(onSend = { if (canSave) save() }),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            disabledContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            disabledIndicatorColor = Color.Transparent,
+                        ),
+                        visualTransformation = NlpVisualTransformation(
+                            tokens = parseResult?.tokens ?: emptyList(),
+                            isDarkTheme = isDarkTheme,
+                        ),
+                    )
 
-                // Autocomplete dropdown
-                NlpAutocompleteDropdown(
-                    inputValue = textFieldValue.text,
-                    cursorPosition = textFieldValue.selection.start,
-                    prefixes = getPrefixes(state.parserConfig.syntaxMode),
-                    projects = state.allProjects,
-                    labels = state.allLabels,
-                    enabled = state.parserConfig.enabled,
-                    onSelect = { newText, newCursor ->
-                        textFieldValue = TextFieldValue(
-                            text = newText,
-                            selection = TextRange(newCursor),
-                        )
-                        viewModel.setTitle(newText)
-                    },
-                    anchorSize = fieldSize,
-                )
-            }
-
-            // NLP preview chips
-            val parseResult = state.parseResult
-            if (parseResult != null && parseResult.tokens.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                ParseChipRow(
-                    parseResult = parseResult,
-                    isDarkTheme = isDarkTheme,
-                    onDismiss = viewModel::suppressType,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            val entryImagePickerLauncher = rememberImagePicker(viewModel::stagePendingImage)
-
-            DescriptionField(
-                value = state.description,
-                onValueChange = viewModel::setDescription,
-                taskId = 0L,
-                isUploadingImage = false,
-                onAddImageClick = entryImagePickerLauncher,
-                onRemoveImageAttachment = {},
-                onImagePasted = viewModel::stagePendingImage,
-                pendingImages = state.pendingImages,
-                onRemovePending = viewModel::removePendingImage,
-                editorController = descriptionEditorController,
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Action chips
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                // Date chip. Shows the date that will be saved: picked by hand, else typed in the
-                // title, else the one the screen seeded (same resolution as save()).
-                val day = LocalClockDay.current
-                val is24Hour = LocalIs24Hour.current
-                val effectiveDueDate = resolveEntryDueDate(
-                    dueDate = state.dueDate,
-                    dueDateIsManual = state.dueDateIsManual,
-                    parserEnabled = state.parserConfig.enabled,
-                    parsed = state.parseResult,
-                    zone = day.zone,
-                )
-                val hasDate = effectiveDueDate.isNotBlank() && !DateUtils.isNullDate(effectiveDueDate)
-                val dateLabel = if (hasDate) {
-                    DateUtils.formatDueDate(effectiveDueDate, day.date, is24Hour, day.zone)
-                } else "Date"
-
-                AssistChip(
-                    onClick = { showDatePicker = true },
-                    // The clear button is as tall as the chip lets it be (32 dp); a screen reader
-                    // gets the same thing from the chip's actions without having to find it.
-                    modifier = if (hasDate) {
-                        Modifier.semantics {
-                            customActions = listOf(
-                                CustomAccessibilityAction("Clear date") {
-                                    viewModel.clearDueDate()
-                                    true
-                                },
+                    // Autocomplete dropdown
+                    NlpAutocompleteDropdown(
+                        inputValue = textFieldValue.text,
+                        cursorPosition = textFieldValue.selection.start,
+                        prefixes = getPrefixes(state.parserConfig.syntaxMode),
+                        projects = state.allProjects,
+                        labels = state.allLabels,
+                        enabled = state.parserConfig.enabled,
+                        onSelect = { newText, newCursor ->
+                            textFieldValue = TextFieldValue(
+                                text = newText,
+                                selection = TextRange(newCursor),
                             )
-                        }
-                    } else {
-                        Modifier
-                    },
-                    label = { Text(dateLabel) },
-                    leadingIcon = {
-                        Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
-                    },
-                    trailingIcon = if (hasDate) {
-                        {
-                            IconButton(
-                                onClick = { viewModel.clearDueDate() },
-                                modifier = Modifier.size(32.dp),
-                            ) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "Clear date",
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
-                        }
-                    } else null,
-                )
-
-                // Recurrence chip. The displayed value uses the same manual-over-NLP
-                // resolution as save(), so the preview always matches what will persist.
-                val effectiveRecurrence = resolveTaskEntryRecurrence(
-                    manualRecurrence = state.manualRecurrence,
-                    parserEnabled = state.parserConfig.enabled,
-                    parsedRecurrence = state.parseResult?.recurrence,
-                )
-                AssistChip(
-                    onClick = { showRecurrencePicker = true },
-                    label = {
-                        Text(
-                            if (effectiveRecurrence.isRecurring) {
-                                DateUtils.formatRecurrence(
-                                    effectiveRecurrence.repeatAfter,
-                                    effectiveRecurrence.repeatMode,
-                                )
-                            } else {
-                                "Repeat"
-                            },
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Repeat, contentDescription = null, modifier = Modifier.size(16.dp))
-                    },
-                )
-
-                // Project chip
-                val projectName = state.allProjects.find { it.id == state.projectId }?.title ?: "Project"
-                AssistChip(
-                    onClick = { showProjectPicker = true },
-                    label = { Text(projectName) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
-                    },
-                )
-
-                // Labels chip
-                val labelCount = state.selectedLabelIds.size
-                val labelText = if (labelCount > 0) "$labelCount label${if (labelCount > 1) "s" else ""}" else "Labels"
-                AssistChip(
-                    onClick = { showLabelPicker = true },
-                    label = { Text(labelText) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Sell, contentDescription = null, modifier = Modifier.size(16.dp))
-                    },
-                )
-
-                // Reminder chip
-                val reminderCount = state.reminders.size
-                val reminderText = if (reminderCount > 0) {
-                    "$reminderCount reminder${if (reminderCount > 1) "s" else ""}"
-                } else "Reminder"
-                AssistChip(
-                    onClick = { showReminderPicker = true },
-                    label = { Text(reminderText) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(16.dp))
-                    },
-                )
-
-                // Priority chip
-                val priorityLabel = when (state.priority) {
-                    1 -> "Low"
-                    2 -> "Medium"
-                    3 -> "High"
-                    4 -> "Urgent"
-                    else -> "Priority"
+                            viewModel.setTitle(newText)
+                        },
+                        anchorSize = fieldSize,
+                    )
                 }
-                AssistChip(
-                    onClick = { showPriorityPicker = true },
-                    label = { Text(priorityLabel) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Flag, contentDescription = null, modifier = Modifier.size(16.dp))
+                FilledIconButton(onClick = save, enabled = canSave) {
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Save task")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // The chips: one row at rest. A chip says its value in words; the colour of a value read
+            // from the title is the colour of its highlight.
+            fun tint(source: FieldSource?, type: TokenType): Color? =
+                if (source == FieldSource.TEXT) tokenChipColor(type, isDarkTheme) else null
+
+            // One row: the chips scroll sideways when they say values, "+ Notes" stays at its end. With a
+            // large font the chips no longer fit side by side and the later ones would sit out of sight
+            // behind a scroll nobody can see, so they wrap onto more rows and every chip stays in view.
+            val wrapChips = LocalDensity.current.fontScale >= ENTRY_CHIPS_WRAP_FONT_SCALE
+            val entryChips: @Composable () -> Unit = {
+                // When: the one place the date is shown.
+                val hasDate = fields.dueDate.isNotBlank()
+                TaskEntryChip(
+                    label = if (hasDate) {
+                        DateDisplay.formatDue(DateContext.CHIP, fields.dueDate, day.date, day.zone, dateFormat)
+                    } else {
+                        "When"
                     },
+                    onClick = { showDatePicker = true },
+                    tint = tint(fields.dueSource, TokenType.DATE),
+                    clearDescription = if (hasDate) "Clear date" else null,
+                    onClear = if (hasDate) viewModel::clearDueDate else null,
+                    tokenRect = { tokenRectOf(TokenType.DATE) },
                 )
+
+                val projectTitle = state.allProjects.find { it.id == fields.projectId }?.title ?: "Project"
+                TaskEntryChip(
+                    label = entryProjectChipLabel(fields, projectTitle, state.title, parseResult),
+                    onClick = { showProjectPicker = true },
+                    tint = if (fields.parsedProjectName != null) tokenChipColor(TokenType.PROJECT, isDarkTheme) else null,
+                    tokenRect = { tokenRectOf(TokenType.PROJECT) },
+                )
+
+                val pickedLabels = state.allLabels.filter { it.id in state.selectedLabelIds }.map { it.title }
+                val parsedLabels = parseResult?.labels.orEmpty()
+                val labelWords = entryLabelsWords(pickedLabels, parsedLabels)
+                TaskEntryChip(
+                    label = labelWords ?: "Tags",
+                    onClick = { showLabelPicker = true },
+                    tint = if (parsedLabels.isNotEmpty()) tokenChipColor(TokenType.LABEL, isDarkTheme) else null,
+                    clearDescription = if (labelWords != null) "Clear tags" else null,
+                    onClear = if (labelWords != null) viewModel::clearLabels else null,
+                    tokenRect = { tokenRectOf(TokenType.LABEL) },
+                )
+
+                val priorityName = entryPriorityName(fields.priority)
+                TaskEntryChip(
+                    label = priorityName ?: "Priority",
+                    onClick = { showPriorityPicker = true },
+                    tint = tint(fields.prioritySource, TokenType.PRIORITY),
+                    clearDescription = if (priorityName != null) "Clear priority" else null,
+                    onClear = if (priorityName != null) ({ viewModel.setPriority(0) }) else null,
+                    tokenRect = { tokenRectOf(TokenType.PRIORITY) },
+                )
+
+                if (!showNotes) {
+                    // A repeat or a reminder that is already set stays in view while the sheet is small.
+                    if (fields.recurrenceSource != null) {
+                        RecurrenceChip(fields.recurrence, fields.recurrenceSource, isDarkTheme, viewModel, { tokenRectOf(TokenType.RECURRENCE) }) {
+                            showRecurrencePicker = true
+                        }
+                    }
+                    if (state.reminders.isNotEmpty()) {
+                        ReminderChip(state.reminders.size) { showReminderPicker = true }
+                    }
+                }
+            }
+            if (wrapChips) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    entryChips()
+                    if (!showNotes) TaskEntryChip(label = "+ Notes", onClick = { notesOpen = true })
+                }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        entryChips()
+                    }
+                    if (!showNotes) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TaskEntryChip(label = "+ Notes", onClick = { notesOpen = true })
+                    }
+                }
+            }
+
+            if (showNotes) {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                val entryImagePickerLauncher = rememberImagePicker(viewModel::stagePendingImage)
+
+                DescriptionField(
+                    value = state.description,
+                    onValueChange = viewModel::setDescription,
+                    taskId = 0L,
+                    isUploadingImage = false,
+                    onAddImageClick = entryImagePickerLauncher,
+                    onRemoveImageAttachment = {},
+                    onImagePasted = viewModel::stagePendingImage,
+                    pendingImages = state.pendingImages,
+                    onRemovePending = viewModel::removePendingImage,
+                    editorController = descriptionEditorController,
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // What only a task with notes has room for.
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    RecurrenceChip(fields.recurrence, fields.recurrenceSource, isDarkTheme, viewModel, { tokenRectOf(TokenType.RECURRENCE) }) {
+                        showRecurrencePicker = true
+                    }
+                    ReminderChip(state.reminders.size) { showReminderPicker = true }
+                }
             }
 
             // Pending attachment previews
@@ -405,21 +436,6 @@ fun TaskEntrySheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Button(
-                onClick = {
-                    descriptionEditorController.flush()
-                    viewModel.save()
-                },
-                // Gate on the effective (parsed) title so NLP-only input like "@work !1"
-                // doesn't look enabled and then silently no-op in save().
-                enabled = viewModel.effectiveTitle().isNotBlank() && !state.isSaving,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(if (state.isSaving) "Saving..." else "Save")
-            }
-
             if (state.error != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -433,8 +449,8 @@ fun TaskEntrySheet(
 
     // Picker dialogs
     if (showDatePicker) {
-        VicuDatePickerDialog(
-            currentDate = state.dueDate,
+        WhenSheet(
+            currentDate = fields.dueDate,
             onDateSelected = viewModel::setDueDate,
             onClearDate = viewModel::clearDueDate,
             onDismiss = { showDatePicker = false },
@@ -444,7 +460,7 @@ fun TaskEntrySheet(
     if (showProjectPicker) {
         ProjectPickerDialog(
             projects = state.allProjects,
-            selectedProjectId = state.projectId,
+            selectedProjectId = fields.projectId,
             onProjectSelected = viewModel::setProjectId,
             onDismiss = { showProjectPicker = false },
             inboxProjectId = state.inboxProjectId,
@@ -464,35 +480,63 @@ fun TaskEntrySheet(
     if (showReminderPicker) {
         ReminderPickerDialog(
             reminders = state.reminders,
-            onAddReminder = viewModel::addReminder,
+            onAddReminder = { reminder ->
+                viewModel.addReminder(reminder)
+                // A reminder needs notifications: ask now if the permission is missing.
+                notificationPermission.onFeatureEnabled()
+            },
             onRemoveReminder = viewModel::removeReminder,
             onDismiss = { showReminderPicker = false },
             onEditReminder = viewModel::editReminder,
-            dueDate = state.dueDate,
+            dueDate = fields.dueDate,
         )
     }
 
     if (showPriorityPicker) {
         PriorityPickerDialog(
-            current = state.priority,
+            current = fields.priority,
             onPick = viewModel::setPriority,
             onDismiss = { showPriorityPicker = false },
         )
     }
 
     if (showRecurrencePicker) {
-        val recurrence = resolveTaskEntryRecurrence(
-            manualRecurrence = state.manualRecurrence,
-            parserEnabled = state.parserConfig.enabled,
-            parsedRecurrence = state.parseResult?.recurrence,
-        )
         RecurrencePickerDialog(
-            repeatAfter = recurrence.repeatAfter,
-            repeatMode = recurrence.repeatMode,
+            repeatAfter = fields.recurrence.repeatAfter,
+            repeatMode = fields.recurrence.repeatMode,
             onPick = viewModel::setRecurrence,
             onDismiss = { showRecurrencePicker = false },
         )
     }
+}
+
+/** Repeat: its value in words once set (from the text or the picker), "Repeat" before. */
+@Composable
+private fun RecurrenceChip(
+    recurrence: RecurrenceValue,
+    source: FieldSource?,
+    isDarkTheme: Boolean,
+    viewModel: TaskEntryViewModel,
+    tokenRect: () -> Rect?,
+    onClick: () -> Unit,
+) {
+    val set = source != null
+    TaskEntryChip(
+        label = if (set) DateUtils.formatRecurrence(recurrence.repeatAfter, recurrence.repeatMode) else "Repeat",
+        onClick = onClick,
+        tint = if (source == FieldSource.TEXT) tokenChipColor(TokenType.RECURRENCE, isDarkTheme) else null,
+        clearDescription = if (set) "Clear repeat" else null,
+        onClear = if (set) ({ viewModel.setRecurrence(RecurrenceValue.NONE) }) else null,
+        tokenRect = tokenRect,
+    )
+}
+
+@Composable
+private fun ReminderChip(count: Int, onClick: () -> Unit) {
+    TaskEntryChip(
+        label = if (count > 0) "$count reminder${if (count > 1) "s" else ""}" else "Reminder",
+        onClick = onClick,
+    )
 }
 
 @Composable

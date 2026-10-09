@@ -6,6 +6,8 @@ import androidx.datastore.preferences.core.emptyPreferences
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.ProjectDao
 import com.rendyhd.vicu.data.local.dao.StoredPosition
+import com.rendyhd.vicu.data.local.dao.MetadataTaskRef
+import com.rendyhd.vicu.data.local.dao.ProjectTallyRow
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.local.entity.ProjectEntity
@@ -99,6 +101,20 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     override fun getRoutineCarriersFlow(): Flow<List<TaskEntity>> =
         flow { emit(lock.withLock { rows.values.toList() }.routineMetadata()) }
 
+    override fun observeProjectTallies(): Flow<List<ProjectTallyRow>> = flow {
+        emit(
+            lock.withLock {
+                rows.values.filter { !it.isMetadata }.groupBy { it.projectId }.map { (projectId, tasks) ->
+                    ProjectTallyRow(projectId, open = tasks.count { !it.done }, doneOnPhone = tasks.count { it.done })
+                }
+            },
+        )
+    }
+
+    override suspend fun getDoneMetadataRefs(): List<MetadataTaskRef> = lock.withLock {
+        rows.values.filter { it.isMetadata && it.done }.map { MetadataTaskRef(it.id, it.projectId) }
+    }
+
     override suspend fun getByIdsChunk(ids: List<Long>): List<TaskEntity> = lock.withLock {
         boundIdListSizes += ids.size
         ids.mapNotNull { rows[it] }
@@ -153,6 +169,9 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
 
     override suspend fun getOpenOrLocalOnlyIds(): List<Long> =
         lock.withLock { rows.values.filter { !it.done || it.id < 0 }.map { it.id } }
+
+    override suspend fun countOpenServerTasks(): Int =
+        lock.withLock { rows.values.count { !it.done && it.id > 0 } }
 
     override suspend fun getCompletedAfter(doneAt: String): List<TaskEntity> = lock.withLock {
         rows.values.filter { it.done && it.id > 0 && it.doneAt != "" && it.doneAt != "0001-01-01T00:00:00Z" && it.doneAt > doneAt }

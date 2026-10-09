@@ -1,6 +1,8 @@
 package com.rendyhd.vicu.ui.components.task
 
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.theme.VicuDarkColors
+import com.rendyhd.vicu.ui.theme.VicuLightColors
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -61,33 +63,24 @@ class TaskRowSemanticsTest {
     }
 
     @Test
-    fun `priority is text, one mark per level, and nothing for no priority`() {
-        assertNull(priorityMarkText(0))
-        assertEquals("!", priorityMarkText(1))
-        assertEquals("!!!", priorityMarkText(3))
-        assertEquals("!!!!", priorityMarkText(4))
-        assertEquals("!!!!!", priorityMarkText(5), "Vikunja's 'do now' is not invisible")
-        assertNull(priorityMarkText(6))
-        assertNull(priorityMarkText(-1))
-    }
-
-    @Test
     fun `every priority that is marked is also described`() {
         for (priority in 0..7) {
-            assertEquals(priorityMarkText(priority) == null, priorityDescription(priority) == null, "priority $priority")
+            assertEquals(priorityMarkKind(priority) == null, priorityDescription(priority) == null, "priority $priority")
         }
         assertEquals("Urgent priority", priorityDescription(4))
         assertEquals("Do now priority", priorityDescription(5))
     }
 
     @Test
-    fun `priority colours differ between levels on both surfaces`() {
-        for (dark in listOf(true, false)) {
-            val colours = (1..4).map { priorityMarkColor(it, dark) }
-            assertEquals(4, colours.toSet().size, "dark=$dark")
-            assertNotEquals(null, priorityMarkColor(5, dark))
+    fun `priority colours are the roles, distinct between levels in both themes`() {
+        for ((name, colors) in listOf("light" to VicuLightColors, "dark" to VicuDarkColors)) {
+            val colours = (1..4).map { priorityMarkColor(it, colors) }
+            assertEquals(4, colours.toSet().size, name)
+            assertEquals(colors.priorityLow, priorityMarkColor(1, colors), name)
+            assertEquals(colors.priorityUrgent, priorityMarkColor(4, colors), name)
+            assertEquals(colors.priorityUrgent, priorityMarkColor(5, colors), name)
         }
-        assertNull(priorityMarkColor(0, dark = false))
+        assertNull(priorityMarkColor(0, VicuLightColors))
     }
 
     @Test

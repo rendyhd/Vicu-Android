@@ -14,8 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
-import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
-import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
+import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.parser.ParseResult
 import com.rendyhd.vicu.util.parser.ParsedRecurrence
 import com.rendyhd.vicu.util.parser.RecurrenceUnit
@@ -31,8 +33,8 @@ fun ParseChipRow(
     onDismiss: (TokenType) -> Unit,
 ) {
     val today = LocalClockDay.current.date
-    val is24Hour = LocalIs24Hour.current
-    val chips = buildChipList(parseResult, today, is24Hour)
+    val dateFormat = LocalDateFormat.current
+    val chips = buildChipList(parseResult, today, dateFormat)
     if (chips.isEmpty()) return
 
     FlowRow(
@@ -69,11 +71,11 @@ fun ParseChipRow(
 
 private data class ChipInfo(val type: TokenType, val label: String)
 
-private fun buildChipList(result: ParseResult, today: LocalDate, is24Hour: Boolean): List<ChipInfo> {
+private fun buildChipList(result: ParseResult, today: LocalDate, dateFormat: DateDisplayFormat): List<ChipInfo> {
     val chips = mutableListOf<ChipInfo>()
 
     if (result.dueDate != null) {
-        chips.add(ChipInfo(TokenType.DATE, formatDateChip(result.dueDate, result.dueDateHasTime, today, is24Hour)))
+        chips.add(ChipInfo(TokenType.DATE, formatDateChip(result.dueDate, result.dueDateHasTime, today, dateFormat)))
     }
     if (result.priority != null) {
         chips.add(ChipInfo(TokenType.PRIORITY, formatPriorityChip(result.priority)))
@@ -100,13 +102,12 @@ internal fun chipDismissDescription(type: TokenType, label: String): String = wh
 }
 
 /**
- * The date as the task list names it (Today, Tomorrow, "Sat", "Oct 20", with the year when it is
- * not this one), plus the time of day only when the text named one (date-only values show no time).
+ * The date as every date chip phrases it ("Sat 10 Oct, 15:00", "Sat, Oct 10, 3:00 PM": the chip
+ * context of docs/cross-app-semantics-v1.md section 8), with the time of day only when the text
+ * named one (date-only values show no time).
  */
-internal fun formatDateChip(date: LocalDateTime, hasTime: Boolean, today: LocalDate, is24Hour: Boolean): String {
-    val day = DateUtils.formatRelativeDate(date.date, today)
-    return if (hasTime) "$day ${DateUtils.formatClockTime(date.time, is24Hour)}" else day
-}
+internal fun formatDateChip(date: LocalDateTime, hasTime: Boolean, today: LocalDate, dateFormat: DateDisplayFormat): String =
+    DateDisplay.format(DateContext.CHIP, date, today, dateOnly = !hasTime, fmt = dateFormat)
 
 private fun formatPriorityChip(priority: Int): String = when (priority) {
     1 -> "Low"

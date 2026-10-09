@@ -36,6 +36,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import com.rendyhd.vicu.data.local.RoutinePrefsStore
+import com.rendyhd.vicu.data.repository.RecordingRepositoryHooks
 
 /**
  * What the Settings screen reads: every source the view model watches reaches [SettingsUiState]
@@ -105,6 +107,8 @@ class SettingsViewModelStateTest {
             widgetPrefsStore = WidgetPrefsStore(InMemoryPreferencesDataStore()),
             reviewPrefsStore = ReviewPrefsStore(InMemoryPreferencesDataStore()),
             logbookPrefsStore = LogbookPrefsStore(InMemoryPreferencesDataStore()),
+            routinePrefsStore = RoutinePrefsStore(InMemoryPreferencesDataStore()),
+            repositoryHooks = RecordingRepositoryHooks(),
             pendingActionDao = pending,
             networkMonitor = FakeNetworkMonitor(online = true),
             sessionCleanup = harness.sessionCleanup,

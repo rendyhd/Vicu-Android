@@ -8,6 +8,7 @@ import com.rendyhd.vicu.util.CustomListEnvelope
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.SystemTimeSource
 import com.rendyhd.vicu.util.TimeSource
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -69,6 +70,39 @@ class CarrierFinder(
     private val mutex = Mutex()
     private val lastDiscoveryAtMs = HashMap<String, Long>()
 
+    /** Carrier task id to the project it lives in, as last read, per kind and server. Replaced as a whole. */
+    @Volatile
+    private var seenProjects: Map<String, Map<Long, Long>> = emptyMap()
+
+    /**
+     * The projects of the carriers of [spec] on [server] that this process has read or created,
+     * with no request (the drawer's progress rings leave them out of a project's done count).
+     */
+    fun knownProjects(spec: CarrierSpec, server: String): Map<Long, Long> =
+        seenProjects[flightKeyOf(spec.kind, server)].orEmpty()
+
+    /** Kind and server of the carriers already looked up for [knownProjects] in this process. */
+    private val warmed = HashSet<String>()
+
+    /**
+     * Makes [knownProjects] complete after a cold start: when carriers of [spec] are remembered
+     * for [server] but none has been read in this process yet, one [find] reads them (a request per
+     * remembered carrier). Nothing when none is remembered; a failure is ignored and tried again next time.
+     */
+    suspend fun ensureKnown(spec: CarrierSpec, server: String) {
+        val key = flightKeyOf(spec.kind, server)
+        if (seenProjects[key] != null || mutex.withLock { key in warmed }) return
+        if (store.get(server, spec.kind).ids.isEmpty()) return
+        try {
+            find(spec, server)
+            mutex.withLock { warmed += key }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Logger.w(TAG, "Could not read the ${spec.kind} carriers for the project counts: ${e.message}")
+        }
+    }
+
     /** Every carrier of [spec] on [server], ascending by id. */
     suspend fun find(spec: CarrierSpec, server: String): List<TaskDto> = mutex.withLock {
         val state = store.get(server, spec.kind)
@@ -119,15 +153,22 @@ class CarrierFinder(
 
         val ids = found.keys.sorted()
         store.set(server, spec.kind, ids, lastFullScanAtMs)
+        seenProjects = seenProjects + (flightKey to found.mapValues { it.value.projectId })
         ids.map { found.getValue(it) }
     }
 
-    /** A carrier this app just created: fetched directly from the next load on. */
-    suspend fun remember(spec: CarrierSpec, server: String, id: Long) = mutex.withLock {
+    /** A carrier this app just created (in [projectId]): fetched directly from the next load on. */
+    suspend fun remember(spec: CarrierSpec, server: String, id: Long, projectId: Long? = null) = mutex.withLock {
+        if (projectId != null) {
+            val key = flightKeyOf(spec.kind, server)
+            seenProjects = seenProjects + (key to (seenProjects[key].orEmpty() + (id to projectId)))
+        }
         val state = store.get(server, spec.kind)
         if (id in state.ids) return@withLock
         store.set(server, spec.kind, state.ids + id, state.lastFullScanAtMs)
     }
+
+    private fun flightKeyOf(kind: String, server: String) = "$kind\n$server"
 
     private fun isDiscoveryDue(lastMs: Long?, nowMs: Long): Boolean {
         if (lastMs == null) return true

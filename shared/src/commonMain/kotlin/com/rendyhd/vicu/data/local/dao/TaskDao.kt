@@ -70,6 +70,14 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE isMetadata = 0")
     fun getAllTasksFlow(): Flow<List<TaskEntity>>
 
+    /** Open and done task counts per project, for the drawer's progress rings (see [PROJECT_TALLIES_SQL]). */
+    @Query(PROJECT_TALLIES_SQL)
+    fun observeProjectTallies(): Flow<List<ProjectTallyRow>>
+
+    /** The hidden done tasks (carriers, archive parts) the phone holds: not the user's tasks, so not counted in a progress ring. */
+    @Query("SELECT id, projectId FROM tasks WHERE isMetadata = 1 AND done = 1")
+    suspend fun getDoneMetadataRefs(): List<MetadataTaskRef>
+
     @Query("SELECT * FROM tasks WHERE description LIKE '%<!-- vicu-routine:%'")
     fun getRoutineCarriersFlow(): Flow<List<TaskEntity>>
 
@@ -223,6 +231,14 @@ interface TaskDao {
     /** Ids of the rows a full reconcile may delete: open tasks and rows that only exist on this device. */
     @Query("SELECT id FROM tasks WHERE done = 0 OR id < 0")
     suspend fun getOpenOrLocalOnlyIds(): List<Long>
+
+    /**
+     * How many of the server's tasks (positive ids) the cache holds as open, hidden carriers
+     * included: the same set a full reconcile lists with `done = false`. The refresh compares it
+     * with the server's total to notice a deletion without listing anything.
+     */
+    @Query("SELECT COUNT(*) FROM tasks WHERE done = 0 AND id > 0")
+    suspend fun countOpenServerTasks(): Int
 
     /** Completed tasks of the server (positive ids) finished after [doneAt], for the Logbook's page-one reconcile. */
     @Query(

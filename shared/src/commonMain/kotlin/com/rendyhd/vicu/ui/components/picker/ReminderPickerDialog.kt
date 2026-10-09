@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.TaskReminder
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.components.shared.LocalIs24Hour
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.DueDates
@@ -77,6 +78,7 @@ fun ReminderPickerDialog(
     // never fire, so disable them and tell the user why.
     val hasDueDate = dueDate.isNotBlank() && !DateUtils.isNullDate(dueDate)
     val is24Hour = LocalIs24Hour.current
+    val dateFormat = LocalDateFormat.current
     var showAddOptions by rememberSaveable { mutableStateOf(false) }
     var step by rememberSaveable { mutableStateOf(STEP_LIST) }
     var pickedDateMillis by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -128,7 +130,7 @@ fun ReminderPickerDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    text = ReminderFormat.format(reminder),
+                                    text = ReminderFormat.format(reminder, dateFormat),
                                     style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier.weight(1f),
                                 )

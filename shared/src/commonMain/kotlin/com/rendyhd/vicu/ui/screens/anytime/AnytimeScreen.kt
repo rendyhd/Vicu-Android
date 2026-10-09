@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui.screens.anytime
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,9 +29,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.domain.model.Task
-import com.rendyhd.vicu.ui.components.section.CollapsibleSection
+import com.rendyhd.vicu.ui.components.section.SectionHeader
+import com.rendyhd.vicu.ui.components.section.SectionLevel
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
 import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
@@ -39,6 +42,7 @@ import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.util.parseHexColor
 
@@ -56,6 +60,7 @@ fun AnytimeScreen(
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val topBarScroll = rememberVicuTopBarScroll(listState)
 
     val selectionVm: SelectionViewModel = koinViewModel()
     val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
@@ -64,6 +69,8 @@ fun AnytimeScreen(
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
@@ -81,13 +88,14 @@ fun AnytimeScreen(
                 VicuTopAppBar(
                     title = { Text("Anytime") },
                     onOpenDrawer = onOpenDrawer,
+                    scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
                 )
             }
         },
         floatingActionButton = {
             if (!selectionActive) {
-                VicuFab(onClick = { onShowTaskEntry(null, null) })
+                VicuFab(onClick = { onShowTaskEntry(null, null) }, expanded = !listState.canScrollBackward)
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
@@ -100,7 +108,7 @@ fun AnytimeScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.rows.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(
@@ -118,10 +126,11 @@ fun AnytimeScreen(
                         when (row) {
                             is AnytimeRow.Header -> {
                                 val projectColor = remember(row.project.hexColor) { parseHexColor(row.project.hexColor) }
-                                CollapsibleSection(
+                                SectionHeader(
                                     title = row.project.title,
-                                    color = projectColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                                    taskCount = row.taskCount,
+                                    level = if (row.depth == 0) SectionLevel.ONE else SectionLevel.TWO,
+                                    dotColor = projectColor,
+                                    count = row.taskCount,
                                     isExpanded = row.isExpanded,
                                     onToggle = { viewModel.toggleProject(row.project.id) },
                                     modifier = Modifier.padding(start = indentFor(row.depth)),
@@ -150,6 +159,7 @@ fun AnytimeScreen(
                                     onLongClick = { selectionVm.toggle(task.id) },
                                     modifier = Modifier.animateItem(),
                                     contentStartPadding = indentFor(row.depth),
+                                    projectMeta = row.projectMeta,
                                 )
                             }
                         }

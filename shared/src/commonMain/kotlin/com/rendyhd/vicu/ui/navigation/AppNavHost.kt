@@ -1,9 +1,12 @@
 package com.rendyhd.vicu.ui.navigation
 
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -22,6 +25,8 @@ import com.rendyhd.vicu.ui.screens.setup.SetupScreen
 import com.rendyhd.vicu.ui.screens.tag.TagScreen
 import com.rendyhd.vicu.ui.screens.today.TodayScreen
 import com.rendyhd.vicu.ui.screens.upcoming.UpcomingScreen
+import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
+import org.koin.compose.koinInject
 
 @Composable
 fun AppNavHost(
@@ -33,14 +38,20 @@ fun AppNavHost(
     onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
+    // Setup finishes here (SetupScreen), not in VicuApp's auth effect: the session turns
+    // Authenticated at the token step, before the Inbox project is chosen.
+    val notificationPermission: NotificationPermissionCoordinator = koinInject()
+    val axisPx = with(LocalDensity.current) { SHARED_AXIS_DP.dp.roundToPx() }
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val transitions = remember(axisPx, rtl) { NavTransitions(axisPx, rtl) }
     NavHost(
         navController = navController,
         startDestination = startDestination,
         modifier = modifier,
-        enterTransition = { EnterTransition.None },
-        exitTransition = { ExitTransition.None },
-        popEnterTransition = { EnterTransition.None },
-        popExitTransition = { ExitTransition.None },
+        enterTransition = { transitions.enter(this) },
+        exitTransition = { transitions.exit(this) },
+        popEnterTransition = { transitions.popEnter(this) },
+        popExitTransition = { transitions.popExit(this) },
     ) {
         composable<SetupRoute> {
             SetupScreen(
@@ -48,6 +59,8 @@ fun AppNavHost(
                     navController.navigate(InboxRoute) {
                         popUpTo(0) { inclusive = true }
                     }
+                    // The one place the app first asks for notifications: setup is done.
+                    notificationPermission.onSetupCompleted()
                 },
             )
         }
@@ -66,6 +79,7 @@ fun AppNavHost(
                 onNavigateToSearch = onNavigateToSearch,
                 onShowTaskEntry = onShowTaskEntry,
                 onOpenRoutines = { navController.navigate(RoutinesRoute) { launchSingleTop = true } },
+                onOpenUpcoming = { navController.navigateTopLevel(UpcomingRoute) },
             )
         }
         composable<UpcomingRoute> {
@@ -160,7 +174,6 @@ fun AppNavHost(
         composable<SettingsRoute> {
             SettingsScreen(
                 onOpenDrawer = onOpenDrawer,
-                onNavigateToSearch = onNavigateToSearch,
             )
         }
     }

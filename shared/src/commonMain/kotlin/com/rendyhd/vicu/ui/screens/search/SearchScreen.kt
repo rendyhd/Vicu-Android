@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.ui.screens.search
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,10 +38,13 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.section.SectionHeader
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.task.TaskItem
+import com.rendyhd.vicu.ui.components.task.RowView
+import com.rendyhd.vicu.ui.components.task.projectMetas
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,6 +54,8 @@ fun SearchScreen(
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val projects by viewModel.projects.collectAsStateWithLifecycle()
+    val rowView = remember(projects) { RowView(projects = projectMetas(projects)) }
 
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
@@ -108,6 +114,7 @@ fun SearchScreen(
                 .fillMaxSize()
                 .imePadding()
                 .padding(top = 4.dp),
+            contentPadding = PaddingValues(bottom = FabClearance),
         ) {
             if (state.query.isBlank()) {
                 item {
@@ -141,6 +148,8 @@ fun SearchScreen(
                         onClick = { onTaskClick(task.id) },
                         onSubtaskToggleDone = viewModel::toggleDone,
                         onSubtaskClick = { child -> onTaskClick(child.id) },
+                        rowView = rowView,
+                        modifier = Modifier.animateItem(),
                     )
                 }
                 if (state.completedResults.isNotEmpty()) {
@@ -154,6 +163,8 @@ fun SearchScreen(
                             onClick = { onTaskClick(task.id) },
                             onSubtaskToggleDone = viewModel::toggleDone,
                             onSubtaskClick = { child -> onTaskClick(child.id) },
+                            rowView = rowView,
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }

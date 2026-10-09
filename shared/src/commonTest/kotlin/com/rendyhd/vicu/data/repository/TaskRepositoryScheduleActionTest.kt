@@ -37,7 +37,15 @@ class TaskRepositoryScheduleActionTest {
             { jsonOk(patchResponse) },
     ) = TaskRepositoryHarness(
         taskDao = FakeTaskDao(
-            listOf(cachedTaskEntity(id = 42, title = "Newer title", description = "Newer description")),
+            // A due date long past, so "due today" always changes it whatever day the test runs.
+            listOf(
+                cachedTaskEntity(
+                    id = 42,
+                    title = "Newer title",
+                    description = "Newer description",
+                    dueDate = "2025-01-15T22:59:59Z",
+                ),
+            ),
         ),
         scheduleAction = action,
         dayClock = dayClock,

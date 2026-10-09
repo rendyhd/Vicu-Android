@@ -1,7 +1,11 @@
 package com.rendyhd.vicu.ui.screens.upcoming
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,18 +30,35 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.section.ProjectMeta
+import com.rendyhd.vicu.ui.components.section.SectionLevel
+import com.rendyhd.vicu.ui.components.section.showsGroupHeader
+import com.rendyhd.vicu.util.parseHexColor
+import com.rendyhd.vicu.ui.components.section.SectionHeader
+import com.rendyhd.vicu.ui.components.section.openCount
+import com.rendyhd.vicu.ui.components.shared.FabClearance
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
 import org.koin.compose.viewmodel.koinViewModel
-import com.rendyhd.vicu.ui.components.section.CollapsibleSection
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
 import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
 import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
+import com.rendyhd.vicu.ui.components.shared.LocalToday
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
-import com.rendyhd.vicu.util.parseHexColor
+import com.rendyhd.vicu.ui.components.task.UpcomingRowView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,6 +74,7 @@ fun UpcomingScreen(
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val topBarScroll = rememberVicuTopBarScroll(listState)
 
     val selectionVm: SelectionViewModel = koinViewModel()
     val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
@@ -61,6 +83,8 @@ fun UpcomingScreen(
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
@@ -78,13 +102,14 @@ fun UpcomingScreen(
                 VicuTopAppBar(
                     title = { Text("Upcoming") },
                     onOpenDrawer = onOpenDrawer,
+                    scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
                 )
             }
         },
         floatingActionButton = {
             if (!selectionActive) {
-                VicuFab(onClick = { onShowTaskEntry(null, null) })
+                VicuFab(onClick = { onShowTaskEntry(null, null) }, expanded = !listState.canScrollBackward)
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
@@ -97,8 +122,10 @@ fun UpcomingScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                if (state.projectGroups.isEmpty() && !state.isLoading) {
+            val today = LocalToday.current
+            val dateFormat = LocalDateFormat.current
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
+                if (state.days.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(
                             icon = Icons.Outlined.CalendarMonth,
@@ -107,18 +134,31 @@ fun UpcomingScreen(
                         )
                     }
                 } else {
-                    state.projectGroups.forEach { group ->
-                        item(key = "header_${group.projectId}", contentType = "header") {
-                            CollapsibleSection(
-                                title = group.title,
-                                color = parseHexColor(group.hexColor)
-                                    ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                                taskCount = group.tasks.size,
-                                isExpanded = group.isExpanded,
-                                onToggle = { viewModel.toggleProject(group.projectId) },
+                    state.days.forEach { day ->
+                        stickyHeader(key = "day_${day.date}", contentType = "header") {
+                            // Pinned to the top while the day's tasks scroll under it.
+                            SectionHeader(
+                                title = DateDisplay.formatDay(DateContext.HEADER_DAY, day.date, today, dateFormat),
+                                count = openCount(day.tasks, state.completedTaskIds),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.background),
                             )
                         }
-                        if (group.isExpanded) {
+                        day.groups.forEach { group ->
+                            // A group of one task has no header: its project goes on the row's meta line.
+                            val hasHeader = showsGroupHeader(group.tasks.size)
+                            val projectMeta = if (hasHeader) null else ProjectMeta(group.title, group.hexColor)
+                            if (hasHeader) {
+                                item(key = "group_${day.date}_${group.projectId}", contentType = "header") {
+                                    SectionHeader(
+                                        title = group.title,
+                                        level = SectionLevel.TWO,
+                                        dotColor = parseHexColor(group.hexColor),
+                                        count = openCount(group.tasks, state.completedTaskIds),
+                                    )
+                                }
+                            }
                             items(group.tasks, key = { it.id }, contentType = { "task" }) { task ->
                                 val displayTask =
                                     if (task.id in state.completedTaskIds) task.copy(done = true) else task
@@ -145,6 +185,8 @@ fun UpcomingScreen(
                                     selected = task.id in selectedIds,
                                     onLongClick = { selectionVm.toggle(task.id) },
                                     modifier = Modifier.animateItem(),
+                                    rowView = UpcomingRowView,
+                                    projectMeta = projectMeta,
                                 )
                             }
                         }

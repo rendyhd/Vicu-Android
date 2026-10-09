@@ -301,6 +301,31 @@ class CarrierFinderTest {
         assertTrue(rig.directFetches().isEmpty())
     }
 
+    @Test
+    fun `after a cold start the remembered carriers are read once so their projects are known`() = runTest {
+        val store = CarrierIdStore(InMemoryPreferencesDataStore())
+        store.set(server, "custom-lists", listOf(900L), 1L)
+        val rig = rig(store = store)
+        rig.carrier(900)
+        assertEquals(emptyMap(), rig.finder.knownProjects(CarrierSpec.CUSTOM_LISTS, server))
+
+        rig.finder.ensureKnown(CarrierSpec.CUSTOM_LISTS, server)
+        val requestsAfterFirst = rig.tasks.requests.size
+        rig.finder.ensureKnown(CarrierSpec.CUSTOM_LISTS, server)
+
+        assertEquals(mapOf(900L to 7L), rig.finder.knownProjects(CarrierSpec.CUSTOM_LISTS, server))
+        assertEquals(requestsAfterFirst, rig.tasks.requests.size, "the second call asks for nothing")
+    }
+
+    @Test
+    fun `nothing remembered means nothing to read for the project counts`() = runTest {
+        val rig = rig()
+
+        rig.finder.ensureKnown(CarrierSpec.CUSTOM_LISTS, server)
+
+        assertTrue(rig.tasks.requests.isEmpty())
+    }
+
     private companion object {
         /** Just past the discovery interval. */
         val DISCOVERY_MS = CarrierFinder.DISCOVERY_INTERVAL + 1.seconds

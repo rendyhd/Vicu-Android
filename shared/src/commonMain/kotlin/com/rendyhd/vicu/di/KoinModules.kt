@@ -17,13 +17,17 @@ import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.auth.*
 import com.rendyhd.vicu.util.AppDispatchers
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.CompletionToastCenter
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.BuildInfo
+import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.data.sync.CarrierFinder
 import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.data.sync.ProjectRefresher
+import com.rendyhd.vicu.data.sync.ProjectTaskCounts
 import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.data.sync.TaskRefresher
@@ -50,6 +54,7 @@ val databaseModule = module {
     single { LabelOrderPrefsStore(createDataStore(get(), "label_order_prefs")) }
     single { LogbookPrefsStore(createDataStore(get(), "logbook_prefs")) }
     single { NlpPrefsStore(createDataStore(get(), "nlp_prefs")) }
+    single { NotificationPermissionStore(createDataStore(get(), "notification_permission")) }
     single { NotificationPrefsStore(createDataStore(get(), "notification_prefs")) }
     single { ProjectSectionPrefsStore(createDataStore(get(), "project_section_prefs")) }
     single { ReminderAlarmRegistry(createDataStore(get(), "reminder_alarm_registry"), get()) }
@@ -185,6 +190,24 @@ val repositoryModule = module {
 }
 
 val commonModule = module {
+    single {
+        ProjectTaskCounts(
+            api = get(),
+            serverKey = { get<AuthManager>().getVikunjaUrl() },
+            time = get(),
+            scope = get(),
+        )
+    }
+    single<ProjectProgressSource> {
+        ProjectProgressSourceImpl(
+            taskDao = get(),
+            counts = get(),
+            carrierFinder = get(),
+            archiveStore = get(),
+            authManager = get(),
+            json = get(),
+        )
+    }
     single { SyncStaleness() }
     single {
         ScreenRefresher(
@@ -199,6 +222,7 @@ val commonModule = module {
     single { AppDispatchers() }
     single<TimeSource> { SystemTimeSource }
     single { DayClock(scope = get(), time = get()) }
+    single { NotificationPermissionCoordinator(platform = get(), store = get(), scope = get()) }
     single {
         LocalDataWiper(
             dao = get(),
@@ -216,6 +240,7 @@ val commonModule = module {
         )
     }
     single { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
+    single<CompletionToast> { CompletionToastCenter(messages = get(), taskRepository = get(), time = get(), scope = get()) }
     single {
         AuthManager(
             platformAuthHooks = get(),
@@ -265,6 +290,7 @@ val commonModule = module {
             positioner = get(),
             tempIds = get(),
             writeGate = get(),
+            projectCounts = get(),
         )
     }
 }

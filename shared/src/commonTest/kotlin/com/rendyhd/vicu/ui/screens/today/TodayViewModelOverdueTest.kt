@@ -43,6 +43,8 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.minutes
+import com.rendyhd.vicu.data.local.RoutinePrefsStore
+import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
 
 /**
  * The Today list has an Overdue section (local date before today) above the Today section (local
@@ -103,6 +105,7 @@ class TodayViewModelOverdueTest {
             projectRepository = projects,
             labelRepository = labels,
             routineRepository = EmptyRoutines(),
+            routinePrefsStore = RoutinePrefsStore(InMemoryPreferencesDataStore()),
             authManager = AuthManager(
                 platformAuthHooks = RecordingAuthHooks(),
                 tokenStorage = InMemoryTokenStorage(),
@@ -160,6 +163,24 @@ class TodayViewModelOverdueTest {
     }
 
     @Test
+    fun `the next upcoming task is the first of the nearest day and follows the day`() = runTest {
+        val zone = TimeZone.of("Europe/Amsterdam")
+        val rig = rig("2026-10-06T10:00:00", zone)
+        rig.tasks.todayTasks.value = emptyList()
+        rig.tasks.upcomingTasks.value = listOf(
+            Task(id = 21, title = "Later", projectId = 10, dueDate = local("2026-10-09T23:59:59", zone).toString()),
+            Task(id = 22, title = "Sooner", projectId = 11, dueDate = local("2026-10-07T23:59:59", zone).toString()),
+        )
+        runCurrent()
+        assertEquals(22L, rig.vm.uiState.value.nextUpcoming?.id)
+
+        rig.tasks.upcomingTasks.value = emptyList()
+        runCurrent()
+        assertEquals(null, rig.vm.uiState.value.nextUpcoming)
+        rig.authScope.cancel()
+    }
+
+    @Test
     fun `at midnight today's tasks move to the Overdue section`() = runTest {
         val zone = TimeZone.of("Europe/Amsterdam")
         val rig = rig("2026-10-06T23:30:00", zone)
@@ -173,23 +194,6 @@ class TodayViewModelOverdueTest {
         val vector = fixture.smartLists.first { it.today == "2026-10-07" }
         assertEquals(vector.todayOverdue.sorted(), rig.vm.uiState.value.overdueIds())
         assertEquals(emptyList(), rig.vm.uiState.value.todayIds())
-        rig.authScope.cancel()
-    }
-
-    @Test
-    fun `the sections keep their own expansion state`() = runTest {
-        val zone = TimeZone.of("Europe/Amsterdam")
-        val rig = rig("2026-10-06T10:00:00", zone)
-        rig.tasks.todayTasks.value = dueTasks(zone)
-        runCurrent()
-
-        // Project 10 has tasks in both sections; collapsing it in Overdue leaves Today open.
-        rig.vm.toggleOverdueProject(10)
-        runCurrent()
-
-        val state = rig.vm.uiState.value
-        assertEquals(false, state.overdueGroups.first { it.projectId == 10L }.isExpanded)
-        assertEquals(true, state.projectGroups.first { it.projectId == 10L }.isExpanded)
         rig.authScope.cancel()
     }
 }

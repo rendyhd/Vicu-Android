@@ -10,6 +10,8 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.util.NetworkResult
@@ -38,13 +40,14 @@ class AnytimeViewModel(
     private val authManager: AuthManager,
     private val refresher: ScreenRefresher,
     navigationTicker: NavigationTicker = NavigationTicker(),
+    completionToast: CompletionToast = NoCompletionToast,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AnytimeUiState())
     val uiState: StateFlow<AnytimeUiState> = _uiState.asStateFlow()
 
     /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
-    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker)
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker, toast = completionToast)
 
     /** Projects the user collapsed, by id: a position in the list changes whenever the data does. */
     private val collapsedProjectIds = MutableStateFlow<Set<Long>>(emptySet())
@@ -67,7 +70,7 @@ class AnytimeViewModel(
                     _uiState.update { current ->
                         current.copy(
                             projectGroups = groups,
-                            rows = flattenAnytimeGroups(groups),
+                            rows = flattenAnytimeGroups(groups, completions.completedIds),
                             isLoading = false,
                         )
                     }

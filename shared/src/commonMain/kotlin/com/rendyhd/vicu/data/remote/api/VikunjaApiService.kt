@@ -25,6 +25,8 @@ import io.ktor.http.contentType
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.contentDispositionFileParameter
 import io.ktor.utils.io.ByteReadChannel
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
@@ -47,6 +49,20 @@ class VikunjaApiService(
         private const val DEFAULT_PAGE_SIZE = 100
         private const val SUBTASK_EXPANSION = "subtasks"
         private val MERGE_PATCH = ContentType.parse("application/merge-patch+json")
+
+        /**
+         * Requests that change data on the server leave one at a time, whatever task they are
+         * for, in the whole process (single writes, bulk actions and the queue replay all come
+         * through here). Vikunja's default database is SQLite, which answers parallel writes with
+         * "database is locked" (a 500); a bulk change used to lose part of its requests to the
+         * offline queue that way. Held only while one request is on the wire (never across a
+         * repository lock or another write), so it cannot deadlock. The order within one task is
+         * kept by `TaskWriteGate`. Attachment uploads are not serialised: one can take minutes.
+         */
+        private val writeLock = Mutex()
+
+        /** Run [block] after every earlier write of the process has finished. */
+        internal suspend fun <T> serialWrite(block: suspend () -> T): T = writeLock.withLock { block() }
     }
 
     /**
@@ -65,6 +81,19 @@ class VikunjaApiService(
             filters.forEach { (key, value) -> parameter(key, value) }
         }.bodyOrThrow()
 
+    /**
+     * One page of the tasks of a single project (`GET projects/{id}/tasks`), without the subtask
+     * expansion, so [PaginatedResponse.total] counts every task the filter matches. The progress
+     * rings ask for a page of one and read only the total.
+     */
+    suspend fun getProjectTasksPage(
+        projectId: Long,
+        filters: Map<String, String> = emptyMap(),
+    ): PaginatedResponse<TaskDto> =
+        client.get("projects/$projectId/tasks") {
+            filters.forEach { (key, value) -> parameter(key, value) }
+        }.bodyOrThrow()
+
     suspend fun getAllTasks(
         filters: Map<String, String> = emptyMap(),
         expandSubtasks: Boolean = true,
@@ -76,18 +105,19 @@ class VikunjaApiService(
             parameter("expand", SUBTASK_EXPANSION)
         }.bodyOrThrow()
 
-    suspend fun createTask(projectId: Long, task: CreateTaskDto): TaskDto =
+    suspend fun createTask(projectId: Long, task: CreateTaskDto): TaskDto = serialWrite {
         client.post("projects/$projectId/tasks") {
             contentType(ContentType.Application.Json)
             setBody(task)
         }.bodyOrThrow(HttpStatusCode.Created)
+    }
 
     suspend fun updateTask(id: Long, patch: JsonObject): TaskDto {
         val response = sendMergePatch("tasks/$id", patch)
         return if (response.isUnchanged()) getTask(id) else response.bodyOrThrow()
     }
 
-    suspend fun deleteTask(id: Long) {
+    suspend fun deleteTask(id: Long) = serialWrite {
         client.delete("tasks/$id").requireNoContent()
     }
 
@@ -105,18 +135,19 @@ class VikunjaApiService(
     suspend fun getProject(id: Long): ProjectDto =
         client.get("projects/$id").bodyOrThrow()
 
-    suspend fun createProject(project: CreateProjectDto): ProjectDto =
+    suspend fun createProject(project: CreateProjectDto): ProjectDto = serialWrite {
         client.post("projects") {
             contentType(ContentType.Application.Json)
             setBody(project)
         }.bodyOrThrow(HttpStatusCode.Created)
+    }
 
     suspend fun updateProject(id: Long, patch: JsonObject): ProjectDto {
         val response = sendMergePatch("projects/$id", patch)
         return if (response.isUnchanged()) getProject(id) else response.bodyOrThrow()
     }
 
-    suspend fun deleteProject(id: Long) {
+    suspend fun deleteProject(id: Long) = serialWrite {
         client.delete("projects/$id").requireNoContent()
     }
 
@@ -130,18 +161,19 @@ class VikunjaApiService(
     suspend fun getLabel(id: Long): LabelDto =
         client.get("labels/$id").bodyOrThrow()
 
-    suspend fun createLabel(label: CreateLabelDto): LabelDto =
+    suspend fun createLabel(label: CreateLabelDto): LabelDto = serialWrite {
         client.post("labels") {
             contentType(ContentType.Application.Json)
             setBody(label)
         }.bodyOrThrow(HttpStatusCode.Created)
+    }
 
     suspend fun updateLabel(id: Long, patch: JsonObject): LabelDto {
         val response = sendMergePatch("labels/$id", patch)
         return if (response.isUnchanged()) getLabel(id) else response.bodyOrThrow()
     }
 
-    suspend fun deleteLabel(id: Long) {
+    suspend fun deleteLabel(id: Long) = serialWrite {
         client.delete("labels/$id").requireNoContent()
     }
 
@@ -152,14 +184,14 @@ class VikunjaApiService(
             }.bodyOrThrow()
         }
 
-    suspend fun addLabelToTask(taskId: Long, body: LabelTaskDto) {
+    suspend fun addLabelToTask(taskId: Long, body: LabelTaskDto) = serialWrite {
         client.post("tasks/$taskId/labels") {
             contentType(ContentType.Application.Json)
             setBody(body)
         }.requireStatus(HttpStatusCode.Created)
     }
 
-    suspend fun removeLabelFromTask(taskId: Long, labelId: Long) {
+    suspend fun removeLabelFromTask(taskId: Long, labelId: Long) = serialWrite {
         client.delete("tasks/$taskId/labels/$labelId").requireNoContent()
     }
 
@@ -204,18 +236,18 @@ class VikunjaApiService(
         consume(response.bodyAsChannel())
     }
 
-    suspend fun deleteAttachment(taskId: Long, attachmentId: Long) {
+    suspend fun deleteAttachment(taskId: Long, attachmentId: Long) = serialWrite {
         client.delete("tasks/$taskId/attachments/$attachmentId").requireNoContent()
     }
 
-    suspend fun createRelation(taskId: Long, body: CreateRelationDto) {
+    suspend fun createRelation(taskId: Long, body: CreateRelationDto) = serialWrite {
         client.post("tasks/$taskId/relations") {
             contentType(ContentType.Application.Json)
             setBody(body)
         }.requireStatus(HttpStatusCode.Created)
     }
 
-    suspend fun deleteRelation(taskId: Long, relationKind: String, otherTaskId: Long) {
+    suspend fun deleteRelation(taskId: Long, relationKind: String, otherTaskId: Long) = serialWrite {
         client.delete("tasks/$taskId/relations/$relationKind/$otherTaskId").requireNoContent()
     }
 
@@ -245,7 +277,7 @@ class VikunjaApiService(
     ): List<TaskDto> =
         fetchAllPages(filters) { params -> getViewTasksPage(projectId, viewId, params, expandSubtasks) }
 
-    suspend fun updateTaskPosition(taskId: Long, body: TaskPositionDto) {
+    suspend fun updateTaskPosition(taskId: Long, body: TaskPositionDto) = serialWrite {
         client.put("tasks/$taskId/position") {
             contentType(ContentType.Application.Json)
             setBody(body)
@@ -343,11 +375,12 @@ class VikunjaApiService(
         return all
     }
 
-    private suspend fun sendMergePatch(path: String, patch: JsonObject): HttpResponse =
+    private suspend fun sendMergePatch(path: String, patch: JsonObject): HttpResponse = serialWrite {
         client.patch(path) {
             contentType(MERGE_PATCH)
             setBody(patch)
         }
+    }
 
     /**
      * Vikunja answers a merge patch that changes nothing (the server already has every value in

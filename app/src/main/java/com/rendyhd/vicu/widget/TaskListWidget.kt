@@ -49,7 +49,17 @@ import androidx.glance.text.TextStyle
 import com.rendyhd.vicu.MainActivity
 import com.rendyhd.vicu.putViewTarget
 import com.rendyhd.vicu.ui.navigation.ViewTarget
+import com.rendyhd.vicu.ui.theme.VicuDarkColorScheme
+import com.rendyhd.vicu.ui.theme.VicuDarkColors
+import com.rendyhd.vicu.ui.theme.VicuLightColorScheme
+import com.rendyhd.vicu.ui.theme.VicuLightColors
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
+import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DateUtils
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.todayIn
 
 class TaskListWidget : GlanceAppWidget() {
 
@@ -79,20 +89,33 @@ class TaskListWidget : GlanceAppWidget() {
     }
 }
 
-// Semantic color constants (not part of Material You theming)
+// Status and priority colours come from the Vicu roles (not the Material You theming of the widget).
 private val overdueColor = ColorProvider(
-    day = Color(0xFFEF4444),
-    night = Color(0xFFF87171),
+    day = VicuLightColorScheme.error,
+    night = VicuDarkColorScheme.error,
 )
 
-private val highPriorityColor = ColorProvider(
-    day = Color(0xFFEF4444),
-    night = Color(0xFFF87171),
-)
+/** The vector drawable of a priority mark (docs/design-system-v1.md), or null when none is shown. */
+private fun priorityMarkDrawable(priority: Int): Int? = when (priority) {
+    1 -> R.drawable.ic_priority_bars_1
+    2 -> R.drawable.ic_priority_bars_2
+    3 -> R.drawable.ic_priority_bars_3
+    4, 5 -> R.drawable.ic_priority_urgent
+    else -> null
+}
 
-private val medPriorityColor = ColorProvider(
-    day = Color(0xFFF59E0B),
-    night = Color(0xFFFBBF24),
+private fun priorityMarkDescription(priority: Int): String? = when (priority) {
+    1 -> "Low priority"
+    2 -> "Medium priority"
+    3 -> "High priority"
+    4 -> "Urgent priority"
+    5 -> "Do now priority"
+    else -> null
+}
+
+private fun priorityColor(priority: Int) = ColorProvider(
+    day = VicuLightColors.priority(priority) ?: VicuLightColors.priorityLow,
+    night = VicuDarkColors.priority(priority) ?: VicuDarkColors.priorityLow,
 )
 
 // Action callbacks for deep linking
@@ -342,9 +365,13 @@ private fun WidgetTaskRow(task: WidgetTaskItem) {
                 maxLines = 1,
             )
             // The time shows only when the due date has an explicit one, in the device's 12/24 hour style.
-            val dateLabel = DateUtils.formatDueDate(
+            val zone = TimeZone.currentSystemDefault()
+            val dateLabel = DateDisplay.formatDue(
+                DateContext.ROW,
                 task.dueDate,
-                is24Hour = DateFormat.is24HourFormat(LocalContext.current),
+                Clock.System.todayIn(zone),
+                zone,
+                DateDisplayFormat.system(DateFormat.is24HourFormat(LocalContext.current)),
             )
             if (dateLabel.isNotEmpty()) {
                 Text(
@@ -356,21 +383,14 @@ private fun WidgetTaskRow(task: WidgetTaskItem) {
                 )
             }
         }
-        // Priority indicator
-        if (task.priority >= 3) {
-            Box(
-                modifier = GlanceModifier
-                    .size(8.dp)
-                    .cornerRadius(4.dp)
-                    .background(highPriorityColor),
-            ) {}
-        } else if (task.priority == 2) {
-            Box(
-                modifier = GlanceModifier
-                    .size(8.dp)
-                    .cornerRadius(4.dp)
-                    .background(medPriorityColor),
-            ) {}
+        // Priority mark: the same shapes as the app (bars for low to high, a square for urgent), tinted by the priority role.
+        priorityMarkDrawable(task.priority)?.let { drawable ->
+            Image(
+                provider = ImageProvider(drawable),
+                contentDescription = priorityMarkDescription(task.priority),
+                modifier = GlanceModifier.size(14.dp),
+                colorFilter = ColorFilter.tint(priorityColor(task.priority)),
+            )
         }
     }
 }
