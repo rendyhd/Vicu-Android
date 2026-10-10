@@ -648,6 +648,10 @@ class SettingsViewModel(
         viewModelScope.launch { behaviorPrefsStore.setSubprojectDisplayMode(mode) }
     }
 
+    fun setShowProjectProgress(enabled: Boolean) {
+        viewModelScope.launch { behaviorPrefsStore.setShowProjectProgress(enabled) }
+    }
+
     fun setLogbookRetentionEnabled(enabled: Boolean) {
         viewModelScope.launch { logbookPrefsStore.setEnabled(enabled) }
     }

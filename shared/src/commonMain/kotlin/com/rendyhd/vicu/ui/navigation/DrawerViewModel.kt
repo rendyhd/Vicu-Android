@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -124,6 +125,11 @@ class DrawerViewModel(
                 com.rendyhd.vicu.data.local.SubtaskDisplayMode.INSIDE_TASK,
             )
 
+    /** Whether the drawer shows progress rings (Settings); off, nothing is asked for them either. */
+    private val showProgress: Flow<Boolean> = behaviorPrefsStore.getPrefs()
+        .map { it.showProjectProgress }
+        .distinctUntilChanged()
+
     private val _sectionsExpanded = MutableStateFlow(DrawerSectionsExpanded())
 
     private val sources: Flow<DrawerSources> = combine(
@@ -178,13 +184,17 @@ class DrawerViewModel(
      * The progress ring of every project that has one: done tasks out of all of them. The open
      * side follows the local database, the done side is one cached request per project, made
      * only for the rows on screen while the drawer is open (at most one request per project, and
-     * none while the cached count is fresh).
+     * none while the cached count is fresh). Empty while the rings are turned off in Settings.
      */
     val projectProgress: StateFlow<Map<Long, ProjectProgress>> =
-        combine(tallies, doneCounts) { tallies, done ->
-            buildMap {
-                for ((projectId, count) in done) {
-                    projectProgress(count, tallies?.get(projectId)?.open ?: 0)?.let { put(projectId, it) }
+        combine(tallies, doneCounts, showProgress) { tallies, done, show ->
+            if (!show) {
+                emptyMap()
+            } else {
+                buildMap {
+                    for ((projectId, count) in done) {
+                        projectProgress(count, tallies?.get(projectId)?.open ?: 0)?.let { put(projectId, it) }
+                    }
                 }
             }
         }.flowOn(dispatchers.default)
@@ -207,7 +217,8 @@ class DrawerViewModel(
 
     init {
         viewModelScope.launch {
-            progressRows
+            // With the rings turned off the rows on screen ask for nothing.
+            combine(progressRows, showProgress) { rows, show -> if (show) rows else emptySet() }
                 .flatMapLatest { rows ->
                     if (rows.isEmpty()) {
                         emptyFlow()
