@@ -80,7 +80,10 @@ class DrawerViewModelProgressTest {
         }
     }
 
-    private fun TestScope.rig(source: FakeProjectProgressSource): Rig {
+    private fun TestScope.rig(
+        source: FakeProjectProgressSource,
+        behaviorPrefsStore: BehaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
+    ): Rig {
         val authScope = CoroutineScope(SupervisorJob())
         val auth = AuthManager(
             platformAuthHooks = RecordingAuthHooks(),
@@ -99,7 +102,7 @@ class DrawerViewModelProgressTest {
             reviewPrefsStore = ReviewPrefsStore(InMemoryPreferencesDataStore()),
             routinePrefsStore = RoutinePrefsStore(InMemoryPreferencesDataStore()),
             labelOrderPrefsStore = LabelOrderPrefsStore(InMemoryPreferencesDataStore()),
-            behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
+            behaviorPrefsStore = behaviorPrefsStore,
             dayClock = DayClock(backgroundScope, time),
             dispatchers = AppDispatchers(Dispatchers.Unconfined),
             appMessages = AppMessages(),
@@ -127,6 +130,35 @@ class DrawerViewModelProgressTest {
 
         assertEquals(emptyList(), rig.source.asked)
         assertEquals(emptyMap(), rig.progress)
+        rig.close()
+    }
+
+    @Test
+    fun `with the rings turned off nothing is asked and no ring is shown`() = runTest {
+        val prefs = BehaviorPrefsStore(InMemoryPreferencesDataStore())
+        prefs.setShowProjectProgress(false)
+        val rig = rig(source(), prefs)
+
+        rig.viewModel.setProgressRows(setOf(1L, 2L))
+        settle()
+
+        assertEquals(emptyList(), rig.source.asked)
+        assertEquals(emptyMap(), rig.progress)
+        rig.close()
+    }
+
+    @Test
+    fun `turning the rings back on asks for the rows on screen`() = runTest {
+        val prefs = BehaviorPrefsStore(InMemoryPreferencesDataStore())
+        prefs.setShowProjectProgress(false)
+        val rig = rig(source(), prefs)
+        rig.viewModel.setProgressRows(setOf(1L))
+        settle()
+
+        prefs.setShowProjectProgress(true)
+        settle()
+
+        assertEquals(mapOf(1L to ProjectProgress(done = 3, total = 5)), rig.progress)
         rig.close()
     }
 

@@ -452,6 +452,15 @@ internal fun LazyListScope.behaviorSection(
         }
     }
 
+    item(key = "show_project_progress") {
+        SwitchRow(
+            label = "Show project progress",
+            description = "Progress rings next to the projects in the drawer",
+            checked = state.behaviorPrefs.showProjectProgress,
+            onCheckedChange = viewModel::setShowProjectProgress,
+        )
+    }
+
     item(key = "keep_entry_open") {
         SwitchRow(
             label = "Keep add-task open",
