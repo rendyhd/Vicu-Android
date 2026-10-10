@@ -54,6 +54,17 @@ private fun collectDescendantIds(rootId: Long, projects: List<Project>): Set<Lon
     return result
 }
 
+/**
+ * The parent the dialog starts with: the edited project's own, or [initialParentId] for a new one
+ * (0 is top level; "Add subproject" passes the project it was chosen on).
+ */
+internal fun startingParentId(project: Project?, initialParentId: Long): Long =
+    project?.parentProjectId ?: initialParentId
+
+/**
+ * "Create Project" for a null [project], "Edit Project" otherwise. A new project starts below
+ * [initialParentId] (top level for 0), which the user can still change.
+ */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectEditDialog(
@@ -61,12 +72,13 @@ fun ProjectEditDialog(
     projects: List<Project>,
     onSave: (name: String, hexColor: String, parentProjectId: Long) -> Unit,
     onDismiss: () -> Unit,
+    initialParentId: Long = 0L,
 ) {
     val isEdit = project != null
     var name by remember { mutableStateOf(project?.title ?: "") }
     // New projects default to "None" (empty hex → renderer falls back to the theme color).
     var selectedColor by remember { mutableStateOf(project?.hexColor.orEmpty()) }
-    var parentId by remember { mutableLongStateOf(project?.parentProjectId ?: 0L) }
+    var parentId by remember { mutableLongStateOf(startingParentId(project, initialParentId)) }
     var parentDropdownExpanded by remember { mutableStateOf(false) }
 
     // Exclude the project being edited AND its descendants from parent options, so a cycle

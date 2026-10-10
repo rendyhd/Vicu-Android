@@ -23,6 +23,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import com.rendyhd.vicu.data.local.ReviewPrefsStore
+import com.rendyhd.vicu.ui.screens.shared.testProjectActions
+import com.rendyhd.vicu.util.AppMessages
 
 /** Sections the user collapsed stay collapsed when the project screen is opened again. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -61,6 +64,9 @@ class ProjectViewModelSectionsTest {
             refresher = fakeScreenRefresher(tasks, projects, labels),
             behaviorPrefsStore = behaviorPrefs,
             projectSectionPrefsStore = sectionPrefs,
+            projectActions = testProjectActions(projects),
+            reviewPrefsStore = ReviewPrefsStore(InMemoryPreferencesDataStore()),
+            appMessages = AppMessages(),
         )
     }
 

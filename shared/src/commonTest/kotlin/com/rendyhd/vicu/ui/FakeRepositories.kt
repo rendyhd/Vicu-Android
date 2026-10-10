@@ -302,7 +302,14 @@ class FakeProjectRepository(initial: List<Project> = emptyList()) : ProjectRepos
     override fun getChildren(parentId: Long): Flow<List<Project>> =
         projects.map { list -> list.filter { it.parentProjectId == parentId } }
 
-    override suspend fun create(project: Project): NetworkResult<Project> = NetworkResult.Success(project)
+    /** Projects passed to [create], in call order. */
+    val creates = mutableListOf<Project>()
+
+    override suspend fun create(project: Project): NetworkResult<Project> {
+        creates += project
+        return NetworkResult.Success(project)
+    }
+
     /** Projects passed to [update], in call order. */
     val updates = mutableListOf<Project>()
 
@@ -313,7 +320,17 @@ class FakeProjectRepository(initial: List<Project> = emptyList()) : ProjectRepos
         updates += project
         return updateResult(project)
     }
-    override suspend fun delete(projectId: Long): NetworkResult<Unit> = NetworkResult.Success(Unit)
+    /** Ids passed to [delete], in call order. */
+    val deletes = mutableListOf<Long>()
+
+    /** What [delete] answers; a successful delete also removes the project, as the real one does. */
+    var deleteResult: NetworkResult<Unit> = NetworkResult.Success(Unit)
+
+    override suspend fun delete(projectId: Long): NetworkResult<Unit> {
+        deletes += projectId
+        if (deleteResult is NetworkResult.Success) projects.value = projects.value.filter { it.id != projectId }
+        return deleteResult
+    }
 
     var refreshCalls = 0
     var refreshResult: NetworkResult<Unit> = NetworkResult.Success(Unit)

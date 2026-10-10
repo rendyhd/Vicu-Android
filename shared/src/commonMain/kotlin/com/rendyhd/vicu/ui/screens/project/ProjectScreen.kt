@@ -3,6 +3,7 @@ package com.rendyhd.vicu.ui.screens.project
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,9 +20,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -37,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,7 +61,10 @@ import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
 import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
 import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
+import com.rendyhd.vicu.ui.components.shared.ArchiveProjectDialog
+import com.rendyhd.vicu.ui.components.shared.DeleteProjectDialog
 import com.rendyhd.vicu.ui.components.shared.EmptyState
+import com.rendyhd.vicu.ui.components.shared.ProjectEditDialog
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
@@ -63,6 +72,7 @@ import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.AddTaskButton
 import com.rendyhd.vicu.ui.components.task.ReorderableTaskRow
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
+import com.rendyhd.vicu.ui.screens.shared.ProjectActions
 import com.rendyhd.vicu.util.isManuallyOrdered
 import com.rendyhd.vicu.util.moveOptions
 import com.rendyhd.vicu.util.parseHexColor
@@ -79,9 +89,15 @@ fun ProjectScreen(
     onNavigateToSearch: () -> Unit = {},
     onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     onProjectClick: (Long) -> Unit = {},
+    onProjectGone: () -> Unit = {},
     viewModel: ProjectViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val menu by viewModel.menu.collectAsStateWithLifecycle()
+    val exit by viewModel.exit.collectAsStateWithLifecycle()
+    val reviewUndo by viewModel.reviewUndo.collectAsStateWithLifecycle()
+    // The options menu's open dialog, by name so a rotation keeps it.
+    var openDialog by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
@@ -132,6 +148,28 @@ fun ProjectScreen(
                     onOpenDrawer = onOpenDrawer,
                     scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
+                    // No menu while the project is missing or archived.
+                    trailingActions = {
+                        if (menu.project != null) {
+                            ProjectOptionsMenu(
+                                entries = menu.entries(),
+                                onChoose = { entry ->
+                                    when (entry) {
+                                        ProjectMenuEntry.EDIT -> openDialog = ProjectDialog.EDIT.name
+                                        ProjectMenuEntry.ADD_SUBPROJECT -> openDialog = ProjectDialog.SUBPROJECT.name
+                                        ProjectMenuEntry.SET_INBOX -> viewModel.setAsInbox()
+                                        ProjectMenuEntry.MARK_REVIEWED -> viewModel.markReviewed()
+                                        ProjectMenuEntry.ARCHIVE -> openDialog = ProjectDialog.ARCHIVE.name
+                                        ProjectMenuEntry.DELETE -> if (menu.confirmBeforeDelete) {
+                                            openDialog = ProjectDialog.DELETE.name
+                                        } else {
+                                            viewModel.delete()
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    },
                 )
             }
         },
@@ -260,6 +298,9 @@ fun ProjectScreen(
     }
 
     LaunchedEffect(state.error) {
+        // Archiving or deleting from here makes the project "archived" or "not found" on its way
+        // out; that is not an error to show.
+        if (exit != ProjectExit.NONE) return@LaunchedEffect
         state.error?.let { msg ->
             val result = snackbarHostState.showSnackbar(
                 message = msg,
@@ -273,12 +314,104 @@ fun ProjectScreen(
         }
     }
 
+    // Archived or deleted from the options menu: go back the way a deleted list does.
+    LaunchedEffect(exit) {
+        if (exit == ProjectExit.LEFT) onProjectGone()
+    }
+
+    // "Mark reviewed" offers Undo, the same snackbar as the review screen's.
+    LaunchedEffect(reviewUndo) {
+        val previous = reviewUndo ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = ProjectActions.markedReviewedMessage(previous),
+            actionLabel = "Undo",
+            duration = SnackbarDuration.Long,
+        )
+        if (result == SnackbarResult.ActionPerformed) viewModel.undoReview() else viewModel.dismissReviewUndo()
+    }
+
+    val dismissDialog = { openDialog = null }
+    val menuProject = menu.project
+    if (menuProject != null) {
+        when (openDialog?.let { name -> ProjectDialog.entries.firstOrNull { it.name == name } }) {
+            ProjectDialog.EDIT -> ProjectEditDialog(
+                project = menuProject,
+                projects = menu.projects,
+                onSave = { name, hexColor, parentId ->
+                    viewModel.editProject(name, hexColor, parentId)
+                    dismissDialog()
+                },
+                onDismiss = dismissDialog,
+            )
+            ProjectDialog.SUBPROJECT -> ProjectEditDialog(
+                project = null,
+                projects = menu.projects,
+                initialParentId = menuProject.id,
+                onSave = { name, hexColor, parentId ->
+                    viewModel.addSubproject(name, hexColor, parentId)
+                    dismissDialog()
+                },
+                onDismiss = dismissDialog,
+            )
+            ProjectDialog.ARCHIVE -> ArchiveProjectDialog(
+                project = menuProject,
+                onConfirm = {
+                    viewModel.archive()
+                    dismissDialog()
+                },
+                onDismiss = dismissDialog,
+            )
+            ProjectDialog.DELETE -> DeleteProjectDialog(
+                project = menuProject,
+                onConfirm = {
+                    viewModel.delete()
+                    dismissDialog()
+                },
+                onDismiss = dismissDialog,
+            )
+            null -> Unit
+        }
+    }
+
     SelectionPickers(
         selectionVm = selectionVm,
         action = selectionAction,
         selectedCount = selectedIds.size,
         onDismiss = { selectionAction = null },
     )
+}
+
+/** The dialogs the options menu opens. */
+private enum class ProjectDialog { EDIT, SUBPROJECT, ARCHIVE, DELETE }
+
+/** The top bar's "more" button and the project's options. */
+@Composable
+private fun ProjectOptionsMenu(
+    entries: List<ProjectMenuEntry>,
+    onChoose: (ProjectMenuEntry) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(Icons.Outlined.MoreVert, contentDescription = "Project options")
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            entries.forEach { entry ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            entry.label,
+                            color = if (entry.destructive) MaterialTheme.colorScheme.error else Color.Unspecified,
+                        )
+                    },
+                    onClick = {
+                        open = false
+                        onChoose(entry)
+                    },
+                )
+            }
+        }
+    }
 }
 
 @Composable

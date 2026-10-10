@@ -43,6 +43,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import com.rendyhd.vicu.ui.screens.shared.testProjectActions
 
 /**
  * The drawer's progress rings: numbers are asked for only while the drawer is open and only for
@@ -107,6 +108,7 @@ class DrawerViewModelProgressTest {
             dispatchers = AppDispatchers(Dispatchers.Unconfined),
             appMessages = AppMessages(),
             progressSource = source,
+            projectActions = testProjectActions(FakeProjectRepository(emptyList()), auth),
         )
         backgroundScope.launch { vm.projectProgress.collect { } }
         runCurrent()

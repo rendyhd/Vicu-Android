@@ -34,6 +34,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import com.rendyhd.vicu.data.local.ReviewPrefsStore
+import com.rendyhd.vicu.ui.screens.shared.testProjectActions
+import com.rendyhd.vicu.util.AppMessages
 
 /**
  * A list screen no longer swallows the result of its refresh: a failure is shown (an offline one
@@ -88,6 +91,9 @@ class RefreshResultViewModelsTest {
         refresher = refresher,
         behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
         projectSectionPrefsStore = ProjectSectionPrefsStore(InMemoryPreferencesDataStore()),
+        projectActions = testProjectActions(projects),
+        reviewPrefsStore = ReviewPrefsStore(InMemoryPreferencesDataStore()),
+        appMessages = AppMessages(),
     )
 
     // --- what the screen shows -------------------------------------------------------------

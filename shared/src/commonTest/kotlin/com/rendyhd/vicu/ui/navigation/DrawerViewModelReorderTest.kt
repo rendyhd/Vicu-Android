@@ -17,6 +17,7 @@ import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.ui.FakeLabelRepository
 import com.rendyhd.vicu.ui.FakeProjectRepository
+import com.rendyhd.vicu.ui.screens.shared.testProjectActions
 import com.rendyhd.vicu.util.AppDispatchers
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.DayClock
@@ -147,6 +148,7 @@ class DrawerViewModelReorderTest {
             dispatchers = AppDispatchers(Dispatchers.Unconfined),
             appMessages = messages,
             progressSource = FakeProjectProgressSource(),
+            projectActions = testProjectActions(projectRepo, auth),
         )
         backgroundScope.launch { vm.uiState.collect { } }
         runCurrent()
@@ -283,6 +285,35 @@ class DrawerViewModelReorderTest {
 
         assertEquals(listOf(11L to 0.5), rig.projects.updates.map { it.id to it.position })
         assertEquals(listOf(1L, 11L, 10L), rig.rowIds)
+        rig.close()
+    }
+
+    @Test
+    fun `the drawer saves a drop through the shared sibling move`() = runTest {
+        val rig = rig(listOf(project(1), project(2), project(3)))
+        rig.projects.updateResult = { NetworkResult.Error("") }
+
+        rig.viewModel.reorderProject(movedId = 3, idsInNewOrder = listOf(1, 3, 2))
+        runCurrent()
+
+        // ProjectActions.moveAmongSiblings plans and sends it; a refusal without a reason says so plainly.
+        assertEquals(listOf(3L to 150.0), rig.projects.updates.map { it.id to it.position })
+        assertEquals(listOf("Could not save the new order"), rig.shown)
+        rig.close()
+    }
+
+    // --- new project ---
+
+    @Test
+    fun `new project creates it and confirms in the app-wide snackbar`() = runTest {
+        val rig = rig(listOf(project(1)))
+
+        rig.viewModel.createProject("Garden", "#00aa00", parentProjectId = 0)
+        runCurrent()
+
+        assertEquals("Garden", rig.projects.creates.single().title)
+        assertEquals(0L, rig.projects.creates.single().parentProjectId)
+        assertEquals(listOf("Project created"), rig.shown)
         rig.close()
     }
 

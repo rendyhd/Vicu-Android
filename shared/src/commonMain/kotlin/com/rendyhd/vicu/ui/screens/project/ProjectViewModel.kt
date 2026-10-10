@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.ProjectSectionPrefsStore
+import com.rendyhd.vicu.data.local.ReviewPrefs
+import com.rendyhd.vicu.data.local.ReviewPrefsStore
 import com.rendyhd.vicu.data.local.SubprojectDisplayMode
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
@@ -16,7 +18,12 @@ import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.ui.screens.shared.CompletionToast
 import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
+import com.rendyhd.vicu.ui.screens.shared.ProjectActionResult
+import com.rendyhd.vicu.ui.screens.shared.ProjectActions
+import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.ReviewMetadata
+import com.rendyhd.vicu.util.ReviewState
 import com.rendyhd.vicu.util.dropPositionFor
 import com.rendyhd.vicu.util.moveTaskInList
 import com.rendyhd.vicu.util.neighbourForMove
@@ -25,12 +32,15 @@ import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -45,6 +55,82 @@ data class ProjectUiState(
     val completedTaskIds: Set<Long> = emptySet(),
 )
 
+/** What the project screen's options menu offers, and what its dialogs need. */
+data class ProjectMenuState(
+    /** The project the menu is about; null while it is missing or archived, when there is no menu. */
+    val project: Project? = null,
+    /** Every active project: the parent picker of the edit and new-subproject dialogs. */
+    val projects: List<Project> = emptyList(),
+    val isInbox: Boolean = false,
+    /** Review tracking is on and this project is tracked, so "Mark reviewed" is offered. */
+    val canMarkReviewed: Boolean = false,
+    val confirmBeforeDelete: Boolean = true,
+)
+
+/**
+ * The menu for [project]: none for a missing or archived one. "Mark reviewed" needs review tracking
+ * on and the project tracked: not excluded by its footer, and not the Inbox while the Inbox is left
+ * out of review.
+ */
+internal fun projectMenuState(
+    project: Project?,
+    allProjects: List<Project>,
+    inboxProjectId: Long?,
+    reviewPrefs: ReviewPrefs,
+    confirmBeforeDelete: Boolean,
+): ProjectMenuState {
+    if (project == null || project.isArchived) return ProjectMenuState(confirmBeforeDelete = confirmBeforeDelete)
+    val isInbox = inboxProjectId != null && project.id == inboxProjectId
+    val tracked = reviewPrefs.enabled &&
+        !(reviewPrefs.excludeInbox && isInbox) &&
+        ReviewMetadata.parse(project.description).state != ReviewState.EXCLUDED
+    return ProjectMenuState(
+        project = project,
+        projects = allProjects.filter { !it.isArchived },
+        isInbox = isInbox,
+        canMarkReviewed = tracked,
+        confirmBeforeDelete = confirmBeforeDelete,
+    )
+}
+
+/** An entry of the project screen's options menu. */
+enum class ProjectMenuEntry(val label: String, val destructive: Boolean = false) {
+    EDIT("Edit project"),
+    ADD_SUBPROJECT("Add subproject"),
+    SET_INBOX("Set as Inbox"),
+    MARK_REVIEWED("Mark reviewed"),
+    ARCHIVE("Archive"),
+    DELETE("Delete", destructive = true),
+}
+
+/**
+ * The entries the menu shows, in order. The Inbox is not offered as the Inbox again, nor archived
+ * or deleted (another project must be the Inbox first).
+ */
+internal fun ProjectMenuState.entries(): List<ProjectMenuEntry> = buildList {
+    if (project == null) return@buildList
+    add(ProjectMenuEntry.EDIT)
+    add(ProjectMenuEntry.ADD_SUBPROJECT)
+    if (!isInbox) add(ProjectMenuEntry.SET_INBOX)
+    if (canMarkReviewed) add(ProjectMenuEntry.MARK_REVIEWED)
+    if (!isInbox) {
+        add(ProjectMenuEntry.ARCHIVE)
+        add(ProjectMenuEntry.DELETE)
+    }
+}
+
+/** Whether the project screen is leaving because its project was archived or deleted from it. */
+enum class ProjectExit {
+    /** Nothing under way. */
+    NONE,
+
+    /** Archiving or deleting: the "archived" or "not found" state that follows is not an error to show. */
+    LEAVING,
+
+    /** Done: the screen goes back. */
+    LEFT,
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProjectViewModel(
     savedStateHandle: SavedStateHandle,
@@ -54,6 +140,9 @@ class ProjectViewModel(
     private val refresher: ScreenRefresher,
     private val behaviorPrefsStore: BehaviorPrefsStore,
     private val projectSectionPrefsStore: ProjectSectionPrefsStore,
+    private val projectActions: ProjectActions,
+    reviewPrefsStore: ReviewPrefsStore,
+    private val appMessages: AppMessages,
     navigationTicker: NavigationTicker = NavigationTicker(),
     completionToast: CompletionToast = NoCompletionToast,
 ) : ViewModel() {
@@ -309,6 +398,102 @@ class ProjectViewModel(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    // --- The options menu (the shared ProjectActions do the work) ---
+
+    /** What the options menu offers for this project. */
+    val menu: StateFlow<ProjectMenuState> = combine(
+        projectRepository.getById(projectId),
+        projectRepository.getAll(),
+        projectActions.inboxProjectId,
+        reviewPrefsStore.getPrefs(),
+        behaviorPrefsStore.getPrefs(),
+    ) { project, all, inboxId, reviewPrefs, behaviorPrefs ->
+        projectMenuState(project, all, inboxId, reviewPrefs, behaviorPrefs.confirmBeforeDelete)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ProjectMenuState())
+
+    private val _exit = MutableStateFlow(ProjectExit.NONE)
+    val exit: StateFlow<ProjectExit> = _exit.asStateFlow()
+
+    /** The project as it was before "Mark reviewed", while the snackbar offers to undo it. */
+    private val _reviewUndo = MutableStateFlow<Project?>(null)
+    val reviewUndo: StateFlow<Project?> = _reviewUndo.asStateFlow()
+
+    /** The project as stored now, or null when it is gone or archived (nothing to act on). */
+    private suspend fun currentProject(): Project? =
+        projectRepository.getById(projectId).first()?.takeUnless { it.isArchived }
+
+    /** Says what an action came to in the app-wide snackbar; true when it was done. */
+    private fun report(result: ProjectActionResult): Boolean = when (result) {
+        is ProjectActionResult.Done -> {
+            result.message?.let { appMessages.post(it) }
+            true
+        }
+        is ProjectActionResult.Failed -> {
+            appMessages.post(result.error)
+            false
+        }
+    }
+
+    fun editProject(name: String, hexColor: String, parentProjectId: Long) {
+        viewModelScope.launch {
+            val project = currentProject() ?: return@launch
+            report(projectActions.edit(project, name, hexColor, parentProjectId))
+        }
+    }
+
+    /** "Add subproject": the dialog started with this project as the parent, which the user may have changed. */
+    fun addSubproject(name: String, hexColor: String, parentProjectId: Long) {
+        viewModelScope.launch { report(projectActions.create(name, hexColor, parentProjectId)) }
+    }
+
+    fun setAsInbox() {
+        viewModelScope.launch {
+            val project = currentProject() ?: return@launch
+            report(projectActions.setInbox(project.id))
+        }
+    }
+
+    /** The review screen's "Mark reviewed": the snackbar offers Undo until it goes ([reviewUndo]). */
+    fun markReviewed() {
+        viewModelScope.launch {
+            val project = currentProject() ?: return@launch
+            _reviewUndo.value = project
+            val result = projectActions.markReviewed(project)
+            if (result is ProjectActionResult.Failed) {
+                // The review was not recorded: there is nothing to undo.
+                _reviewUndo.value = null
+                appMessages.post(result.error)
+            }
+        }
+    }
+
+    fun undoReview() {
+        val previous = _reviewUndo.value ?: return
+        _reviewUndo.value = null
+        viewModelScope.launch {
+            val result = projectActions.undoReview(previous)
+            if (result is ProjectActionResult.Failed) appMessages.post(result.error)
+        }
+    }
+
+    fun dismissReviewUndo() {
+        _reviewUndo.value = null
+    }
+
+    /** Archives the project (after the confirmation) and leaves the screen once that is done. */
+    fun archive() = leaveAfter { project -> projectActions.archive(project) }
+
+    /** Deletes the project (after the confirmation, when one is asked for) and leaves the screen. */
+    fun delete() = leaveAfter { project -> projectActions.delete(project.id) }
+
+    private fun leaveAfter(action: suspend (Project) -> ProjectActionResult) {
+        viewModelScope.launch {
+            val project = currentProject() ?: return@launch
+            _exit.value = ProjectExit.LEAVING
+            _exit.value = if (report(action(project))) ProjectExit.LEFT else ProjectExit.NONE
+        }
     }
 }
 

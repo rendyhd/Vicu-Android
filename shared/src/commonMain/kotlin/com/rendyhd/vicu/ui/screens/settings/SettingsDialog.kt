@@ -20,8 +20,14 @@ internal sealed interface SettingsDialog {
     data object ReviewCadenceCustom : SettingsDialog
     data object LogbookRetention : SettingsDialog
 
+    /** The projects left out of review, each with a way to bring it back. */
+    data object ExcludedFromReview : SettingsDialog
+
     /** [projectId] null creates a project. */
     data class ProjectEditor(val projectId: Long?) : SettingsDialog
+
+    /** Creates a project with [parentId] chosen as its parent ("Add subproject"). */
+    data class SubprojectEditor(val parentId: Long) : SettingsDialog
     data class DeleteProject(val projectId: Long) : SettingsDialog
     data class ArchiveProject(val projectId: Long) : SettingsDialog
 
@@ -51,7 +57,9 @@ internal fun SettingsDialog.encode(): String = when (this) {
     SettingsDialog.ReviewCadence -> "review_cadence"
     SettingsDialog.ReviewCadenceCustom -> "review_cadence_custom"
     SettingsDialog.LogbookRetention -> "logbook_retention"
+    SettingsDialog.ExcludedFromReview -> "review_excluded"
     is SettingsDialog.ProjectEditor -> withArg("project_editor", projectId?.toString())
+    is SettingsDialog.SubprojectEditor -> withArg("subproject_editor", parentId.toString())
     is SettingsDialog.DeleteProject -> withArg("delete_project", projectId.toString())
     is SettingsDialog.ArchiveProject -> withArg("archive_project", projectId.toString())
     is SettingsDialog.LabelEditor -> withArg("label_editor", labelId?.toString())
@@ -83,7 +91,9 @@ internal fun decodeSettingsDialog(encoded: String): SettingsDialog? {
         "review_cadence" -> SettingsDialog.ReviewCadence
         "review_cadence_custom" -> SettingsDialog.ReviewCadenceCustom
         "logbook_retention" -> SettingsDialog.LogbookRetention
+        "review_excluded" -> SettingsDialog.ExcludedFromReview
         "project_editor" -> if (arg == null) SettingsDialog.ProjectEditor(null) else arg.toLongOrNull()?.let { SettingsDialog.ProjectEditor(it) }
+        "subproject_editor" -> arg?.toLongOrNull()?.let { SettingsDialog.SubprojectEditor(it) }
         "delete_project" -> arg?.toLongOrNull()?.let { SettingsDialog.DeleteProject(it) }
         "archive_project" -> arg?.toLongOrNull()?.let { SettingsDialog.ArchiveProject(it) }
         "label_editor" -> if (arg == null) SettingsDialog.LabelEditor(null) else arg.toLongOrNull()?.let { SettingsDialog.LabelEditor(it) }

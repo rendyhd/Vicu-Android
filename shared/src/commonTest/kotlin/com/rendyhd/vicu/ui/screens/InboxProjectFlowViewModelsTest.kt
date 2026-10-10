@@ -50,6 +50,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import com.rendyhd.vicu.data.local.RoutinePrefsStore
+import com.rendyhd.vicu.ui.screens.shared.testProjectActions
 
 /**
  * Screens that depend on the Inbox project observe it instead of reading it once, so an Inbox
@@ -303,6 +304,7 @@ class InboxProjectFlowViewModelsTest {
             dispatchers = AppDispatchers(Dispatchers.Unconfined),
             appMessages = AppMessages(),
             progressSource = FakeProjectProgressSource(),
+            projectActions = testProjectActions(fakes.projects, auth.manager),
         )
     }
 

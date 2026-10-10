@@ -146,50 +146,6 @@ internal fun LazyListScope.widgetSection(
     }
 }
 
-internal fun LazyListScope.reviewSection(
-    state: SettingsUiState,
-    viewModel: SettingsViewModel,
-    openDialog: (SettingsDialog) -> Unit,
-) {
-    item(key = "review_header") {
-        Text(
-            text = "Review",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
-        )
-    }
-    item(key = "review_enabled") {
-        SwitchRow(
-            label = "Enable project review tracking",
-            description = "Periodically review your projects",
-            checked = state.reviewPrefs.enabled,
-            onCheckedChange = viewModel::setReviewEnabled,
-        )
-    }
-    if (state.reviewPrefs.enabled) {
-        item(key = "review_cadence") {
-            SettingsValueRow(
-                label = "Default review cadence",
-                value = "${state.reviewPrefs.defaultCadenceDays} days",
-                onClick = { openDialog(SettingsDialog.ReviewCadence) },
-            )
-        }
-        item(key = "review_exclude_inbox") {
-            SwitchRow(
-                label = "Exclude Inbox from review",
-                description = "Don't track the inbox project",
-                checked = state.reviewPrefs.excludeInbox,
-                onCheckedChange = viewModel::setReviewExcludeInbox,
-            )
-        }
-    }
-    item(key = "review_divider") {
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-    }
-}
-
 internal fun LazyListScope.routinesSection(
     state: SettingsUiState,
     viewModel: SettingsViewModel,
@@ -222,32 +178,6 @@ internal fun LazyListScope.routinesSection(
         }
     }
     item(key = "routines_divider") {
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-    }
-}
-
-internal fun LazyListScope.inboxSection(
-    state: SettingsUiState,
-    viewModel: SettingsViewModel,
-) {
-    item(key = "inbox_header") {
-        Text(
-            text = "Inbox",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
-        )
-    }
-    item(key = "inbox_exclude_dated") {
-        SwitchRow(
-            label = "Move dated tasks out of Inbox",
-            description = "Tasks with a due date no longer appear in Inbox.",
-            checked = state.behaviorPrefs.inboxExcludeDated,
-            onCheckedChange = viewModel::setInboxExcludeDated,
-        )
-    }
-    item(key = "inbox_divider") {
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
     }
 }
@@ -418,47 +348,6 @@ internal fun LazyListScope.behaviorSection(
                 }
             }
         }
-    }
-
-    item(key = "subproject_display_mode") {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        ) {
-            Text(text = "Subprojects in project views", style = MaterialTheme.typography.bodyLarge)
-            Text(
-                text = "Combine child tasks into sections or open each child as its own project",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            @OptIn(ExperimentalMaterial3Api::class)
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                val options = listOf(
-                    com.rendyhd.vicu.data.local.SubprojectDisplayMode.SECTIONS to "Sections",
-                    com.rendyhd.vicu.data.local.SubprojectDisplayMode.PROJECT_ROWS to "Project rows",
-                )
-                options.forEachIndexed { index, (mode, label) ->
-                    SegmentedButton(
-                        selected = state.behaviorPrefs.subprojectDisplayMode == mode,
-                        onClick = { viewModel.setSubprojectDisplayMode(mode) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
-                    ) {
-                        Text(label)
-                    }
-                }
-            }
-        }
-    }
-
-    item(key = "show_project_progress") {
-        SwitchRow(
-            label = "Show project progress",
-            description = "Progress rings next to the projects in the drawer",
-            checked = state.behaviorPrefs.showProjectProgress,
-            onCheckedChange = viewModel::setShowProjectProgress,
-        )
     }
 
     item(key = "keep_entry_open") {

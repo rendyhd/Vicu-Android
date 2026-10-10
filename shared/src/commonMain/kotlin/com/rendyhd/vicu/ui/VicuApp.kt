@@ -66,6 +66,7 @@ import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
 import com.rendyhd.vicu.ui.components.picker.WhenSheet
 import com.rendyhd.vicu.ui.components.settings.NotificationPermissionSheet
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
+import com.rendyhd.vicu.ui.components.shared.ProjectEditDialog
 import com.rendyhd.vicu.ui.components.shared.IconRegistry
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
@@ -226,6 +227,7 @@ fun VicuApp(
     var showTaskDetailSheet by rememberSaveable { mutableStateOf(false) }
     var taskDetailTaskId by rememberSaveable { mutableLongStateOf(0L) }
     var showNewListDialog by rememberSaveable { mutableStateOf(false) }
+    var showNewProjectDialog by rememberSaveable { mutableStateOf(false) }
     // Saved with the instance state: a rotation reopens the sheet with the shared text and files.
     var pendingSharedContent by rememberSaveable(stateSaver = SharedContentSaver) {
         mutableStateOf<SharedContent?>(null)
@@ -531,6 +533,10 @@ fun VicuApp(
                         scope.launch { drawerState.close() }
                         showNewListDialog = true
                     },
+                    onCreateProject = {
+                        scope.launch { drawerState.close() }
+                        showNewProjectDialog = true
+                    },
                     onReorderProject = drawerViewModel::reorderProject,
                     onReorderList = drawerViewModel::reorderCustomList,
                     onReorderLabel = drawerViewModel::reorderLabel,
@@ -676,6 +682,19 @@ fun VicuApp(
                 onDateSelected = { dueDate -> setWhenDue(target.id, dueDate) },
                 onClearDate = { setWhenDue(target.id, Constants.NULL_DATE_STRING) },
                 onDismiss = { whenSheetTask = null },
+            )
+        }
+
+        // New Project Dialog (the + of the drawer's Projects header)
+        if (showNewProjectDialog) {
+            ProjectEditDialog(
+                project = null,
+                projects = drawerUiState.allProjects,
+                onSave = { name, hexColor, parentId ->
+                    drawerViewModel.createProject(name, hexColor, parentId)
+                    showNewProjectDialog = false
+                },
+                onDismiss = { showNewProjectDialog = false },
             )
         }
 

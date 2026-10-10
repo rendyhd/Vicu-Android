@@ -101,6 +101,7 @@ fun DrawerContent(
     progressActive: Boolean = false,
     onProgressRows: (Set<Long>) -> Unit = {},
     onCreateNewList: () -> Unit = {},
+    onCreateProject: () -> Unit = {},
     onReorderProject: (movedId: Long, idsInNewOrder: List<Long>) -> Unit = { _, _ -> },
     onReorderList: (movedId: String, idsInNewOrder: List<String>) -> Unit = { _, _ -> },
     onReorderLabel: (movedId: Long, idsInNewOrder: List<Long>) -> Unit = { _, _ -> },
@@ -267,6 +268,8 @@ fun DrawerContent(
                         title = "Projects",
                         expanded = state.projectsExpanded,
                         onToggle = onToggleProjects,
+                        onAdd = onCreateProject,
+                        addDescription = "New project",
                     )
                 }
                 if (state.projectsExpanded) {
@@ -277,7 +280,7 @@ fun DrawerContent(
                     ) { row ->
                         val projectId = row.project.id
                         val siblings = projectSiblings[row.parentId].orEmpty()
-                        DrawerReorderableRow(
+                        LongPressReorderableRow(
                             reorderState = reorderState,
                             key = drawerKey(DrawerGroup.PROJECT, projectId),
                             onDragStopped = {
@@ -317,7 +320,7 @@ fun DrawerContent(
                         key = { drawerKey(DrawerGroup.LIST, it.id) },
                         contentType = { "list" },
                     ) { list ->
-                        DrawerReorderableRow(
+                        LongPressReorderableRow(
                             reorderState = reorderState,
                             key = drawerKey(DrawerGroup.LIST, list.id),
                             onDragStopped = {
@@ -389,7 +392,7 @@ fun DrawerContent(
                             key = { drawerKey(DrawerGroup.LABEL, it.id) },
                             contentType = { "label" },
                         ) { label ->
-                            DrawerReorderableRow(
+                            LongPressReorderableRow(
                                 reorderState = reorderState,
                                 key = drawerKey(DrawerGroup.LABEL, label.id),
                                 onDragStopped = {
@@ -457,12 +460,12 @@ fun DrawerContent(
 }
 
 /**
- * A row of the drawer that can be dragged among the rows of its own group: a long press picks it
- * up, [onDragStopped] fires when it is let go. The Surface stays in the tree when idle, so picking
- * the row up does not reset what is inside it.
+ * A row that can be dragged among the rows of its own group (the drawer's, the Projects tab of
+ * Settings): a long press picks it up, [onDragStopped] fires when it is let go. The Surface stays
+ * in the tree when idle, so picking the row up does not reset what is inside it.
  */
 @Composable
-private fun LazyItemScope.DrawerReorderableRow(
+internal fun LazyItemScope.LongPressReorderableRow(
     reorderState: ReorderableLazyListState,
     key: String,
     onDragStopped: () -> Unit,
@@ -571,13 +574,16 @@ private fun SmartListItem(
 
 /**
  * A section title that opens and closes its section. The whole row is the button (at least 48 dp
- * high) and announces whether the section is open; the chevron is only a picture of that.
+ * high) and announces whether the section is open; the chevron is only a picture of that. With
+ * [onAdd] a + button ([addDescription] for a screen reader) sits before the chevron.
  */
 @Composable
 private fun SectionHeader(
     title: String,
     expanded: Boolean,
     onToggle: () -> Unit,
+    onAdd: (() -> Unit)? = null,
+    addDescription: String? = null,
 ) {
     Row(
         modifier = Modifier
@@ -603,6 +609,18 @@ private fun SectionHeader(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
+        if (onAdd != null) {
+            IconButton(onClick = onAdd) {
+                Icon(
+                    imageVector = Icons.Outlined.Add,
+                    contentDescription = addDescription,
+                    // The accent of the drawer's other "new" action, the New List row.
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+        }
         Icon(
             imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
             contentDescription = null,

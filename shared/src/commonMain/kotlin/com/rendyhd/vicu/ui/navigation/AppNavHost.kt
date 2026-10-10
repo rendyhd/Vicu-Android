@@ -138,6 +138,12 @@ fun AppNavHost(
                         navController.navigate(routeToPush)
                     }
                 },
+                // Archived or deleted from its own menu: back, like a deleted custom list.
+                onProjectGone = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(InboxRoute) { launchSingleTop = true }
+                    }
+                },
             )
         }
         composable<TagRoute> { backStackEntry ->

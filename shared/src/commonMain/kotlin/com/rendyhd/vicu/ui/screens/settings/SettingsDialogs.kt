@@ -23,11 +23,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.ui.components.shared.ArchiveProjectDialog
 import com.rendyhd.vicu.ui.components.shared.BottomBarSlotEditor
+import com.rendyhd.vicu.ui.components.shared.DeleteProjectDialog
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
 import com.rendyhd.vicu.ui.components.shared.LabelEditDialog
 import com.rendyhd.vicu.ui.components.shared.ProjectEditDialog
@@ -158,16 +163,25 @@ internal fun SettingsDialogHost(
             }
         }
 
+        // "Add subproject": a new project with the chosen one preselected as its parent.
+        is SettingsDialog.SubprojectEditor -> ProjectEditDialog(
+            project = null,
+            projects = state.projects,
+            initialParentId = dialog.parentId,
+            onSave = { name, hexColor, parentId ->
+                viewModel.createProject(name, hexColor, parentId)
+                dismiss()
+            },
+            onDismiss = dismiss,
+        )
+
         is SettingsDialog.DeleteProject -> {
             // An archived project can be deleted too.
             val project = state.projects.find { it.id == dialog.projectId }
                 ?: state.archivedProjects.find { it.id == dialog.projectId }
             if (project != null) {
-                ConfirmDialog(
-                    title = "Delete Project",
-                    message = "Delete \"${project.title}\"? All tasks in this project will be deleted.",
-                    confirmLabel = "Delete",
-                    destructive = true,
+                DeleteProjectDialog(
+                    project = project,
                     onConfirm = {
                         viewModel.deleteProject(project.id)
                         dismiss()
@@ -179,12 +193,8 @@ internal fun SettingsDialogHost(
 
         // Archiving keeps tasks and can be reversed.
         is SettingsDialog.ArchiveProject -> state.projects.find { it.id == dialog.projectId }?.let { project ->
-            ConfirmDialog(
-                title = "Archive Project",
-                message = "Archive \"${project.title}\"? Its tasks will be kept, " +
-                    "but the project will disappear from normal views. You can restore it from Settings.",
-                confirmLabel = "Archive",
-                destructive = false,
+            ArchiveProjectDialog(
+                project = project,
                 onConfirm = {
                     viewModel.archiveProject(project)
                     dismiss()
@@ -192,6 +202,12 @@ internal fun SettingsDialogHost(
                 onDismiss = dismiss,
             )
         }
+
+        SettingsDialog.ExcludedFromReview -> ExcludedFromReviewDialog(
+            projects = state.excludedFromReview,
+            onInclude = viewModel::includeInReview,
+            onDismiss = dismiss,
+        )
 
         is SettingsDialog.LabelEditor -> {
             val label = dialog.labelId?.let { id -> state.labels.find { it.id == id } }
@@ -434,6 +450,55 @@ private fun ConfirmDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
+            }
+        },
+    )
+}
+
+/**
+ * The projects left out of review, each with "Include" to take it back. It stays open while some
+ * are left, so several can be brought back in a row, and closes itself when none are.
+ */
+@Composable
+private fun ExcludedFromReviewDialog(
+    projects: List<Project>,
+    onInclude: (Project) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (projects.isEmpty()) {
+        LaunchedEffect(Unit) { onDismiss() }
+        return
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Excluded from review") },
+        text = {
+            LazyColumn {
+                items(projects, key = { it.id }, contentType = { "project" }) { project ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = project.title,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { onInclude(project) }) {
+                            Text("Include")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
             }
         },
     )

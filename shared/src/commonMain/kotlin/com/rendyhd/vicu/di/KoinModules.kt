@@ -19,6 +19,7 @@ import com.rendyhd.vicu.util.AppDispatchers
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.screens.shared.CompletionToast
 import com.rendyhd.vicu.ui.screens.shared.CompletionToastCenter
+import com.rendyhd.vicu.ui.screens.shared.ProjectActions
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.BuildInfo
 import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
@@ -241,6 +242,14 @@ val commonModule = module {
     }
     single { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
     single<CompletionToast> { CompletionToastCenter(messages = get(), taskRepository = get(), time = get(), scope = get()) }
+    single {
+        ProjectActions(
+            projectRepository = get(),
+            authManager = get(),
+            repositoryHooks = get(),
+            dayClock = get(),
+        )
+    }
     single {
         AuthManager(
             platformAuthHooks = get(),

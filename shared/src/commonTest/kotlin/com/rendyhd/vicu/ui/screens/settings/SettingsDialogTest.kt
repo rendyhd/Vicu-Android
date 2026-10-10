@@ -14,8 +14,10 @@ class SettingsDialogTest {
         SettingsDialog.ReviewCadence,
         SettingsDialog.ReviewCadenceCustom,
         SettingsDialog.LogbookRetention,
+        SettingsDialog.ExcludedFromReview,
         SettingsDialog.ProjectEditor(null),
         SettingsDialog.ProjectEditor(42L),
+        SettingsDialog.SubprojectEditor(42L),
         SettingsDialog.DeleteProject(7L),
         SettingsDialog.ArchiveProject(8L),
         SettingsDialog.LabelEditor(null),
@@ -56,5 +58,7 @@ class SettingsDialogTest {
         assertNull(decodeSettingsDialog("delete_project:not-a-number"))
         assertNull(decodeSettingsDialog("bottom_bar_slot"))
         assertNull(decodeSettingsDialog("bottom_bar_slot:x"))
+        assertNull(decodeSettingsDialog("subproject_editor"), "a new subproject needs its parent")
+        assertNull(decodeSettingsDialog("subproject_editor:x"))
     }
 }

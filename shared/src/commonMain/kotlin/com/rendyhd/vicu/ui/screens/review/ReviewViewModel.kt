@@ -219,9 +219,9 @@ class ReviewViewModel(
 
     fun markReviewed(project: Project) {
         viewModelScope.launch {
-            val meta = ReviewMetadata.parse(project.description)
-                .let { ReviewMetadata(ReviewState.REVIEWED, dayClock.day.value.date.toString(), it.cadenceDaysOverride) }
-            val updated = project.copy(description = ReviewMetadata.upsert(project.description, meta))
+            val updated = project.copy(
+                description = ReviewMetadata.reviewedDescription(project.description, dayClock.day.value.date),
+            )
             reviewedThisSession.value = reviewedThisSession.value + project.id
             _uiState.update { it.copy(undo = project) }
             val result = projectRepository.update(updated)
@@ -244,13 +244,7 @@ class ReviewViewModel(
 
     fun setExcluded(project: Project, excluded: Boolean) {
         viewModelScope.launch {
-            val current = ReviewMetadata.parse(project.description)
-            val meta = if (excluded) {
-                ReviewMetadata(ReviewState.EXCLUDED, null, null)
-            } else {
-                ReviewMetadata(ReviewState.NEVER, null, current.cadenceDaysOverride)
-            }
-            val updated = project.copy(description = ReviewMetadata.upsert(project.description, meta))
+            val updated = project.copy(description = ReviewMetadata.excludedDescription(project.description, excluded))
             reportFailure(projectRepository.update(updated))
         }
     }

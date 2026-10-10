@@ -74,6 +74,25 @@ data class ReviewMetadata(
             return if (body.isEmpty()) footer else "$body\n\n$footer"
         }
 
+        /** [description] with its footer saying the project was reviewed on [today]; a cadence of its own is kept. */
+        fun reviewedDescription(description: String, today: LocalDate): String {
+            val current = parse(description)
+            return upsert(description, ReviewMetadata(ReviewState.REVIEWED, today.toString(), current.cadenceDaysOverride))
+        }
+
+        /**
+         * [description] with the project left out of review ([excluded]) or back in it: then it has
+         * never been reviewed and keeps a cadence of its own. The desktop's `excludeDescription`.
+         */
+        fun excludedDescription(description: String, excluded: Boolean): String {
+            val meta = if (excluded) {
+                ReviewMetadata(ReviewState.EXCLUDED, null, null)
+            } else {
+                ReviewMetadata(ReviewState.NEVER, null, parse(description).cadenceDaysOverride)
+            }
+            return upsert(description, meta)
+        }
+
         /**
          * Review status from local calendar dates only (docs/cross-app-semantics-v1.md, section 4).
          * [today] is the device's local date from DayClock, so the status follows midnight.

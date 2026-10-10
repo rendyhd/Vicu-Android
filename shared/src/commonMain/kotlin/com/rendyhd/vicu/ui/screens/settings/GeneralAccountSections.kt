@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.automirrored.outlined.ExitToApp
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,43 +59,6 @@ internal fun LazyListScope.accountSection(
             if (state.vikunjaUrl.isNotBlank()) {
                 InfoRow(label = "Server", value = state.vikunjaUrl)
             }
-        }
-    }
-
-    item(key = "inbox_project") {
-        val activeInbox = state.projects.find { it.id == state.inboxProjectId }
-        val archivedInbox = state.archivedProjects.find { it.id == state.inboxProjectId }
-        val inboxName = activeInbox?.title
-            ?: archivedInbox?.let { "${it.title} (archived — select another project)" }
-            ?: "Not set"
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = { openDialog(SettingsDialog.InboxPicker) })
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Inbox Project",
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                    text = inboxName,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (archivedInbox != null) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                )
-            }
-            Icon(
-                Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                contentDescription = "Choose inbox project",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
         }
     }
 

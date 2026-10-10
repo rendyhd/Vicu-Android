@@ -205,6 +205,7 @@ Three methods, chosen on the setup screen (server URL, discover, authenticate, p
 - Descriptions are HTML in Vikunja; the Cascade editor edits them and unknown blocks are preserved (`docs/description-format-v1.md`).
 - Attachments: open or share any file type, streamed to the cache, checked against the server's size limit before upload.
 - Share target: a share becomes a task with the shared text as title and description and shared files attached; it survives rotation.
+- Settings has four tabs in a `PrimaryScrollableTabRow`: General, Projects, Notifications, Gestures. Projects holds the Inbox choice, the project list (tap a row to edit it, drag or Move up / Move down within its level, the row menu for the rest, archived projects in a collapsed Archived group), Display, Review with the projects excluded from it, Labels and Custom Lists. Every project action (create, add subproject, edit, set as Inbox, archive, restore, delete, mark reviewed, include in review again, sibling moves) goes through `ProjectActions` (`ui/screens/shared/`, a Koin single), whether it starts in Settings, at the drawer's + or in the project screen's menu, so each answers with the same message everywhere; add a new project action there, not in a ViewModel.
 
 ## Privacy and security
 

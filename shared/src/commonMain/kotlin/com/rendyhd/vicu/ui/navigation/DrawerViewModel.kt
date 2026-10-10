@@ -18,15 +18,15 @@ import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectProgressSource
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.CustomListRepository
+import com.rendyhd.vicu.ui.screens.shared.ProjectActionResult
+import com.rendyhd.vicu.ui.screens.shared.ProjectActions
+import com.rendyhd.vicu.ui.screens.shared.SiblingMoveResult
+import com.rendyhd.vicu.ui.screens.shared.orderNotSavedMessage
 import com.rendyhd.vicu.util.AppDispatchers
 import com.rendyhd.vicu.util.AppMessages
-import com.rendyhd.vicu.util.DropPlan
-import com.rendyhd.vicu.util.NetworkResult
-import com.rendyhd.vicu.util.PositionedId
 import com.rendyhd.vicu.util.ProjectProgress
 import com.rendyhd.vicu.util.ReviewMetadata
 import com.rendyhd.vicu.util.ReviewState
-import com.rendyhd.vicu.util.planDropAmong
 import com.rendyhd.vicu.util.projectProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -95,7 +95,7 @@ data class DrawerUiState(
 }
 
 class DrawerViewModel(
-    private val projectRepository: ProjectRepository,
+    projectRepository: ProjectRepository,
     labelRepository: LabelRepository,
     private val customListRepository: CustomListRepository,
     private val authManager: AuthManager,
@@ -108,6 +108,7 @@ class DrawerViewModel(
     dispatchers: AppDispatchers,
     private val appMessages: AppMessages,
     private val progressSource: ProjectProgressSource,
+    private val projectActions: ProjectActions,
 ) : ViewModel() {
 
     /** Exposed for the app-root CompositionLocal that positions the FAB. */
@@ -297,6 +298,16 @@ class DrawerViewModel(
         }
     }
 
+    /** The drawer's "New project": creates it and says how that went in the app-wide snackbar. */
+    fun createProject(name: String, hexColor: String, parentProjectId: Long) {
+        viewModelScope.launch {
+            when (val result = projectActions.create(name, hexColor, parentProjectId)) {
+                is ProjectActionResult.Done -> result.message?.let { appMessages.post(it) }
+                is ProjectActionResult.Failed -> appMessages.post(result.error)
+            }
+        }
+    }
+
     /** Opens or closes the projects below [projectId]. */
     fun toggleProjectCollapsed(projectId: Long) {
         _sectionsExpanded.update { sections ->
@@ -307,9 +318,9 @@ class DrawerViewModel(
 
     /**
      * Saves the new order of the projects that share a level after a drag: [idsInNewOrder] is every
-     * project of that level, [movedId] the one that was dragged. The positions are planned like the
-     * desktop app's (one position between the neighbours, or a renumbering when they leave no room).
-     * A refusal is reported and the list goes back to what is stored.
+     * project of that level, [movedId] the one that was dragged. The positions are planned and saved
+     * by [ProjectActions.moveAmongSiblings] (the Projects tab of Settings saves the same way). A
+     * refusal is reported and the list goes back to what is stored.
      */
     fun reorderProject(movedId: Long, idsInNewOrder: List<Long>) {
         val state = stored.value
@@ -318,30 +329,18 @@ class DrawerViewModel(
         val ordered = idsInNewOrder.distinct().mapNotNull { byId[it] }
         val newOrder = ordered.map { it.id }
         if (movedId !in newOrder || newOrder == siblingIds(state.projectRows, movedId)) return
-        val plan = planDropAmong(ordered.map { PositionedId(it.id, it.position) }, movedId) ?: return
 
         pendingOrder.update { it.copy(projectParentId = moved.parentId, projectIds = newOrder) }
         viewModelScope.launch {
             reorderMutex.withLock {
-                val failure = saveProjectPositions(plan, byId)
-                if (failure == null) {
-                    awaitStored { siblingIds(it.projectRows, movedId) == newOrder }
-                } else {
-                    appMessages.post(orderNotSaved(failure))
+                when (val result = projectActions.moveAmongSiblings(movedId, ordered)) {
+                    SiblingMoveResult.Saved -> awaitStored { siblingIds(it.projectRows, movedId) == newOrder }
+                    is SiblingMoveResult.Failed -> appMessages.post(result.message)
+                    SiblingMoveResult.NotMoved -> Unit
                 }
                 pendingOrder.update { if (it.projectIds == newOrder) it.copy(projectIds = null) else it }
             }
         }
-    }
-
-    /** The first refusal's message, or null when every position was saved (or queued for later). */
-    private suspend fun saveProjectPositions(plan: DropPlan, byId: Map<Long, Project>): String? {
-        for (update in plan.updates) {
-            val project = byId[update.id] ?: continue
-            val result = projectRepository.update(project.copy(position = update.position))
-            if (result is NetworkResult.Error) return result.message
-        }
-        return null
     }
 
     /** Saves the new order of the custom lists after a drag: [idsInNewOrder] is every list, [movedId] the dragged one. */
@@ -396,8 +395,7 @@ class DrawerViewModel(
         withTimeoutOrNull(PENDING_ORDER_TIMEOUT_MS) { stored.first(matches) }
     }
 
-    private fun orderNotSaved(detail: String) =
-        if (detail.isBlank()) "Could not save the new order" else "Could not save the new order: $detail"
+    private fun orderNotSaved(detail: String) = orderNotSavedMessage(detail)
 }
 
 /** An order the user has just dropped, not yet in the stored state. A null field has nothing pending. */

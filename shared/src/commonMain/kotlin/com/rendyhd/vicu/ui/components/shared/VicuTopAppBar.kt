@@ -58,7 +58,8 @@ fun rememberVicuTopBarScroll(listState: LazyListState? = null): VicuTopBarScroll
 /**
  * The top bar of a screen. With [scroll] it is a large bar (bold 28 sp title that folds into the bar
  * on scroll, its container turning to the surface container colour once scrolled); without it, the
- * plain small bar (settings, review, routines).
+ * plain small bar (settings, review, routines). [extraActions] come before Search, [trailingActions]
+ * after it (a screen's own "more" menu).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,6 +69,7 @@ fun VicuTopAppBar(
     onNavigateToSearch: (() -> Unit)? = null,
     extraActions: @Composable (RowScope.() -> Unit)? = null,
     scroll: VicuTopBarScroll? = null,
+    trailingActions: @Composable (RowScope.() -> Unit)? = null,
 ) {
     val navigationIcon: @Composable () -> Unit = {
         IconButton(onClick = onOpenDrawer) {
@@ -81,6 +83,7 @@ fun VicuTopAppBar(
                 Icon(Icons.Default.Search, contentDescription = "Search")
             }
         }
+        trailingActions?.invoke(this)
     }
     if (scroll == null) {
         TopAppBar(title = title, navigationIcon = navigationIcon, actions = actions)

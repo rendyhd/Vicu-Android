@@ -27,6 +27,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import com.rendyhd.vicu.data.local.ReviewPrefsStore
+import com.rendyhd.vicu.ui.screens.shared.testProjectActions
+import com.rendyhd.vicu.util.AppMessages
 
 /**
  * What the Project screen keeps and what it drops when its lists emit again: an error that is
@@ -58,6 +61,9 @@ class ProjectViewModelStateTest {
             refresher = fakeScreenRefresher(tasks, projects, labels),
             behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
             projectSectionPrefsStore = ProjectSectionPrefsStore(InMemoryPreferencesDataStore()),
+            projectActions = testProjectActions(projects),
+            reviewPrefsStore = ReviewPrefsStore(InMemoryPreferencesDataStore()),
+            appMessages = AppMessages(),
         )
     }
 

@@ -40,14 +40,29 @@ import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.ReviewMetadata
+import com.rendyhd.vicu.util.ReviewState
+import com.rendyhd.vicu.ui.navigation.PENDING_ORDER_TIMEOUT_MS
+import com.rendyhd.vicu.ui.navigation.ProjectNode
+import com.rendyhd.vicu.ui.navigation.ProjectRow
+import com.rendyhd.vicu.ui.navigation.buildProjectTree
+import com.rendyhd.vicu.ui.navigation.reorderSiblings
+import com.rendyhd.vicu.ui.navigation.siblingIds
+import com.rendyhd.vicu.ui.navigation.visibleProjectRows
 import com.rendyhd.vicu.ui.screens.settings.PlatformSettingsHooks
+import com.rendyhd.vicu.ui.screens.shared.ProjectActionResult
+import com.rendyhd.vicu.ui.screens.shared.ProjectActions
+import com.rendyhd.vicu.ui.screens.shared.SiblingMoveResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class SettingsUiState(
     // General
@@ -64,6 +79,8 @@ data class SettingsUiState(
     val customListSyncStatus: CustomListSyncStatus = CustomListSyncStatus.Idle,
     val projects: List<Project> = emptyList(),
     val archivedProjects: List<Project> = emptyList(),
+    /** Active projects whose review footer says they are left out of review. */
+    val excludedFromReview: List<Project> = emptyList(),
     // Notifications
     val notificationPrefs: NotificationPrefs = NotificationPrefs(),
     val supportsQuickAddTile: Boolean = false,
@@ -150,6 +167,7 @@ class SettingsViewModel(
     private val apiService: VikunjaApiService,
     private val platformSettingsHooks: PlatformSettingsHooks,
     private val syncCursor: SyncCursorStore,
+    private val projectActions: ProjectActions,
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<Pair<String?, String?>>(null to null)
@@ -230,6 +248,9 @@ class SettingsViewModel(
             customListSyncStatus = c.customListSync,
             projects = c.projects.filter { !it.isArchived },
             archivedProjects = c.projects.filter { it.isArchived },
+            excludedFromReview = c.projects.filter {
+                !it.isArchived && ReviewMetadata.parse(it.description).state == ReviewState.EXCLUDED
+            },
             notificationPrefs = c.notificationPrefs,
             supportsQuickAddTile = platformSettingsHooks.supportsQuickAddTile,
             behaviorPrefs = p.behaviorPrefs,
@@ -320,11 +341,20 @@ class SettingsViewModel(
 
     // --- Inbox project ---
 
+    /** The Inbox project picker and a project's "Set as Inbox". */
     fun setInboxProject(projectId: Long) {
         viewModelScope.launch {
-            authManager.onInboxProjectSelected(projectId)
+            val result = projectActions.setInbox(projectId)
             _inboxProjectId.value = projectId
-            _messages.update { null to "Inbox project updated" }
+            report(result)
+        }
+    }
+
+    /** Shows what a project action came to in the snackbar. */
+    private fun report(result: ProjectActionResult) {
+        when (result) {
+            is ProjectActionResult.Done -> result.message?.let { message -> _messages.update { null to message } }
+            is ProjectActionResult.Failed -> _messages.update { result.error to null }
         }
     }
 
@@ -373,73 +403,74 @@ class SettingsViewModel(
     // --- Projects ---
 
     fun createProject(name: String, hexColor: String, parentProjectId: Long) {
-        viewModelScope.launch {
-            val project = Project(id = 0, title = name, hexColor = hexColor, parentProjectId = parentProjectId)
-            when (val result = projectRepository.create(project)) {
-                is NetworkResult.Success -> {
-                    _messages.update { null to "Project created" }
-                }
-                is NetworkResult.Error -> {
-                    _messages.update { result.message to null }
-                }
-                is NetworkResult.Loading -> {}
-            }
-        }
+        viewModelScope.launch { report(projectActions.create(name, hexColor, parentProjectId)) }
     }
 
     fun updateProject(project: Project, name: String, hexColor: String, parentProjectId: Long) {
-        viewModelScope.launch {
-            val updated = project.copy(title = name, hexColor = hexColor, parentProjectId = parentProjectId)
-            when (val result = projectRepository.update(updated)) {
-                is NetworkResult.Success -> {
-                    _messages.update { null to "Project updated" }
-                }
-                is NetworkResult.Error -> {
-                    _messages.update { result.message to null }
-                }
-                is NetworkResult.Loading -> {}
-            }
-        }
+        viewModelScope.launch { report(projectActions.edit(project, name, hexColor, parentProjectId)) }
     }
 
     fun deleteProject(projectId: Long) {
-        viewModelScope.launch {
-            when (val result = projectRepository.delete(projectId)) {
-                is NetworkResult.Success -> {
-                    _messages.update { null to "Project deleted" }
-                }
-                is NetworkResult.Error -> {
-                    _messages.update { result.message to null }
-                }
-                is NetworkResult.Loading -> {}
-            }
-        }
+        viewModelScope.launch { report(projectActions.delete(projectId)) }
     }
 
     fun archiveProject(project: Project) {
-        if (project.id == _inboxProjectId.value) {
-            _messages.update { "Select another Inbox project before archiving this project" to null }
-            return
-        }
-        setProjectArchived(project, archived = true)
+        viewModelScope.launch { report(projectActions.archive(project)) }
     }
 
     fun restoreProject(project: Project) {
-        setProjectArchived(project, archived = false)
+        viewModelScope.launch { report(projectActions.restore(project)) }
     }
 
-    private fun setProjectArchived(project: Project, archived: Boolean) {
+    /** Takes [project] back into review ("Excluded from review", "Include"). */
+    fun includeInReview(project: Project) {
+        viewModelScope.launch { report(projectActions.includeInReview(project)) }
+    }
+
+    /** The active projects as a tree (the Inbox included), as stored. */
+    private val storedProjectTree: StateFlow<List<ProjectNode>> = projectRepository.getAllIncludingArchived()
+        .map { projects -> buildProjectTree(projects.filter { !it.isArchived }) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** A sibling order just dropped and not stored yet: the projects below [parentId] (0 for the roots) in the order of [ids]. */
+    private data class PendingSiblingOrder(val parentId: Long, val ids: List<Long>)
+
+    private val pendingProjectOrder = MutableStateFlow<PendingSiblingOrder?>(null)
+
+    /**
+     * The Projects tab's rows: every active project, the Inbox included, depth first with siblings
+     * in position order (the drawer's order). An order just dropped is shown until it is stored, so
+     * the row does not jump back to its old place in between.
+     */
+    val projectRows: StateFlow<List<ProjectRow>> = combine(storedProjectTree, pendingProjectOrder) { tree, pending ->
+        val ordered = if (pending == null) tree else reorderSiblings(tree, pending.parentId, pending.ids)
+        visibleProjectRows(ordered, emptySet())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Saves the new order of the projects that share a level after a drag (or a screen reader's
+     * move): [idsInNewOrder] is every project of that level, [movedId] the one that moved. The
+     * saving is the drawer's ([ProjectActions.moveAmongSiblings]); a refusal is reported and the
+     * list goes back to what is stored.
+     */
+    fun reorderProject(movedId: Long, idsInNewOrder: List<Long>) {
+        val rows = visibleProjectRows(storedProjectTree.value, emptySet())
+        val moved = rows.firstOrNull { it.project.id == movedId } ?: return
+        val siblings = rows.filter { it.parentId == moved.parentId }.associateBy { it.project.id }
+        val ordered = idsInNewOrder.distinct().mapNotNull { siblings[it]?.project }
+        val newOrder = ordered.map { it.id }
+        if (movedId !in newOrder || newOrder == siblingIds(rows, movedId)) return
+
+        pendingProjectOrder.value = PendingSiblingOrder(moved.parentId, newOrder)
         viewModelScope.launch {
-            when (val result = projectRepository.update(project.copy(isArchived = archived))) {
-                is NetworkResult.Success -> {
-                    platformSettingsHooks.updateWidgets()
-                    _messages.update { null to if (archived) "Project archived" else "Project restored" }
+            when (val result = projectActions.moveAmongSiblings(movedId, ordered)) {
+                SiblingMoveResult.Saved -> withTimeoutOrNull(PENDING_ORDER_TIMEOUT_MS) {
+                    storedProjectTree.first { tree -> siblingIds(visibleProjectRows(tree, emptySet()), movedId) == newOrder }
                 }
-                is NetworkResult.Error -> {
-                    _messages.update { result.message to null }
-                }
-                is NetworkResult.Loading -> {}
+                is SiblingMoveResult.Failed -> _messages.update { result.message to null }
+                SiblingMoveResult.NotMoved -> Unit
             }
+            pendingProjectOrder.update { if (it?.ids == newOrder) null else it }
         }
     }
 
