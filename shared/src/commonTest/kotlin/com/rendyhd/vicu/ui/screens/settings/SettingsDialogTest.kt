@@ -31,6 +31,7 @@ class SettingsDialogTest {
         SettingsDialog.ClearFailedActions,
         SettingsDialog.AuthDebugLog,
         SettingsDialog.InboxPicker,
+        SettingsDialog.TaskOrderPicker,
         SettingsDialog.BottomBarSlot(2),
     )
 

@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.util
 
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.model.TaskOrder
 
 /** Vikunja position spacing used when appending to the end of a list view. */
 const val POSITION_STEP = 65_536.0
@@ -8,19 +9,33 @@ const val POSITION_STEP = 65_536.0
 private fun isDated(t: Task): Boolean =
     t.dueDate.isNotBlank() && !DateUtils.isNullDate(t.dueDate)
 
-/** Undated tasks form the manually orderable block; dated rows are pinned by due-date sort. */
-fun isManuallyOrdered(t: Task): Boolean = !isDated(t)
+/**
+ * Whether [t] is placed by hand in a list sorted by [order]. In the default order the undated
+ * tasks form the manually orderable block and dated rows are pinned by due-date sort; in the manual
+ * order every task is; in the other orders none is (the sort decides every place).
+ */
+fun isManuallyOrdered(t: Task, order: TaskOrder = TaskOrder.DEFAULT): Boolean = when (order) {
+    TaskOrder.DUE_DATE_FIRST -> !isDated(t)
+    TaskOrder.MANUAL -> true
+    else -> false
+}
 
 /**
  * Move [fromId] to the slot currently occupied by [toId]. Returns null (move vetoed)
- * when either id is missing or either task is dated: sortProjectTasks pins dated tasks
- * first by due date, so a cross-block move would just snap back on the next emission.
+ * when either id is missing or either task is not manually ordered in [order]: in the default
+ * order sortProjectTasks pins dated tasks first by due date, so a cross-block move would just
+ * snap back on the next emission.
  */
-fun moveTaskInList(tasks: List<Task>, fromId: Long, toId: Long): List<Task>? {
+fun moveTaskInList(
+    tasks: List<Task>,
+    fromId: Long,
+    toId: Long,
+    order: TaskOrder = TaskOrder.DEFAULT,
+): List<Task>? {
     val fromIdx = tasks.indexOfFirst { it.id == fromId }
     val toIdx = tasks.indexOfFirst { it.id == toId }
     if (fromIdx < 0 || toIdx < 0 || fromIdx == toIdx) return null
-    if (isDated(tasks[fromIdx]) || isDated(tasks[toIdx])) return null
+    if (!isManuallyOrdered(tasks[fromIdx], order) || !isManuallyOrdered(tasks[toIdx], order)) return null
     return tasks.toMutableList().apply { add(toIdx, removeAt(fromIdx)) }
 }
 
@@ -30,11 +45,16 @@ fun moveTaskInList(tasks: List<Task>, fromId: Long, toId: Long): List<Task>? {
  * there is no such slot or the move is vetoed (see [moveTaskInList]: dated tasks are not moved,
  * and nothing is moved past them).
  */
-fun neighbourForMove(tasks: List<Task>, taskId: Long, offset: Int): Long? {
+fun neighbourForMove(
+    tasks: List<Task>,
+    taskId: Long,
+    offset: Int,
+    order: TaskOrder = TaskOrder.DEFAULT,
+): Long? {
     val index = tasks.indexOfFirst { it.id == taskId }
     if (index < 0) return null
     val target = tasks.getOrNull(index + offset) ?: return null
-    return target.id.takeIf { moveTaskInList(tasks, taskId, target.id) != null }
+    return target.id.takeIf { moveTaskInList(tasks, taskId, target.id, order) != null }
 }
 
 /** Which one-step moves a task can make. */
@@ -44,8 +64,8 @@ data class MoveOptions(val up: Boolean, val down: Boolean)
  * The one-step moves each task of [tasks] (as displayed) can make, by id, in one pass: the same
  * answer [neighbourForMove] gives task by task.
  */
-fun moveOptions(tasks: List<Task>): Map<Long, MoveOptions> {
-    fun canSwap(a: Task, b: Task) = isManuallyOrdered(a) && isManuallyOrdered(b)
+fun moveOptions(tasks: List<Task>, order: TaskOrder = TaskOrder.DEFAULT): Map<Long, MoveOptions> {
+    fun canSwap(a: Task, b: Task) = isManuallyOrdered(a, order) && isManuallyOrdered(b, order)
     val options = HashMap<Long, MoveOptions>(tasks.size * 2)
     tasks.forEachIndexed { index, task ->
         options[task.id] = MoveOptions(
@@ -80,14 +100,14 @@ fun computeDropPosition(prev: Double?, next: Double?): Double = when {
 
 /**
  * New position for [taskId] given its neighbors in [tasks] (the already-reordered,
- * as-displayed list). Dated neighbors are ignored — their positions are meaningless
- * for the undated ordering.
+ * as-displayed list). Neighbors that are not manually ordered in [order] are ignored (dated ones
+ * in the default order): their positions are meaningless for the manual ordering.
  */
-fun dropPositionFor(tasks: List<Task>, taskId: Long): Double? {
+fun dropPositionFor(tasks: List<Task>, taskId: Long, order: TaskOrder = TaskOrder.DEFAULT): Double? {
     val idx = tasks.indexOfFirst { it.id == taskId }
     if (idx < 0) return null
-    val prev = tasks.getOrNull(idx - 1)?.takeUnless { isDated(it) }?.position
-    val next = tasks.getOrNull(idx + 1)?.takeUnless { isDated(it) }?.position
+    val prev = tasks.getOrNull(idx - 1)?.takeIf { isManuallyOrdered(it, order) }?.position
+    val next = tasks.getOrNull(idx + 1)?.takeIf { isManuallyOrdered(it, order) }?.position
     return computeDropPosition(prev, next)
 }
 
@@ -111,14 +131,17 @@ data class DropPlan(val moved: PositionUpdate, val renumbered: List<PositionUpda
 
 /**
  * Where [taskId] belongs after a drag, given the list as it is now displayed ([tasks], the dragged
- * task already in its new place). Dated tasks are skipped: they are listed by due date and their
- * positions mean nothing. Null when the task is not in the list or is dated (it cannot be dragged).
- * The plan itself is [planDropAmong].
+ * task already in its new place). Tasks that are not manually ordered in [order] are skipped (in
+ * the default order the dated ones: they are listed by due date and their positions mean nothing).
+ * Null when the task is not in the list or cannot be dragged. The plan itself is [planDropAmong].
  */
-fun planDrop(tasks: List<Task>, taskId: Long): DropPlan? {
+fun planDrop(tasks: List<Task>, taskId: Long, order: TaskOrder = TaskOrder.DEFAULT): DropPlan? {
     val index = tasks.indexOfFirst { it.id == taskId }
-    if (index < 0 || !isManuallyOrdered(tasks[index])) return null
-    return planDropAmong(tasks.filter(::isManuallyOrdered).map { PositionedId(it.id, it.position) }, taskId)
+    if (index < 0 || !isManuallyOrdered(tasks[index], order)) return null
+    return planDropAmong(
+        tasks.filter { isManuallyOrdered(it, order) }.map { PositionedId(it.id, it.position) },
+        taskId,
+    )
 }
 
 /**

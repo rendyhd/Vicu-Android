@@ -9,9 +9,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -25,6 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -38,6 +42,7 @@ import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.ScreenFab
+import com.rendyhd.vicu.ui.components.shared.TaskOrderDialog
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.ReorderableTaskRow
@@ -80,6 +85,8 @@ fun InboxScreen(
     val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
     val selectionActive = selectedIds.isNotEmpty()
     var selectionAction by remember { mutableStateOf<SelectionAction?>(null) }
+    // "Sort tasks", kept open through a rotation.
+    var showSortDialog by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
@@ -104,6 +111,13 @@ fun InboxScreen(
                     onOpenDrawer = onOpenDrawer,
                     scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
+                    trailingActions = {
+                        if (state.inboxProjectId != null && state.notice == null) {
+                            IconButton(onClick = { showSortDialog = true }) {
+                                Icon(Icons.AutoMirrored.Outlined.Sort, contentDescription = "Sort tasks")
+                            }
+                        }
+                    },
                 )
             }
         },
@@ -125,7 +139,7 @@ fun InboxScreen(
                 .padding(padding),
         ) {
             // Which rows can move a place (for a screen reader, which cannot drag): one pass.
-            val moves = remember(state.tasks) { moveOptions(state.tasks) }
+            val moves = remember(state.tasks, state.taskOrder) { moveOptions(state.tasks, state.taskOrder) }
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.tasks.isEmpty() && !state.isLoading) {
                     item {
@@ -138,10 +152,11 @@ fun InboxScreen(
                 } else {
                     items(state.tasks, key = { it.id }, contentType = { "task" }) { task ->
                         val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
-                        // Undated tasks are ordered by hand: a long press that moves the row drags it.
+                        // Rows the order leaves to the user (by default the undated ones): a long
+                        // press that moves the row drags it.
                         val canDrag = !selectionActive &&
                             task.id !in state.completedTaskIds &&
-                            isManuallyOrdered(task)
+                            isManuallyOrdered(task, state.taskOrder)
                         ReorderableTaskRow(
                             reorderableState = reorderableState,
                             task = task,
@@ -181,6 +196,19 @@ fun InboxScreen(
                 }
             }
         }
+    }
+
+    if (showSortDialog) {
+        TaskOrderDialog(
+            title = "Sort tasks",
+            selected = state.ownTaskOrder,
+            inheritedOrder = state.inheritedTaskOrder,
+            onSelect = { order ->
+                viewModel.setTaskOrder(order)
+                showSortDialog = false
+            },
+            onDismiss = { showSortDialog = false },
+        )
     }
 
     SelectionPickers(

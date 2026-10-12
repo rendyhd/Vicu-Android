@@ -9,11 +9,13 @@ import androidx.work.WorkerParameters
 import com.rendyhd.vicu.auth.TokenStorage
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.CustomListStore
+import com.rendyhd.vicu.data.local.TaskOrderPrefsStore
 import com.rendyhd.vicu.data.local.WidgetPrefsStore
 import com.rendyhd.vicu.data.local.dao.ProjectDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.model.TaskOrderSettings
 import com.rendyhd.vicu.domain.repository.CollaborationRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.domain.repository.customListTasks
@@ -21,6 +23,7 @@ import com.rendyhd.vicu.util.CustomListContext
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.TimeSource
+import com.rendyhd.vicu.util.sortProjectTasks
 import kotlinx.coroutines.flow.first
 
 class TaskWidgetWorker(
@@ -36,11 +39,15 @@ class TaskWidgetWorker(
     private val dayClock: DayClock,
     private val time: TimeSource,
     private val collaboration: CollaborationRepository,
+    private val taskOrderPrefsStore: TaskOrderPrefsStore,
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
         private const val TAG = "TaskWidgetWorker"
         private const val MAX_WIDGET_TASKS = 20
+
+        /** SQLite's LIMIT for no limit. */
+        private const val NO_LIMIT = -1
     }
 
     override suspend fun doWork(): Result {
@@ -92,6 +99,9 @@ class TaskWidgetWorker(
             val projects = projectDao.getAllSync()
             val projectNameMap = projects.associate { it.id to it.title }
             val activeProjectIds = projectNameMap.keys
+            // A project or Inbox widget lists its tasks in the order the project's screen does.
+            val parentOf = projects.associate { it.id to it.parentProjectId }
+            val taskOrders = taskOrderPrefsStore.settings.first()
 
             Log.d(TAG, "doWork: glanceIds=${glanceIds.size}, singleWidgetId=$singleWidgetId, updateAll=$updateAll")
 
@@ -109,7 +119,8 @@ class TaskWidgetWorker(
 
                 val projectUnavailable = resolvedConfig.viewType == WidgetViewType.PROJECT &&
                     resolvedConfig.viewId.toLongOrNull() !in activeProjectIds
-                val rows = queryTasks(resolvedConfig, activeProjectIds).filter { it.projectId in activeProjectIds }
+                val rows = queryTasks(resolvedConfig, activeProjectIds, taskOrders, parentOf)
+                    .filter { it.projectId in activeProjectIds }
                 Log.d(TAG, "Widget $appWidgetId query returned ${rows.size} tasks (viewType=${resolvedConfig.viewType})")
 
                 val totalCount = rows.size
@@ -181,7 +192,33 @@ class TaskWidgetWorker(
 
     private fun Task.toRow() = WidgetRow(id, title, projectId, dueDate, priority, done)
 
-    private suspend fun queryTasks(config: WidgetConfig, activeProjectIds: Set<Long>): List<WidgetRow> {
+    /** What sorting a project's tasks reads of a stored task. */
+    private fun TaskEntity.toSortable() = Task(
+        id = id,
+        title = title,
+        done = done,
+        dueDate = dueDate,
+        priority = priority,
+        projectId = projectId,
+        position = position,
+        created = created,
+    )
+
+    /** [tasks] (every open task of [projectId]) in the project's order, as rows. */
+    private fun inProjectOrder(
+        tasks: List<TaskEntity>,
+        projectId: Long,
+        taskOrders: TaskOrderSettings,
+        parentOf: Map<Long, Long>,
+    ): List<WidgetRow> =
+        sortProjectTasks(tasks.map { it.toSortable() }, taskOrders.orderFor(projectId, parentOf)).map { it.toRow() }
+
+    private suspend fun queryTasks(
+        config: WidgetConfig,
+        activeProjectIds: Set<Long>,
+        taskOrders: TaskOrderSettings,
+        parentOf: Map<Long, Long>,
+    ): List<WidgetRow> {
         // The same boundary as the Today and Upcoming screens: the start of the local tomorrow. The
         // day is re-read first, because this runs from a worker that may wake long after the
         // clock last ticked.
@@ -195,12 +232,18 @@ class TaskWidgetWorker(
             WidgetViewType.TODAY ->
                 taskDao.getTodayTasksSync(startOfTomorrow, MAX_WIDGET_TASKS).map { it.toRow() }
 
-            WidgetViewType.INBOX ->
+            // Every open task, not a capped sample: the order is applied here, then the widget
+            // shows the first ones and counts them all.
+            WidgetViewType.INBOX -> inProjectOrder(
                 taskDao.getInboxTasksSync(
                     inboxId,
-                    MAX_WIDGET_TASKS,
+                    NO_LIMIT,
                     includeDated = !behaviorPrefsStore.getPrefs().first().inboxExcludeDated,
-                ).map { it.toRow() }
+                ),
+                inboxId,
+                taskOrders,
+                parentOf,
+            )
 
             WidgetViewType.UPCOMING ->
                 taskDao.getUpcomingTasksSync(startOfTomorrow, MAX_WIDGET_TASKS).map { it.toRow() }
@@ -210,7 +253,7 @@ class TaskWidgetWorker(
 
             WidgetViewType.PROJECT -> {
                 val projectId = config.viewId.toLongOrNull() ?: 0L
-                taskDao.getByProjectIdSync(projectId, MAX_WIDGET_TASKS).map { it.toRow() }
+                inProjectOrder(taskDao.getByProjectIdSync(projectId, NO_LIMIT), projectId, taskOrders, parentOf)
             }
 
             WidgetViewType.CUSTOM_LIST -> {

@@ -5,6 +5,7 @@ import com.rendyhd.vicu.auth.LoginHarness
 import com.rendyhd.vicu.auth.LoginHarness.Companion.ORIGINAL_SERVER
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.BottomBarPrefsStore
+import com.rendyhd.vicu.data.local.TaskOrderPrefsStore
 import com.rendyhd.vicu.data.local.LogbookPrefsStore
 import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
@@ -118,6 +119,7 @@ class SettingsViewModelStateTest {
             platformSettingsHooks = QuietHooks(),
             syncCursor = harness.fixture.syncCursor,
             projectActions = testProjectActions(projects, auth = harness.authManager),
+            taskOrderPrefsStore = TaskOrderPrefsStore(InMemoryPreferencesDataStore()),
         )
         return Rig(vm, harness, pending, labels, projects)
     }

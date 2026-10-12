@@ -65,6 +65,11 @@ val databaseModule = module {
     single { RoutinePrefsStore(createDataStore(get(), "routine_prefs")) }
     single { SnoozeStore(createDataStore(get(), "snooze_prefs"), get()) }
     single { SyncCursorStore(createDataStore(get(), "sync_cursor")) }
+    single {
+        val scope = this
+        // The widgets that show a project are redrawn in its new order.
+        TaskOrderPrefsStore(createDataStore(get(), "task_order_prefs"), onChange = { scope.get<PlatformRepositoryHooks>().updateWidgets() })
+    }
     single { TempIdGenerator(createDataStore(get(), "temp_ids")) }
     single { ThemePrefsStore(createDataStore(get(), "theme_prefs")) }
     single { WidgetPrefsStore(createDataStore(get(), "widget_prefs")) }
@@ -253,6 +258,7 @@ val commonModule = module {
             syncStaleness = get(),
             projectSectionPrefs = get(),
             labelOrderPrefs = get(),
+            taskOrderPrefs = get(),
             routinePrefs = get(),
             widgetPrefs = get(),
             syncCursor = get(),

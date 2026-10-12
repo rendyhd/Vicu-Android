@@ -8,6 +8,7 @@ import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.BottomBarPrefsStore
 import com.rendyhd.vicu.data.local.LabelOrderPrefsStore
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
+import com.rendyhd.vicu.data.local.TaskOrderPrefsStore
 import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
@@ -106,6 +107,7 @@ class InboxProjectFlowViewModelsTest {
         val vm = InboxViewModel(
             fakes.tasks, fakes.projects, fakes.labels, auth.manager,
             fakeScreenRefresher(fakes.tasks, fakes.projects, fakes.labels),
+            TaskOrderPrefsStore(InMemoryPreferencesDataStore()),
         )
         runCurrent()
         assertNull(vm.uiState.value.inboxProjectId)
@@ -130,6 +132,7 @@ class InboxProjectFlowViewModelsTest {
         val vm = InboxViewModel(
             fakes.tasks, fakes.projects, fakes.labels, auth.manager,
             fakeScreenRefresher(fakes.tasks, fakes.projects, fakes.labels),
+            TaskOrderPrefsStore(InMemoryPreferencesDataStore()),
         )
         runCurrent()
         assertEquals(
@@ -158,6 +161,7 @@ class InboxProjectFlowViewModelsTest {
         val vm = InboxViewModel(
             fakes.tasks, fakes.projects, fakes.labels, auth.manager,
             fakeScreenRefresher(fakes.tasks, fakes.projects, fakes.labels),
+            TaskOrderPrefsStore(InMemoryPreferencesDataStore()),
         )
         runCurrent()
 
@@ -183,6 +187,7 @@ class InboxProjectFlowViewModelsTest {
         val vm = InboxViewModel(
             fakes.tasks, fakes.projects, fakes.labels, auth.manager,
             fakeScreenRefresher(fakes.tasks, fakes.projects, fakes.labels),
+            TaskOrderPrefsStore(InMemoryPreferencesDataStore()),
         )
         runCurrent()
         fakes.tasks.refreshResult = NetworkResult.Error("Server error")
@@ -207,6 +212,7 @@ class InboxProjectFlowViewModelsTest {
         val vm = InboxViewModel(
             fakes.tasks, fakes.projects, fakes.labels, auth.manager,
             fakeScreenRefresher(fakes.tasks, fakes.projects, fakes.labels),
+            TaskOrderPrefsStore(InMemoryPreferencesDataStore()),
         )
         runCurrent()
         fakes.tasks.refreshResult = NetworkResult.Error("Server error")
@@ -230,6 +236,7 @@ class InboxProjectFlowViewModelsTest {
         val vm = InboxViewModel(
             fakes.tasks, fakes.projects, fakes.labels, auth.manager,
             fakeScreenRefresher(fakes.tasks, fakes.projects, fakes.labels),
+            TaskOrderPrefsStore(InMemoryPreferencesDataStore()),
         )
         runCurrent()
         assertEquals(listOf(1L), vm.uiState.value.tasks.map { it.id })
@@ -249,6 +256,7 @@ class InboxProjectFlowViewModelsTest {
         val vm = InboxViewModel(
             fakes.tasks, fakes.projects, fakes.labels, auth.manager,
             fakeScreenRefresher(fakes.tasks, fakes.projects, fakes.labels),
+            TaskOrderPrefsStore(InMemoryPreferencesDataStore()),
         )
         runCurrent()
         assertEquals(listOf(1L), vm.uiState.value.tasks.map { it.id })

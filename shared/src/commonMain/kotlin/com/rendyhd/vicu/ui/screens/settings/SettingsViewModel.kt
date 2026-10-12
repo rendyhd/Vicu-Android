@@ -8,6 +8,9 @@ import com.rendyhd.vicu.auth.SessionCleanup
 import com.rendyhd.vicu.auth.SignOutResult
 import com.rendyhd.vicu.auth.TokenStorage
 import com.rendyhd.vicu.data.local.BehaviorPrefs
+import com.rendyhd.vicu.data.local.TaskOrderPrefsStore
+import com.rendyhd.vicu.domain.model.TaskOrder
+import com.rendyhd.vicu.domain.model.TaskOrderSettings
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.BottomBarPrefsStore
 import com.rendyhd.vicu.data.local.LogbookPrefs
@@ -66,6 +69,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class SettingsUiState(
+    // Task order: the global choice and the projects with their own
+    val taskOrders: TaskOrderSettings = TaskOrderSettings(),
     // General
     val username: String = "",
     val email: String = "",
@@ -170,6 +175,7 @@ class SettingsViewModel(
     private val platformSettingsHooks: PlatformSettingsHooks,
     private val syncCursor: SyncCursorStore,
     private val projectActions: ProjectActions,
+    private val taskOrderPrefsStore: TaskOrderPrefsStore,
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<Pair<String?, String?>>(null to null)
@@ -235,9 +241,10 @@ class SettingsViewModel(
         sync,
         account,
         prefs,
-        routinePrefsStore.visibility,
-    ) { c, s, a, p, routineVisibility ->
+        combine(routinePrefsStore.visibility, taskOrderPrefsStore.settings) { visibility, orders -> visibility to orders },
+    ) { c, s, a, p, (routineVisibility, taskOrders) ->
         SettingsUiState(
+            taskOrders = taskOrders,
             username = a.userInfo.username,
             email = a.userInfo.email,
             authMethod = a.userInfo.authMethod,
@@ -688,6 +695,16 @@ class SettingsViewModel(
 
     fun setSubprojectDisplayMode(mode: SubprojectDisplayMode) {
         viewModelScope.launch { behaviorPrefsStore.setSubprojectDisplayMode(mode) }
+    }
+
+    /** The order of every project that has none of its own (and of the widgets showing one). */
+    fun setGlobalTaskOrder(order: TaskOrder) {
+        viewModelScope.launch { taskOrderPrefsStore.setGlobalOrder(order) }
+    }
+
+    /** Every project follows the global order again. */
+    fun clearProjectTaskOrders() {
+        viewModelScope.launch { taskOrderPrefsStore.clearProjectOverrides() }
     }
 
     fun setShowProjectProgress(enabled: Boolean) {

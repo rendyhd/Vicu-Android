@@ -3,6 +3,7 @@ package com.rendyhd.vicu.ui.screens.project
 import androidx.lifecycle.SavedStateHandle
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.ProjectSectionPrefsStore
+import com.rendyhd.vicu.data.local.TaskOrderPrefsStore
 import com.rendyhd.vicu.data.local.ReviewPrefs
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
 import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
@@ -55,6 +56,7 @@ class ProjectViewModelMenuTest {
         val menu = projectMenuState(work, listOf(work), inboxProjectId = 5, reviewPrefs = reviewOn, confirmBeforeDelete = true)
         assertEquals(
             listOf(
+                ProjectMenuEntry.SORT,
                 ProjectMenuEntry.EDIT,
                 ProjectMenuEntry.ADD_SUBPROJECT,
                 ProjectMenuEntry.SET_INBOX,
@@ -64,7 +66,7 @@ class ProjectViewModelMenuTest {
             ),
             menu.entries(),
         )
-        assertEquals(listOf("Edit project", "Add subproject", "Set as Inbox", "Mark reviewed", "Archive", "Delete"), menu.entries().map { it.label })
+        assertEquals(listOf("Sort tasks", "Edit project", "Add subproject", "Set as Inbox", "Mark reviewed", "Archive", "Delete"), menu.entries().map { it.label })
         assertTrue(ProjectMenuEntry.DELETE.destructive)
     }
 
@@ -72,12 +74,12 @@ class ProjectViewModelMenuTest {
     fun `the inbox is not offered as the inbox, archived or deleted`() {
         val inbox = Project(id = 5, title = "Inbox")
         val menu = projectMenuState(inbox, listOf(inbox), inboxProjectId = 5, reviewPrefs = reviewOn, confirmBeforeDelete = true)
-        assertEquals(listOf(ProjectMenuEntry.EDIT, ProjectMenuEntry.ADD_SUBPROJECT), menu.entries())
+        assertEquals(listOf(ProjectMenuEntry.SORT, ProjectMenuEntry.EDIT, ProjectMenuEntry.ADD_SUBPROJECT), menu.entries())
 
         // With the Inbox tracked by review it can be marked reviewed.
         val tracked = projectMenuState(inbox, listOf(inbox), 5, ReviewPrefs(enabled = true, excludeInbox = false), true)
         assertEquals(
-            listOf(ProjectMenuEntry.EDIT, ProjectMenuEntry.ADD_SUBPROJECT, ProjectMenuEntry.MARK_REVIEWED),
+            listOf(ProjectMenuEntry.SORT, ProjectMenuEntry.EDIT, ProjectMenuEntry.ADD_SUBPROJECT, ProjectMenuEntry.MARK_REVIEWED),
             tracked.entries(),
         )
     }
@@ -125,6 +127,7 @@ class ProjectViewModelMenuTest {
             refresher = fakeScreenRefresher(tasks, projects, labels),
             behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
             projectSectionPrefsStore = ProjectSectionPrefsStore(InMemoryPreferencesDataStore()),
+            taskOrderPrefsStore = TaskOrderPrefsStore(InMemoryPreferencesDataStore()),
             projectActions = testProjectActions(projects, auth = auth),
             reviewPrefsStore = ReviewPrefsStore(InMemoryPreferencesDataStore()),
             appMessages = messages,

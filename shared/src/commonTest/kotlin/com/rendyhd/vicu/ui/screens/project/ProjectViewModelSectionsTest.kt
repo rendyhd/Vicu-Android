@@ -3,6 +3,8 @@ package com.rendyhd.vicu.ui.screens.project
 import androidx.lifecycle.SavedStateHandle
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.ProjectSectionPrefsStore
+import com.rendyhd.vicu.data.local.TaskOrderPrefsStore
+import com.rendyhd.vicu.domain.model.TaskOrder
 import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
 import com.rendyhd.vicu.ui.fakeScreenRefresher
 import com.rendyhd.vicu.domain.model.Project
@@ -50,6 +52,7 @@ class ProjectViewModelSectionsTest {
     private class Stores {
         val sectionPrefs = ProjectSectionPrefsStore(InMemoryPreferencesDataStore())
         val behaviorPrefs = BehaviorPrefsStore(InMemoryPreferencesDataStore())
+        val taskOrders = TaskOrderPrefsStore(InMemoryPreferencesDataStore())
         val tasks = FakeTaskRepository()
     }
 
@@ -64,6 +67,7 @@ class ProjectViewModelSectionsTest {
             refresher = fakeScreenRefresher(tasks, projects, labels),
             behaviorPrefsStore = behaviorPrefs,
             projectSectionPrefsStore = sectionPrefs,
+            taskOrderPrefsStore = taskOrders,
             projectActions = testProjectActions(projects),
             reviewPrefsStore = ReviewPrefsStore(InMemoryPreferencesDataStore()),
             appMessages = AppMessages(),
@@ -124,5 +128,39 @@ class ProjectViewModelSectionsTest {
         runCurrent()
 
         assertTrue(reopened.section(10).isExpanded)
+    }
+
+    @Test
+    fun `each group is sorted in its project's order, inherited from the nearest parent`() = runTest {
+        val stores = Stores().apply {
+            tasks.put(Task(id = 1, title = "b", projectId = 1, position = 1.0))
+            tasks.put(Task(id = 2, title = "a", projectId = 1, position = 2.0))
+            tasks.put(Task(id = 3, title = "low", projectId = 10, position = 1.0, priority = 1))
+            tasks.put(Task(id = 4, title = "high", projectId = 10, position = 2.0, priority = 5))
+            tasks.put(Task(id = 5, title = "low", projectId = 100, position = 1.0, priority = 1))
+            tasks.put(Task(id = 6, title = "high", projectId = 100, position = 2.0, priority = 5))
+            tasks.put(Task(id = 7, title = "z", projectId = 11, position = 1.0))
+            tasks.put(Task(id = 8, title = "y", projectId = 11, position = 2.0))
+            taskOrders.setGlobalOrder(TaskOrder.TITLE)
+            taskOrders.setProjectOrder(10, TaskOrder.PRIORITY)
+        }
+        val vm = stores.viewModel()
+        runCurrent()
+
+        assertEquals(TaskOrder.TITLE, vm.uiState.value.taskOrder)
+        assertEquals(listOf(2L, 1L), vm.uiState.value.unsectionedTasks.map { it.id })
+        assertEquals(listOf(4L, 3L), vm.section(10).tasks.map { it.id })
+        assertEquals(listOf(6L, 5L), vm.section(100).tasks.map { it.id }, "the nested section follows its parent")
+        assertEquals(listOf(8L, 7L), vm.section(11).tasks.map { it.id })
+
+        // No drag in a sorted order.
+        assertFalse(vm.onTaskMoved(1L, 2L))
+
+        // "Sort tasks" on the root: Manual, and every row there can be dragged.
+        vm.setTaskOrder(TaskOrder.MANUAL)
+        runCurrent()
+        assertEquals(listOf(1L, 2L), vm.uiState.value.unsectionedTasks.map { it.id })
+        assertTrue(vm.onTaskMoved(2L, 1L))
+        assertEquals(listOf(4L, 3L), vm.section(10).tasks.map { it.id }, "a section with its own order keeps it")
     }
 }

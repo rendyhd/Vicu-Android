@@ -2,18 +2,21 @@ package com.rendyhd.vicu.ui.screens.project
 
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.model.TaskOrder
 import com.rendyhd.vicu.util.moveTaskInList
 
 /**
  * One project section: a descendant project rendered as a collapsible group, its undone
  * tasks, and its own nested sub-sections. [isExpanded] is local UI state restored from
- * [com.rendyhd.vicu.data.local.ProjectSectionPrefsStore].
+ * [com.rendyhd.vicu.data.local.ProjectSectionPrefsStore]. [order] is the order [tasks] are in,
+ * the section's project's own.
  */
 data class ProjectSection(
     val project: Project,
     val tasks: List<Task>,
     val children: List<ProjectSection> = emptyList(),
     val isExpanded: Boolean = true,
+    val order: TaskOrder = TaskOrder.DEFAULT,
 )
 
 /**
@@ -42,12 +45,13 @@ fun directChildProjects(rootId: Long, projects: List<Project>): List<Project> =
 /**
  * Nested section tree for the direct children of [rootId] (recursively). Children are ordered
  * by position; each node's tasks come from [tasksByProject] (already filtered to undone and
- * sorted by the caller), defaulting to empty.
+ * sorted by the caller in [orderFor] of the node's project), defaulting to empty.
  */
 fun buildSectionTree(
     rootId: Long,
     projects: List<Project>,
     tasksByProject: Map<Long, List<Task>>,
+    orderFor: (Long) -> TaskOrder = { TaskOrder.DEFAULT },
 ): List<ProjectSection> {
     val childMap = projects.groupBy { it.parentProjectId }
     val visited = mutableSetOf<Long>()
@@ -60,6 +64,7 @@ fun buildSectionTree(
                     project = project,
                     tasks = tasksByProject[project.id].orEmpty(),
                     children = build(project.id),
+                    order = orderFor(project.id),
                 )
             }
     return build(rootId)
@@ -122,7 +127,7 @@ fun findProjectSection(sections: List<ProjectSection>, projectId: Long): Project
 /**
  * Reorder within whichever section's task list holds both [fromId] and [toId]: returns the
  * rebuilt tree, or null when no section can absorb the move (task absent, cross-section, or a
- * dated row — all vetoed by [moveTaskInList]).
+ * row the section's order does not let move — all vetoed by [moveTaskInList]).
  */
 fun moveTaskInSections(
     sections: List<ProjectSection>,
@@ -132,7 +137,7 @@ fun moveTaskInSections(
     var moved = false
     fun recurse(list: List<ProjectSection>): List<ProjectSection> = list.map { s ->
         if (moved) return@map s
-        val reordered = moveTaskInList(s.tasks, fromId, toId)
+        val reordered = moveTaskInList(s.tasks, fromId, toId, s.order)
         if (reordered != null) {
             moved = true
             s.copy(tasks = reordered)

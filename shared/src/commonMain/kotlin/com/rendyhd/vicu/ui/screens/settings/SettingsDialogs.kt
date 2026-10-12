@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.ui.components.shared.ArchiveProjectDialog
+import com.rendyhd.vicu.ui.components.shared.TaskOrderDialog
 import com.rendyhd.vicu.ui.components.shared.BottomBarSlotEditor
 import com.rendyhd.vicu.ui.components.shared.DeleteProjectDialog
 import com.rendyhd.vicu.ui.components.shared.CustomListDialog
@@ -319,6 +320,13 @@ internal fun SettingsDialogHost(
                 onDismiss = dismiss,
             )
         }
+
+        SettingsDialog.TaskOrderPicker -> TaskOrderDialog(
+            title = "Task order",
+            selected = state.taskOrders.global,
+            onSelect = { order -> order?.let(viewModel::setGlobalTaskOrder) },
+            onDismiss = dismiss,
+        )
 
         SettingsDialog.InboxPicker -> InboxPickerDialog(
             state = state,

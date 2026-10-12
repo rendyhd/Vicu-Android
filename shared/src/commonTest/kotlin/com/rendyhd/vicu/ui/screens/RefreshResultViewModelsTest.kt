@@ -3,6 +3,7 @@ package com.rendyhd.vicu.ui.screens
 import androidx.lifecycle.SavedStateHandle
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.ProjectSectionPrefsStore
+import com.rendyhd.vicu.data.local.TaskOrderPrefsStore
 import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
 import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.SyncStaleness
@@ -91,6 +92,7 @@ class RefreshResultViewModelsTest {
         refresher = refresher,
         behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
         projectSectionPrefsStore = ProjectSectionPrefsStore(InMemoryPreferencesDataStore()),
+        taskOrderPrefsStore = TaskOrderPrefsStore(InMemoryPreferencesDataStore()),
         projectActions = testProjectActions(projects),
         reviewPrefsStore = ReviewPrefsStore(InMemoryPreferencesDataStore()),
         appMessages = AppMessages(),

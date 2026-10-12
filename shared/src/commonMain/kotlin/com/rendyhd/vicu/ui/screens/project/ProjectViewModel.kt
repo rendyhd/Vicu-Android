@@ -9,8 +9,11 @@ import com.rendyhd.vicu.data.local.ProjectSectionPrefsStore
 import com.rendyhd.vicu.data.local.ReviewPrefs
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
 import com.rendyhd.vicu.data.local.SubprojectDisplayMode
+import com.rendyhd.vicu.data.local.TaskOrderPrefsStore
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.model.TaskOrder
+import com.rendyhd.vicu.domain.model.TaskOrderSettings
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
@@ -53,6 +56,8 @@ data class ProjectUiState(
     val isRefreshing: Boolean = false,
     val error: String? = null,
     val completedTaskIds: Set<Long> = emptySet(),
+    /** The order of [unsectionedTasks] (each section carries its own). */
+    val taskOrder: TaskOrder = TaskOrder.DEFAULT,
 )
 
 /** What the project screen's options menu offers, and what its dialogs need. */
@@ -65,6 +70,10 @@ data class ProjectMenuState(
     /** Review tracking is on and this project is tracked, so "Mark reviewed" is offered. */
     val canMarkReviewed: Boolean = false,
     val confirmBeforeDelete: Boolean = true,
+    /** The project's own task order; null when it follows [inheritedTaskOrder]. */
+    val taskOrder: TaskOrder? = null,
+    /** The order the project follows without its own: its nearest parent's, else the global one. */
+    val inheritedTaskOrder: TaskOrder = TaskOrder.DEFAULT,
 )
 
 /**
@@ -78,6 +87,7 @@ internal fun projectMenuState(
     inboxProjectId: Long?,
     reviewPrefs: ReviewPrefs,
     confirmBeforeDelete: Boolean,
+    taskOrders: TaskOrderSettings = TaskOrderSettings(),
 ): ProjectMenuState {
     if (project == null || project.isArchived) return ProjectMenuState(confirmBeforeDelete = confirmBeforeDelete)
     val isInbox = inboxProjectId != null && project.id == inboxProjectId
@@ -90,11 +100,14 @@ internal fun projectMenuState(
         isInbox = isInbox,
         canMarkReviewed = tracked,
         confirmBeforeDelete = confirmBeforeDelete,
+        taskOrder = taskOrders.projectOverrides[project.id],
+        inheritedTaskOrder = taskOrders.inheritedOrderFor(project.id, allProjects),
     )
 }
 
 /** An entry of the project screen's options menu. */
 enum class ProjectMenuEntry(val label: String, val destructive: Boolean = false) {
+    SORT("Sort tasks"),
     EDIT("Edit project"),
     ADD_SUBPROJECT("Add subproject"),
     SET_INBOX("Set as Inbox"),
@@ -109,6 +122,7 @@ enum class ProjectMenuEntry(val label: String, val destructive: Boolean = false)
  */
 internal fun ProjectMenuState.entries(): List<ProjectMenuEntry> = buildList {
     if (project == null) return@buildList
+    add(ProjectMenuEntry.SORT)
     add(ProjectMenuEntry.EDIT)
     add(ProjectMenuEntry.ADD_SUBPROJECT)
     if (!isInbox) add(ProjectMenuEntry.SET_INBOX)
@@ -140,6 +154,7 @@ class ProjectViewModel(
     private val refresher: ScreenRefresher,
     private val behaviorPrefsStore: BehaviorPrefsStore,
     private val projectSectionPrefsStore: ProjectSectionPrefsStore,
+    private val taskOrderPrefsStore: TaskOrderPrefsStore,
     private val projectActions: ProjectActions,
     reviewPrefsStore: ReviewPrefsStore,
     private val appMessages: AppMessages,
@@ -168,17 +183,21 @@ class ProjectViewModel(
                 projectRepository.getAll(),
                 taskRepository.getByProjectId(projectId),
                 behaviorPrefsStore.getPrefs(),
-                projectSectionPrefsStore.collapsedSectionIds(projectId),
-            ) { project, allProjects, parentTasks, behaviorPrefs, collapsedSectionIds ->
+                combine(
+                    projectSectionPrefsStore.collapsedSectionIds(projectId),
+                    taskOrderPrefsStore.settings,
+                ) { collapsed, orders -> collapsed to orders },
+            ) { project, allProjects, parentTasks, behaviorPrefs, (collapsedSectionIds, taskOrders) ->
                 ProjectInputs(
                     project = project,
                     allProjects = allProjects,
                     parentTasks = parentTasks,
                     subprojectDisplayMode = behaviorPrefs.subprojectDisplayMode,
                     collapsedSectionIds = collapsedSectionIds,
+                    taskOrders = taskOrders,
                 )
             }.flatMapLatest { inputs ->
-                val (project, allProjects, parentTasks, subprojectDisplayMode, collapsedSectionIds) = inputs
+                val (project, allProjects, parentTasks, subprojectDisplayMode, collapsedSectionIds, taskOrders) = inputs
                 if (project == null || project.isArchived) {
                     return@flatMapLatest flowOf(
                         ProjectUiState(
@@ -196,7 +215,11 @@ class ProjectViewModel(
                 // subtrees) so archived sub-projects don't surface as sections — matching
                 // how the drawer hides archived projects from navigation.
                 val activeProjects = allProjects
-                val unsectioned = sortProjectTasks(parentTasks.filter { !it.done })
+                // Each project's own order, else its nearest parent's, else the global one: a
+                // section follows the project it shows.
+                val orderFor = { id: Long -> taskOrders.orderFor(id, activeProjects) }
+                val taskOrder = orderFor(projectId)
+                val unsectioned = sortProjectTasks(parentTasks.filter { !it.done }, taskOrder)
                 if (subprojectDisplayMode == SubprojectDisplayMode.PROJECT_ROWS) {
                     flowOf(
                         ProjectUiState(
@@ -205,6 +228,7 @@ class ProjectViewModel(
                             sections = emptyList(),
                             unsectionedTasks = unsectioned,
                             isLoading = false,
+                            taskOrder = taskOrder,
                         )
                     )
                 } else {
@@ -216,24 +240,26 @@ class ProjectViewModel(
                                 sections = emptyList(),
                                 unsectionedTasks = unsectioned,
                                 isLoading = false,
+                                taskOrder = taskOrder,
                             )
                         )
                     } else {
                         // One task flow per descendant; combine rebuilds the tree whenever any changes.
                         val taskFlows = descendants.map { descendant ->
                             taskRepository.getByProjectId(descendant.id).map { tasks ->
-                                descendant.id to sortProjectTasks(tasks.filter { !it.done })
+                                descendant.id to sortProjectTasks(tasks.filter { !it.done }, orderFor(descendant.id))
                             }
                         }
                         combine(taskFlows) { pairs ->
                             ProjectUiState(
                                 project = project,
                                 sections = restoreExpansion(
-                                    buildSectionTree(projectId, activeProjects, pairs.toMap()),
+                                    buildSectionTree(projectId, activeProjects, pairs.toMap(), orderFor),
                                     collapsedSectionIds,
                                 ),
                                 unsectionedTasks = unsectioned,
                                 isLoading = false,
+                                taskOrder = taskOrder,
                             )
                         }
                     }
@@ -296,7 +322,7 @@ class ProjectViewModel(
 
     /** Returns [state] with the move applied, or null when the move is vetoed. */
     private fun stateWithMove(state: ProjectUiState, fromId: Long, toId: Long): ProjectUiState? {
-        moveTaskInList(state.unsectionedTasks, fromId, toId)?.let { reordered ->
+        moveTaskInList(state.unsectionedTasks, fromId, toId, state.taskOrder)?.let { reordered ->
             return state.copy(unsectionedTasks = reordered)
         }
         val movedSections = moveTaskInSections(state.sections, fromId, toId) ?: return null
@@ -310,12 +336,13 @@ class ProjectViewModel(
      */
     fun moveTaskBy(taskId: Long, offset: Int): Boolean {
         val state = _uiState.value
-        val group = if (state.unsectionedTasks.any { it.id == taskId }) {
-            state.unsectionedTasks
+        val (group, order) = if (state.unsectionedTasks.any { it.id == taskId }) {
+            state.unsectionedTasks to state.taskOrder
         } else {
-            findTaskGroup(state.sections, taskId)?.tasks ?: return false
+            val section = findTaskGroup(state.sections, taskId) ?: return false
+            section.tasks to section.order
         }
-        val toId = neighbourForMove(group, taskId, offset) ?: return false
+        val toId = neighbourForMove(group, taskId, offset, order) ?: return false
         if (!onTaskMoved(taskId, toId)) return false
         onTaskDropped(taskId)
         return true
@@ -325,13 +352,13 @@ class ProjectViewModel(
     fun onTaskDropped(taskId: Long) {
         val state = _uiState.value
         val inUnsectioned = state.unsectionedTasks.any { it.id == taskId }
-        val (tasks, groupProjectId) = if (inUnsectioned) {
-            state.unsectionedTasks to projectId
+        val (tasks, groupProjectId, order) = if (inUnsectioned) {
+            Triple(state.unsectionedTasks, projectId, state.taskOrder)
         } else {
             val section = findTaskGroup(state.sections, taskId) ?: return
-            section.tasks to section.project.id
+            Triple(section.tasks, section.project.id, section.order)
         }
-        val newPosition = dropPositionFor(tasks, taskId) ?: return
+        val newPosition = dropPositionFor(tasks, taskId, order) ?: return
         viewModelScope.launch {
             taskRepository.updatePosition(taskId, groupProjectId, newPosition)
         }
@@ -408,9 +435,9 @@ class ProjectViewModel(
         projectRepository.getAll(),
         projectActions.inboxProjectId,
         reviewPrefsStore.getPrefs(),
-        behaviorPrefsStore.getPrefs(),
-    ) { project, all, inboxId, reviewPrefs, behaviorPrefs ->
-        projectMenuState(project, all, inboxId, reviewPrefs, behaviorPrefs.confirmBeforeDelete)
+        combine(behaviorPrefsStore.getPrefs(), taskOrderPrefsStore.settings) { behavior, orders -> behavior to orders },
+    ) { project, all, inboxId, reviewPrefs, (behaviorPrefs, taskOrders) ->
+        projectMenuState(project, all, inboxId, reviewPrefs, behaviorPrefs.confirmBeforeDelete, taskOrders)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ProjectMenuState())
 
     private val _exit = MutableStateFlow(ProjectExit.NONE)
@@ -434,6 +461,11 @@ class ProjectViewModel(
             appMessages.post(result.error)
             false
         }
+    }
+
+    /** "Sort tasks": gives this project its own order, or with null makes it follow the default again. */
+    fun setTaskOrder(order: TaskOrder?) {
+        viewModelScope.launch { taskOrderPrefsStore.setProjectOrder(projectId, order) }
     }
 
     fun editProject(name: String, hexColor: String, parentProjectId: Long) {
@@ -503,4 +535,5 @@ private data class ProjectInputs(
     val parentTasks: List<Task>,
     val subprojectDisplayMode: SubprojectDisplayMode,
     val collapsedSectionIds: Set<Long>,
+    val taskOrders: TaskOrderSettings,
 )

@@ -93,7 +93,7 @@ internal fun ProjectsTab(
         item(key = "projects_divider") {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
-        displaySection(state, viewModel)
+        displaySection(state, viewModel, openDialog)
         reviewSection(state, viewModel, openDialog)
         labelsSection(state, viewModel, openDialog)
         customListsSection(state, viewModel, openDialog)

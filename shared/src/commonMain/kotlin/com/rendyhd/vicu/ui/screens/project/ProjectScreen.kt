@@ -66,6 +66,7 @@ import com.rendyhd.vicu.ui.components.shared.ArchiveProjectDialog
 import com.rendyhd.vicu.ui.components.shared.DeleteProjectDialog
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.ProjectEditDialog
+import com.rendyhd.vicu.ui.components.shared.TaskOrderDialog
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.ScreenFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
@@ -158,6 +159,7 @@ fun ProjectScreen(
                                 entries = menu.entries(),
                                 onChoose = { entry ->
                                     when (entry) {
+                                        ProjectMenuEntry.SORT -> openDialog = ProjectDialog.SORT.name
                                         ProjectMenuEntry.EDIT -> openDialog = ProjectDialog.EDIT.name
                                         ProjectMenuEntry.ADD_SUBPROJECT -> openDialog = ProjectDialog.SUBPROJECT.name
                                         ProjectMenuEntry.SET_INBOX -> viewModel.setAsInbox()
@@ -207,12 +209,12 @@ fun ProjectScreen(
                 } else {
                     // Unsectioned tasks (directly in parent project). Which rows can move a place
                     // (for a screen reader, which cannot drag): one pass.
-                    val unsectionedMoves = moveOptions(state.unsectionedTasks)
+                    val unsectionedMoves = moveOptions(state.unsectionedTasks, state.taskOrder)
                     items(state.unsectionedTasks, key = { it.id }, contentType = { "task" }) { task ->
                         val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
                         val canDrag = !selectionActive &&
                             task.id !in state.completedTaskIds &&
-                            isManuallyOrdered(task)
+                            isManuallyOrdered(task, state.taskOrder)
                         ReorderableTaskRow(
                             reorderableState = reorderableState,
                             task = task,
@@ -337,6 +339,16 @@ fun ProjectScreen(
     val menuProject = menu.project
     if (menuProject != null) {
         when (openDialog?.let { name -> ProjectDialog.entries.firstOrNull { it.name == name } }) {
+            ProjectDialog.SORT -> TaskOrderDialog(
+                title = "Sort tasks",
+                selected = menu.taskOrder,
+                inheritedOrder = menu.inheritedTaskOrder,
+                onSelect = { order ->
+                    viewModel.setTaskOrder(order)
+                    dismissDialog()
+                },
+                onDismiss = dismissDialog,
+            )
             ProjectDialog.EDIT -> ProjectEditDialog(
                 project = menuProject,
                 projects = menu.projects,
@@ -385,7 +397,7 @@ fun ProjectScreen(
 }
 
 /** The dialogs the options menu opens. */
-private enum class ProjectDialog { EDIT, SUBPROJECT, ARCHIVE, DELETE }
+private enum class ProjectDialog { SORT, EDIT, SUBPROJECT, ARCHIVE, DELETE }
 
 /** The top bar's "more" button and the project's options. */
 @Composable
@@ -486,12 +498,12 @@ private fun LazyListScope.projectSectionItems(
         }
 
         if (section.isExpanded) {
-            val moves = moveOptions(section.tasks)
+            val moves = moveOptions(section.tasks, section.order)
             items(section.tasks, key = { it.id }, contentType = { "task" }) { task ->
                 val displayTask = if (task.id in completedTaskIds) task.copy(done = true) else task
                 val canDrag = !selectionActive &&
                     task.id !in completedTaskIds &&
-                    isManuallyOrdered(task)
+                    isManuallyOrdered(task, section.order)
                 ReorderableTaskRow(
                     reorderableState = reorderableState,
                     task = task,

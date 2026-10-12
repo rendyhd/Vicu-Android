@@ -2,6 +2,7 @@ package com.rendyhd.vicu.di
 
 import org.koin.dsl.module
 import org.koin.android.ext.koin.androidContext
+import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import coil3.ImageLoader
 import coil3.disk.DiskCache
@@ -160,7 +161,34 @@ val viewModelModule = module {
     viewModelOf(::ReviewViewModel)
     viewModelOf(::RoutinesViewModel)
     viewModelOf(::SearchViewModel)
-    viewModelOf(::SettingsViewModel)
+    // More constructor parameters than viewModelOf takes (22), so spelled out.
+    viewModel {
+        SettingsViewModel(
+            authManager = get(),
+            tokenStorage = get(),
+            labelRepository = get(),
+            projectRepository = get(),
+            customListRepository = get(),
+            notificationPrefsStore = get(),
+            behaviorPrefsStore = get(),
+            themePrefsStore = get(),
+            nlpPrefsStore = get(),
+            bottomBarPrefsStore = get(),
+            widgetPrefsStore = get(),
+            reviewPrefsStore = get(),
+            logbookPrefsStore = get(),
+            routinePrefsStore = get(),
+            repositoryHooks = get(),
+            pendingActionDao = get(),
+            networkMonitor = get(),
+            sessionCleanup = get(),
+            apiService = get(),
+            platformSettingsHooks = get(),
+            syncCursor = get(),
+            projectActions = get(),
+            taskOrderPrefsStore = get(),
+        )
+    }
     viewModelOf(::SetupViewModel)
     viewModelOf(::TagViewModel)
     viewModelOf(::TaskDetailViewModel)

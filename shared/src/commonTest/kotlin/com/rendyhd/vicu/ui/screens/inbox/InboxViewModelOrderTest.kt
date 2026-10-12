@@ -4,7 +4,10 @@ import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.FakeNetworkMonitor
 import com.rendyhd.vicu.auth.InMemoryTokenStorage
 import com.rendyhd.vicu.auth.RecordingAuthHooks
+import com.rendyhd.vicu.data.local.TaskOrderPrefsStore
+import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
 import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.domain.model.TaskOrder
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.ui.FakeLabelRepository
 import com.rendyhd.vicu.ui.FakeProjectRepository
@@ -61,7 +64,8 @@ class InboxViewModelOrderTest {
             networkMonitor = FakeNetworkMonitor(),
         )
 
-        fun viewModel() = InboxViewModel(tasks, this.projects, labels, auth, fakeScreenRefresher(tasks, this.projects, labels))
+        val taskOrders = TaskOrderPrefsStore(InMemoryPreferencesDataStore())
+        fun viewModel() = InboxViewModel(tasks, this.projects, labels, auth, fakeScreenRefresher(tasks, this.projects, labels), taskOrders)
     }
 
     private suspend fun rig(vararg tasks: Task): Rig =
@@ -103,6 +107,32 @@ class InboxViewModelOrderTest {
         runCurrent()
 
         assertEquals(listOf(2L, 1L), vm.ids())
+        rig.scope.cancel()
+    }
+
+    @Test
+    fun `the inbox follows the global order and its own sort choice`() = runTest {
+        val rig = rig(
+            task(1, 300.0).copy(title = "b"),
+            task(2, 100.0).copy(title = "c"),
+            task(3, 200.0, due = "2026-10-08T21:59:59Z").copy(title = "a"),
+        )
+        rig.taskOrders.setGlobalOrder(TaskOrder.TITLE)
+        val vm = rig.viewModel()
+        runCurrent()
+        assertEquals(listOf(3L, 1L, 2L), vm.ids())
+        assertEquals(TaskOrder.TITLE, vm.uiState.value.inheritedTaskOrder)
+        assertFalse(vm.onTaskMoved(fromId = 2, toId = 1), "no drag in a sorted order")
+
+        vm.setTaskOrder(TaskOrder.MANUAL)
+        runCurrent()
+        assertEquals(listOf(2L, 3L, 1L), vm.ids())
+        assertEquals(TaskOrder.MANUAL, vm.uiState.value.ownTaskOrder)
+        assertTrue(vm.onTaskMoved(fromId = 3, toId = 2), "a dated task moves in the manual order")
+
+        vm.setTaskOrder(null)
+        runCurrent()
+        assertEquals(listOf(3L, 1L, 2L), vm.ids())
         rig.scope.cancel()
     }
 

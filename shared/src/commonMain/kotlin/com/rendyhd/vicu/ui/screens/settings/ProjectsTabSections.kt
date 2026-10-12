@@ -94,13 +94,50 @@ internal fun LazyListScope.inboxSection(
     }
 }
 
-/** How projects are shown: subprojects in a project view, and the drawer's progress rings. */
+/**
+ * How projects are shown: the order of their tasks, subprojects in a project view, and the
+ * drawer's progress rings.
+ */
 internal fun LazyListScope.displaySection(
     state: SettingsUiState,
     viewModel: SettingsViewModel,
+    openDialog: (SettingsDialog) -> Unit,
 ) {
     item(key = "display_header") {
         SubsectionHeading("Display")
+    }
+
+    item(key = "task_order") {
+        SettingsValueRow(
+            label = "Task order",
+            value = state.taskOrders.global.label,
+            onClick = { openDialog(SettingsDialog.TaskOrderPicker) },
+        )
+    }
+
+    // The projects given their own order from their screen ("Sort tasks"), and a way back.
+    val ownOrderCount = projectsWithOwnTaskOrder(state)
+    if (ownOrderCount > 0) {
+        item(key = "task_order_overrides") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (ownOrderCount == 1) {
+                        "1 project has its own order"
+                    } else {
+                        "$ownOrderCount projects have their own order"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = viewModel::clearProjectTaskOrders) { Text("Reset") }
+            }
+        }
     }
 
     item(key = "subproject_display_mode") {
@@ -147,6 +184,12 @@ internal fun LazyListScope.displaySection(
     item(key = "display_divider") {
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
     }
+}
+
+/** How many of the user's projects (archived ones too) have an order of their own. */
+internal fun projectsWithOwnTaskOrder(state: SettingsUiState): Int {
+    val ids = state.taskOrders.projectOverrides.keys
+    return state.projects.count { it.id in ids } + state.archivedProjects.count { it.id in ids }
 }
 
 /** The summary of the "Excluded from review" row: the project's name when there is one, else how many. */

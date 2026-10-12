@@ -4,7 +4,9 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.data.local.TaskOrderPrefsStore
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.model.TaskOrder
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
@@ -43,6 +45,11 @@ data class InboxUiState(
     val notice: String? = null,
     val completedTaskIds: Set<Long> = emptySet(),
     val inboxProjectId: Long? = null,
+    /** The order [tasks] are in: the Inbox project's own, its parent's, or the global one. */
+    val taskOrder: TaskOrder = TaskOrder.DEFAULT,
+    /** The Inbox project's own order ("Sort tasks"); null when it follows [inheritedTaskOrder]. */
+    val ownTaskOrder: TaskOrder? = null,
+    val inheritedTaskOrder: TaskOrder = TaskOrder.DEFAULT,
 )
 
 class InboxViewModel(
@@ -51,6 +58,7 @@ class InboxViewModel(
     private val labelRepository: LabelRepository,
     private val authManager: AuthManager,
     private val refresher: ScreenRefresher,
+    private val taskOrderPrefsStore: TaskOrderPrefsStore,
     navigationTicker: NavigationTicker = NavigationTicker(),
     completionToast: CompletionToast = NoCompletionToast,
 ) : ViewModel() {
@@ -88,11 +96,21 @@ class InboxViewModel(
                 combine(
                     taskRepository.getInboxTasks(inboxId),
                     projectRepository.getAll(),
+                    taskOrderPrefsStore.settings,
                     completions.state,
-                ) { tasks, activeProjects, _ ->
-                    // Dated tasks first (by date), then the rest in the order of the list view: the
-                    // same order the desktop app shows. Held rows go back where they were.
-                    completions.merge(sortProjectTasks(tasks)) to activeProjects.any { it.id == inboxId }
+                ) { tasks, activeProjects, taskOrders, _ ->
+                    // The Inbox project's order; by default dated tasks first (by date), then the
+                    // rest in the order of the list view: the same order the desktop app shows.
+                    // Held rows go back where they were.
+                    val order = taskOrders.orderFor(inboxId, activeProjects)
+                    _uiState.update {
+                        it.copy(
+                            taskOrder = order,
+                            ownTaskOrder = taskOrders.projectOverrides[inboxId],
+                            inheritedTaskOrder = taskOrders.inheritedOrderFor(inboxId, activeProjects),
+                        )
+                    }
+                    completions.merge(sortProjectTasks(tasks, order)) to activeProjects.any { it.id == inboxId }
                 }.collect { (tasks, inboxIsActive) ->
                     Log.d(TAG, "Flow emission: ${tasks.size} tasks for inboxId=$inboxId, active=$inboxIsActive")
                     askForUnknownPositions(inboxId, tasks)
@@ -152,7 +170,7 @@ class InboxViewModel(
     fun onTaskMoved(fromId: Long, toId: Long): Boolean {
         while (true) {
             val current = _uiState.value
-            val reordered = moveTaskInList(current.tasks, fromId, toId) ?: return false
+            val reordered = moveTaskInList(current.tasks, fromId, toId, current.taskOrder) ?: return false
             if (_uiState.compareAndSet(current, current.copy(tasks = reordered))) return true
         }
     }
@@ -163,7 +181,8 @@ class InboxViewModel(
      * no such slot (an end of the list, a dated task).
      */
     fun moveTaskBy(taskId: Long, offset: Int): Boolean {
-        val toId = neighbourForMove(_uiState.value.tasks, taskId, offset) ?: return false
+        val state = _uiState.value
+        val toId = neighbourForMove(state.tasks, taskId, offset, state.taskOrder) ?: return false
         if (!onTaskMoved(taskId, toId)) return false
         onTaskDropped(taskId)
         return true
@@ -177,7 +196,7 @@ class InboxViewModel(
     fun onTaskDropped(taskId: Long) {
         val state = _uiState.value
         val inboxId = state.inboxProjectId ?: return
-        val plan = planDrop(state.tasks, taskId) ?: return
+        val plan = planDrop(state.tasks, taskId, state.taskOrder) ?: return
         viewModelScope.launch {
             val result = taskRepository.applyPositions(inboxId, plan.updates)
             if (result is NetworkResult.Error) {
@@ -187,6 +206,12 @@ class InboxViewModel(
                 taskRepository.refreshListPositions(inboxId)
             }
         }
+    }
+
+    /** "Sort tasks": gives the Inbox project its own order, or with null makes it follow the default again. */
+    fun setTaskOrder(order: TaskOrder?) {
+        val inboxId = _uiState.value.inboxProjectId ?: return
+        viewModelScope.launch { taskOrderPrefsStore.setProjectOrder(inboxId, order) }
     }
 
     fun toggleDone(task: Task) {
