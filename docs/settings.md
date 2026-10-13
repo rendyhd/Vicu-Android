@@ -317,3 +317,6 @@ the places the Vikunja v2 API offers, as found in its OpenAPI spec (2.4.0):
 Whichever place is chosen, the format, the merge and the meaning of each value go in
 `docs/cross-app-semantics-v1.md` with vectors in `test-fixtures/`, in both repos in the same
 release.
+
+`docs/synced-data-architecture.md` is the proposal: one preferences carrier, the rules every
+hidden task should follow, which settings should sync, and the order of work.
