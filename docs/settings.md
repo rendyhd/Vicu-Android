@@ -42,7 +42,7 @@ implement each format, and `docs/cross-app-semantics-v1.md` is the contract for 
 | Manual task order | Positions in the project's list view (`PUT tasks/{id}/position`) | Server | Not applicable | `ListPositioner`, `TaskRepository.applyPositions` |
 | Project order, nesting, colour, favourite, archived; labels | Ordinary project and label fields, sent as merge patches | Server | Not applicable | `ProjectRepositoryImpl`, `LabelRepositoryImpl` |
 
-How the carrier tasks work:
+How the carrier tasks work (`docs/hidden-tasks.md` describes them in full):
 
 - Carriers are created done (so the server's open-task queries skip them) and in one request.
   Both apps hide them from every list. Mobile does it with the `isMetadata` column, set by
