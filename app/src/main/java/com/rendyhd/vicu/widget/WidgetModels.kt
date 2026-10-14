@@ -43,6 +43,7 @@ data class TaskWidgetState(
     val smartAdd: Boolean = true,
     val contextNav: Boolean = true,
     val addToProjectId: Long = 0L, // for custom lists: which project the + button targets
+    val transparentBackground: Boolean = false,
 )
 
 @Serializable
@@ -50,4 +51,21 @@ data class WidgetConfig(
     val viewType: WidgetViewType = WidgetViewType.TODAY,
     val viewId: String = "",
     val viewName: String = "Today",
+    val transparentBackground: Boolean = false,
 )
+
+/** Keep cached rows for appearance edits; a different view starts in the loading state. */
+fun TaskWidgetState.withConfig(config: WidgetConfig): TaskWidgetState {
+    val viewChanged = viewType != config.viewType || viewId != config.viewId
+    return copy(
+        viewType = config.viewType,
+        viewId = config.viewId,
+        viewName = config.viewName,
+        transparentBackground = config.transparentBackground,
+        tasks = if (viewChanged) emptyList() else tasks,
+        totalCount = if (viewChanged) 0 else totalCount,
+        lastUpdated = if (viewChanged) "" else lastUpdated,
+        error = if (viewChanged) null else error,
+        addToProjectId = if (viewChanged) 0L else addToProjectId,
+    )
+}

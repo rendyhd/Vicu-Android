@@ -5,6 +5,7 @@
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="1800000"
     android:configure="com.rendyhd.vicu.widget.WidgetConfigActivity"
+    android:widgetFeatures="reconfigurable"
     android:initialLayout="@layout/widget_loading"
     android:widgetCategory="home_screen"
     android:description="@string/widget_description" />

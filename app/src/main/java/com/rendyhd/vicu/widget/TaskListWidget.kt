@@ -21,6 +21,7 @@ import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.appWidgetBackground
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
@@ -119,6 +120,11 @@ private fun priorityColor(priority: Int) = ColorProvider(
     night = VicuDarkColors.priority(priority) ?: VicuDarkColors.priorityLow,
 )
 
+@Composable
+private fun GlanceModifier.widgetBackground(state: TaskWidgetState): GlanceModifier =
+    if (state.transparentBackground) background(Color.Transparent)
+    else background(GlanceTheme.colors.widgetBackground)
+
 // Action callbacks for deep linking
 class OpenTaskEntryAction : ActionCallback {
     companion object {
@@ -206,8 +212,9 @@ private fun CompactWidget(state: TaskWidgetState) {
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
+            .appWidgetBackground()
             .cornerRadius(16.dp)
-            .background(GlanceTheme.colors.widgetBackground)
+            .widgetBackground(state)
             .clickable(titleClickAction(state))
             .padding(16.dp),
         contentAlignment = Alignment.CenterStart,
@@ -235,8 +242,9 @@ private fun ScrollableWidget(state: TaskWidgetState) {
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
+            .appWidgetBackground()
             .cornerRadius(16.dp)
-            .background(GlanceTheme.colors.widgetBackground)
+            .widgetBackground(state)
             .padding(16.dp),
     ) {
         WidgetHeader(state)
