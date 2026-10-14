@@ -21,6 +21,7 @@ import com.rendyhd.vicu.data.remote.VikunjaImageInterceptor
 import com.rendyhd.vicu.data.repository.AndroidRepositoryHooks
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.notification.AlarmScheduler
+import com.rendyhd.vicu.data.local.DailySummaryReader
 import com.rendyhd.vicu.notification.DailySummaryScheduler
 import com.rendyhd.vicu.notification.NotificationChannelManager
 import com.rendyhd.vicu.notification.RoutineAlarmScheduler
@@ -29,6 +30,8 @@ import com.rendyhd.vicu.util.AndroidNetworkMonitor
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.util.PlatformFiles
 import com.rendyhd.vicu.util.AndroidPlatformFiles
+import com.rendyhd.vicu.permission.AndroidNotificationPermissionPlatform
+import com.rendyhd.vicu.permission.NotificationPermissionPlatform
 import com.rendyhd.vicu.ui.screens.settings.PlatformSettingsHooks
 import com.rendyhd.vicu.ui.screens.settings.AndroidSettingsHooks
 import io.ktor.client.engine.HttpClientEngine
@@ -36,6 +39,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import org.koin.androidx.workmanager.dsl.workerOf
 import com.rendyhd.vicu.worker.SyncWorker
 import com.rendyhd.vicu.worker.DailySummaryWorker
+import com.rendyhd.vicu.worker.PeriodicSyncWorker
 import com.rendyhd.vicu.worker.TokenRefreshWorker
 import com.rendyhd.vicu.worker.RoutineMaintenanceWorker
 import com.rendyhd.vicu.widget.RoutineWidgetActionWorker
@@ -63,6 +67,8 @@ import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailViewModel
 import com.rendyhd.vicu.ui.screens.taskentry.TaskEntryViewModel
 import com.rendyhd.vicu.ui.screens.today.TodayViewModel
 import com.rendyhd.vicu.ui.screens.upcoming.UpcomingViewModel
+import com.rendyhd.vicu.ui.components.collab.CollabViewModel
+import com.rendyhd.vicu.ui.screens.comments.TaskCommentsViewModel
 
 val appModule = module {
     single { PlatformContext(androidContext()) }
@@ -75,16 +81,20 @@ val appModule = module {
             routineAlarmSchedulerProvider = { get() },
             completionSoundPlayer = get(),
             appScope = get(),
+            dailySummaryScheduler = get(),
         )
     }
     single<NetworkMonitor> { AndroidNetworkMonitor(androidContext()) }
     single<HttpClientEngine> { OkHttp.create() }
     single<PlatformFiles> { AndroidPlatformFiles(get()) }
     single<PlatformSettingsHooks> { AndroidSettingsHooks(androidContext(), get()) }
+    single { AndroidNotificationPermissionPlatform(androidContext()) }
+    single<NotificationPermissionPlatform> { get<AndroidNotificationPermissionPlatform>() }
 
-    single { AlarmScheduler(androidContext(), get(), get(), get()) }
-    single { RoutineAlarmScheduler(androidContext(), get(), get()) }
-    single { DailySummaryScheduler(androidContext()) }
+    single { AlarmScheduler(androidContext(), get(), get(), get(), get(), get()) }
+    single { RoutineAlarmScheduler(androidContext(), get(), get(), get()) }
+    single { DailySummaryScheduler(androidContext(), get()) }
+    single { DailySummaryReader(get()) }
     single { CompletionSoundPlayer(androidContext(), get()) }
     single { NotificationChannelManager(androidContext()) }
 
@@ -157,10 +167,13 @@ val viewModelModule = module {
     viewModelOf(::TaskEntryViewModel)
     viewModelOf(::TodayViewModel)
     viewModelOf(::UpcomingViewModel)
+    viewModelOf(::CollabViewModel)
+    viewModelOf(::TaskCommentsViewModel)
 }
 
 val workerModule = module {
     workerOf(::SyncWorker)
+    workerOf(::PeriodicSyncWorker)
     workerOf(::DailySummaryWorker)
     workerOf(::TokenRefreshWorker)
     workerOf(::TaskWidgetWorker)

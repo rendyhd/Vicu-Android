@@ -20,6 +20,8 @@ data class ProjectDto(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val owner: UserDto? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val created: String = "",
     @EncodeDefault(EncodeDefault.Mode.NEVER) val updated: String = "",
+    /** What you may do (`expand=permissions`): 0 read, 1 write, 2 admin. Read only. */
+    @SerialName("max_permission") @EncodeDefault(EncodeDefault.Mode.NEVER) val maxPermission: Int? = null,
 )
 
 /** Minimal payload for PUT /projects — matches desktop CreateProjectPayload */

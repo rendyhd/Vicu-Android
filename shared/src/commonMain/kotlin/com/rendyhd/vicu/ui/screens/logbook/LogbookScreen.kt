@@ -1,11 +1,17 @@
 package com.rendyhd.vicu.ui.screens.logbook
 
+import com.rendyhd.vicu.ui.navigation.ScreenReady
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -13,17 +19,25 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
-import com.rendyhd.vicu.ui.components.task.TaskItem
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
+import com.rendyhd.vicu.ui.components.section.SectionHeader
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
+import com.rendyhd.vicu.ui.components.shared.LocalToday
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,14 +47,31 @@ fun LogbookScreen(
     onNavigateToSearch: () -> Unit = {},
     viewModel: LogbookViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // A screen navigated to fades in once this is true (ScreenReveal).
+    ScreenReady(!state.isLoading)
+    val today = LocalToday.current
+    val zone = LocalClockDay.current.zone
+    val dateFormat = LocalDateFormat.current
+    // Newest first, grouped by the day of the completion; the day and the zone come from the
+    // DayClock, so "Today" becomes "Yesterday" at midnight.
+    val groups = remember(state.tasks, today, zone, dateFormat) {
+        groupLogbookTasks(state.tasks, today, zone, dateFormat)
+    }
+
+    // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
 
+    val topBarScroll = rememberVicuTopBarScroll()
+
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             VicuTopAppBar(
                 title = { Text("Logbook") },
                 onOpenDrawer = onOpenDrawer,
+                scroll = topBarScroll,
                 onNavigateToSearch = onNavigateToSearch,
             )
         },
@@ -53,7 +84,7 @@ fun LogbookScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.tasks.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(
@@ -63,21 +94,45 @@ fun LogbookScreen(
                         )
                     }
                 } else {
-                    items(state.tasks, key = { it.id }) { task ->
-                        TaskItem(
-                            task = if (task.id in state.uncompletedTaskIds) task.copy(done = false) else task,
-                            onToggleDone = {
-                                if (task.id in state.uncompletedTaskIds) {
-                                    viewModel.undoUncomplete(task)
+                    groups.forEachIndexed { index, group ->
+                        if (group.title.isNotEmpty()) {
+                            item(key = "logbook_group_$index", contentType = "header") {
+                                SectionHeader(title = group.title)
+                            }
+                        }
+                        items(group.rows, key = { it.task.id }, contentType = { "task" }) { row ->
+                            val task = row.task
+                            LogbookRow(
+                                task = if (task.id in state.uncompletedTaskIds) task.copy(done = false) else task,
+                                time = row.time,
+                                onToggleDone = {
+                                    if (task.id in state.uncompletedTaskIds) {
+                                        viewModel.undoUncomplete(task)
+                                    } else {
+                                        viewModel.toggleDone(task)
+                                    }
+                                },
+                                onClick = { onTaskClick(task.id) },
+                                modifier = Modifier.animateItem(),
+                            )
+                        }
+                    }
+                    if (state.hasMore) {
+                        item(key = "logbook-more", contentType = "more") {
+                            // Reaching the end of what is loaded asks for the next older page; the
+                            // button is the way to try again when that fetch failed.
+                            LaunchedEffect(state.pagesLoaded) { viewModel.loadMore() }
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (state.isLoadingMore) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                                 } else {
-                                    viewModel.toggleDone(task)
+                                    TextButton(onClick = viewModel::loadMore) { Text("Load older tasks") }
                                 }
-                        },
-                        onClick = { onTaskClick(task.id) },
-                        onSubtaskToggleDone = viewModel::toggleDone,
-                        onSubtaskClick = { child -> onTaskClick(child.id) },
-                        modifier = Modifier.animateItem(),
-                        )
+                            }
+                        }
                     }
                 }
             }

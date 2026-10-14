@@ -5,13 +5,19 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.util.parser.ParserConfig
 import com.rendyhd.vicu.util.parser.SyntaxMode
 import com.rendyhd.vicu.util.parser.TaskParser
+import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.parser.TokenType
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TaskEditShortcutsTest {
     private val config = ParserConfig(syntaxMode = SyntaxMode.TODOIST)
+    private val zone = TimeZone.of("Pacific/Auckland")
     private val projects = listOf(
         Project(id = 10L, title = "Inbox"),
         Project(id = 20L, title = "Work"),
@@ -31,7 +37,7 @@ class TaskEditShortcutsTest {
             config,
         )
 
-        val result = applyTaskEditShortcuts(original, parsed, projects)
+        val result = applyTaskEditShortcuts(original, parsed, projects, zone)
 
         assertEquals("Updated", result.task.title)
         assertNotEquals(original.dueDate, result.task.dueDate)
@@ -58,6 +64,7 @@ class TaskEditShortcutsTest {
             task = edited,
             parseResult = parsed,
             projects = projects,
+            zone = zone,
             manuallyEditedTypes = TokenType.entries.toSet(),
         )
 
@@ -84,6 +91,7 @@ class TaskEditShortcutsTest {
             task = task,
             parseResult = parsed,
             projects = projects,
+            zone = zone,
             manuallyEditedTypes = setOf(TokenType.RECURRENCE),
         )
 
@@ -96,9 +104,47 @@ class TaskEditShortcutsTest {
         val task = Task(id = 1L, title = "Task #missing", projectId = 10L)
         val parsed = TaskParser.parse(task.title, config)
 
-        val result = applyTaskEditShortcuts(task, parsed, projects)
+        val result = applyTaskEditShortcuts(task, parsed, projects, zone)
 
         assertEquals("Task", result.task.title)
         assertEquals(10L, result.task.projectId)
+    }
+
+    private fun localOf(dueDate: String) = Instant.parse(dueDate).toLocalDateTime(zone)
+
+    @Test
+    fun `a date word without a time is stored date-only at local 23_59_59`() {
+        val task = Task(id = 1L, title = "Call tomorrow", projectId = 10L)
+        val parsed = TaskParser.parse(task.title, config)
+
+        val result = applyTaskEditShortcuts(task, parsed, projects, zone)
+
+        val local = localOf(result.task.dueDate)
+        assertEquals(parsed.dueDate!!.date, local.date)
+        assertEquals("23:59:59", local.time.toString())
+        assertTrue(DueDates.isDateOnly(result.task.dueDate, zone))
+    }
+
+    @Test
+    fun `a date word with a time keeps the time`() {
+        val task = Task(id = 1L, title = "Call tomorrow 3pm", projectId = 10L)
+        val parsed = TaskParser.parse(task.title, config)
+
+        val result = applyTaskEditShortcuts(task, parsed, projects, zone)
+
+        val local = localOf(result.task.dueDate)
+        assertEquals(parsed.dueDate!!.date, local.date)
+        assertEquals("15:00", local.time.toString())
+        assertTrue(!DueDates.isDateOnly(result.task.dueDate, zone))
+    }
+
+    @Test
+    fun `the bang shortcut is date-only today`() {
+        val task = Task(id = 1L, title = "Call dentist !", projectId = 10L)
+        val parsed = TaskParser.parse(task.title, config)
+
+        val result = applyTaskEditShortcuts(task, parsed, projects, zone)
+
+        assertEquals("23:59:59", localOf(result.task.dueDate).time.toString())
     }
 }

@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.review
 
+import com.rendyhd.vicu.ui.navigation.ScreenReady
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,10 +17,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,15 +30,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,37 +54,46 @@ import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.ui.components.shared.ReviewCadenceInputDialog
-import com.rendyhd.vicu.util.ReviewState
+import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.theme.LocalVicuColors
+import com.rendyhd.vicu.ui.theme.VicuChipShape
 import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReviewScreen(
     onOpenDrawer: () -> Unit,
+    onNavigateToSearch: () -> Unit = {},
     onTaskClick: (Long) -> Unit = {},
     viewModel: ReviewViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // A screen navigated to fades in once this is true (ScreenReveal).
+    ScreenReady(!state.isLoading)
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(state.error) {
+        val message = state.error ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message = message, duration = SnackbarDuration.Long)
+        viewModel.clearError()
+    }
 
     LaunchedEffect(state.undo) {
         val prev = state.undo ?: return@LaunchedEffect
         val result = snackbarHostState.showSnackbar(
             message = "Marked \"${prev.title}\" reviewed",
             actionLabel = "Undo",
+            duration = SnackbarDuration.Long,
         )
         if (result == SnackbarResult.ActionPerformed) viewModel.undo() else viewModel.dismissUndo()
     }
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            VicuTopAppBar(
                 title = { Text("Review") },
-                navigationIcon = {
-                    IconButton(onClick = onOpenDrawer) {
-                        Icon(Icons.Default.Menu, contentDescription = "Open menu")
-                    }
-                },
+                onOpenDrawer = onOpenDrawer,
+                onNavigateToSearch = onNavigateToSearch,
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -99,7 +109,7 @@ fun ReviewScreen(
                 progress = { if (reviewable == 0) 1f else reviewedCount.toFloat() / total.toFloat() },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            TabRow(selectedTabIndex = if (state.tab == ReviewTab.DUE) 0 else 1) {
+            PrimaryTabRow(selectedTabIndex = if (state.tab == ReviewTab.DUE) 0 else 1) {
                 Tab(
                     selected = state.tab == ReviewTab.DUE,
                     onClick = { viewModel.setTab(ReviewTab.DUE) },
@@ -118,7 +128,7 @@ fun ReviewScreen(
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(items, key = { it.project.id }) { item ->
+                    items(items, key = { it.project.id }, contentType = { "review" }) { item ->
                         ReviewRow(
                             item = item,
                             expanded = item.project.id in state.expanded,
@@ -155,11 +165,11 @@ private fun ReviewRow(
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onToggleExpand)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
         ) {
             Icon(
                 imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
@@ -172,28 +182,34 @@ private fun ReviewRow(
                     .clip(CircleShape)
                     .background(parseHexColor(item.project.hexColor) ?: Color.Gray),
             )
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                // The name keeps the width: the row's actions are two icon buttons, and a long
+                // name (or a large font) takes a second line rather than being cut short.
                 Text(
                     text = item.project.title,
-                    maxLines = 1,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(text = stalenessLabel(item), style = MaterialTheme.typography.bodySmall)
+                StalenessPillView(stalenessPill(item.status))
             }
             if (reviewed) {
-                Text(
-                    text = "Reviewed",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Reviewed",
+                    modifier = Modifier.size(48.dp).padding(12.dp),
+                    tint = MaterialTheme.colorScheme.primary,
                 )
             } else {
-                OutlinedButton(onClick = onMarkReviewed) { Text("Mark reviewed") }
+                IconButton(onClick = onMarkReviewed) {
+                    Icon(Icons.Outlined.CheckCircle, contentDescription = "Mark ${item.project.title} reviewed")
+                }
             }
             IconButton(onClick = { menuOpen = true }) {
                 Icon(Icons.Default.MoreVert, contentDescription = "More")
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                listOf(7, 14, 30, 90).forEach { d ->
+                listOf(7, 14, 30, 60, 90).forEach { d ->
                     DropdownMenuItem(
                         text = { Text("Cadence: every $d days") },
                         onClick = {
@@ -326,13 +342,18 @@ private fun ReviewTaskRow(
     }
 }
 
-private fun stalenessLabel(item: ReviewItem): String {
-    val s = item.status
-    return when {
-        s.metadata.state == ReviewState.NEVER -> "Never reviewed"
-        s.daysUntilDue == null -> "Never reviewed"
-        s.daysUntilDue < 0 -> "Overdue ${-s.daysUntilDue}d"
-        s.daysUntilDue == 0L -> "Due today"
-        else -> "Due in ${s.daysUntilDue}d"
-    }
+/** The review state of a row: grey for "Not reviewed yet" and "3d ago", amber for the one overdue state. */
+@Composable
+private fun StalenessPillView(pill: StalenessPill) {
+    val scheme = MaterialTheme.colorScheme
+    val role = LocalVicuColors.current.dueToday
+    Text(
+        text = pill.text,
+        modifier = Modifier
+            .background(if (pill.amber) role.container else scheme.surfaceVariant, VicuChipShape)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = if (pill.amber) role.onContainer else scheme.onSurfaceVariant,
+        maxLines = 1,
+    )
 }

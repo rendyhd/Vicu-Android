@@ -1,6 +1,6 @@
 package com.rendyhd.vicu.ui.screens.taskentry
 
-import com.rendyhd.vicu.util.PlatformFiles
+import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.randomUuid
 import androidx.lifecycle.ViewModel
@@ -21,7 +21,9 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.Constants
 import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DefaultReminder
+import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.RecurrenceValue
@@ -39,15 +41,23 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toInstant
 
 
 data class TaskEntryUiState(
     val title: String = "",
     val description: String = "",
     val dueDate: String = "",
+    /**
+     * True once the user picked or cleared the date. A date that came from the screen that opened
+     * the entry (Today's FAB) is a seed, not manual, and a date typed in the title beats it.
+     */
+    val dueDateIsManual: Boolean = false,
     val priority: Int = 0,
+    /** True once the user picked a priority, None included: the pick wins over "!3" in the title. */
+    val priorityIsManual: Boolean = false,
     val projectId: Long = 0,
+    /** True once the user picked a project: the pick wins over "#Work" in the title. */
+    val projectIsManual: Boolean = false,
     val selectedLabelIds: Set<Long> = emptySet(),
     val reminders: List<TaskReminder> = emptyList(),
     /** null lets NLP decide; a non-null value, including None, is an explicit picker choice. */
@@ -79,7 +89,8 @@ class TaskEntryViewModel(
     private val nlpPrefsStore: NlpPrefsStore,
     private val notificationPrefsStore: NotificationPrefsStore,
     private val behaviorPrefsStore: BehaviorPrefsStore,
-    private val platformFiles: PlatformFiles,
+    private val appMessages: AppMessages,
+    private val dayClock: DayClock,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TaskEntryUiState())
@@ -87,6 +98,24 @@ class TaskEntryViewModel(
 
     // Track raw texts for stale suppression detection
     private var suppressedRawTexts: Map<TokenType, List<String>> = emptyMap()
+
+    /**
+     * Types the user set with a chip's own control. The parser stops reading them, so their tokens
+     * lose the highlight and stay plain text in the title; unlike a dismissed chip this never lifts
+     * when the title changes (the desktop `pinType`).
+     */
+    private var pinnedTypes: Set<TokenType> = emptySet()
+
+    /** The due date the opening screen asked for; a fresh draft (mass-add) starts from it again. */
+    private var seedDueDate: String? = null
+
+    /**
+     * True once a screen has initialised the draft ([initWithDefaults] or [initWithSharedContent]).
+     * A rotation recreates the sheet around this same view model; finding it set, the sheet keeps
+     * the draft instead of resetting it to the defaults or to the shared text again.
+     */
+    var isInitialized: Boolean = false
+        private set
 
 
 
@@ -116,8 +145,9 @@ class TaskEntryViewModel(
             }
         }
         viewModelScope.launch {
-            val inboxId = authManager.getInboxProjectId() ?: 0L
-            _uiState.update { it.copy(inboxProjectId = inboxId) }
+            authManager.inboxProjectId.collect { inboxId ->
+                _uiState.update { it.copy(inboxProjectId = inboxId ?: 0L) }
+            }
         }
         viewModelScope.launch {
             behaviorPrefsStore.getPrefs().collect { prefs ->
@@ -142,18 +172,22 @@ class TaskEntryViewModel(
     }
 
     fun initWithDefaults(defaultProjectId: Long?, defaultDueDate: String? = null) {
+        isInitialized = true
         viewModelScope.launch {
             val projectId = resolveActiveProjectId(defaultProjectId)
+            seedDueDate = defaultDueDate?.takeIf { it.isNotBlank() }
             _uiState.update {
                 it.copy(
                     projectId = projectId,
-                    dueDate = defaultDueDate ?: "",
+                    dueDate = seedDueDate ?: "",
+                    dueDateIsManual = false,
                 )
             }
         }
     }
 
     fun initWithSharedContent(defaultProjectId: Long?, sharedContent: SharedContent) {
+        isInitialized = true
         viewModelScope.launch {
             val projectId = resolveActiveProjectId(defaultProjectId)
             _uiState.update {
@@ -209,6 +243,7 @@ class TaskEntryViewModel(
         _uiState.update { state ->
             // Auto-lift stale suppressions: if the raw text no longer appears in input
             val activeSuppressed = state.suppressedTypes.filter { type ->
+                if (type in pinnedTypes) return@filter true
                 val texts = suppressedRawTexts[type] ?: return@filter false
                 texts.any { title.contains(it) }
             }.toSet()
@@ -256,28 +291,43 @@ class TaskEntryViewModel(
         _uiState.update { it.copy(description = description) }
     }
 
+    /** Stops the parser reading [type]: the user set it with its own control (see [pinnedTypes]). */
+    private fun pin(type: TokenType) {
+        pinnedTypes = pinnedTypes + type
+        _uiState.update { state ->
+            val suppressed = state.suppressedTypes + type
+            val config = state.parserConfig.copy(suppressTypes = suppressed)
+            state.copy(
+                suppressedTypes = suppressed,
+                parserConfig = config,
+                parseResult = if (state.title.isNotBlank()) TaskParser.parse(state.title, config) else null,
+            )
+        }
+    }
+
     fun setDueDate(dueDate: String) {
-        _uiState.update { it.copy(dueDate = dueDate) }
+        _uiState.update { it.copy(dueDate = dueDate, dueDateIsManual = true) }
+        pin(TokenType.DATE)
     }
 
     fun clearDueDate() {
-        _uiState.update { it.copy(dueDate = Constants.NULL_DATE_STRING) }
+        _uiState.update { it.copy(dueDate = Constants.NULL_DATE_STRING, dueDateIsManual = true) }
+        pin(TokenType.DATE)
     }
 
     fun setPriority(priority: Int) {
-        _uiState.update { it.copy(priority = priority) }
+        _uiState.update { it.copy(priority = priority, priorityIsManual = true) }
+        pin(TokenType.PRIORITY)
     }
 
     fun setRecurrence(recurrence: RecurrenceValue) {
         _uiState.update { it.copy(manualRecurrence = recurrence) }
-    }
-
-    fun cyclePriority() {
-        _uiState.update { it.copy(priority = (it.priority + 1) % 5) }
+        pin(TokenType.RECURRENCE)
     }
 
     fun setProjectId(projectId: Long) {
-        _uiState.update { it.copy(projectId = projectId) }
+        _uiState.update { it.copy(projectId = projectId, projectIsManual = true) }
+        pin(TokenType.PROJECT)
     }
 
     fun toggleLabel(labelId: Long) {
@@ -289,6 +339,12 @@ class TaskEntryViewModel(
             }
             it.copy(selectedLabelIds = newSet)
         }
+    }
+
+    /** The Tags chip's clear button: no labels picked and none read from the text. */
+    fun clearLabels() {
+        _uiState.update { it.copy(selectedLabelIds = emptySet()) }
+        pin(TokenType.LABEL)
     }
 
     /** Create a brand-new label inline and select it (mirrors the detail sheet). */
@@ -343,52 +399,31 @@ class TaskEntryViewModel(
         }
         if (title.isBlank()) return
 
-        // Determine due date: manual picker > parsed date > bang today
-        var dueDate = state.dueDate
-        if (config.enabled && parseResult?.dueDate != null &&
-            (dueDate.isBlank() || DateUtils.isNullDate(dueDate))
-        ) {
-            dueDate = parseResult.dueDate.toInstant(TimeZone.currentSystemDefault()).toString()
-        }
-
-        // Determine priority: manual > parsed
-        var priority = state.priority
-        if (config.enabled && parseResult?.priority != null && priority == 0) {
-            priority = parseResult.priority
-        }
-
-        // Determine project: parsed overrides if a match is found
-        var projectId = state.projectId
-        if (config.enabled && parseResult?.project != null) {
-            val matchedProject = state.allProjects.find {
-                it.title.equals(parseResult.project, ignoreCase = true)
-            }
-            if (matchedProject != null) {
-                projectId = matchedProject.id
-            }
-        }
+        // What the sheet shows is what is saved: a field the user set with its own control wins
+        // over the text, otherwise the text, otherwise what the screen gave (TaskEntryFields.kt).
+        val day = dayClock.day.value
+        val fields = resolveEntryFields(state, day.zone)
+        val manualDueDate = fields.dueSource == FieldSource.CHIP
+        var dueDate = fields.dueDate
+        val priority = fields.priority
+        val projectId = fields.projectId
 
         // Manual label selections; parsed @label tokens are resolved inside the coroutine
         // below (so unknown labels can be auto-created via the repository).
         val manualLabelIds = state.selectedLabelIds.toMutableSet()
 
-        // Determine recurrence: an explicit picker choice (including None) wins over NLP.
-        val recurrence = resolveTaskEntryRecurrence(
-            manualRecurrence = state.manualRecurrence,
-            parserEnabled = config.enabled,
-            parsedRecurrence = parseResult?.recurrence,
-        )
+        val recurrence = fields.recurrence
 
         // Bang-today fallback (works even when parser disabled; skipped when the user
-        // dismissed the Today chip — DATE is then in suppressTypes)
-        if (config.bangToday && TokenType.DATE !in config.suppressTypes &&
-            (dueDate.isBlank() || DateUtils.isNullDate(dueDate))
-        ) {
+        // dismissed the Today chip — DATE is then in suppressTypes). A date picked by hand or typed
+        // as a date phrase wins over it; a seeded date does not.
+        val typedDate = fields.dueSource == FieldSource.TEXT
+        if (config.bangToday && TokenType.DATE !in config.suppressTypes && !manualDueDate && !typedDate) {
             val bang = extractBangToday(title)
             if (bang.dueDate != null) {
                 title = bang.title
-                // Match the NLP parser and desktop: bang-today means start of today.
-                dueDate = DateUtils.todayStartIso()
+                // The "!" shortcut is today, date-only, in every entry point.
+                dueDate = DueDates.bang(day.date, day.zone).toString()
             }
         }
 
@@ -461,12 +496,13 @@ class TaskEntryViewModel(
                         if (pendingImages.isNotEmpty()) {
                             uploadPendingImagesAndUpdateDescription(createdTask, pendingImages)
                         }
-                        // Dismiss immediately; run the full refresh in the background so the
-                        // sheet doesn't hang on the network round-trip (save-task stutter).
+                        // The repository stored the server's answer for the new task, and adding
+                        // labels and uploading files refresh that one task, so nothing else
+                        // needs to be downloaded here: the next screen or sync refresh is
+                        // incremental anyway.
                         _uiState.update {
                             it.copy(isSaving = false, savedTaskId = createdTask.id)
                         }
-                        viewModelScope.launch { taskRepository.refreshAll() }
                     }
                     is NetworkResult.Error -> {
                         _uiState.update {
@@ -489,8 +525,7 @@ class TaskEntryViewModel(
     ) {
         val mapping = mutableMapOf<String, Long>()
         for ((uuid, uri) in pendingImages) {
-            val fileInfo = platformFiles.getFileNameAndBytes(uri) ?: continue
-            when (val uploadResult = attachmentRepository.upload(task.id, fileInfo.first, fileInfo.second)) {
+            when (val uploadResult = attachmentRepository.uploadPicked(task.id, uri)) {
                 is NetworkResult.Success -> mapping[uuid] = uploadResult.data.id
                 else -> {} // skip failed uploads; pending token will remain and be ignored client-side
             }
@@ -505,8 +540,9 @@ class TaskEntryViewModel(
     private fun uploadPendingAttachments(taskId: Long, uris: List<String>) {
         viewModelScope.launch {
             for (uri in uris) {
-                val fileInfo = platformFiles.getFileNameAndBytes(uri) ?: continue
-                attachmentRepository.upload(taskId, fileInfo.first, fileInfo.second)
+                // Too large or unreadable files are reported, so one bad file does not hide the rest.
+                val result = attachmentRepository.uploadPicked(taskId, uri)
+                if (result is NetworkResult.Error) appMessages.post(result.message)
             }
             attachmentRepository.refreshForTask(taskId)
         }
@@ -514,12 +550,16 @@ class TaskEntryViewModel(
 
     fun reset() {
         suppressedRawTexts = emptyMap()
+        pinnedTypes = emptySet()
         _uiState.update {
             it.copy(
                 title = "",
                 description = "",
-                dueDate = "",
+                dueDate = seedDueDate ?: "",
+                dueDateIsManual = false,
                 priority = 0,
+                priorityIsManual = false,
+                projectIsManual = false,
                 selectedLabelIds = emptySet(),
                 reminders = emptyList(),
                 manualRecurrence = null,

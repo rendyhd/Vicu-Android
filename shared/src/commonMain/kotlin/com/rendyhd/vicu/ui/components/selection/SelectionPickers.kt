@@ -4,12 +4,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import com.rendyhd.vicu.ui.components.picker.LabelPickerDialog
 import com.rendyhd.vicu.ui.components.picker.PriorityPickerDialog
 import com.rendyhd.vicu.ui.components.picker.ProjectPickerDialog
-import com.rendyhd.vicu.ui.components.picker.VicuDatePickerDialog
+import com.rendyhd.vicu.ui.components.picker.WhenSheet
 
 /** Dialog-based actions available from the multi-select overflow menu. */
 enum class SelectionAction {
@@ -27,7 +29,13 @@ fun SelectionPickers(
     selectedCount: Int,
     onDismiss: () -> Unit,
 ) {
-    val pendingCompletionCount by selectionVm.pendingCompletionDescendantCount.collectAsState()
+    // Both collectors are read before the early return below: a state read after a conditional
+    // return only exists on some compositions.
+    val pendingCompletionCount by selectionVm.pendingCompletionDescendantCount.collectAsStateWithLifecycle()
+    val selectedDescendantCount by selectionVm.selectedDescendantCount.collectAsStateWithLifecycle()
+    // The choice that applies a bulk action (not opening a picker) is confirmed with a haptic.
+    val haptic = LocalHapticFeedback.current
+    val confirm = { haptic.performHapticFeedback(HapticFeedbackType.Confirm) }
     if (pendingCompletionCount != null) {
         val count = pendingCompletionCount ?: 0
         AlertDialog(
@@ -37,7 +45,7 @@ fun SelectionPickers(
                 Text("This will also complete $count unfinished ${if (count == 1) "subtask" else "subtasks"}.")
             },
             confirmButton = {
-                TextButton(onClick = selectionVm::confirmBulkComplete) { Text("Complete all") }
+                TextButton(onClick = { confirm(); selectionVm.confirmBulkComplete() }) { Text("Complete all") }
             },
             dismissButton = {
                 TextButton(onClick = selectionVm::dismissBulkComplete) { Text("Cancel") }
@@ -46,41 +54,45 @@ fun SelectionPickers(
         return
     }
 
-    val selectedDescendantCount by selectionVm.selectedDescendantCount.collectAsState()
     when (action) {
-        SelectionAction.SCHEDULE -> VicuDatePickerDialog(
+        SelectionAction.SCHEDULE -> WhenSheet(
             currentDate = null,
-            onDateSelected = selectionVm::bulkSchedule,
+            onDateSelected = { confirm(); selectionVm.bulkSchedule(it) },
             onClearDate = {},
             onDismiss = onDismiss,
         )
 
         SelectionAction.SET_PRIORITY -> PriorityPickerDialog(
             current = null,
-            onPick = selectionVm::bulkSetPriority,
+            onPick = { confirm(); selectionVm.bulkSetPriority(it) },
             onDismiss = onDismiss,
         )
 
         SelectionAction.MOVE_PROJECT -> {
-            val projects by selectionVm.projects.collectAsState()
+            val projects by selectionVm.projects.collectAsStateWithLifecycle()
             ProjectPickerDialog(
                 projects = projects,
                 selectedProjectId = null,
-                onProjectSelected = selectionVm::bulkMove,
+                onProjectSelected = { confirm(); selectionVm.bulkMove(it) },
                 onDismiss = onDismiss,
             )
         }
 
         SelectionAction.APPLY_LABEL -> {
-            val labels by selectionVm.labels.collectAsState()
+            val labels by selectionVm.labels.collectAsStateWithLifecycle()
             LabelPickerDialog(
                 allLabels = labels,
                 selectedLabelIds = emptySet(),
                 onToggleLabel = {
+                    confirm()
                     selectionVm.bulkApplyLabel(it)
                     onDismiss()
                 },
-                onCreateLabel = { _, _ -> },
+                onCreateLabel = { name, hexColor ->
+                    confirm()
+                    selectionVm.createLabelAndApply(name, hexColor)
+                    onDismiss()
+                },
                 onDismiss = onDismiss,
             )
         }
@@ -106,7 +118,10 @@ fun SelectionPickers(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        if (selectedDescendantCount == 0) selectionVm.bulkRemove()
+                        if (selectedDescendantCount == 0) {
+                            confirm()
+                            selectionVm.bulkRemove()
+                        }
                         onDismiss()
                     },
                 ) {

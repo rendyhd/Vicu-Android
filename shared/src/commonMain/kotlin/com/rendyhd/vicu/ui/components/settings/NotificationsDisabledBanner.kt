@@ -1,7 +1,5 @@
 package com.rendyhd.vicu.ui.components.settings
 
-import android.content.Intent
-import android.provider.Settings
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -23,15 +21,19 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
+import org.koin.compose.koinInject
 
 /**
  * Shown when system notifications are disabled for the app: reminders and summaries cannot
- * fire, so every toggle below is inert until the user re-enables them in system settings.
+ * fire, so every toggle below is inert until the user turns them on again. The button asks for the
+ * permission while the system still shows its prompt, and opens the system settings page after.
  * Re-checks on resume so it disappears as soon as the user comes back from settings.
  */
 @Composable
 fun NotificationsDisabledBanner() {
     val context = LocalContext.current
+    val permission: NotificationPermissionCoordinator = koinInject()
     val lifecycleOwner = LocalLifecycleOwner.current
     var notificationsEnabled by remember {
         mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
@@ -62,17 +64,12 @@ fun NotificationsDisabledBanner() {
                 color = MaterialTheme.colorScheme.onErrorContainer,
             )
             Text(
-                text = "Reminders and daily summaries cannot be shown until notifications are enabled for Vicu in system settings.",
+                text = "Reminders and daily summaries cannot be shown until notifications are allowed for Vicu.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onErrorContainer,
             )
-            TextButton(onClick = {
-                context.startActivity(
-                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
-                )
-            }) {
-                Text("Open settings")
+            TextButton(onClick = permission::requestFromSettings) {
+                Text("Turn on")
             }
         }
     }

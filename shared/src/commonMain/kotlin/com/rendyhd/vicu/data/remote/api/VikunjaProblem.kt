@@ -22,8 +22,15 @@ data class VikunjaErrorDetailDto(
 class VikunjaApiException(
     val httpStatus: Int,
     val problem: VikunjaProblemDto? = null,
+    /**
+     * The API token lacks the permission for this request while the session still works
+     * (cross-app semantics 9.7). [httpStatus] is then 403, and the message says what to do.
+     */
+    val tokenPermission: Boolean = false,
+    message: String? = null,
 ) : Exception(
-    problem?.detail?.takeIf { it.isNotBlank() }
+    message
+        ?: problem?.detail?.takeIf { it.isNotBlank() }
         ?: problem?.title?.takeIf { it.isNotBlank() }
         ?: "Vikunja request failed (HTTP $httpStatus)",
 )

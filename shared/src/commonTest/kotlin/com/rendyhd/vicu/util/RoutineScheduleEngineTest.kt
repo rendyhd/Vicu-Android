@@ -10,6 +10,7 @@ import com.rendyhd.vicu.domain.model.RoutinePeriod
 import com.rendyhd.vicu.domain.model.RoutineSchedule
 import com.rendyhd.vicu.domain.model.RoutineSlot
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -82,6 +83,82 @@ class RoutineScheduleEngineTest {
             today = LocalDate(2026, 8, 11),
         ).isNotEmpty())
     }
+
+    @Test
+    fun completionBasedChoreCountsFromTheDateItWasLogged() {
+        // Due 08-03, but done on 08-10: the next one is 14 days after the 10th, not the 3rd.
+        val completed = completedRecord(
+            scheduledDate = "2026-08-03",
+            loggedAt = "2026-08-10T07:00:00.000Z",
+            timeZoneId = "Europe/Amsterdam",
+        )
+        val routine = chore(
+            schedule = RoutineSchedule.AfterCompletion(intervalDays = 14, firstDueDate = "2026-08-01"),
+            occurrences = mapOf(completed.key to completed),
+        )
+        val today = LocalDate(2026, 8, 11)
+
+        assertEquals(
+            emptyList(),
+            RoutineScheduleEngine.occurrencesForDate(routine, LocalDate(2026, 8, 17), today = today),
+        )
+        assertEquals(
+            "2026-08-24",
+            RoutineScheduleEngine.occurrencesForDate(routine, LocalDate(2026, 8, 24), today = today)
+                .single().scheduledDate,
+        )
+    }
+
+    @Test
+    fun theCompletionDateIsTheLocalDateInTheOccurrencesOwnZone() {
+        // 23:30 UTC on the 10th is already the 11th in Tokyo.
+        val record = completedRecord("2026-08-03", "2026-08-10T23:30:00.000Z", "Asia/Tokyo")
+
+        assertEquals(LocalDate(2026, 8, 11), RoutineScheduleEngine.completionDate(record, TimeZone.of("America/New_York")))
+    }
+
+    @Test
+    fun aMissingOrUnknownZoneFallsBackToTheDeviceZone() {
+        val withoutZone = completedRecord("2026-08-03", "2026-08-10T23:30:00.000Z", "")
+        val unknownZone = completedRecord("2026-08-03", "2026-08-10T23:30:00.000Z", "Mars/Olympus")
+
+        assertEquals(LocalDate(2026, 8, 11), RoutineScheduleEngine.completionDate(withoutZone, TimeZone.of("Asia/Tokyo")))
+        assertEquals(LocalDate(2026, 8, 10), RoutineScheduleEngine.completionDate(withoutZone, TimeZone.of("America/New_York")))
+        assertEquals(LocalDate(2026, 8, 11), RoutineScheduleEngine.completionDate(unknownZone, TimeZone.of("Asia/Tokyo")))
+    }
+
+    @Test
+    fun aCompletionWithoutALoggedTimeCountsFromItsScheduledDate() {
+        val record = completedRecord("2026-08-03", "", "Europe/Amsterdam")
+
+        assertEquals(LocalDate(2026, 8, 3), RoutineScheduleEngine.completionDate(record, TimeZone.UTC))
+    }
+
+    @Test
+    fun onlyCompletedOccurrencesCountAsACompletion() {
+        val skipped = completedRecord("2026-08-09", "2026-08-09T07:00:00.000Z", "UTC")
+            .copy(status = OccurrenceStatus.SKIPPED)
+        val done = completedRecord("2026-08-03", "2026-08-04T07:00:00.000Z", "UTC")
+
+        assertEquals(
+            LocalDate(2026, 8, 4),
+            RoutineScheduleEngine.latestCompletionDate(listOf(skipped, done), TimeZone.UTC),
+        )
+    }
+
+    private fun completedRecord(scheduledDate: String, loggedAt: String, timeZoneId: String) =
+        RoutineOccurrenceRecord(
+            key = "routine-1:$scheduledDate:home",
+            routineId = "routine-1",
+            slotId = "home",
+            scheduledDate = scheduledDate,
+            scheduledMinutes = 1080,
+            timeZoneId = timeZoneId,
+            status = OccurrenceStatus.COMPLETED,
+            loggedAt = loggedAt,
+            modifiedAt = "2026-08-04T08:00:00.000Z",
+            modifiedBy = "phone",
+        )
 
     private fun chore(
         schedule: RoutineSchedule,

@@ -28,12 +28,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Label
-
-val PRESET_COLORS = listOf(
-    "#e8384f", "#fd612c", "#fd9a00", "#eec300",
-    "#a4cf30", "#37c5ab", "#20aaea", "#4186e0",
-    "#7a6ff0", "#aa62e3",
-)
+import com.rendyhd.vicu.util.PRESET_COLORS
+import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -78,7 +74,7 @@ fun LabelEditDialog(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     PRESET_COLORS.forEach { hex ->
-                        val color = Color(android.graphics.Color.parseColor(hex))
+                        val color = parseHexColor(hex) ?: Color.Gray
                         val normalizedSelected = selectedColor.let {
                             if (it.startsWith("#")) it else "#$it"
                         }

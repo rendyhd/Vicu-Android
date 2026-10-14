@@ -6,10 +6,8 @@ import androidx.glance.GlanceId
 import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.state.updateAppWidgetState
-import com.rendyhd.vicu.data.local.dao.TaskDao
-import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.domain.repository.TaskRepository
-import com.rendyhd.vicu.notification.AlarmScheduler
+import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.worker.SyncScheduler
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.get
@@ -29,17 +27,13 @@ class ToggleTaskCallback : ActionCallback, KoinComponent {
         val taskId = parameters[TaskIdKey] ?: return
         Log.d(TAG, "Toggling task $taskId from widget")
 
-        val taskDao = get<TaskDao>()
-        val taskMapper = get<TaskMapper>()
         val taskRepository = get<TaskRepository>()
-        val alarmScheduler = get<AlarmScheduler>()
 
         try {
-            val entity = taskDao.getByIdSync(taskId) ?: return
-            val task = with(taskMapper) { entity.toDomain() }
-            taskRepository.toggleDone(task)
-
-            // Immediately update this widget's Glance state (remove the task)
+            // Take the row out of this widget at once, before the request is sent, so the tap
+            // feels instant. The refresh at the end reads the stored tasks, which now include
+            // the completion, so the row does not come back; if the completion failed the
+            // refresh shows it again.
             updateAppWidgetState(
                 context,
                 TaskWidgetStateDefinition,
@@ -57,15 +51,20 @@ class ToggleTaskCallback : ActionCallback, KoinComponent {
             }
             TaskListWidget().update(context, glanceId)
 
-            // Cancel reminders + schedule background sync. The repository owns
-            // the recursive completion and offline action queue.
-            alarmScheduler.cancelForTask(taskId)
-            SyncScheduler.enqueueImmediate(context)
+            // setDone, not a toggle: a second tap on a row that is already being completed must
+            // not reopen it. The repository owns the recursive completion and the offline queue.
+            // It also cancels the reminders. Stored and queued, not sent from here: a widget
+            // action can be stopped at any moment; the sync below sends it.
+            when (val result = taskRepository.setDoneInBackground(taskId, true)) {
+                is NetworkResult.Error -> Log.w(TAG, "Could not complete task $taskId: ${result.message}")
+                else -> SyncScheduler.enqueueImmediate(context)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to toggle task $taskId", e)
         }
 
-        // Refresh all widgets (covers other widget instances showing the same task)
+        // Refresh all widgets from the stored tasks (covers other widget instances showing the
+        // same task, and puts the row back if the completion failed)
         WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)
     }
 }

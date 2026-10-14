@@ -39,6 +39,24 @@ class CustomListStore(
             }
         }
 
+    /**
+     * True while the lists hold changes the server may not have: a sync state marked dirty (an edit
+     * not written to the carrier yet, or a sync that failed), or lists from before custom lists were
+     * synced that were never uploaded. A device without any custom list has nothing to lose.
+     */
+    val hasUnsyncedChanges: Flow<Boolean> = dataStore.data.map { prefs ->
+        val state = prefs[KEY_SYNC_STATE]?.let { raw ->
+            runCatching { json.decodeFromString<CustomListSyncLocalState>(raw) }.getOrNull()
+        }
+        if (state != null) {
+            state.dirty && state.document.lists.isNotEmpty()
+        } else {
+            val legacy = prefs[KEY_LISTS] ?: return@map false
+            runCatching { json.decodeFromString(ListSerializer(CustomList.serializer()), legacy).isNotEmpty() }
+                .getOrDefault(false)
+        }
+    }
+
     fun getById(id: String): Flow<CustomList?> =
         getAll().map { lists -> lists.find { it.id == id } }
 

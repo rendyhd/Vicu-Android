@@ -3,8 +3,6 @@ package com.rendyhd.vicu.ui.components.task
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -20,9 +18,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Notes
@@ -36,6 +36,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,9 +50,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -60,20 +65,34 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.data.local.SubtaskDisplayMode
-import com.rendyhd.vicu.ui.theme.PriorityHigh
-import com.rendyhd.vicu.ui.theme.PriorityLow
-import com.rendyhd.vicu.ui.theme.PriorityMedium
-import com.rendyhd.vicu.ui.theme.PriorityUrgent
+import com.rendyhd.vicu.domain.repository.QuickDue
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
+import com.rendyhd.vicu.ui.theme.LocalVicuColors
+import com.rendyhd.vicu.ui.theme.VicuMotion
+import com.rendyhd.vicu.ui.theme.VicuChipShape
+import com.rendyhd.vicu.ui.components.section.ProjectMeta
+import com.rendyhd.vicu.ui.components.collab.AvatarStack
+import com.rendyhd.vicu.ui.components.collab.LocalCollab
+import com.rendyhd.vicu.ui.components.collab.RowCommentCount
+import com.rendyhd.vicu.domain.model.toCollabUser
+import com.rendyhd.vicu.util.Collaboration
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.isRecurring
 import com.rendyhd.vicu.util.TaskLinkParser
+import com.rendyhd.vicu.util.parseHexArgb
 import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.util.subtaskProgress
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import com.rendyhd.vicu.util.unfinishedDescendants
 
 
@@ -90,9 +109,18 @@ fun TaskItem(
     onSubtaskToggleDone: (Task) -> Unit = {},
     onSubtaskClick: (Task) -> Unit = {},
     confirmRootCompletion: Boolean = true,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
+    /** Set when the row's group has no header: the project belongs on the row's meta line (drawn with the row anatomy). */
+    projectMeta: ProjectMeta? = null,
+    /** What the view around the row already says; the row's own provider ([LocalRowView]) when null. */
+    rowView: RowView? = null,
 ) {
     val directSubtasks = task.relatedTasks[RelationKind.SUBTASK].orEmpty()
-    val (completedSubtasks, subtaskCount) = task.subtaskProgress()
+    // Walking the subtask tree and parsing the description are per-row work: done again only when
+    // the thing they read changes, not on every recomposition while the list scrolls.
+    val (completedSubtasks, subtaskCount) = remember(task.relatedTasks) { task.subtaskProgress() }
+    val hasNotes = remember(task.description) { TaskLinkParser.hasNotesContent(task.description) }
     val displayMode = LocalSubtaskDisplayMode.current
     var subtasksExpanded by rememberSaveable(task.id) { mutableStateOf(false) }
     var pendingCompletion by remember { mutableStateOf<Task?>(null) }
@@ -110,11 +138,42 @@ fun TaskItem(
         }
     }
 
+    // A screen reader reaches complete, reopen and the quick due dates from the row's actions
+    // menu: the swipe gestures are not available to it. While selecting, the row only selects.
+    val rowActions = LocalTaskRowActions.current
+    val customActions = if (selectionActive) {
+        emptyList()
+    } else {
+        taskRowActions(
+            done = task.done,
+            canSchedule = rowActions != null,
+            canMoveUp = onMoveUp != null,
+            canMoveDown = onMoveDown != null,
+        ).map { action ->
+            action to {
+                when (action) {
+                    TaskRowAction.COMPLETE, TaskRowAction.REOPEN -> requestToggle(task)
+                    TaskRowAction.DUE_TODAY -> rowActions?.scheduleDue(task.id, QuickDue.TODAY)
+                    TaskRowAction.DUE_TOMORROW -> rowActions?.scheduleDue(task.id, QuickDue.TOMORROW)
+                    TaskRowAction.MOVE_UP -> onMoveUp?.invoke()
+                    TaskRowAction.MOVE_DOWN -> onMoveDown?.invoke()
+                }
+                Unit
+            }
+        }
+    }
+
     Column(modifier = modifier) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                .combinedClickable(
+                    onClickLabel = if (selectionActive) null else "Open",
+                    onLongClickLabel = if (selectionActive) null else "Select",
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                )
+                .taskRowCustomActions(customActions)
                 .then(
                     if (selected) {
                         Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
@@ -122,39 +181,43 @@ fun TaskItem(
                         Modifier
                     },
                 )
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                // The checkbox brings its own 48 dp of height and 13 dp of space either side of
+                // its circle, so the row's padding is only what is left of the old 16 dp.
+                .padding(start = 4.dp, end = 16.dp),
             verticalAlignment = Alignment.Top,
         ) {
             if (selectionActive) {
-                Checkbox(checked = selected, onCheckedChange = { onClick() })
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = { onClick() },
+                    modifier = Modifier.semantics { contentDescription = "Select ${task.title}" },
+                )
             } else {
                 AnimatedCheckbox(
                     done = task.done,
                     onToggle = { requestToggle(task) },
+                    contentDescription = task.title,
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                if (task.labels.isNotEmpty()) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        val displayed = task.labels.take(3)
-                        displayed.forEach { label ->
-                            LabelChip(title = label.title, hexColor = label.hexColor)
-                        }
-                        val overflow = task.labels.size - 3
-                        if (overflow > 0) {
-                            Text(
-                                text = "+$overflow",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                }
+            val view = rowView ?: LocalRowView.current
+            val metaProject = rowProject(task.projectId, view, projectMeta)
+            val metaLabels = rowLabels(task.labels, view)
+            val parentTitle = task.relatedTasks[RelationKind.PARENTTASK].orEmpty().firstOrNull()?.title
+            val isRepeating = isRecurring(task.repeatAfter, task.repeatMode)
+            // Collaboration signals, only on tasks of shared projects (cross-app semantics 9).
+            val collab = LocalCollab.current
+            val signal = collab.signal(task)
+            val commentCount = signal?.commentCount ?: 0
+            val assignees = collab.assignees(task)
+            val rowSurface = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface
+            val hasMeta = metaProject != null || metaLabels.isNotEmpty() || parentTitle != null ||
+                subtaskCount > 0 || hasNotes || isRepeating || task.attachments.isNotEmpty() || commentCount > 0
+            // Line 1 is the title, level with the checkbox; line 2 is the meta line, when there is one.
+            // The checklist is the row's expand control when subtasks expand inline, and the comment
+            // count opens the comments: their 48 dp targets take the place of the bottom padding.
+            val expandable = subtaskCount > 0 && displayMode == SubtaskDisplayMode.EXPANDABLE
+            val metaTarget = expandable || (commentCount > 0 && !selectionActive)
+            Column(modifier = Modifier.weight(1f).padding(top = 12.dp, bottom = if (metaTarget) 0.dp else 12.dp)) {
                 Text(
                     text = task.title,
                     style = MaterialTheme.typography.bodyLarge,
@@ -164,91 +227,170 @@ fun TaskItem(
                         MaterialTheme.colorScheme.onSurface
                     },
                     textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                task.relatedTasks[RelationKind.PARENTTASK].orEmpty().firstOrNull()?.let { parent ->
-                    Text(
-                        text = "Subtask of ${parent.title}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                TaskLinkIcons(description = task.description)
-                if (TaskLinkParser.hasNotesContent(task.description)) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.Notes,
-                        contentDescription = "Has notes",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    )
-                }
-                if (subtaskCount > 0) {
+                if (hasMeta) {
                     Row(
-                        modifier = if (displayMode == SubtaskDisplayMode.EXPANDABLE) {
-                            Modifier.clickable { subtasksExpanded = !subtasksExpanded }
-                        } else {
-                            Modifier
-                        },
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (displayMode == SubtaskDisplayMode.EXPANDABLE) {
+                        // The project, the labels and "Subtask of" give way to the icons on a narrow
+                        // row: whatever does not fit on the one line is left off, never wrapped.
+                        if (metaProject != null || metaLabels.isNotEmpty() || parentTitle != null) FlowRow(
+                            modifier = Modifier.weight(1f, fill = false),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            maxLines = 1,
+                        ) {
+                            if (metaProject != null) {
+                                RowProject(title = metaProject.title, hexColor = metaProject.hexColor)
+                            }
+                            metaLabels.take(3).forEach { label ->
+                                LabelChip(
+                                    title = label.title,
+                                    hexColor = label.hexColor,
+                                    modifier = Modifier.widthIn(max = 120.dp),
+                                )
+                            }
+                            val overflow = metaLabels.size - 3
+                            if (overflow > 0) {
+                                Text(
+                                    text = "+$overflow",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (parentTitle != null) {
+                                Text(
+                                    text = "Subtask of $parentTitle",
+                                    modifier = Modifier.widthIn(max = 160.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        if (subtaskCount > 0) {
+                            Row(
+                                modifier = (
+                                    if (expandable) {
+                                        Modifier
+                                            .clickable(
+                                                onClickLabel = if (subtasksExpanded) "Collapse subtasks" else "Expand subtasks",
+                                                role = Role.Button,
+                                            ) { subtasksExpanded = !subtasksExpanded }
+                                            .minimumInteractiveComponentSize()
+                                    } else {
+                                        Modifier
+                                    }
+                                    ).semantics(mergeDescendants = true) {
+                                    contentDescription = "$completedSubtasks of $subtaskCount subtasks completed"
+                                },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Checklist,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = checklistLabel(completedSubtasks, subtaskCount),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                                if (expandable) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                        // The click label says what a tap does.
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp).rotate(if (subtasksExpanded) 90f else 0f),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                        if (hasNotes) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                                contentDescription = if (subtasksExpanded) "Collapse subtasks" else "Expand subtasks",
-                                modifier = Modifier.size(18.dp).rotate(if (subtasksExpanded) 90f else 0f),
+                                imageVector = Icons.AutoMirrored.Outlined.Notes,
+                                contentDescription = "Has notes",
+                                modifier = Modifier.size(14.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Icon(
-                            imageVector = Icons.Outlined.Checklist,
-                            contentDescription = "$completedSubtasks of $subtaskCount subtasks completed",
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        )
-                        Text(
-                            text = "$completedSubtasks/$subtaskCount",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        if (isRepeating) {
+                            Icon(
+                                imageVector = Icons.Outlined.Repeat,
+                                contentDescription = "Repeating",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (task.attachments.isNotEmpty()) {
+                            Icon(
+                                imageVector = Icons.Outlined.AttachFile,
+                                contentDescription = "Attachments",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (commentCount > 0) {
+                            if (selectionActive) {
+                                // While selecting, a tap selects the row: the count is only shown.
+                                Text(
+                                    text = Collaboration.commentCountLabel(commentCount, signal?.isUnread == true),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            } else {
+                                RowCommentCount(
+                                    count = commentCount,
+                                    unread = signal?.isUnread == true,
+                                    onOpen = { collab.openComments(task.id) },
+                                    ringColor = rowSurface,
+                                )
+                            }
+                        }
                     }
                 }
-                if (isRecurring(task.repeatAfter, task.repeatMode)) {
-                    Icon(
-                        imageVector = Icons.Outlined.Repeat,
-                        contentDescription = "Repeating",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            }
+            // The trailing cluster, level with the title: the assignees, the due phrase, the reminder
+            // bell, the priority mark last.
+            Row(
+                modifier = Modifier.heightIn(min = MIN_TOUCH_TARGET),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (assignees.isNotEmpty()) {
+                    val assignedLabel = remember(assignees, collab.state.me) {
+                        Collaboration.assignedLabel(assignees.map { it.toCollabUser() }, collab.state.me)
+                    }
+                    AvatarStack(
+                        people = assignees,
+                        size = 20.dp,
+                        ringColor = rowSurface,
+                        modifier = Modifier.clearAndSetSemantics { contentDescription = assignedLabel },
                     )
                 }
-                if (task.attachments.isNotEmpty()) {
-                    Icon(
-                        imageVector = Icons.Outlined.AttachFile,
-                        contentDescription = "Attachments",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    )
+                TaskLinkIcons(description = task.description)
+                if (!DateUtils.isNullDate(task.dueDate) && task.dueDate.isNotBlank()) {
+                    TaskDueBadge(dueDate = task.dueDate, context = view.dateContext)
                 }
                 if (task.reminders.isNotEmpty()) {
                     Icon(
                         imageVector = Icons.Outlined.Notifications,
                         contentDescription = "Reminders",
                         modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                PriorityDot(priority = task.priority)
-                if (!DateUtils.isNullDate(task.dueDate) && task.dueDate.isNotBlank()) {
-                    TaskDueBadge(dueDate = task.dueDate)
-                }
+                PriorityMark(priority = task.priority)
             }
         }
         AnimatedVisibility(
@@ -309,25 +451,22 @@ private fun InlineSubtaskTree(
     Column {
         subtasks.forEach { child ->
             val nested = child.relatedTasks[RelationKind.SUBTASK].orEmpty()
-            val (completed, total) = child.subtaskProgress()
+            val (completed, total) = remember(child.relatedTasks) { child.subtaskProgress() }
             var expanded by rememberSaveable(child.id) { mutableStateOf(false) }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onClick(child) }
-                    .padding(
-                        start = (28 + depth.coerceAtMost(4) * 20).dp,
-                        end = 16.dp,
-                        top = 8.dp,
-                        bottom = 8.dp,
-                    ),
+                    .clickable(onClickLabel = "Open", onClick = { onClick(child) })
+                    // The 48 dp checkbox brings 14 dp of space either side of its 20 dp circle.
+                    .padding(start = (14 + depth.coerceAtMost(4) * 20).dp, end = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 AnimatedCheckbox(
                     done = child.done,
                     onToggle = { onToggleDone(child) },
-                    modifier = Modifier.size(20.dp),
+                    contentDescription = child.title,
+                    circleSize = 20.dp,
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -350,19 +489,24 @@ private fun InlineSubtaskTree(
                         )
                     }
                 }
-                PriorityDot(priority = child.priority)
                 if (!DateUtils.isNullDate(child.dueDate) && child.dueDate.isNotBlank()) {
-                    TaskDueBadge(dueDate = child.dueDate)
+                    TaskDueBadge(dueDate = child.dueDate, context = DateContext.ROW)
                 }
+                PriorityMark(priority = child.priority)
                 if (total > 0) {
                     Row(
-                        modifier = Modifier.clickable { expanded = !expanded },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .clickable(
+                                onClickLabel = if (expanded) "Collapse subtasks" else "Expand subtasks",
+                                role = Role.Button,
+                            ) { expanded = !expanded },
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                            contentDescription = if (expanded) "Collapse subtasks" else "Expand subtasks",
+                            contentDescription = null,
                             modifier = Modifier.size(18.dp).rotate(if (expanded) 90f else 0f),
                         )
                         Text(
@@ -386,11 +530,21 @@ private fun InlineSubtaskTree(
     }
 }
 
+/** The circle starts a completion this much smaller and springs to full size. */
+private const val CHECK_POP_FROM = 0.8f
+
+/**
+ * The round completion checkbox. Its touch target is [MIN_TOUCH_TARGET] square whatever the size of
+ * the drawn circle ([circleSize]); to a screen reader it is a checkbox named [contentDescription]
+ * (the task's title) that is checked when [done].
+ */
 @Composable
 fun AnimatedCheckbox(
     done: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    contentDescription: String? = null,
+    circleSize: Dp = 22.dp,
 ) {
     val haptic = LocalHapticFeedback.current
 
@@ -400,20 +554,31 @@ fun AnimatedCheckbox(
     val checkProgress = remember { Animatable(if (done) 1f else 0f) }
     // Scale bounce: 1f = normal
     val scaleAnim = remember { Animatable(1f) }
+    // The state the checkbox was drawn in. A row that is composed already done (scrolling into
+    // view, opening a screen) starts in its final state and must not play the completion bounce.
+    var shownDone by remember { mutableStateOf(done) }
 
     LaunchedEffect(done) {
+        if (done == shownDone) return@LaunchedEffect
+        shownDone = done
         if (done) {
-            // Animate in: fill → checkmark → bounce
-            fillProgress.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
-            checkProgress.animateTo(1f, tween(durationMillis = 300))
-            scaleAnim.animateTo(1.15f, tween(durationMillis = 100))
-            scaleAnim.animateTo(0.95f, tween(durationMillis = 100))
-            scaleAnim.animateTo(1f, tween(durationMillis = 200))
+            // Animate in: the circle springs up to size (the pop token) while it fills and the
+            // check is drawn. At animator scale 0 every one of these ends at once.
+            coroutineScope {
+                launch {
+                    scaleAnim.snapTo(CHECK_POP_FROM)
+                    scaleAnim.animateTo(1f, VicuMotion.pop.spec())
+                }
+                launch { fillProgress.animateTo(1f, tween(durationMillis = VicuMotion.fadeBaseMs)) }
+                launch { checkProgress.animateTo(1f, tween(durationMillis = VicuMotion.checkDrawMs)) }
+            }
         } else {
             // Animate out: instant reset
             scaleAnim.snapTo(1f)
-            checkProgress.animateTo(0f, tween(durationMillis = 150))
-            fillProgress.animateTo(0f, tween(durationMillis = 200))
+            coroutineScope {
+                launch { checkProgress.animateTo(0f, tween(durationMillis = VicuMotion.fadeFastMs)) }
+                launch { fillProgress.animateTo(0f, tween(durationMillis = VicuMotion.fadeFastMs)) }
+            }
         }
     }
 
@@ -421,24 +586,35 @@ fun AnimatedCheckbox(
     val primaryColor = MaterialTheme.colorScheme.primary
     val fillColor by animateColorAsState(
         targetValue = if (done) primaryColor else Color.Transparent,
-        animationSpec = tween(durationMillis = 300),
+        animationSpec = tween(durationMillis = VicuMotion.fadeBaseMs),
         label = "checkboxFill",
     )
-    val checkColor = Color.White
+    // The check sits on the primary fill, so it takes the role made for that (white is 1.7:1 on the dark primary).
+    val checkColor = MaterialTheme.colorScheme.onPrimary
 
     Box(
         modifier = modifier
-            .size(24.dp)
-            .clickable(
+            .size(MIN_TOUCH_TARGET)
+            .toggleable(
+                value = done,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-            ) {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onToggle()
-            },
+                role = Role.Checkbox,
+                onValueChange = { checked ->
+                    haptic.performHapticFeedback(if (checked) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
+                    onToggle()
+                },
+            )
+            .then(
+                if (contentDescription != null) {
+                    Modifier.semantics { this.contentDescription = contentDescription }
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(22.dp)) {
+        Canvas(modifier = Modifier.size(circleSize)) {
             val radius = size.minDimension / 2f
             val center = Offset(size.width / 2f, size.height / 2f)
             val currentScale = scaleAnim.value
@@ -458,7 +634,7 @@ fun AnimatedCheckbox(
                 if (currentFill > 0.01f) {
                     drawCircle(
                         color = fillColor,
-                        radius = radius * currentFill,
+                        radius = radius * currentFill.coerceAtMost(1f),
                         center = center,
                     )
                 }
@@ -510,19 +686,30 @@ fun AnimatedCheckbox(
 fun TaskDueBadge(
     dueDate: String,
     modifier: Modifier = Modifier,
+    /** How the date is phrased: the view around the row decides (no "Today" in Today, no day under a day header). */
+    context: DateContext = LocalRowView.current.dateContext,
 ) {
-    val isOverdue = DateUtils.isOverdue(dueDate)
-    val isToday = DateUtils.isToday(dueDate)
-    val label = DateUtils.formatRelativeDate(dueDate)
-
-    val bgColor = when {
-        isOverdue -> Color(0xFFEF4444).copy(alpha = 0.12f)
-        isToday -> Color(0xFFF97316).copy(alpha = 0.12f)
-        else -> Color.Transparent
+    // Reading LocalClockDay makes the badge recompose when the day or the time zone changes.
+    val day = LocalClockDay.current
+    val dateFormat = LocalDateFormat.current
+    val badge = remember(dueDate, day, dateFormat, context) {
+        DueBadge(
+            isOverdue = DateUtils.isOverdue(dueDate, day.date, day.zone),
+            isToday = DateUtils.isToday(dueDate, day.date, day.zone),
+            label = DateDisplay.formatDue(context, dueDate, day.date, day.zone, dateFormat),
+        )
     }
+    val (isOverdue, isToday, label) = badge
+    // A date-only task under its own day header says nothing here.
+    if (label.isEmpty()) return
+
+    // Overdue is the error role on an 8% tint of itself; due today is the dueToday text colour
+    // with no chip; later dates are quiet (docs/design-system-v1.md, status colours).
+    val error = MaterialTheme.colorScheme.error
+    val bgColor = if (isOverdue) error.copy(alpha = 0.08f) else Color.Transparent
     val textColor = when {
-        isOverdue -> Color(0xFFEF4444)
-        isToday -> Color(0xFFF97316)
+        isOverdue -> error
+        isToday -> LocalVicuColors.current.dueToday.color
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
@@ -537,32 +724,8 @@ fun TaskDueBadge(
     )
 }
 
-@Composable
-private fun PriorityDot(
-    priority: Int,
-    modifier: Modifier = Modifier,
-) {
-    val color = when (priority) {
-        1 -> PriorityLow
-        2 -> PriorityMedium
-        3 -> PriorityHigh
-        4 -> PriorityUrgent
-        else -> return
-    }
-    val label = when (priority) {
-        1 -> "Low priority"
-        2 -> "Medium priority"
-        3 -> "High priority"
-        4 -> "Urgent priority"
-        else -> return
-    }
-    Box(
-        modifier = modifier
-            .size(8.dp)
-            .background(color, CircleShape)
-            .semantics { contentDescription = label },
-    )
-}
+/** What a due badge shows, worked out once per (date, day, locale and clock style). */
+private data class DueBadge(val isOverdue: Boolean, val isToday: Boolean, val label: String)
 
 @Composable
 fun LabelChip(
@@ -570,15 +733,42 @@ fun LabelChip(
     hexColor: String,
     modifier: Modifier = Modifier,
 ) {
-    val chipColor = parseHexColor(hexColor) ?: MaterialTheme.colorScheme.primary
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val chip = remember(hexColor, isDark) { parseHexArgb(hexColor)?.let { labelChipColors(it, isDark) } }
 
+    // A full pill with no border; the text is the label colour moved until it reads on its own tint.
     Text(
         text = title,
         modifier = modifier
-            .background(chipColor.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 1.dp),
-        color = chipColor,
-        fontSize = 11.sp,
+            .background(chip?.fill ?: scheme.surfaceVariant, VicuChipShape)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        color = chip?.text ?: scheme.onSurfaceVariant,
+        style = MaterialTheme.typography.labelSmall,
         maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
     )
+}
+
+/** The project on a row's meta line: its colour dot and name. */
+@Composable
+private fun RowProject(title: String, hexColor: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.widthIn(max = 160.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .background(parseHexColor(hexColor) ?: MaterialTheme.colorScheme.outline, CircleShape),
+        )
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }

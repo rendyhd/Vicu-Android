@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.data.local.RoutinePrefsStore
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.model.RoutineDay
@@ -12,27 +13,43 @@ import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
+import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
 import com.rendyhd.vicu.ui.screens.shared.buildTaskProjectGroups
+import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.NetworkResult
-import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.data.sync.ScreenRefresher
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.datetime.Clock
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.todayIn
 
 data class TodayUiState(
+    /** Open tasks whose local due date is before today, grouped by project; shown above Today. */
+    val overdueGroups: List<TaskProjectGroup> = emptyList(),
+    /** Open tasks whose local due date is today, whatever the time of day. */
     val projectGroups: List<TaskProjectGroup> = emptyList(),
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val error: String? = null,
     val completedTaskIds: Set<Long> = emptySet(),
+    /** Today's routines; empty when routines or their Today section are turned off. The screen lists [RoutineDay.open]. */
     val routineDay: RoutineDay = RoutineDay("", emptyList()),
+    /** The next open task due after today; what an emptied Today offers (see [nextUpcomingTask]). */
+    val nextUpcoming: Task? = null,
 )
 
 class TodayViewModel(
@@ -40,87 +57,99 @@ class TodayViewModel(
     private val projectRepository: ProjectRepository,
     private val labelRepository: LabelRepository,
     private val routineRepository: RoutineRepository,
+    routinePrefsStore: RoutinePrefsStore,
     private val authManager: AuthManager,
-    private val syncStaleness: SyncStaleness,
+    private val refresher: ScreenRefresher,
+    private val dayClock: DayClock,
+    navigationTicker: NavigationTicker = NavigationTicker(),
+    completionToast: CompletionToast = NoCompletionToast,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TodayUiState())
     val uiState: StateFlow<TodayUiState> = _uiState.asStateFlow()
 
+    /** Rows completed on this screen, kept in place for a moment (see [CompletionHold]). */
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker, toast = completionToast)
+
+    private companion object {
+        /** [CompletionHold] list scopes: a row keeps its place within its own section. */
+        const val TODAY_SCOPE = 0L
+        const val OVERDUE_SCOPE = 1L
+    }
+
+    /**
+     * The routines of the current day; switches to the new day at midnight. Nothing while
+     * routines, or their place in Today, are turned off in Settings.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val routinesForToday = combine(
+        dayClock.today,
+        routinePrefsStore.visibility.map { it.inToday }.distinctUntilChanged(),
+    ) { date, shown -> date to shown }
+        .flatMapLatest { (date, shown) ->
+            if (shown) routineRepository.observeDay(date.toString()) else flowOf(RoutineDay(date.toString(), emptyList()))
+        }
+
     init {
-        viewModelScope.launch { routineRepository.finalizeAndPrune() }
         viewModelScope.launch {
-            val today = Clock.System.todayIn(TimeZone.currentSystemDefault()).toString()
-            routineRepository.observeDay(today).collect { day ->
+            completions.heldIds.collect { ids -> _uiState.update { it.copy(completedTaskIds = ids) } }
+        }
+        viewModelScope.launch {
+            // Once at start and again whenever the day changes (yesterday's open health
+            // occurrences are closed out).
+            dayClock.today.collect { routineRepository.finalizeAndPrune() }
+        }
+        viewModelScope.launch {
+            routinesForToday.collect { day ->
                 _uiState.update { it.copy(routineDay = day) }
             }
         }
         viewModelScope.launch {
-            val inboxId = authManager.getInboxProjectId()
-            combine(
-                taskRepository.getTodayTasks(),
-                projectRepository.getAll(),
-            ) { tasks, projects ->
-                buildTaskProjectGroups(tasks, projects, inboxId)
-            }.collect { groups ->
-                _uiState.update { current ->
-                    // Preserve per-project expansion across refreshes.
-                    val merged = groups.map { g ->
-                        g.copy(
-                            isExpanded = current.projectGroups
-                                .find { it.projectId == g.projectId }?.isExpanded ?: true,
-                        )
-                    }
-                    current.copy(projectGroups = merged, isLoading = false)
+            combine(taskRepository.getUpcomingTasks(), projectRepository.getAll(), dayClock.day) { tasks, projects, day ->
+                nextUpcomingTask(tasks, projects, day.date, day.zone)
+            }.distinctUntilChanged().collect { next -> _uiState.update { it.copy(nextUpcoming = next) } }
+        }
+        viewModelScope.launch {
+            authManager.inboxProjectId.collectLatest { inboxId ->
+                combine(
+                    taskRepository.getTodayTasks(),
+                    projectRepository.getAll(),
+                    completions.state,
+                    // The sections follow the day: a task due today is overdue once it is tomorrow.
+                    dayClock.day,
+                ) { tasks, projects, _, day ->
+                    val overdue = tasks.filter { DueDates.bucket(it.dueDate, day.date, day.zone) == DueDates.Bucket.OVERDUE }
+                    val today = tasks.filter { DueDates.bucket(it.dueDate, day.date, day.zone) == DueDates.Bucket.TODAY }
+                    buildTaskProjectGroups(completions.merge(overdue, OVERDUE_SCOPE), projects, inboxId) to
+                        buildTaskProjectGroups(completions.merge(today, TODAY_SCOPE), projects, inboxId)
+                }.collect { (overdueGroups, todayGroups) ->
+                    _uiState.update { it.copy(overdueGroups = overdueGroups, projectGroups = todayGroups, isLoading = false) }
                 }
             }
         }
-        if (syncStaleness.isStale()) refresh()
-    }
-
-    fun toggleProject(projectId: Long) {
-        _uiState.update { state ->
-            state.copy(
-                projectGroups = state.projectGroups.map {
-                    if (it.projectId == projectId) it.copy(isExpanded = !it.isExpanded) else it
-                },
-            )
-        }
+        if (refresher.isStale()) refresh()
     }
 
     fun refresh(showSpinner: Boolean = false) {
         viewModelScope.launch {
-            val completedIds = _uiState.value.completedTaskIds
-            _uiState.update { it.copy(isRefreshing = showSpinner, error = null, completedTaskIds = emptySet()) }
-            try {
-                if (completedIds.isNotEmpty()) taskRepository.deleteLocalByIds(completedIds)
-                taskRepository.refreshAll()
-                projectRepository.refreshAll()
-                labelRepository.refreshAll()
-                syncStaleness.markSynced()
-            } catch (e: Exception) {
-                Log.e("TodayViewModel", "refresh() failed: ${e.message}", e)
-            } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
-            }
+            _uiState.update { it.copy(isRefreshing = showSpinner, error = null) }
+            val result = refresher.refresh(manual = showSpinner)
+            // A failed refresh is shown (an offline one only when the user asked for it) and
+            // leaves the app stale, so the next screen tries again.
+            _uiState.update { it.copy(isRefreshing = false, error = result.refreshErrorToShow(showSpinner) ?: it.error) }
         }
     }
 
     fun toggleDone(task: Task) {
         viewModelScope.launch {
-            if (!task.done) {
-                _uiState.update { it.copy(completedTaskIds = it.completedTaskIds + task.id) }
-            }
+            // The stored task changes at once; the hold keeps the row on screen, struck through.
+            if (!task.done) completions.hold(task)
             when (val result = taskRepository.toggleDone(task)) {
                 is NetworkResult.Error -> {
-                    // Hard failure: revert the optimistic strikethrough along with surfacing
-                    // the error, otherwise the row stays visually completed.
-                    _uiState.update {
-                        it.copy(
-                            error = result.message,
-                            completedTaskIds = it.completedTaskIds - task.id,
-                        )
-                    }
+                    // Hard failure: put the row back to normal along with surfacing the error,
+                    // otherwise it stays struck through.
+                    completions.release(task.id)
+                    _uiState.update { it.copy(error = result.message) }
                 }
                 else -> {}
             }
@@ -129,26 +158,19 @@ class TodayViewModel(
 
     fun undoComplete(task: Task) {
         viewModelScope.launch {
-            _uiState.update { it.copy(completedTaskIds = it.completedTaskIds - task.id) }
-            // The row still renders done=false (Room is never flipped on complete — the
-            // strikethrough is driven by completedTaskIds), and toggleDone flips whatever
-            // it's handed. Pass done=true so it reverts to done=false remotely; passing the
-            // raw task would re-send done=true and the completion would survive a refresh.
-            taskRepository.toggleDone(task.copy(done = true))
+            // Draw the row as open at once but keep it in place until the task is stored as
+            // open again. setDone is idempotent: it reopens the task whatever state it is in now.
+            completions.undoing(task.id)
+            val result = taskRepository.setDone(task.id, false)
+            completions.release(task.id)
+            if (result is NetworkResult.Error) _uiState.update { it.copy(error = result.message) }
         }
     }
 
     /** Swipe-schedule: applies the configured Today/Urgent action via the repository. */
-    fun scheduleTask(task: Task) {
+    fun scheduleTask(taskId: Long) {
         viewModelScope.launch {
-            taskRepository.applyScheduleAction(task)
-        }
-    }
-
-    fun rescheduleTask(task: Task, newDueDate: String) {
-        viewModelScope.launch {
-            val updated = task.copy(dueDate = newDueDate)
-            taskRepository.update(updated)
+            taskRepository.applyScheduleAction(taskId)
         }
     }
 

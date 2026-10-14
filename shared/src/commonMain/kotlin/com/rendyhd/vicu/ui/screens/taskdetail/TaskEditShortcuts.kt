@@ -2,22 +2,26 @@ package com.rendyhd.vicu.ui.screens.taskdetail
 
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.parser.ParseResult
 import com.rendyhd.vicu.util.parser.TokenType
 import com.rendyhd.vicu.util.parser.recurrenceToVikunja
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toInstant
 
 internal data class TaskEditShortcutResult(
     val task: Task,
     val labelNames: List<String>,
 )
 
-/** Applies title shortcuts to an existing task while leaving manually edited fields alone. */
+/**
+ * Applies title shortcuts to an existing task while leaving manually edited fields alone. A parsed
+ * date is stored date-only unless the text named a time; [zone] is the device's current zone.
+ */
 internal fun applyTaskEditShortcuts(
     task: Task,
     parseResult: ParseResult,
     projects: List<Project>,
+    zone: TimeZone,
     manuallyEditedTypes: Set<TokenType> = emptySet(),
 ): TaskEditShortcutResult {
     var updated = task.copy(title = parseResult.title)
@@ -25,7 +29,7 @@ internal fun applyTaskEditShortcuts(
     if (TokenType.DATE !in manuallyEditedTypes) {
         parseResult.dueDate?.let { dueDate ->
             updated = updated.copy(
-                dueDate = dueDate.toInstant(TimeZone.currentSystemDefault()).toString(),
+                dueDate = DueDates.fromParsed(dueDate, parseResult.dueDateHasTime, zone).toString(),
             )
         }
     }

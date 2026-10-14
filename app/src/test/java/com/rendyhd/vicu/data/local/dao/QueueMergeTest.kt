@@ -50,6 +50,14 @@ class QueueMergeTest {
     }
 
     @Test
+    fun `a create that is being sent takes no more changes - they queue behind it`() {
+        val sending = action(7, "create", "{old}").copy(status = "processing")
+        assertEquals(QueueMergeOp.QueueBehindCreate(7), resolveTaskQueueMerge(listOf(sending), "update", "{new}"))
+        assertEquals(QueueMergeOp.QueueBehindCreate(7), resolveTaskQueueMerge(listOf(sending), "toggle_done", "{done}"))
+        assertEquals(QueueMergeOp.QueueBehindCreate(7), resolveTaskQueueMerge(listOf(sending), "delete", ""))
+    }
+
+    @Test
     fun `merge patch payloads keep prior fields and newest explicit values`() {
         val merged = mergePatchPayloads(
             """{"description":"offline edit","done":true,"priority":3}""",

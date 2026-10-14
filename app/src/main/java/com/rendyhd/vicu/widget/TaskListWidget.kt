@@ -2,14 +2,17 @@ package com.rendyhd.vicu.widget
 
 import android.content.Context
 import android.content.Intent
+import android.text.format.DateFormat
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
+import androidx.glance.LocalContext
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
@@ -45,7 +48,19 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.rendyhd.vicu.MainActivity
+import com.rendyhd.vicu.putViewTarget
+import com.rendyhd.vicu.ui.navigation.ViewTarget
+import com.rendyhd.vicu.ui.theme.VicuDarkColorScheme
+import com.rendyhd.vicu.ui.theme.VicuDarkColors
+import com.rendyhd.vicu.ui.theme.VicuLightColorScheme
+import com.rendyhd.vicu.ui.theme.VicuLightColors
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
+import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DateUtils
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.todayIn
 
 class TaskListWidget : GlanceAppWidget() {
 
@@ -60,11 +75,12 @@ class TaskListWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(setOf(COMPACT, MEDIUM, LARGE))
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val colors = loadWidgetColors(context)
         provideContent {
             val prefs = currentState<androidx.datastore.preferences.core.Preferences>()
             val state = TaskWidgetStateDefinition.parseState(prefs)
 
-            GlanceTheme {
+            GlanceTheme(colors = colors) {
                 val size = androidx.glance.LocalSize.current
                 when {
                     size.width < 200.dp || size.height < 100.dp -> CompactWidget(state)
@@ -75,20 +91,33 @@ class TaskListWidget : GlanceAppWidget() {
     }
 }
 
-// Semantic color constants (not part of Material You theming)
+// Status and priority colours come from the Vicu roles (not the Material You theming of the widget).
 private val overdueColor = ColorProvider(
-    day = Color(0xFFEF4444),
-    night = Color(0xFFF87171),
+    day = VicuLightColorScheme.error,
+    night = VicuDarkColorScheme.error,
 )
 
-private val highPriorityColor = ColorProvider(
-    day = Color(0xFFEF4444),
-    night = Color(0xFFF87171),
-)
+/** The vector drawable of a priority mark (docs/design-system-v1.md), or null when none is shown. */
+private fun priorityMarkDrawable(priority: Int): Int? = when (priority) {
+    1 -> R.drawable.ic_priority_bars_1
+    2 -> R.drawable.ic_priority_bars_2
+    3 -> R.drawable.ic_priority_bars_3
+    4, 5 -> R.drawable.ic_priority_urgent
+    else -> null
+}
 
-private val medPriorityColor = ColorProvider(
-    day = Color(0xFFF59E0B),
-    night = Color(0xFFFBBF24),
+private fun priorityMarkDescription(priority: Int): String? = when (priority) {
+    1 -> "Low priority"
+    2 -> "Medium priority"
+    3 -> "High priority"
+    4 -> "Urgent priority"
+    5 -> "Do now priority"
+    else -> null
+}
+
+private fun priorityColor(priority: Int) = ColorProvider(
+    day = VicuLightColors.priority(priority) ?: VicuLightColors.priorityLow,
+    night = VicuDarkColors.priority(priority) ?: VicuDarkColors.priorityLow,
 )
 
 @Composable
@@ -121,8 +150,8 @@ class OpenWidgetViewAction : ActionCallback {
     }
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val intent = Intent(context, MainActivity::class.java).apply {
-            putExtra("navigate_to_view_type", parameters[ViewTypeKey] ?: "")
-            putExtra("navigate_to_view_id", parameters[ViewIdKey] ?: "")
+            // The action parameters can only carry strings; the intent carries the typed target.
+            ViewTarget.parse(parameters[ViewTypeKey], parameters[ViewIdKey])?.let { putViewTarget(it) }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         context.startActivity(intent)
@@ -164,17 +193,19 @@ private fun resolveAddProjectId(state: TaskWidgetState): Long {
  * Otherwise, just opens the app.
  */
 @Composable
-private fun titleClickAction(state: TaskWidgetState) =
-    if (state.contextNav) {
+private fun titleClickAction(state: TaskWidgetState): Action {
+    val target = if (state.contextNav) state.viewType.toViewTarget(state.viewId) else null
+    return if (target != null) {
         actionRunCallback<OpenWidgetViewAction>(
             actionParametersOf(
-                OpenWidgetViewAction.ViewTypeKey to state.viewType.name,
-                OpenWidgetViewAction.ViewIdKey to state.viewId,
+                OpenWidgetViewAction.ViewTypeKey to target.typeName,
+                OpenWidgetViewAction.ViewIdKey to target.idOrEmpty,
             )
         )
     } else {
         actionStartActivity<MainActivity>()
     }
+}
 
 @Composable
 private fun CompactWidget(state: TaskWidgetState) {
@@ -342,7 +373,15 @@ private fun WidgetTaskRow(task: WidgetTaskItem) {
                 ),
                 maxLines = 1,
             )
-            val dateLabel = DateUtils.formatRelativeDate(task.dueDate)
+            // The time shows only when the due date has an explicit one, in the device's 12/24 hour style.
+            val zone = TimeZone.currentSystemDefault()
+            val dateLabel = DateDisplay.formatDue(
+                DateContext.ROW,
+                task.dueDate,
+                Clock.System.todayIn(zone),
+                zone,
+                DateDisplayFormat.system(DateFormat.is24HourFormat(LocalContext.current)),
+            )
             if (dateLabel.isNotEmpty()) {
                 Text(
                     text = dateLabel,
@@ -353,21 +392,14 @@ private fun WidgetTaskRow(task: WidgetTaskItem) {
                 )
             }
         }
-        // Priority indicator
-        if (task.priority >= 3) {
-            Box(
-                modifier = GlanceModifier
-                    .size(8.dp)
-                    .cornerRadius(4.dp)
-                    .background(highPriorityColor),
-            ) {}
-        } else if (task.priority == 2) {
-            Box(
-                modifier = GlanceModifier
-                    .size(8.dp)
-                    .cornerRadius(4.dp)
-                    .background(medPriorityColor),
-            ) {}
+        // Priority mark: the same shapes as the app (bars for low to high, a square for urgent), tinted by the priority role.
+        priorityMarkDrawable(task.priority)?.let { drawable ->
+            Image(
+                provider = ImageProvider(drawable),
+                contentDescription = priorityMarkDescription(task.priority),
+                modifier = GlanceModifier.size(14.dp),
+                colorFilter = ColorFilter.tint(priorityColor(task.priority)),
+            )
         }
     }
 }

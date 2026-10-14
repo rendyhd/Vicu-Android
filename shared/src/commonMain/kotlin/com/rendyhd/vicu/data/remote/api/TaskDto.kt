@@ -31,6 +31,12 @@ data class TaskDto(
     val attachments: List<AttachmentDto>? = null,
     @SerialName("related_tasks") val relatedTasks: Map<String, List<TaskDto>>? = null,
     @SerialName("is_favorite") val isFavorite: Boolean = false,
+    /** Read only: changed through the assignee endpoints, never a merge patch (cross-app semantics 9.2). */
+    val assignees: List<UserDto>? = null,
+    /** Only with `expand=comment_count`; absent means 0. */
+    @SerialName("comment_count") val commentCount: Int? = null,
+    /** Only with `expand=is_unread`; absent means false. */
+    @SerialName("is_unread") val isUnread: Boolean? = null,
 )
 
 /** Minimal payload for PUT /projects/{id}/tasks — matches desktop CreateTaskPayload */

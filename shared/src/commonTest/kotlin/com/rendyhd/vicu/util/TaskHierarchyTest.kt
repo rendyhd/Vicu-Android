@@ -47,6 +47,37 @@ class TaskHierarchyTest {
     }
 
     @Test
+    fun `a view that filters first can show a child of a completed parent`() {
+        val child = Task(
+            id = 2,
+            title = "Matching child",
+            relatedTasks = mapOf(
+                RelationKind.PARENTTASK to listOf(Task(id = 1, title = "Parent", done = true)),
+            ),
+        )
+
+        assertEquals(
+            listOf(child),
+            listOf(child).withoutNestedSubtasks(hideChildrenOfCompletedParents = false),
+        )
+    }
+
+    @Test
+    fun `a child is still nested under a parent that is in the filtered list`() {
+        val parent = Task(id = 1, title = "Parent", done = true)
+        val child = Task(
+            id = 2,
+            title = "Child",
+            relatedTasks = mapOf(RelationKind.PARENTTASK to listOf(parent)),
+        )
+
+        assertEquals(
+            listOf(parent),
+            listOf(parent, child).withoutNestedSubtasks(hideChildrenOfCompletedParents = false),
+        )
+    }
+
+    @Test
     fun `descendant helpers traverse multiple levels once`() {
         val grandchild = Task(id = 3, title = "Grandchild")
         val child = Task(

@@ -1,16 +1,17 @@
 package com.rendyhd.vicu.ui.screens.today
 
+import com.rendyhd.vicu.ui.navigation.ScreenReady
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.MaterialTheme
@@ -24,27 +25,42 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.FabClearance
 import org.koin.compose.viewmodel.koinViewModel
-import com.rendyhd.vicu.ui.components.section.CollapsibleSection
+import com.rendyhd.vicu.ui.components.section.ProjectMeta
+import com.rendyhd.vicu.ui.components.section.SectionHeader
+import com.rendyhd.vicu.ui.components.section.SectionLevel
+import com.rendyhd.vicu.ui.components.section.SectionTone
+import com.rendyhd.vicu.ui.components.section.openCount
+import com.rendyhd.vicu.ui.components.section.showsGroupHeader
 import com.rendyhd.vicu.ui.components.selection.SelectionAction
 import com.rendyhd.vicu.ui.components.selection.SelectionPickers
 import com.rendyhd.vicu.ui.components.selection.SelectionTopBar
 import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
-import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
-import com.rendyhd.vicu.ui.components.shared.VicuFab
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
+import com.rendyhd.vicu.ui.components.shared.LocalToday
+import com.rendyhd.vicu.ui.components.shared.ScreenFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
+import com.rendyhd.vicu.ui.components.task.TodayRowView
 import com.rendyhd.vicu.ui.screens.routines.RoutineOccurrenceRow
-import com.rendyhd.vicu.util.DateUtils
+import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
+import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,26 +71,39 @@ fun TodayScreen(
     onNavigateToSearch: () -> Unit = {},
     onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     onOpenRoutines: () -> Unit = {},
+    onOpenUpcoming: () -> Unit = {},
     viewModel: TodayViewModel = koinViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // A screen navigated to fades in once this is true (ScreenReveal).
+    ScreenReady(!state.isLoading)
+
+    // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val topBarScroll = rememberVicuTopBarScroll(listState)
+
+    // All clear warms in only when Today had tasks during this visit and the last one has just gone.
+    val hasContent = state.projectGroups.isNotEmpty() || state.overdueGroups.isNotEmpty() || state.routineDay.open.isNotEmpty()
+    var hadTasks by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(hasContent) { if (hasContent) hadTasks = true }
 
     val selectionVm: SelectionViewModel = koinViewModel()
-    val selectedIds by selectionVm.selectedIds.collectAsState()
+    val selectedIds by selectionVm.selectedIds.collectAsStateWithLifecycle()
     val selectionActive = selectedIds.isNotEmpty()
     var selectionAction by remember { mutableStateOf<SelectionAction?>(null) }
     BackHandler(enabled = selectionActive) { selectionVm.clear() }
 
     Scaffold(
+
+        modifier = topBarScroll.modifier,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
                     count = selectedIds.size,
                     onClose = { selectionVm.clear() },
                     onToday = { selectionVm.bulkToday() },
-                    onComplete = { selectionVm.bulkComplete() },
+                    onComplete = { selectionVm.bulkComplete(viewModel.completions) },
                     onSchedule = { selectionAction = SelectionAction.SCHEDULE },
                     onSetPriority = { selectionAction = SelectionAction.SET_PRIORITY },
                     onMove = { selectionAction = SelectionAction.MOVE_PROJECT },
@@ -86,21 +115,26 @@ fun TodayScreen(
                     title = {
                         Column {
                             Text("Today")
-                            Text(
-                                text = DateUtils.formatTodaySubtitle(),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            // The date shows under the large title and goes once the title has folded into the bar.
+                            if (topBarScroll.collapsedFraction < 0.5f) {
+                                Text(
+                                    text = DateDisplay.formatDay(DateContext.HEADER_FULL, LocalToday.current, LocalToday.current, LocalDateFormat.current),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     },
                     onOpenDrawer = onOpenDrawer,
+                    scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
                 )
             }
         },
         floatingActionButton = {
             if (!selectionActive) {
-                VicuFab(onClick = { onShowTaskEntry(null, DateUtils.todayEndIso()) })
+                val day = LocalClockDay.current
+                ScreenFab(onClick = { onShowTaskEntry(null, DueDates.today(day.date, day.zone).toString()) }, expanded = !listState.canScrollBackward)
             }
         },
         floatingActionButtonPosition = if (LocalFabAlignStart.current) FabPosition.Start else FabPosition.End,
@@ -116,9 +150,12 @@ fun TodayScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = FabClearance),
             ) {
-                if (state.routineDay.occurrences.isNotEmpty()) {
-                    item(key = "routine_header") {
+                // Finished routines (completed or skipped) are left out; the count still covers the day.
+                val openRoutines = state.routineDay.open
+                if (openRoutines.isNotEmpty()) {
+                    item(key = "routine_header", contentType = "header") {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -131,7 +168,7 @@ fun TodayScreen(
                             TextButton(onClick = onOpenRoutines) { Text("Manage") }
                         }
                     }
-                    items(state.routineDay.occurrences, key = { "routine_${it.key}" }) { occurrence ->
+                    items(openRoutines, key = { "routine_${it.key}" }, contentType = { "occurrence" }) { occurrence ->
                         RoutineOccurrenceRow(
                             occurrence = occurrence,
                             onToggle = { viewModel.toggleRoutine(occurrence) },
@@ -141,57 +178,60 @@ fun TodayScreen(
                     }
                 }
 
-                if (state.projectGroups.isEmpty() && state.routineDay.occurrences.isEmpty() && !state.isLoading) {
-                    item {
-                        EmptyState(
-                            icon = Icons.Outlined.WbSunny,
-                            title = "All clear for today",
-                            subtitle = "Enjoy the rest of your day",
+                if (state.projectGroups.isEmpty() && state.overdueGroups.isEmpty() &&
+                    openRoutines.isEmpty() && !state.isLoading
+                ) {
+                    item(key = "all_clear", contentType = "all_clear") {
+                        // Emptied after having had tasks in this visit: the last one was done.
+                        TodayAllClear(
+                            justCleared = hadTasks,
+                            nextUpcoming = state.nextUpcoming,
+                            onOpenUpcoming = onOpenUpcoming,
+                            modifier = Modifier.fillParentMaxSize(),
                         )
                     }
                 } else {
-                    state.projectGroups.forEach { group ->
-                        item(key = "header_${group.projectId}") {
-                            CollapsibleSection(
-                                title = group.title,
-                                color = parseHexColor(group.hexColor)
-                                    ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                                taskCount = group.tasks.size,
-                                isExpanded = group.isExpanded,
-                                onToggle = { viewModel.toggleProject(group.projectId) },
+                    // Overdue (local date before today) sits above Today; each section has its
+                    // own project groups. The Today title only shows when it follows Overdue.
+                    val showSectionTitles = state.overdueGroups.isNotEmpty()
+                    if (showSectionTitles) {
+                        item(key = "overdue_title", contentType = "title") {
+                            SectionHeader(
+                                title = "Overdue",
+                                count = state.overdueGroups.sumOf { openCount(it.tasks, state.completedTaskIds) },
+                                tone = SectionTone.OVERDUE,
                             )
                         }
-                        if (group.isExpanded) {
-                            items(group.tasks, key = { it.id }) { task ->
-                                val displayTask =
-                                    if (task.id in state.completedTaskIds) task.copy(done = true) else task
-                                SwipeableTaskItem(
-                                    task = displayTask,
-                                    onToggleDone = {
-                                        if (task.id in state.completedTaskIds) {
-                                            viewModel.undoComplete(task)
-                                        } else {
-                                            viewModel.toggleDone(task)
-                                        }
-                                    },
-                                    onClick = {
-                                        if (selectionActive) {
-                                            selectionVm.toggle(task.id)
-                                        } else {
-                                            onTaskClick(task.id)
-                                        }
-                                    },
-                                    onSubtaskToggleDone = viewModel::toggleDone,
-                                    onSubtaskClick = { child -> onTaskClick(child.id) },
-                                    onSchedule = { viewModel.scheduleTask(task) },
-                                    selectionActive = selectionActive,
-                                    selected = task.id in selectedIds,
-                                    onLongClick = { selectionVm.toggle(task.id) },
-                                    modifier = Modifier.animateItem(),
-                                )
-                            }
+                        taskGroupItems(
+                            groups = state.overdueGroups,
+                            keyPrefix = "overdue",
+                            level = SectionLevel.TWO,
+                            state = state,
+                            viewModel = viewModel,
+                            selectionVm = selectionVm,
+                            selectedIds = selectedIds,
+                            onTaskClick = onTaskClick,
+                        )
+                    }
+                    if (showSectionTitles && state.projectGroups.isNotEmpty()) {
+                        item(key = "today_title", contentType = "title") {
+                            SectionHeader(
+                                title = "Today",
+                                count = state.projectGroups.sumOf { openCount(it.tasks, state.completedTaskIds) },
+                            )
                         }
                     }
+                    taskGroupItems(
+                        groups = state.projectGroups,
+                        keyPrefix = "today",
+                        // Without an Overdue section above, the projects are the top level of the list.
+                        level = if (showSectionTitles) SectionLevel.TWO else SectionLevel.ONE,
+                        state = state,
+                        viewModel = viewModel,
+                        selectionVm = selectionVm,
+                        selectedIds = selectedIds,
+                        onTaskClick = onTaskClick,
+                    )
                 }
             }
         }
@@ -216,6 +256,65 @@ fun TodayScreen(
                 viewModel.refresh(true)
             }
             viewModel.clearError()
+        }
+    }
+}
+
+/** One group per project with its task rows; keys carry [keyPrefix] so sections never collide. */
+private fun LazyListScope.taskGroupItems(
+    groups: List<TaskProjectGroup>,
+    keyPrefix: String,
+    level: SectionLevel,
+    state: TodayUiState,
+    viewModel: TodayViewModel,
+    selectionVm: SelectionViewModel,
+    selectedIds: Set<Long>,
+    onTaskClick: (Long) -> Unit,
+) {
+    val selectionActive = selectedIds.isNotEmpty()
+    groups.forEach { group ->
+        // A group of one task has no header: its project goes on the row's meta line.
+        val hasHeader = showsGroupHeader(group.tasks.size)
+        val projectMeta = if (hasHeader) null else ProjectMeta(group.title, group.hexColor)
+        if (hasHeader) {
+            item(key = "${keyPrefix}_header_${group.projectId}", contentType = "header") {
+                SectionHeader(
+                    title = group.title,
+                    level = level,
+                    dotColor = parseHexColor(group.hexColor),
+                    count = openCount(group.tasks, state.completedTaskIds),
+                )
+            }
+        }
+        items(group.tasks, key = { it.id }, contentType = { "task" }) { task ->
+            val displayTask =
+                if (task.id in state.completedTaskIds) task.copy(done = true) else task
+            SwipeableTaskItem(
+                task = displayTask,
+                onToggleDone = {
+                    if (task.id in state.completedTaskIds) {
+                        viewModel.undoComplete(task)
+                    } else {
+                        viewModel.toggleDone(task)
+                    }
+                },
+                onClick = {
+                    if (selectionActive) {
+                        selectionVm.toggle(task.id)
+                    } else {
+                        onTaskClick(task.id)
+                    }
+                },
+                onSubtaskToggleDone = viewModel::toggleDone,
+                onSubtaskClick = { child -> onTaskClick(child.id) },
+                onSchedule = { viewModel.scheduleTask(task.id) },
+                selectionActive = selectionActive,
+                selected = task.id in selectedIds,
+                onLongClick = { selectionVm.toggle(task.id) },
+                modifier = Modifier.animateItem(),
+                projectMeta = projectMeta,
+                rowView = TodayRowView,
+            )
         }
     }
 }

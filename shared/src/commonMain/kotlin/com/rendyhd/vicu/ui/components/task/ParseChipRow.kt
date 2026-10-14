@@ -13,17 +13,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
+import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.DateDisplay
+import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.parser.ParseResult
 import com.rendyhd.vicu.util.parser.ParsedRecurrence
 import com.rendyhd.vicu.util.parser.RecurrenceUnit
 import com.rendyhd.vicu.util.parser.TokenType
-import kotlinx.datetime.Clock
-import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.plus
-import kotlinx.datetime.todayIn
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -32,7 +32,9 @@ fun ParseChipRow(
     isDarkTheme: Boolean,
     onDismiss: (TokenType) -> Unit,
 ) {
-    val chips = buildChipList(parseResult)
+    val today = LocalClockDay.current.date
+    val dateFormat = LocalDateFormat.current
+    val chips = buildChipList(parseResult, today, dateFormat)
     if (chips.isEmpty()) return
 
     FlowRow(
@@ -48,7 +50,8 @@ fun ParseChipRow(
                 trailingIcon = {
                     Icon(
                         Icons.Default.Close,
-                        contentDescription = "Dismiss",
+                        // The chip is the button; the icon only says what pressing it removes.
+                        contentDescription = chipDismissDescription(type, label),
                         modifier = Modifier.size(14.dp),
                     )
                 },
@@ -68,11 +71,11 @@ fun ParseChipRow(
 
 private data class ChipInfo(val type: TokenType, val label: String)
 
-private fun buildChipList(result: ParseResult): List<ChipInfo> {
+private fun buildChipList(result: ParseResult, today: LocalDate, dateFormat: DateDisplayFormat): List<ChipInfo> {
     val chips = mutableListOf<ChipInfo>()
 
     if (result.dueDate != null) {
-        chips.add(ChipInfo(TokenType.DATE, formatDateChip(result.dueDate)))
+        chips.add(ChipInfo(TokenType.DATE, formatDateChip(result.dueDate, result.dueDateHasTime, today, dateFormat)))
     }
     if (result.priority != null) {
         chips.add(ChipInfo(TokenType.PRIORITY, formatPriorityChip(result.priority)))
@@ -89,15 +92,22 @@ private fun buildChipList(result: ParseResult): List<ChipInfo> {
     return chips
 }
 
-private fun formatDateChip(date: LocalDateTime): String {
-    val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
-    val dateOnly = date.date
-    return when {
-        dateOnly == today -> if (date.hour in 1..22) "Today ${date.hour}:00" else "Today"
-        dateOnly == today.plus(1, DateTimeUnit.DAY) -> if (date.hour != 12) "Tomorrow ${date.hour}:00" else "Tomorrow"
-        else -> dateOnly.toString()
-    }
+/** What a screen reader says for the close icon of a chip: it names what is removed. */
+internal fun chipDismissDescription(type: TokenType, label: String): String = when (type) {
+    TokenType.DATE -> "Remove due date"
+    TokenType.PRIORITY -> "Remove priority"
+    TokenType.LABEL -> "Remove label $label"
+    TokenType.PROJECT -> "Remove project $label"
+    TokenType.RECURRENCE -> "Remove repeat"
 }
+
+/**
+ * The date as every date chip phrases it ("Sat 10 Oct, 15:00", "Sat, Oct 10, 3:00 PM": the chip
+ * context of docs/cross-app-semantics-v1.md section 8), with the time of day only when the text
+ * named one (date-only values show no time).
+ */
+internal fun formatDateChip(date: LocalDateTime, hasTime: Boolean, today: LocalDate, dateFormat: DateDisplayFormat): String =
+    DateDisplay.format(DateContext.CHIP, date, today, dateOnly = !hasTime, fmt = dateFormat)
 
 private fun formatPriorityChip(priority: Int): String = when (priority) {
     1 -> "Low"

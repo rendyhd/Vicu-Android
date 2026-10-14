@@ -2,7 +2,6 @@ package com.rendyhd.vicu
 
 import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -10,21 +9,29 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.auth.AuthState
+import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.ThemeMode
 import com.rendyhd.vicu.data.local.ThemePrefsStore
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.SharedContent
+import com.rendyhd.vicu.notification.DailySummaryScheduler
+import com.rendyhd.vicu.permission.AndroidNotificationPermissionPlatform
 import com.rendyhd.vicu.ui.VicuApp
+import com.rendyhd.vicu.ui.navigation.ViewTarget
+import com.rendyhd.vicu.worker.PeriodicSyncScheduler
+import com.rendyhd.vicu.worker.RoutineMaintenanceScheduler
 import com.rendyhd.vicu.worker.TokenRefreshScheduler
 import com.rendyhd.vicu.worker.SyncScheduler
 import com.rendyhd.vicu.ui.theme.VicuTheme
+import com.rendyhd.vicu.widget.WidgetUpdateScheduler
 import org.koin.android.ext.android.inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -37,16 +44,23 @@ class MainActivity : ComponentActivity() {
     private val authManager: AuthManager by inject()
     private val baseUrlHolder: BaseUrlHolder by inject()
     private val themePrefsStore: ThemePrefsStore by inject()
+    private val notificationPrefsStore: NotificationPrefsStore by inject()
+    private val dailySummaryScheduler: DailySummaryScheduler by inject()
+    private val notificationPermissionPlatform: AndroidNotificationPermissionPlatform by inject()
 
     private val _initialTaskId = MutableStateFlow<Long?>(null)
     private val _showTaskEntry = MutableStateFlow(false)
     private val _showTaskEntryProjectId = MutableStateFlow<Long?>(null)
-    private val _navigateToView = MutableStateFlow<Pair<String, String>?>(null)
+    private val _navigateToView = MutableStateFlow<ViewTarget?>(null)
     private val _sharedContent = MutableStateFlow<SharedContent?>(null)
+
+    private val launchNotificationPermissionRequest: () -> Unit = {
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* no-op: we schedule alarms regardless */ }
+    ) { /* no-op: alarms are scheduled regardless; Settings re-checks the state on resume */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,8 +69,13 @@ class MainActivity : ComponentActivity() {
         AuthDebugLog.init(applicationContext)
         AuthDebugLog.lifecycle("onCreate (savedState=${savedInstanceState != null})")
 
-        handleIntent(intent)
-        requestNotificationPermission()
+        // The launch intent is still the activity's intent after a rotation or a restore. Handling
+        // it again would reopen a share, a task or a widget "add" the user had already finished
+        // with; what was in progress comes back through the saved state instead.
+        if (savedInstanceState == null) handleIntent(intent)
+        // The notification permission is not asked for here: the shared coordinator asks after setup
+        // or when a reminder or summary is turned on (see NotificationPermissionCoordinator).
+        notificationPermissionPlatform.attach(launchNotificationPermissionRequest)
 
         lifecycleScope.launch {
             val storedUrl = authManager.getVikunjaUrl()
@@ -68,6 +87,35 @@ class MainActivity : ComponentActivity() {
             if (authManager.authState.value == com.rendyhd.vicu.auth.AuthState.Authenticated) {
                 TokenRefreshScheduler.schedule(this@MainActivity)
                 SyncScheduler.enqueueWhenOnline(this@MainActivity)
+                PeriodicSyncScheduler.schedule(this@MainActivity)
+            }
+        }
+
+        // A sync that stopped because the session ended (401 after a failed token refresh) left
+        // the queued changes pending; signing in again resumes it.
+        lifecycleScope.launch {
+            var neededReAuth = false
+            var signedOut = false
+            var ensuredAtStart = false
+            authManager.authState.collect { state ->
+                if (state == AuthState.Authenticated && !ensuredAtStart) {
+                    // A cheap check on every start: a summary queued already is left alone.
+                    ensuredAtStart = true
+                    dailySummaryScheduler.ensureScheduled(notificationPrefsStore.getPrefs().first())
+                }
+                if (state == AuthState.Authenticated && neededReAuth) {
+                    SyncScheduler.enqueueImmediate(this@MainActivity)
+                }
+                if (state == AuthState.Authenticated && signedOut) {
+                    // Sign-out cancelled the daily summaries, the routine maintenance and the periodic sync.
+                    // A device that started signed out never scheduled the widget refresh either.
+                    RoutineMaintenanceScheduler.schedule(this@MainActivity)
+                    WidgetUpdateScheduler.schedulePeriodicRefresh(this@MainActivity)
+                    PeriodicSyncScheduler.schedule(this@MainActivity)
+                    dailySummaryScheduler.scheduleFromPrefs(notificationPrefsStore.getPrefs().first())
+                }
+                neededReAuth = state == AuthState.NeedsReAuth
+                signedOut = state == AuthState.Unauthenticated
             }
         }
 
@@ -76,7 +124,7 @@ class MainActivity : ComponentActivity() {
                 initialValue = ThemeMode.System,
             )
             val useDeviceColors = themePrefsStore.useDeviceColors.collectAsStateWithLifecycle(
-                initialValue = true,
+                initialValue = false,
             )
             VicuTheme(themeMode = themeMode.value, dynamicColor = useDeviceColors.value) {
                 VicuApp(
@@ -121,6 +169,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         AuthDebugLog.lifecycle("onDestroy (isFinishing=$isFinishing)")
+        notificationPermissionPlatform.detach(launchNotificationPermissionRequest)
         super.onDestroy()
     }
 
@@ -139,11 +188,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val navViewType = intent.getStringExtra("navigate_to_view_type")
-        if (!navViewType.isNullOrBlank()) {
-            val navViewId = intent.getStringExtra("navigate_to_view_id") ?: ""
-            _navigateToView.value = navViewType to navViewId
-        }
+        intent.viewTargetOrNull()?.let { _navigateToView.value = it }
 
         when (intent.action) {
             Intent.ACTION_SEND -> handleSendIntent(intent)
@@ -201,16 +246,6 @@ class MainActivity : ComponentActivity() {
         } catch (_: SecurityException) {
             // Not all URIs support persistable permissions — that's OK,
             // the temporary grant from the share intent is sufficient.
-        }
-    }
-
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
         }
     }
 }

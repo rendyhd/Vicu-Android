@@ -21,6 +21,7 @@ class ProjectMapper {
         created = created,
         updated = updated,
         ownerId = owner?.id ?: 0,
+        maxPermission = maxPermission ?: -1,
     )
 
     fun ProjectEntity.toDomain(): Project = Project(
@@ -36,6 +37,7 @@ class ProjectMapper {
         created = created,
         updated = updated,
         ownerId = ownerId,
+        maxPermission = maxPermission,
     )
 
     fun Project.toEntity(): ProjectEntity = ProjectEntity(
@@ -51,6 +53,7 @@ class ProjectMapper {
         created = created,
         updated = updated,
         ownerId = ownerId,
+        maxPermission = maxPermission,
     )
 
     fun Project.toCreateDto(): CreateProjectDto = CreateProjectDto(

@@ -30,4 +30,6 @@ data class Task(
     val attachments: List<Attachment> = emptyList(),
     val relatedTasks: Map<String, List<Task>> = emptyMap(),
     val isFavorite: Boolean = false,
+    /** Who the task is assigned to, in the server's order. Changed through its own endpoints, never a patch. */
+    val assignees: List<User> = emptyList(),
 )

@@ -13,4 +13,6 @@ data class Project(
     val created: String = "",
     val updated: String = "",
     val ownerId: Long = 0,
+    /** What you may do in the project: 0 read, 1 write, 2 admin, -1 not known yet (cross-app semantics 9.1). */
+    val maxPermission: Int = -1,
 )

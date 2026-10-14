@@ -2,6 +2,7 @@ package com.rendyhd.vicu.data.local.dao
 
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import com.rendyhd.vicu.data.local.entity.AttachmentEntity
 import kotlinx.coroutines.flow.Flow
@@ -20,4 +21,14 @@ interface AttachmentDao {
 
     @Query("DELETE FROM attachments WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM attachments WHERE taskId = :taskId")
+    suspend fun deleteByTaskId(taskId: Long)
+
+    /** The task's attachments become exactly [attachments]: the server's list, so deleted ones go. */
+    @Transaction
+    suspend fun replaceForTask(taskId: Long, attachments: List<AttachmentEntity>) {
+        deleteByTaskId(taskId)
+        upsertAll(attachments)
+    }
 }

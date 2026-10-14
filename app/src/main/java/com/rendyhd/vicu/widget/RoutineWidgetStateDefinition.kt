@@ -3,7 +3,6 @@ package com.rendyhd.vicu.widget
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.glance.state.GlanceStateDefinition
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.model.RoutineDay
@@ -79,11 +78,11 @@ object RoutineWidgetStateDefinition : GlanceStateDefinition<Preferences> {
         context: Context,
         fileKey: String,
     ) = androidx.datastore.preferences.core.PreferenceDataStoreFactory.create {
-        context.preferencesDataStoreFile("routine_widget_state_$fileKey")
+        WidgetStateFiles.locate(context, "routine_widget_state_$fileKey")
     }
 
     override fun getLocation(context: Context, fileKey: String): File =
-        context.preferencesDataStoreFile("routine_widget_state_$fileKey")
+        WidgetStateFiles.locate(context, "routine_widget_state_$fileKey")
 
     fun parseState(prefs: Preferences): RoutineWidgetState {
         val raw = prefs[KEY_STATE] ?: return RoutineWidgetState()

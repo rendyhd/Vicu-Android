@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
@@ -34,6 +37,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.util.PRESET_COLORS
+import com.rendyhd.vicu.util.parseHexColor
 
 /**
  * Collects all descendant project ids of [rootId] with a visited guard, so pre-existing
@@ -52,6 +57,17 @@ private fun collectDescendantIds(rootId: Long, projects: List<Project>): Set<Lon
     return result
 }
 
+/**
+ * The parent the dialog starts with: the edited project's own, or [initialParentId] for a new one
+ * (0 is top level; "Add subproject" passes the project it was chosen on).
+ */
+internal fun startingParentId(project: Project?, initialParentId: Long): Long =
+    project?.parentProjectId ?: initialParentId
+
+/**
+ * "Create Project" for a null [project], "Edit Project" otherwise. A new project starts below
+ * [initialParentId] (top level for 0), which the user can still change.
+ */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectEditDialog(
@@ -59,12 +75,13 @@ fun ProjectEditDialog(
     projects: List<Project>,
     onSave: (name: String, hexColor: String, parentProjectId: Long) -> Unit,
     onDismiss: () -> Unit,
+    initialParentId: Long = 0L,
 ) {
     val isEdit = project != null
     var name by remember { mutableStateOf(project?.title ?: "") }
     // New projects default to "None" (empty hex → renderer falls back to the theme color).
     var selectedColor by remember { mutableStateOf(project?.hexColor.orEmpty()) }
-    var parentId by remember { mutableLongStateOf(project?.parentProjectId ?: 0L) }
+    var parentId by remember { mutableLongStateOf(startingParentId(project, initialParentId)) }
     var parentDropdownExpanded by remember { mutableStateOf(false) }
 
     // Exclude the project being edited AND its descendants from parent options, so a cycle
@@ -88,7 +105,8 @@ fun ProjectEditDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (isEdit) "Edit Project" else "Create Project") },
         text = {
-            Column {
+            // The sharing section can make the dialog taller than the screen.
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -171,7 +189,7 @@ fun ProjectEditDialog(
                             .clickable { selectedColor = "" },
                     )
                     PRESET_COLORS.forEach { hex ->
-                        val color = Color(android.graphics.Color.parseColor(hex))
+                        val color = parseHexColor(hex) ?: Color.Gray
                         val normalizedSelected = selectedColor.let {
                             if (it.startsWith("#")) it else "#$it"
                         }
@@ -193,6 +211,11 @@ fun ProjectEditDialog(
                                 .clickable { selectedColor = hex },
                         )
                     }
+                }
+
+                // Sharing applies at once, apart from Save (admins of an existing project only).
+                if (project != null) {
+                    ProjectSharingSection(project = project, modifier = Modifier.padding(top = 24.dp))
                 }
             }
         },

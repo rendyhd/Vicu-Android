@@ -1,8 +1,11 @@
 package com.rendyhd.vicu.ui.screens.settings
 
+import com.rendyhd.vicu.util.countOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.auth.SessionCleanup
+import com.rendyhd.vicu.auth.SignOutResult
 import com.rendyhd.vicu.auth.TokenStorage
 import com.rendyhd.vicu.data.local.BehaviorPrefs
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
@@ -14,6 +17,9 @@ import com.rendyhd.vicu.data.local.NotificationPrefs
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.ReviewPrefs
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
+import com.rendyhd.vicu.data.local.RoutinePrefsStore
+import com.rendyhd.vicu.data.local.RoutineVisibility
+import com.rendyhd.vicu.data.local.SyncCursorStore
 import com.rendyhd.vicu.data.local.SubprojectDisplayMode
 import com.rendyhd.vicu.data.local.SubtaskDisplayMode
 import com.rendyhd.vicu.data.local.ThemeMode
@@ -21,9 +27,9 @@ import com.rendyhd.vicu.data.local.ThemePrefsStore
 import com.rendyhd.vicu.data.local.WidgetPrefsStore
 import com.rendyhd.vicu.util.parser.ParserConfig
 import com.rendyhd.vicu.util.parser.SyntaxMode
-import com.rendyhd.vicu.data.local.VikunjaDatabase
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.domain.model.BottomBarConfig
 import com.rendyhd.vicu.domain.model.BottomBarSlot
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.CustomListSyncStatus
@@ -32,16 +38,32 @@ import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.CustomListRepository
+import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.ReviewMetadata
+import com.rendyhd.vicu.util.ReviewState
+import com.rendyhd.vicu.ui.navigation.PENDING_ORDER_TIMEOUT_MS
+import com.rendyhd.vicu.ui.navigation.ProjectNode
+import com.rendyhd.vicu.ui.navigation.ProjectRow
+import com.rendyhd.vicu.ui.navigation.buildProjectTree
+import com.rendyhd.vicu.ui.navigation.reorderSiblings
+import com.rendyhd.vicu.ui.navigation.siblingIds
+import com.rendyhd.vicu.ui.navigation.visibleProjectRows
 import com.rendyhd.vicu.ui.screens.settings.PlatformSettingsHooks
+import com.rendyhd.vicu.ui.screens.shared.ProjectActionResult
+import com.rendyhd.vicu.ui.screens.shared.ProjectActions
+import com.rendyhd.vicu.ui.screens.shared.SiblingMoveResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class SettingsUiState(
     // General
@@ -58,6 +80,8 @@ data class SettingsUiState(
     val customListSyncStatus: CustomListSyncStatus = CustomListSyncStatus.Idle,
     val projects: List<Project> = emptyList(),
     val archivedProjects: List<Project> = emptyList(),
+    /** Active projects whose review footer says they are left out of review. */
+    val excludedFromReview: List<Project> = emptyList(),
     // Notifications
     val notificationPrefs: NotificationPrefs = NotificationPrefs(),
     val supportsQuickAddTile: Boolean = false,
@@ -69,16 +93,58 @@ data class SettingsUiState(
     val isOnline: Boolean = true,
     // Bottom Bar
     val bottomBarSlots: List<BottomBarSlot> = BottomBarSlot.DEFAULT_SLOTS,
+    val bottomBarSmartListColors: Boolean = true,
     // Widget
     val widgetSmartAdd: Boolean = true,
     val widgetContextNav: Boolean = true,
     // Review
     val reviewPrefs: ReviewPrefs = ReviewPrefs(),
+    // Routines
+    val routineVisibility: RoutineVisibility = RoutineVisibility(),
     // Logbook retention
     val logbookPrefs: LogbookPrefs = LogbookPrefs(),
     // Messages
     val error: String? = null,
     val successMessage: String? = null,
+)
+
+private data class UserInfo(
+    val username: String = "",
+    val email: String = "",
+    val authMethod: String = "",
+)
+
+private data class ContentGroup(
+    val labels: List<Label>,
+    val customLists: List<CustomList>,
+    val customListSync: CustomListSyncStatus,
+    val projects: List<Project>,
+    val notificationPrefs: NotificationPrefs,
+)
+
+private data class SyncGroup(
+    val pendingCount: Int,
+    val failedCount: Int,
+    val isOnline: Boolean,
+    val themeMode: ThemeMode,
+    val nlpConfig: ParserConfig,
+)
+
+private data class AccountGroup(
+    val userInfo: UserInfo,
+    val vikunjaUrl: String,
+    val inboxProjectId: Long?,
+    val bottomBar: BottomBarConfig,
+    /** (error, success) */
+    val messages: Pair<String?, String?>,
+)
+
+private data class PrefsGroup(
+    val smartAdd: Boolean,
+    val contextNav: Boolean,
+    val behaviorPrefs: BehaviorPrefs,
+    val reviewPrefs: ReviewPrefs,
+    val logbookPrefs: LogbookPrefs,
 )
 
 class SettingsViewModel(
@@ -95,20 +161,25 @@ class SettingsViewModel(
     private val widgetPrefsStore: WidgetPrefsStore,
     private val reviewPrefsStore: ReviewPrefsStore,
     private val logbookPrefsStore: LogbookPrefsStore,
+    private val routinePrefsStore: RoutinePrefsStore,
+    private val repositoryHooks: PlatformRepositoryHooks,
     private val pendingActionDao: PendingActionDao,
     private val networkMonitor: NetworkMonitor,
-    private val database: VikunjaDatabase,
+    private val sessionCleanup: SessionCleanup,
     private val apiService: VikunjaApiService,
     private val platformSettingsHooks: PlatformSettingsHooks,
+    private val syncCursor: SyncCursorStore,
+    private val projectActions: ProjectActions,
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<Pair<String?, String?>>(null to null)
-    private val _userInfo = MutableStateFlow(Triple("", "", "")) // username, email, authMethod
+    private val _userInfo = MutableStateFlow(UserInfo())
     private val _vikunjaUrl = MutableStateFlow("")
     private val _inboxProjectId = MutableStateFlow<Long?>(null)
 
     init {
         loadAccountInfo()
+        viewModelScope.launch { authManager.inboxProjectId.collect { _inboxProjectId.value = it } }
         viewModelScope.launch {
             // Settings is the management surface for archived projects, so refresh its
             // complete snapshot when opened to pick up changes made in Vikunja or desktop.
@@ -117,92 +188,86 @@ class SettingsViewModel(
         viewModelScope.launch { customListRepository.sync() }
     }
 
+    // The sources are combined in typed groups of at most five flows each, then the groups are
+    // combined: no positional lists and no casts, so a mismatch is a compile error.
+    private val content = combine(
+        labelRepository.getAll(),
+        customListRepository.lists,
+        customListRepository.syncStatus,
+        projectRepository.getAllIncludingArchived(),
+        notificationPrefsStore.getPrefs(),
+    ) { labels, customLists, customListSync, projects, notificationPrefs ->
+        ContentGroup(labels, customLists, customListSync, projects, notificationPrefs)
+    }
+
+    private val sync = combine(
+        pendingActionDao.getPendingCount(),
+        pendingActionDao.getFailedCount(),
+        networkMonitor.isOnline,
+        themePrefsStore.themeMode,
+        nlpPrefsStore.config,
+    ) { pendingCount, failedCount, isOnline, themeMode, nlpConfig ->
+        SyncGroup(pendingCount, failedCount, isOnline, themeMode, nlpConfig)
+    }
+
+    private val account = combine(
+        _userInfo,
+        _vikunjaUrl,
+        _inboxProjectId,
+        bottomBarPrefsStore.config,
+        _messages,
+    ) { userInfo, url, inboxId, bottomBar, messages ->
+        AccountGroup(userInfo, url, inboxId, bottomBar, messages)
+    }
+
+    private val prefs = combine(
+        widgetPrefsStore.smartAdd,
+        widgetPrefsStore.contextNav,
+        behaviorPrefsStore.getPrefs(),
+        reviewPrefsStore.getPrefs(),
+        logbookPrefsStore.getPrefs(),
+    ) { smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs ->
+        PrefsGroup(smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs)
+    }
+
     val uiState: StateFlow<SettingsUiState> = combine(
-        combine(
-            labelRepository.getAll(),
-            combine(customListRepository.lists, customListRepository.syncStatus) { lists, status ->
-                lists to status
-            },
-            projectRepository.getAllIncludingArchived(),
-            notificationPrefsStore.getPrefs(),
-            _messages,
-        ) { labels, customLists, projects, notifPrefs, messages ->
-            listOf(labels, customLists, projects, notifPrefs, messages)
-        },
-        combine(
-            pendingActionDao.getPendingCount(),
-            pendingActionDao.getFailedCount(),
-            networkMonitor.isOnline,
-            themePrefsStore.themeMode,
-            nlpPrefsStore.config,
-        ) { pendingCount, failedCount, isOnline, themeMode, nlpConfig ->
-            listOf(pendingCount, failedCount, isOnline, themeMode, nlpConfig)
-        },
-        combine(
-            _userInfo,
-            _vikunjaUrl,
-            _inboxProjectId,
-            bottomBarPrefsStore.slots,
-        ) { userInfo, url, inboxId, bbSlots ->
-            listOf(userInfo, url, inboxId, bbSlots)
-        },
-        combine(
-            widgetPrefsStore.smartAdd,
-            widgetPrefsStore.contextNav,
-            behaviorPrefsStore.getPrefs(),
-            reviewPrefsStore.getPrefs(),
-            logbookPrefsStore.getPrefs(),
-        ) { smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs ->
-            listOf(smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs)
-        },
-    ) { base, syncTheme, userEtc, widgetPrefs ->
-        @Suppress("UNCHECKED_CAST")
-        val labels = base[0] as List<Label>
-        val customListBundle = base[1] as Pair<List<CustomList>, CustomListSyncStatus>
-        val customLists = customListBundle.first
-        val projects = base[2] as List<Project>
-        val notifPrefs = base[3] as NotificationPrefs
-        val messages = base[4] as Pair<String?, String?>
-        val pendingCount = syncTheme[0] as Int
-        val failedCount = syncTheme[1] as Int
-        val isOnline = syncTheme[2] as Boolean
-        val themeMode = syncTheme[3] as ThemeMode
-        val nlpConfig = syncTheme[4] as ParserConfig
-        val userInfo = userEtc[0] as Triple<String, String, String>
-        val url = userEtc[1] as String
-        val inboxId = userEtc[2] as Long?
-        val bbSlots = userEtc[3] as List<BottomBarSlot>
-        val smartAdd = widgetPrefs[0] as Boolean
-        val contextNav = widgetPrefs[1] as Boolean
-        val behaviorPrefs = widgetPrefs[2] as BehaviorPrefs
-        val reviewPrefs = widgetPrefs[3] as ReviewPrefs
-        val logbookPrefs = widgetPrefs[4] as LogbookPrefs
+        content,
+        sync,
+        account,
+        prefs,
+        routinePrefsStore.visibility,
+    ) { c, s, a, p, routineVisibility ->
         SettingsUiState(
-            username = userInfo.first,
-            email = userInfo.second,
-            authMethod = userInfo.third,
-            vikunjaUrl = url,
-            inboxProjectId = inboxId,
-            themeMode = themeMode,
-            nlpConfig = nlpConfig,
-            labels = labels.sortedBy { it.title.lowercase() },
-            customLists = customLists,
-            customListSyncStatus = customListBundle.second,
-            projects = projects.filter { !it.isArchived },
-            archivedProjects = projects.filter { it.isArchived },
-            notificationPrefs = notifPrefs,
+            username = a.userInfo.username,
+            email = a.userInfo.email,
+            authMethod = a.userInfo.authMethod,
+            vikunjaUrl = a.vikunjaUrl,
+            inboxProjectId = a.inboxProjectId,
+            themeMode = s.themeMode,
+            nlpConfig = s.nlpConfig,
+            labels = c.labels.sortedBy { it.title.lowercase() },
+            customLists = c.customLists,
+            customListSyncStatus = c.customListSync,
+            projects = c.projects.filter { !it.isArchived },
+            archivedProjects = c.projects.filter { it.isArchived },
+            excludedFromReview = c.projects.filter {
+                !it.isArchived && ReviewMetadata.parse(it.description).state == ReviewState.EXCLUDED
+            },
+            notificationPrefs = c.notificationPrefs,
             supportsQuickAddTile = platformSettingsHooks.supportsQuickAddTile,
-            behaviorPrefs = behaviorPrefs,
-            pendingActionCount = pendingCount,
-            failedActionCount = failedCount,
-            isOnline = isOnline,
-            bottomBarSlots = bbSlots,
-            widgetSmartAdd = smartAdd,
-            widgetContextNav = contextNav,
-            reviewPrefs = reviewPrefs,
-            logbookPrefs = logbookPrefs,
-            error = messages.first,
-            successMessage = messages.second,
+            behaviorPrefs = p.behaviorPrefs,
+            pendingActionCount = s.pendingCount,
+            failedActionCount = s.failedCount,
+            isOnline = s.isOnline,
+            bottomBarSlots = a.bottomBar.slots,
+            bottomBarSmartListColors = a.bottomBar.smartListColors,
+            widgetSmartAdd = p.smartAdd,
+            widgetContextNav = p.contextNav,
+            reviewPrefs = p.reviewPrefs,
+            routineVisibility = routineVisibility,
+            logbookPrefs = p.logbookPrefs,
+            error = a.messages.first,
+            successMessage = a.messages.second,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())
 
@@ -210,19 +275,19 @@ class SettingsViewModel(
         viewModelScope.launch {
             val authMethod = tokenStorage.getAuthMethod() ?: ""
             val url = tokenStorage.getVikunjaUrl() ?: ""
-            val inboxId = tokenStorage.getInboxProjectId()
             _vikunjaUrl.value = url
-            _inboxProjectId.value = inboxId
-            _userInfo.update { it.copy(third = authMethod) }
+            _userInfo.update { it.copy(authMethod = authMethod) }
 
             // Fetch user info from API
             try {
                 val user = apiService.getCurrentUser()
-                _userInfo.value = Triple(
-                    user.username.ifBlank { user.name },
-                    user.email,
-                    authMethod,
+                _userInfo.value = UserInfo(
+                    username = user.username.ifBlank { user.name },
+                    email = user.email,
+                    authMethod = authMethod,
                 )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (_: Exception) {
                 // Offline or failed — keep empty
             }
@@ -242,7 +307,11 @@ class SettingsViewModel(
     }
 
     fun setUseDeviceColors(enabled: Boolean) {
-        viewModelScope.launch { themePrefsStore.setUseDeviceColors(enabled) }
+        viewModelScope.launch {
+            themePrefsStore.setUseDeviceColors(enabled)
+            // The widgets follow the same colours.
+            platformSettingsHooks.updateWidgets()
+        }
     }
 
     // --- NLP Parser ---
@@ -275,31 +344,60 @@ class SettingsViewModel(
 
     // --- Inbox project ---
 
+    /** The Inbox project picker and a project's "Set as Inbox". */
     fun setInboxProject(projectId: Long) {
         viewModelScope.launch {
-            authManager.onInboxProjectSelected(projectId)
+            val result = projectActions.setInbox(projectId)
             _inboxProjectId.value = projectId
-            _messages.update { null to "Inbox project updated" }
+            report(result)
+        }
+    }
+
+    /** Shows what a project action came to in the snackbar. */
+    private fun report(result: ProjectActionResult) {
+        when (result) {
+            is ProjectActionResult.Done -> result.message?.let { message -> _messages.update { null to message } }
+            is ProjectActionResult.Failed -> _messages.update { result.error to null }
         }
     }
 
     // --- Logout ---
 
-    fun logout() {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            database.clearAllTables()
-            customListRepository.clearLocal()
-            bottomBarPrefsStore.clear()
-            authManager.logout() // calls POST /user/logout internally
-            platformSettingsHooks.updateWidgets()
+    /** Routine history not uploaded to the server yet (sign-out deletes it). */
+    val routineHistoryCount: StateFlow<Int> = sessionCleanup.routineHistoryCount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** Custom-list changes not on the server yet (sign-out deletes them). */
+    val customListChangesUnsynced: StateFlow<Boolean> = sessionCleanup.customListChangesUnsynced
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /**
+     * Signs out and deletes local data. Offline changes that never reached the server are lost
+     * with it, so with any queued the caller must pass [discardUnsynced] = true (the dialog makes
+     * the user choose that); without it nothing happens.
+     */
+    fun logout(discardUnsynced: Boolean) {
+        viewModelScope.launch {
+            when (val result = sessionCleanup.signOut(discardUnsynced)) {
+                is SignOutResult.NeedsDiscard ->
+                    _messages.update {
+                        "${countOf(result.unsyncedChanges, "unsynced change")} would be lost. " +
+                            "Discard ${if (result.unsyncedChanges == 1) "it" else "them"} to sign out." to null
+                    }
+                SignOutResult.Done -> platformSettingsHooks.updateWidgets()
+            }
         }
     }
 
     // --- Clear cache & re-sync ---
 
-    fun clearCacheAndResync() {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            database.clearAllTables()
+    /**
+     * Clears the cached tasks, projects and labels and syncs again. The offline queue (and the
+     * rows it refers to) and routine history stay unless [discardUnsynced] is set.
+     */
+    fun clearCacheAndResync(discardUnsynced: Boolean = false) {
+        viewModelScope.launch {
+            sessionCleanup.clearCaches(discardUnsynced)
             platformSettingsHooks.triggerImmediateSync()
             _messages.update { null to "Cache cleared, syncing..." }
         }
@@ -308,73 +406,74 @@ class SettingsViewModel(
     // --- Projects ---
 
     fun createProject(name: String, hexColor: String, parentProjectId: Long) {
-        viewModelScope.launch {
-            val project = Project(id = 0, title = name, hexColor = hexColor, parentProjectId = parentProjectId)
-            when (val result = projectRepository.create(project)) {
-                is NetworkResult.Success -> {
-                    _messages.update { null to "Project created" }
-                }
-                is NetworkResult.Error -> {
-                    _messages.update { result.message to null }
-                }
-                is NetworkResult.Loading -> {}
-            }
-        }
+        viewModelScope.launch { report(projectActions.create(name, hexColor, parentProjectId)) }
     }
 
     fun updateProject(project: Project, name: String, hexColor: String, parentProjectId: Long) {
-        viewModelScope.launch {
-            val updated = project.copy(title = name, hexColor = hexColor, parentProjectId = parentProjectId)
-            when (val result = projectRepository.update(updated)) {
-                is NetworkResult.Success -> {
-                    _messages.update { null to "Project updated" }
-                }
-                is NetworkResult.Error -> {
-                    _messages.update { result.message to null }
-                }
-                is NetworkResult.Loading -> {}
-            }
-        }
+        viewModelScope.launch { report(projectActions.edit(project, name, hexColor, parentProjectId)) }
     }
 
     fun deleteProject(projectId: Long) {
-        viewModelScope.launch {
-            when (val result = projectRepository.delete(projectId)) {
-                is NetworkResult.Success -> {
-                    _messages.update { null to "Project deleted" }
-                }
-                is NetworkResult.Error -> {
-                    _messages.update { result.message to null }
-                }
-                is NetworkResult.Loading -> {}
-            }
-        }
+        viewModelScope.launch { report(projectActions.delete(projectId)) }
     }
 
     fun archiveProject(project: Project) {
-        if (project.id == _inboxProjectId.value) {
-            _messages.update { "Select another Inbox project before archiving this project" to null }
-            return
-        }
-        setProjectArchived(project, archived = true)
+        viewModelScope.launch { report(projectActions.archive(project)) }
     }
 
     fun restoreProject(project: Project) {
-        setProjectArchived(project, archived = false)
+        viewModelScope.launch { report(projectActions.restore(project)) }
     }
 
-    private fun setProjectArchived(project: Project, archived: Boolean) {
+    /** Takes [project] back into review ("Excluded from review", "Include"). */
+    fun includeInReview(project: Project) {
+        viewModelScope.launch { report(projectActions.includeInReview(project)) }
+    }
+
+    /** The active projects as a tree (the Inbox included), as stored. */
+    private val storedProjectTree: StateFlow<List<ProjectNode>> = projectRepository.getAllIncludingArchived()
+        .map { projects -> buildProjectTree(projects.filter { !it.isArchived }) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** A sibling order just dropped and not stored yet: the projects below [parentId] (0 for the roots) in the order of [ids]. */
+    private data class PendingSiblingOrder(val parentId: Long, val ids: List<Long>)
+
+    private val pendingProjectOrder = MutableStateFlow<PendingSiblingOrder?>(null)
+
+    /**
+     * The Projects tab's rows: every active project, the Inbox included, depth first with siblings
+     * in position order (the drawer's order). An order just dropped is shown until it is stored, so
+     * the row does not jump back to its old place in between.
+     */
+    val projectRows: StateFlow<List<ProjectRow>> = combine(storedProjectTree, pendingProjectOrder) { tree, pending ->
+        val ordered = if (pending == null) tree else reorderSiblings(tree, pending.parentId, pending.ids)
+        visibleProjectRows(ordered, emptySet())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Saves the new order of the projects that share a level after a drag (or a screen reader's
+     * move): [idsInNewOrder] is every project of that level, [movedId] the one that moved. The
+     * saving is the drawer's ([ProjectActions.moveAmongSiblings]); a refusal is reported and the
+     * list goes back to what is stored.
+     */
+    fun reorderProject(movedId: Long, idsInNewOrder: List<Long>) {
+        val rows = visibleProjectRows(storedProjectTree.value, emptySet())
+        val moved = rows.firstOrNull { it.project.id == movedId } ?: return
+        val siblings = rows.filter { it.parentId == moved.parentId }.associateBy { it.project.id }
+        val ordered = idsInNewOrder.distinct().mapNotNull { siblings[it]?.project }
+        val newOrder = ordered.map { it.id }
+        if (movedId !in newOrder || newOrder == siblingIds(rows, movedId)) return
+
+        pendingProjectOrder.value = PendingSiblingOrder(moved.parentId, newOrder)
         viewModelScope.launch {
-            when (val result = projectRepository.update(project.copy(isArchived = archived))) {
-                is NetworkResult.Success -> {
-                    platformSettingsHooks.updateWidgets()
-                    _messages.update { null to if (archived) "Project archived" else "Project restored" }
+            when (val result = projectActions.moveAmongSiblings(movedId, ordered)) {
+                SiblingMoveResult.Saved -> withTimeoutOrNull(PENDING_ORDER_TIMEOUT_MS) {
+                    storedProjectTree.first { tree -> siblingIds(visibleProjectRows(tree, emptySet()), movedId) == newOrder }
                 }
-                is NetworkResult.Error -> {
-                    _messages.update { result.message to null }
-                }
-                is NetworkResult.Loading -> {}
+                is SiblingMoveResult.Failed -> _messages.update { result.message to null }
+                SiblingMoveResult.NotMoved -> Unit
             }
+            pendingProjectOrder.update { if (it?.ids == newOrder) null else it }
         }
     }
 
@@ -433,9 +532,13 @@ class SettingsViewModel(
         }
     }
 
+    fun setBottomBarSmartListColors(enabled: Boolean) {
+        viewModelScope.launch { bottomBarPrefsStore.setSmartListColors(enabled) }
+    }
+
     fun resetBottomBar() {
         viewModelScope.launch {
-            bottomBarPrefsStore.saveSlots(BottomBarSlot.DEFAULT_SLOTS)
+            bottomBarPrefsStore.reset()
             _messages.update { null to "Bottom bar reset to defaults" }
         }
     }
@@ -549,6 +652,20 @@ class SettingsViewModel(
         viewModelScope.launch { reviewPrefsStore.setExcludeInbox(enabled) }
     }
 
+    // --- Routines ---
+
+    /** Turning routines off also cancels their reminders; turning them on plans them again. */
+    fun setRoutinesEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            routinePrefsStore.setEnabled(enabled)
+            repositoryHooks.routinesChanged()
+        }
+    }
+
+    fun setRoutinesShowInToday(show: Boolean) {
+        viewModelScope.launch { routinePrefsStore.setShowInToday(show) }
+    }
+
     fun setInboxExcludeDated(enabled: Boolean) {
         viewModelScope.launch { behaviorPrefsStore.setInboxExcludeDated(enabled) }
     }
@@ -571,6 +688,10 @@ class SettingsViewModel(
 
     fun setSubprojectDisplayMode(mode: SubprojectDisplayMode) {
         viewModelScope.launch { behaviorPrefsStore.setSubprojectDisplayMode(mode) }
+    }
+
+    fun setShowProjectProgress(enabled: Boolean) {
+        viewModelScope.launch { behaviorPrefsStore.setShowProjectProgress(enabled) }
     }
 
     fun setLogbookRetentionEnabled(enabled: Boolean) {
@@ -632,6 +753,9 @@ class SettingsViewModel(
     fun clearFailedActions() {
         viewModelScope.launch {
             pendingActionDao.deleteFailed()
+            // The rows those changes protected may differ from the server; refresh them fully.
+            syncCursor.requestFullReconcile()
+            platformSettingsHooks.triggerImmediateSync()
             _messages.update { null to "Failed actions cleared" }
         }
     }

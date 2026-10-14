@@ -8,19 +8,38 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
 import com.rendyhd.vicu.data.local.*
+import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.mapper.*
 import com.rendyhd.vicu.data.repository.*
 import com.rendyhd.vicu.domain.repository.*
 import com.rendyhd.vicu.data.remote.*
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.auth.*
+import com.rendyhd.vicu.util.AppDispatchers
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.CompletionToastCenter
+import com.rendyhd.vicu.ui.screens.shared.ProjectActions
+import com.rendyhd.vicu.util.AppMessages
+import com.rendyhd.vicu.util.BuildInfo
+import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkMonitor
+import com.rendyhd.vicu.data.sync.CarrierFinder
+import com.rendyhd.vicu.data.sync.LabelRefresher
+import com.rendyhd.vicu.data.sync.ProjectRefresher
+import com.rendyhd.vicu.data.sync.ProjectTaskCounts
+import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.SyncStaleness
+import com.rendyhd.vicu.data.sync.TaskRefresher
+import com.rendyhd.vicu.util.SystemTimeSource
+import com.rendyhd.vicu.util.TimeSource
 import com.rendyhd.vicu.worker.SyncEngine
+import com.rendyhd.vicu.worker.CollaborationSync
 
 val databaseModule = module {
     single {
-        getDatabaseBuilder(get()).addMigrations(MIGRATION_1_2).build()
+        getDatabaseBuilder(get()).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
     }
     single { get<VikunjaDatabase>().taskDao() }
     single { get<VikunjaDatabase>().projectDao() }
@@ -28,30 +47,31 @@ val databaseModule = module {
     single { get<VikunjaDatabase>().pendingActionDao() }
     single { get<VikunjaDatabase>().attachmentDao() }
     single { get<VikunjaDatabase>().routineArchiveDao() }
+    single { get<VikunjaDatabase>().localDataDao() }
+    single { get<VikunjaDatabase>().collaborationDao() }
 
     single { BehaviorPrefsStore(createDataStore(get(), "behavior_prefs")) }
     single { BottomBarPrefsStore(createDataStore(get(), "bottom_bar_prefs")) }
+    single { CarrierIdStore(createDataStore(get(), "carrier_ids")) }
     single { CustomListStore(createDataStore(get(), "custom_lists")) }
     single { LabelOrderPrefsStore(createDataStore(get(), "label_order_prefs")) }
     single { LogbookPrefsStore(createDataStore(get(), "logbook_prefs")) }
     single { NlpPrefsStore(createDataStore(get(), "nlp_prefs")) }
+    single { NotificationPermissionStore(createDataStore(get(), "notification_permission")) }
     single { NotificationPrefsStore(createDataStore(get(), "notification_prefs")) }
     single { ProjectSectionPrefsStore(createDataStore(get(), "project_section_prefs")) }
+    single { ReminderAlarmRegistry(createDataStore(get(), "reminder_alarm_registry"), get()) }
     single { ReviewPrefsStore(createDataStore(get(), "review_prefs")) }
     single { RoutinePrefsStore(createDataStore(get(), "routine_prefs")) }
     single { SnoozeStore(createDataStore(get(), "snooze_prefs"), get()) }
+    single { SyncCursorStore(createDataStore(get(), "sync_cursor")) }
+    single { TempIdGenerator(createDataStore(get(), "temp_ids")) }
     single { ThemePrefsStore(createDataStore(get(), "theme_prefs")) }
     single { WidgetPrefsStore(createDataStore(get(), "widget_prefs")) }
 }
 
 val networkModule = module {
-    single {
-        Json {
-            ignoreUnknownKeys = true
-            encodeDefaults = true
-            isLenient = true
-        }
-    }
+    single { createApiJson() }
     single { BaseUrlHolder(get()) }
     single {
         KtorClientFactory.create(
@@ -59,6 +79,9 @@ val networkModule = module {
             json = get(),
             baseUrlHolder = get(),
             authManager = get(),
+            // Set by the host app from its BuildConfig before Koin starts.
+            enableLogging = BuildInfo.isDebug,
+            tokenCheck = ApiTokenCheck(time = get()),
         )
     }
     single { VikunjaApiService(get(), get()) }
@@ -70,6 +93,29 @@ val repositoryModule = module {
     single { ProjectMapper() }
     single { AttachmentMapper() }
 
+    single { TaskRefresher(taskDao = get(), pendingActionDao = get(), api = get(), taskMapper = get(), platformHooks = get(), cursorStore = get(), time = get()) }
+    single {
+        LabelRefresher(
+            labelDao = get(),
+            taskDao = get(),
+            pendingActionDao = get(),
+            api = get(),
+            labelMapper = get(),
+            taskMapper = get(),
+        )
+    }
+    single { ProjectRefresher(projectDao = get(), pendingActionDao = get(), api = get(), projectMapper = get()) }
+
+    single {
+        val taskDao = get<TaskDao>()
+        ListPositioner(
+            api = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            time = get(),
+            storePosition = { taskId, position -> taskDao.updatePosition(taskId, position) },
+        )
+    }
+    single { TaskWriteGate(pendingActionDao = get()) }
     single<TaskRepository> {
         TaskRepositoryImpl(
             taskDao = get(),
@@ -79,14 +125,22 @@ val repositoryModule = module {
             platformHooks = get(),
             json = get(),
             behaviorPrefsStore = get(),
-            logbookPrefsStore = get()
+            logbookPrefsStore = get(),
+            dayClock = get(),
+            tempIds = get(),
+            refresher = get(),
+            positioner = get(),
+            writeGate = get(),
         )
     }
     single<ProjectRepository> {
         ProjectRepositoryImpl(
             projectDao = get(),
             api = get(),
-            projectMapper = get()
+            projectMapper = get(),
+            projectRefresher = get(),
+            pendingActionDao = get(),
+            platformHooks = get(),
         )
     }
     single<LabelRepository> {
@@ -98,16 +152,21 @@ val repositoryModule = module {
             labelMapper = get(),
             taskMapper = get(),
             platformHooks = get(),
-            json = get()
+            json = get(),
+            tempIds = get(),
+            labelRefresher = get(),
+            writeGate = get(),
         )
     }
     single<AttachmentRepository> {
         AttachmentRepositoryImpl(
             attachmentDao = get(),
             api = get(),
-            attachmentMapper = get()
+            attachmentMapper = get(),
+            platformFiles = get(),
         )
     }
+    single { CarrierFinder(api = get(), store = get(), time = get()) }
     single<CustomListRepository> {
         CustomListRepositoryImpl(
             store = get(),
@@ -115,8 +174,26 @@ val repositoryModule = module {
             authManager = get(),
             platformHooks = get(),
             json = get(),
+            carrierFinder = get(),
         )
     }
+    single<CollaborationRepository> {
+        CollaborationRepositoryImpl(
+            collaborationDao = get(),
+            taskDao = get(),
+            projectDao = get(),
+            pendingActionDao = get(),
+            api = get(),
+            taskMapper = get(),
+            projectMapper = get(),
+            tokenStorage = get(),
+            tempIds = get(),
+            platformHooks = get(),
+            writeGate = get(),
+        )
+    }
+    single { CollaborationSync(api = get(), collaborationDao = get(), pendingActionDao = get(), tokenStorage = get()) }
+    single { RoutineArchiveStore(api = get(), json = get()) }
     single<RoutineRepository> {
         RoutineRepositoryImpl(
             taskDao = get(),
@@ -127,13 +204,73 @@ val repositoryModule = module {
             prefsStore = get(),
             platformHooks = get(),
             json = get(),
+            archiveStore = get(),
         )
     }
 }
 
 val commonModule = module {
+    single {
+        ProjectTaskCounts(
+            api = get(),
+            serverKey = { get<AuthManager>().getVikunjaUrl() },
+            time = get(),
+            scope = get(),
+        )
+    }
+    single<ProjectProgressSource> {
+        ProjectProgressSourceImpl(
+            taskDao = get(),
+            counts = get(),
+            carrierFinder = get(),
+            archiveStore = get(),
+            authManager = get(),
+            json = get(),
+        )
+    }
     single { SyncStaleness() }
+    single {
+        ScreenRefresher(
+            taskRepository = get(),
+            projectRepository = get(),
+            labelRepository = get(),
+            staleness = get(),
+            collaboration = get(),
+        )
+    }
+    single { AppMessages() }
+    single { NavigationTicker() }
+    single { AppDispatchers() }
+    single<TimeSource> { SystemTimeSource }
+    single { DayClock(scope = get(), time = get()) }
+    single { NotificationPermissionCoordinator(platform = get(), store = get(), scope = get()) }
+    single {
+        LocalDataWiper(
+            dao = get(),
+            customLists = get(),
+            bottomBarPrefs = get(),
+            platformHooks = get(),
+            syncStaleness = get(),
+            projectSectionPrefs = get(),
+            labelOrderPrefs = get(),
+            routinePrefs = get(),
+            widgetPrefs = get(),
+            syncCursor = get(),
+            carrierIds = get(),
+            listPositions = get(),
+        )
+    }
     single { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
+    single<CompletionToast> { CompletionToastCenter(messages = get(), taskRepository = get(), time = get(), scope = get()) }
+    single {
+        ProjectActions(
+            projectRepository = get(),
+            authManager = get(),
+            repositoryHooks = get(),
+            dayClock = get(),
+            collaboration = get(),
+        )
+    }
     single {
         AuthManager(
             platformAuthHooks = get(),
@@ -143,6 +280,14 @@ val commonModule = module {
             networkMonitor = get()
         )
     }
+    single {
+        AccountSession(
+            tokenStorage = get(),
+            apiService = get(),
+            wiper = get(),
+        )
+    }
+    single { SessionCleanup(authManager = get(), wiper = get()) }
     single {
         PasswordLoginHandler(
             apiServiceProvider = { get() }
@@ -163,11 +308,21 @@ val commonModule = module {
             taskMapper = get(),
             labelMapper = get(),
             projectMapper = get(),
+            taskRefresher = get(),
+            labelRefresher = get(),
+            projectRefresher = get(),
             platformHooks = get(),
             json = get(),
             baseUrlHolder = get(),
             authManager = get(),
             customListRepository = get(),
+            routineRepository = get(),
+            positioner = get(),
+            tempIds = get(),
+            writeGate = get(),
+            projectCounts = get(),
+            collabSync = get(),
+            collaboration = get(),
         )
     }
 }

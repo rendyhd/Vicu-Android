@@ -1,5 +1,7 @@
 # Implementation Plan — Kotlin/Compose Multiplatform Migration for iOS Support
 
+> **Status: historical.** iOS support is not being pursued and the targets do not compile. See [ios-status.md](ios-status.md) for the current state.
+
 **Goal:** Ship Vicu on iPhone by sharing the existing Kotlin + Compose codebase via Compose Multiplatform (CMP), with zero regression on the Android app.
 
 **Strategy:** Strangler-style migration. The Android app must build, pass all unit tests, and be manually smoke-testable after every phase. Phases 0–4 run entirely on Windows; only Phase 5 (the iOS host app) requires macOS. No big-bang restructure.

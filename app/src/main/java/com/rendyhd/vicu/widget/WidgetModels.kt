@@ -1,10 +1,24 @@
 package com.rendyhd.vicu.widget
 
+import com.rendyhd.vicu.ui.navigation.ViewTarget
 import kotlinx.serialization.Serializable
 
 @Serializable
 enum class WidgetViewType {
     TODAY, INBOX, UPCOMING, ANYTIME, PROJECT, CUSTOM_LIST
+}
+
+/**
+ * The screen a tap on the widget title opens. Null when the widget names a project that has no
+ * usable id; the title then just opens the app.
+ */
+fun WidgetViewType.toViewTarget(viewId: String): ViewTarget? = when (this) {
+    WidgetViewType.TODAY -> ViewTarget.Today
+    WidgetViewType.INBOX -> ViewTarget.Inbox
+    WidgetViewType.UPCOMING -> ViewTarget.Upcoming
+    WidgetViewType.ANYTIME -> ViewTarget.Anytime
+    WidgetViewType.PROJECT -> viewId.toLongOrNull()?.let { ViewTarget.Project(it) }
+    WidgetViewType.CUSTOM_LIST -> viewId.takeIf { it.isNotBlank() }?.let { ViewTarget.CustomList(it) }
 }
 
 @Serializable
@@ -40,9 +54,18 @@ data class WidgetConfig(
     val transparentBackground: Boolean = false,
 )
 
-fun TaskWidgetState.withConfig(config: WidgetConfig): TaskWidgetState = copy(
-    viewType = config.viewType,
-    viewId = config.viewId,
-    viewName = config.viewName,
-    transparentBackground = config.transparentBackground,
-)
+/** Keep cached rows for appearance edits; a different view starts in the loading state. */
+fun TaskWidgetState.withConfig(config: WidgetConfig): TaskWidgetState {
+    val viewChanged = viewType != config.viewType || viewId != config.viewId
+    return copy(
+        viewType = config.viewType,
+        viewId = config.viewId,
+        viewName = config.viewName,
+        transparentBackground = config.transparentBackground,
+        tasks = if (viewChanged) emptyList() else tasks,
+        totalCount = if (viewChanged) 0 else totalCount,
+        lastUpdated = if (viewChanged) "" else lastUpdated,
+        error = if (viewChanged) null else error,
+        addToProjectId = if (viewChanged) 0L else addToProjectId,
+    )
+}

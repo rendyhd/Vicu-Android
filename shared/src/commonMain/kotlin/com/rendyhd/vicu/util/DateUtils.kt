@@ -1,38 +1,22 @@
 package com.rendyhd.vicu.util
 
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
-import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
 import kotlinx.datetime.plus
-import kotlinx.datetime.toInstant
-import kotlinx.datetime.toJavaLocalDate
-import kotlinx.datetime.toJavaLocalTime
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.todayIn
 import kotlinx.datetime.atStartOfDayIn
 import kotlin.time.Duration
-import java.time.format.DateTimeFormatter
-import java.time.format.TextStyle
-import java.util.Locale
 
 object DateUtils {
     private val localZone: TimeZone get() = TimeZone.currentSystemDefault()
 
     fun isNullDate(dateStr: String?): Boolean {
         return dateStr.isNullOrBlank() || dateStr == Constants.NULL_DATE_STRING
-    }
-
-    fun getEndOfToday(): String {
-        val today = Clock.System.todayIn(localZone)
-        val endOfToday = today.plus(1, DateTimeUnit.DAY).atStartOfDayIn(localZone)
-        return endOfToday.toString()
     }
 
     /** Milliseconds from [now] to the next local midnight; never less than one second. */
@@ -45,17 +29,6 @@ object DateUtils {
         return (nextMidnight - now).inWholeMilliseconds.coerceAtLeast(1_000L)
     }
 
-    /**
-     * Emits the current end-of-today boundary immediately, then again just after each local
-     * midnight. Lets day-bounded Room flows re-query when the date rolls over instead of
-     * keeping the boundary captured at ViewModel creation.
-     */
-    fun endOfTodayFlow(): Flow<String> = flow {
-        while (true) {
-            emit(getEndOfToday())
-            delay(millisUntilNextMidnight() + 1_000L)
-        }
-    }
 
     fun nowIso(): String {
         return Clock.System.now().toString()
@@ -90,98 +63,24 @@ object DateUtils {
         }
     }
 
-    fun isOverdue(dateStr: String?): Boolean {
-        val instant = parseIsoDate(dateStr) ?: return false
-        val startOfToday = Clock.System.todayIn(localZone).atStartOfDayIn(localZone)
-        return instant < startOfToday
-    }
+    /**
+     * Local date before [today]. [today] defaults to the system clock; pass the day from DayClock
+     * so labels follow midnight. The rule itself lives in [DueDates].
+     */
+    fun isOverdue(
+        dateStr: String?,
+        today: LocalDate = Clock.System.todayIn(localZone),
+        zone: TimeZone = localZone,
+    ): Boolean = DueDates.isOverdue(dateStr, today, zone)
 
-    fun isToday(dateStr: String?): Boolean {
-        val instant = parseIsoDate(dateStr) ?: return false
-        val today = Clock.System.todayIn(localZone)
-        val date = instant.toLocalDateTime(localZone).date
-        return date == today
-    }
-
-    fun getDateKey(dateStr: String?): String {
-        val instant = parseIsoDate(dateStr) ?: return ""
-        return instant.toLocalDateTime(localZone).date.toString()
-    }
-
-    fun formatRelativeDate(dateStr: String?): String {
-        val instant = parseIsoDate(dateStr) ?: return ""
-        val date = instant.toLocalDateTime(localZone).date
-        val today = Clock.System.todayIn(localZone)
-        return when {
-            date == today -> "Today"
-            date == today.plus(1, DateTimeUnit.DAY) -> "Tomorrow"
-            date == today.minus(1, DateTimeUnit.DAY) -> "Yesterday"
-            date > today && date < today.plus(7, DateTimeUnit.DAY) ->
-                date.toJavaLocalDate().dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-            else -> date.toJavaLocalDate().format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()))
-        }
-    }
-
-    fun formatDateHeader(dateStr: String?): String {
-        val instant = parseIsoDate(dateStr) ?: return ""
-        val date = instant.toLocalDateTime(localZone).date
-        val today = Clock.System.todayIn(localZone)
-        return when {
-            date == today -> "Today"
-            date == today.plus(1, DateTimeUnit.DAY) -> "Tomorrow"
-            date > today && date < today.plus(7, DateTimeUnit.DAY) ->
-                date.toJavaLocalDate().dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
-            else -> date.toJavaLocalDate().format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault()))
-        }
-    }
-
-    fun formatTodaySubtitle(): String {
-        val today = Clock.System.todayIn(localZone)
-        return today.toJavaLocalDate().format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault()))
-    }
-
-    fun todayEndIso(): String {
-        val today = Clock.System.todayIn(localZone)
-        val endOfToday = LocalDateTime(today.year, today.monthNumber, today.dayOfMonth, 23, 59, 59)
-            .toInstant(localZone)
-        return endOfToday.toString()
-    }
-
-    fun todayStartIso(): String {
-        val today = Clock.System.todayIn(localZone)
-        val startOfToday = today.atStartOfDayIn(localZone)
-        return startOfToday.toString()
-    }
+    /** Local date equal to [today], whatever the time of day. */
+    fun isToday(
+        dateStr: String?,
+        today: LocalDate = Clock.System.todayIn(localZone),
+        zone: TimeZone = localZone,
+    ): Boolean = DueDates.isDueToday(dateStr, today, zone)
 
     fun formatRecurrence(repeatAfter: Long, repeatMode: Int): String {
         return com.rendyhd.vicu.util.formatRecurrence(RecurrenceValue(repeatAfter, repeatMode))
-    }
-
-    fun tomorrowIso(): String {
-        val tomorrow = Clock.System.todayIn(localZone).plus(1, DateTimeUnit.DAY)
-        val tomorrowNoon = LocalDateTime(tomorrow.year, tomorrow.monthNumber, tomorrow.dayOfMonth, 12, 0)
-            .toInstant(localZone)
-        return tomorrowNoon.toString()
-    }
-
-    fun nextWeekIso(): String {
-        val today = Clock.System.todayIn(localZone)
-        val daysUntilNextMonday = 8 - today.dayOfWeek.value
-        val nextMonday = today.plus(daysUntilNextMonday, DateTimeUnit.DAY)
-        val nextMondayNineAM = LocalDateTime(nextMonday.year, nextMonday.monthNumber, nextMonday.dayOfMonth, 9, 0)
-            .toInstant(localZone)
-        return nextMondayNineAM.toString()
-    }
-
-    fun formatFullDate(dateStr: String?): String {
-        val instant = parseIsoDate(dateStr) ?: return ""
-        val date = instant.toLocalDateTime(localZone).date
-        return date.toJavaLocalDate().format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.getDefault()))
-    }
-
-    fun formatTime(dateStr: String?): String {
-        val instant = parseIsoDate(dateStr) ?: return ""
-        val time = instant.toLocalDateTime(localZone).time
-        return time.toJavaLocalTime().format(DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault()))
     }
 }

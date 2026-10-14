@@ -43,12 +43,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.CustomListFilter
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.ui.components.collab.LocalCollab
+import com.rendyhd.vicu.util.CustomListFilterBuilder
+import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.util.randomUuid
 
 private val DUE_DATE_OPTIONS = listOf(
@@ -61,11 +63,15 @@ private val DUE_DATE_OPTIONS = listOf(
     "no_due_date" to "No due date",
 )
 
-private val SORT_BY_OPTIONS = listOf(
+/** The sorts the editor offers: every key [CustomListFilterBuilder.sortTasks] understands. */
+internal val SORT_BY_OPTIONS = listOf(
     "due_date" to "Due date",
     "created" to "Created",
     "updated" to "Updated",
     "priority" to "Priority",
+    "title" to "Title",
+    "done_at" to "Completed",
+    "position" to "Position",
 )
 
 private val ORDER_OPTIONS = listOf(
@@ -74,6 +80,45 @@ private val ORDER_OPTIONS = listOf(
 )
 
 private val ICON_OPTIONS = IconRegistry.PRESET_ICONS.map { it.key to it.label }
+
+/** "Changed" counts local days with today included (cross-app semantics 3.3); 0 is no condition. */
+private val CHANGED_OPTIONS = listOf(
+    0 to "Any time",
+    1 to "Today",
+    3 to "In the last 3 days",
+    7 to "In the last 7 days",
+    30 to "In the last 30 days",
+)
+
+/** The "Changed" choices, with a value from another device that is not among them kept selectable. */
+internal fun changedOptions(current: Int?): List<Pair<String, String>> {
+    val offered = CHANGED_OPTIONS.map { (days, label) -> days.toString() to label }
+    return if (current == null || current < 1 || CHANGED_OPTIONS.any { it.first == current }) offered
+    else offered + (current.toString() to "In the last $current days")
+}
+
+internal val ASSIGNED_OPTIONS = listOf(
+    "" to "Any task",
+    "me" to "To me",
+    "others" to "To someone else",
+    "nobody" to "To nobody",
+)
+
+internal val COMMENTS_OPTIONS = listOf(
+    "" to "Any task",
+    "unread" to "Unread comments",
+    "any" to "Has comments",
+)
+
+/** [options] plus [value] when this version does not offer it (from a newer app), so saving keeps it. */
+internal fun withKeptValue(options: List<Pair<String, String>>, value: String): List<Pair<String, String>> =
+    if (options.any { it.first == value }) options else options + (value to "Set by a newer version")
+
+/** The switch position for a stored `include_overdue`: an absent key means on. */
+internal fun includeOverdueSwitchOn(stored: Boolean?): Boolean = stored != false
+
+/** What the switch stores: the key stays absent unless the user turned overdue off. */
+internal fun includeOverdueToStore(switchOn: Boolean): Boolean? = if (switchOn) null else false
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,6 +158,19 @@ fun CustomListDialog(
     var includeDone by remember { mutableStateOf(customList?.filter?.includeDone ?: false) }
     var includeTodayAllProjects by remember {
         mutableStateOf(customList?.filter?.includeTodayAllProjects ?: false)
+    }
+    var includeOverdue by remember {
+        mutableStateOf(includeOverdueSwitchOn(customList?.filter?.includeOverdue))
+    }
+    var changedWithinDays by remember { mutableStateOf(customList?.filter?.changedDays ?: 0) }
+    var assigned by remember { mutableStateOf(customList?.filter?.assigned.orEmpty()) }
+    var comments by remember { mutableStateOf(customList?.filter?.comments.orEmpty()) }
+    var sharedOnly by remember { mutableStateOf(customList?.filter?.sharedOnly ?: false) }
+    // The collaboration conditions only mean something once a project is shared; a list that
+    // already has one (synced from another device) shows them so they can be changed.
+    val anyShared = LocalCollab.current.state.anyShared
+    val hadCollaboration = remember {
+        customList?.filter?.let { !it.assigned.isNullOrEmpty() || !it.comments.isNullOrEmpty() || it.sharedOnly } == true
     }
 
     var showProjectPicker by remember { mutableStateOf(false) }
@@ -189,6 +247,7 @@ fun CustomListDialog(
                         items(
                             sortedProjects,
                             key = { it.id },
+                            contentType = { "project" },
                         ) { project ->
                             Row(
                                 modifier = Modifier
@@ -232,6 +291,69 @@ fun CustomListDialog(
                     onSelect = { dueDateFilter = it },
                 )
 
+                // Only the today / this week / this month windows have an overdue part to switch.
+                if (CustomListFilterBuilder.windowHonorsIncludeOverdue(dueDateFilter)) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Include overdue tasks", style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = includeOverdue, onCheckedChange = { includeOverdue = it })
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                DropdownSelector(
+                    label = "Changed",
+                    options = changedOptions(changedWithinDays),
+                    selected = changedWithinDays.toString(),
+                    onSelect = { changedWithinDays = it.toIntOrNull() ?: 0 },
+                )
+
+                if (anyShared || hadCollaboration) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Shared projects",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    DropdownSelector(
+                        label = "Assigned",
+                        options = withKeptValue(ASSIGNED_OPTIONS, assigned),
+                        selected = assigned,
+                        onSelect = { assigned = it },
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    DropdownSelector(
+                        label = "Comments",
+                        options = withKeptValue(COMMENTS_OPTIONS, comments),
+                        selected = comments,
+                        onSelect = { comments = it },
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Only tasks in shared projects", style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = sharedOnly, onCheckedChange = { sharedOnly = it })
+                    }
+                    Text(
+                        text = "Assigned and Comments only match tasks in projects someone else can see.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider()
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // Sort by
@@ -279,7 +401,7 @@ fun CustomListDialog(
                 }
                 if (showLabelPicker) {
                     LazyColumn(modifier = Modifier.heightIn(max = 150.dp)) {
-                        items(labels, key = { it.id }) { label ->
+                        items(labels, key = { it.id }, contentType = { "label" }) { label ->
                             val dotColor = parseHexColor(label.hexColor)
                             Row(
                                 modifier = Modifier
@@ -375,7 +497,9 @@ fun CustomListDialog(
                                 id = customList?.id ?: randomUuid(),
                                 name = name.trim(),
                                 icon = icon,
-                                filter = CustomListFilter(
+                                // A copy, so conditions this editor does not show (priorities set
+                                // on desktop) are kept.
+                                filter = (customList?.filter ?: CustomListFilter()).copy(
                                     projectIds = selectedProjectIds.toList(),
                                     projectFilterMode = projectFilterMode,
                                     addToProjectId = addToProjectId,
@@ -385,6 +509,11 @@ fun CustomListDialog(
                                     labelIds = selectedLabelIds.toList(),
                                     includeDone = includeDone,
                                     includeTodayAllProjects = includeTodayAllProjects,
+                                    includeOverdue = includeOverdueToStore(includeOverdue),
+                                    assigned = assigned.ifEmpty { null },
+                                    comments = comments.ifEmpty { null },
+                                    sharedOnly = sharedOnly,
+                                    changedWithinDays = changedWithinDays.takeIf { it >= 1 },
                                 ),
                             )
                         )
@@ -496,15 +625,5 @@ private fun AddToProjectSelector(
                 )
             }
         }
-    }
-}
-
-private fun parseHexColor(hex: String): Color? {
-    if (hex.isBlank()) return null
-    return try {
-        val normalized = if (hex.startsWith("#")) hex else "#$hex"
-        Color(android.graphics.Color.parseColor(normalized))
-    } catch (_: Exception) {
-        null
     }
 }

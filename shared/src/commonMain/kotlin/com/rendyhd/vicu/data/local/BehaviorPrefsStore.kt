@@ -32,6 +32,8 @@ data class BehaviorPrefs(
     val fabAlignStart: Boolean = false,
     val subtaskDisplayMode: SubtaskDisplayMode = SubtaskDisplayMode.INSIDE_TASK,
     val subprojectDisplayMode: SubprojectDisplayMode = SubprojectDisplayMode.SECTIONS,
+    /** Progress rings next to the projects in the drawer. */
+    val showProjectProgress: Boolean = true,
 )
 
 class BehaviorPrefsStore(
@@ -47,6 +49,7 @@ class BehaviorPrefsStore(
         private val KEY_FAB_ALIGN_START = booleanPreferencesKey("fab_align_start")
         private val KEY_SUBTASK_DISPLAY_MODE = stringPreferencesKey("subtask_display_mode")
         private val KEY_SUBPROJECT_DISPLAY_MODE = stringPreferencesKey("subproject_display_mode")
+        private val KEY_SHOW_PROJECT_PROGRESS = booleanPreferencesKey("show_project_progress")
     }
 
     fun getPrefs(): Flow<BehaviorPrefs> =
@@ -67,6 +70,7 @@ class BehaviorPrefsStore(
                 subprojectDisplayMode = prefs[KEY_SUBPROJECT_DISPLAY_MODE]
                     ?.let { runCatching { SubprojectDisplayMode.valueOf(it) }.getOrNull() }
                     ?: SubprojectDisplayMode.SECTIONS,
+                showProjectProgress = prefs[KEY_SHOW_PROJECT_PROGRESS] ?: true,
             )
         }
 
@@ -107,5 +111,9 @@ class BehaviorPrefsStore(
 
     suspend fun setSubprojectDisplayMode(mode: SubprojectDisplayMode) {
         dataStore.edit { it[KEY_SUBPROJECT_DISPLAY_MODE] = mode.name }
+    }
+
+    suspend fun setShowProjectProgress(enabled: Boolean) {
+        dataStore.edit { it[KEY_SHOW_PROJECT_PROGRESS] = enabled }
     }
 }

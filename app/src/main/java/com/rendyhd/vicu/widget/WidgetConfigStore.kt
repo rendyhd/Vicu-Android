@@ -35,6 +35,11 @@ object WidgetConfigStore {
         }
     }
 
+    /** Forgets every widget's configuration (sign-out): they fall back to the default view. */
+    suspend fun clearAll(context: Context) {
+        context.widgetConfigDataStore.edit { prefs -> prefs.clear() }
+    }
+
     suspend fun deleteConfig(context: Context, appWidgetId: Int) {
         context.widgetConfigDataStore.edit { prefs ->
             prefs.remove(configKey(appWidgetId))

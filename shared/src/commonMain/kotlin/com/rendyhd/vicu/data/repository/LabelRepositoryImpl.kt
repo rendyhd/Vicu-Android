@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.data.repository
 
+import com.rendyhd.vicu.data.local.TempIdGenerator
 import com.rendyhd.vicu.data.local.dao.LabelDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
@@ -8,18 +9,23 @@ import com.rendyhd.vicu.data.mapper.LabelMapper
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.LabelTaskDto
 import com.rendyhd.vicu.data.remote.api.MergePatches
+import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.isNetworkFailure
 import com.rendyhd.vicu.util.isRetriableNetworkError
-import com.rendyhd.vicu.util.AtomicLong
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
-import kotlinx.datetime.Clock
 
 class LabelRepositoryImpl(
     private val labelDao: LabelDao,
@@ -30,9 +36,13 @@ class LabelRepositoryImpl(
     private val taskMapper: TaskMapper,
     private val platformHooks: PlatformRepositoryHooks,
     private val json: Json,
+    private val tempIds: TempIdGenerator,
+    private val labelRefresher: LabelRefresher,
+    /** Sends a change to an existing task or queues it; shared with the task repository. */
+    private val writeGate: TaskWriteGate = TaskWriteGate(pendingActionDao),
+    /** Where Room rows are mapped to domain models: off the main thread; tests pass an unconfined one. */
+    private val mappingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : LabelRepository {
-
-    private val tempIdCounter = AtomicLong(-(Clock.System.now().epochSeconds + 1_000_000))
 
     private suspend fun queueLabelAction(entityId: Long, actionType: String, payload: String) {
         val action = PendingActionEntity(
@@ -66,7 +76,7 @@ class LabelRepositoryImpl(
     override fun getAll(): Flow<List<Label>> =
         labelDao.getAll().map { entities ->
             entities.map { with(labelMapper) { it.toDomain() } }
-        }
+        }.flowOn(mappingDispatcher)
 
     override suspend fun getById(id: Long): Label? =
         labelDao.getById(id)?.let { with(labelMapper) { it.toDomain() } }
@@ -80,7 +90,7 @@ class LabelRepositoryImpl(
             NetworkResult.Success(with(labelMapper) { entity.toDomain() })
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
-                val tempId = tempIdCounter.decrementAndGet()
+                val tempId = tempIds.next()
                 val localLabel = label.copy(
                     id = tempId,
                     created = DateUtils.nowIso(),
@@ -151,56 +161,90 @@ class LabelRepositoryImpl(
         }
     }
 
-    private suspend fun refreshCachedTask(taskId: Long) {
+    /**
+     * The cached task after a label change reached the server: the server's row, unless the local
+     * row holds changes the server does not have yet (queued or failed). Overwriting that row would
+     * show the old values until the queue drains (the refreshers leave such rows alone for the same
+     * reason), so only the label change is applied to it. Also when the task cannot be read back.
+     */
+    private suspend fun refreshCachedTask(taskId: Long, labelId: Long, add: Boolean) {
+        if (taskId in pendingActionDao.getTaskIdsWithPendingActions()) {
+            patchTaskLabelLocally(taskId, labelId, add)
+            return
+        }
         try {
             val taskDto = api.getTask(taskId)
             taskDao.upsert(with(taskMapper) { taskDto.toEntity() })
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
+            patchTaskLabelLocally(taskId, labelId, add)
         }
     }
 
-    override suspend fun addToTask(taskId: Long, labelId: Long): NetworkResult<Unit> {
-        val result = try {
-            api.addLabelToTask(taskId, LabelTaskDto(labelId = labelId))
-            NetworkResult.Success(Unit)
-        } catch (e: Exception) {
-            if (isRetriableNetworkError(e)) {
-                queueLabelAction(labelId, "add_label", "$taskId:$labelId")
-                patchTaskLabelLocally(taskId, labelId, add = true)
-                return NetworkResult.Success(Unit)
-            } else {
-                NetworkResult.Error(e.message ?: "Failed to add label to task")
-            }
-        }
-        if (result is NetworkResult.Success) refreshCachedTask(taskId)
-        return result
-    }
+    override suspend fun addToTask(taskId: Long, labelId: Long): NetworkResult<Unit> =
+        changeTaskLabel(currentTaskId(taskId), currentLabelId(labelId), add = true)
 
-    override suspend fun removeFromTask(taskId: Long, labelId: Long): NetworkResult<Unit> {
-        val result = try {
-            api.removeLabelFromTask(taskId, labelId)
+    override suspend fun removeFromTask(taskId: Long, labelId: Long): NetworkResult<Unit> =
+        changeTaskLabel(currentTaskId(taskId), currentLabelId(labelId), add = false)
+
+    /**
+     * The server's id for a task or label created offline whose create has gone through since the
+     * caller read it (the sync swapped the rows and remembered the ids); otherwise the id itself.
+     */
+    private suspend fun currentTaskId(id: Long): Long =
+        if (id >= 0L || taskDao.getByIdSync(id) != null) id else tempIds.realIdFor(id) ?: id
+
+    private suspend fun currentLabelId(id: Long): Long =
+        if (id >= 0L || labelDao.getById(id) != null) id else tempIds.realIdFor(id) ?: id
+
+    /**
+     * Adds or removes a label on a task, through the same gate as the task's own changes: queued
+     * while a change for the task waits (it must not overtake a queued add or remove of the same
+     * label, nor a queued create or edit of the task), sent otherwise.
+     */
+    private suspend fun changeTaskLabel(taskId: Long, labelId: Long, add: Boolean): NetworkResult<Unit> {
+        val queue: suspend () -> NetworkResult<Unit> = {
+            queueLabelAction(labelId, if (add) "add_label" else "remove_label", "$taskId:$labelId")
+            patchTaskLabelLocally(taskId, labelId, add)
             NetworkResult.Success(Unit)
-        } catch (e: Exception) {
-            if (isRetriableNetworkError(e)) {
-                queueLabelAction(labelId, "remove_label", "$taskId:$labelId")
-                patchTaskLabelLocally(taskId, labelId, add = false)
-                return NetworkResult.Success(Unit)
-            } else {
-                NetworkResult.Error(e.message ?: "Failed to remove label from task")
-            }
         }
-        if (result is NetworkResult.Success) refreshCachedTask(taskId)
-        return result
+        // A task or label created offline has no id the server knows yet (sent as it is, the
+        // request is refused and the label is lost). The change waits in the queue for the create,
+        // and the sync moves it to the real ids.
+        if (taskId < 0L || labelId < 0L) return queue()
+        return writeGate.sendOrQueue(
+            taskId = taskId,
+            send = {
+                if (add) {
+                    api.addLabelToTask(taskId, LabelTaskDto(labelId = labelId))
+                } else {
+                    api.removeLabelFromTask(taskId, labelId)
+                }
+                refreshCachedTask(taskId, labelId, add)
+                NetworkResult.Success(Unit)
+            },
+            queue = queue,
+            refused = { e ->
+                NetworkResult.Error(
+                    e.message ?: if (add) "Failed to add label to task" else "Failed to remove label from task",
+                )
+            },
+        )
     }
 
     override suspend fun refreshAll(): NetworkResult<Unit> {
         return try {
-            val dtos = api.getAllLabels()
-            val entities = dtos.map { with(labelMapper) { it.toEntity() } }
-            labelDao.upsertAll(entities)
+            labelRefresher.refresh()
             NetworkResult.Success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            NetworkResult.Error(e.message ?: "Failed to refresh labels")
+            NetworkResult.Error(
+                message = if (isNetworkFailure(e)) "Can't reach the server" else e.message ?: "Failed to refresh labels",
+                code = (e as? VikunjaApiException)?.httpStatus,
+                offline = isNetworkFailure(e),
+            )
         }
     }
 }

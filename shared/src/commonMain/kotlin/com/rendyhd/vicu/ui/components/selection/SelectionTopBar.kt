@@ -17,6 +17,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 
 /**
  * Contextual app bar shown while multi-select is active. Today and Complete stay one tap away;
@@ -36,6 +38,7 @@ fun SelectionTopBar(
     onRemove: () -> Unit,
 ) {
     var overflowExpanded by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
 
     TopAppBar(
         title = { Text("$count selected") },
@@ -45,10 +48,10 @@ fun SelectionTopBar(
             }
         },
         actions = {
-            IconButton(onClick = onToday) {
+            IconButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.Confirm); onToday() }) {
                 Icon(Icons.Default.CalendarToday, contentDescription = "Today")
             }
-            IconButton(onClick = onComplete) {
+            IconButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.Confirm); onComplete() }) {
                 Icon(Icons.Default.Check, contentDescription = "Complete")
             }
             IconButton(onClick = { overflowExpanded = true }) {

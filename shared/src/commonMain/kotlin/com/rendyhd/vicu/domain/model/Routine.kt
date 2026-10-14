@@ -32,6 +32,10 @@ enum class OccurrenceStatus {
     NOT_LOGGED,
 }
 
+/** Done for the day: completed or skipped. Pending and not-logged occurrences still need attention. */
+val OccurrenceStatus.isFinished: Boolean
+    get() = this == OccurrenceStatus.COMPLETED || this == OccurrenceStatus.SKIPPED
+
 @Serializable
 sealed class RoutineSchedule {
     @Serializable
@@ -105,6 +109,20 @@ data class RoutinePayload(
     val prunedBefore: String = "",
 )
 
+/**
+ * One archive part: older occurrences of one routine, held by a hidden done task on the server
+ * (docs/cross-app-semantics-v1.md, section 6.4). A routine can have any number of parts; reading
+ * its history merges the main carrier with every part by key.
+ */
+@Serializable
+data class RoutineArchivePart(
+    val version: Int = 1,
+    val routineId: String,
+    /** 1-based; duplicates of a number are allowed and merge like any other part. */
+    val part: Int,
+    val occurrences: Map<String, RoutineOccurrenceRecord> = emptyMap(),
+)
+
 data class Routine(
     val taskId: Long,
     val payload: RoutinePayload,
@@ -129,6 +147,9 @@ data class RoutineDay(
 ) {
     val scheduledCount: Int get() = occurrences.size
     val completedCount: Int get() = occurrences.count { it.status == OccurrenceStatus.COMPLETED }
+
+    /** What is still to do today; Today lists only these. */
+    val open: List<RoutineOccurrence> get() = occurrences.filterNot { it.status.isFinished }
 }
 
 data class RoutineDraft(

@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -17,4 +18,7 @@ data class ProjectEntity(
     val created: String = "",
     val updated: String = "",
     val ownerId: Long = 0,
+    /** What you may do in the project (`max_permission`): 0 read, 1 write, 2 admin, -1 not known yet. */
+    @ColumnInfo(defaultValue = "-1")
+    val maxPermission: Int = -1,
 )

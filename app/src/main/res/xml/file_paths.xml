@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Attachments downloaded to be opened or shared (see FileUtils.saveAttachmentToCache). -->
+    <cache-path
+        name="attachments"
+        path="attachments/" />
+</paths>

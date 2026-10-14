@@ -95,4 +95,25 @@ class ReviewMetadataTest {
         )
         assertFalse(s.isOverdue)
     }
+
+    @Test
+    fun `reviewedDescription adds a footer to a description without one`() {
+        assertEquals(
+            "Notes\n\n---\n**Vicu review**: 2026-10-10",
+            ReviewMetadata.reviewedDescription("Notes", LocalDate(2026, 10, 10)),
+        )
+    }
+
+    @Test
+    fun `excludedDescription drops the cadence when excluding and starts over as never when including`() {
+        val reviewed = "Notes\n\n---\n**Vicu review**: 2026-10-01 · every 7 days"
+        val excluded = ReviewMetadata.excludedDescription(reviewed, excluded = true)
+        assertEquals("Notes\n\n---\n**Vicu review**: excluded", excluded)
+        assertEquals("Notes\n\n---\n**Vicu review**: never", ReviewMetadata.excludedDescription(excluded, excluded = false))
+        // Including a project that was never excluded keeps its own cadence (the desktop's excludeDescription).
+        assertEquals(
+            "Notes\n\n---\n**Vicu review**: never · every 7 days",
+            ReviewMetadata.excludedDescription(reviewed, excluded = false),
+        )
+    }
 }

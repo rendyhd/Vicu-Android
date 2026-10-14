@@ -5,7 +5,9 @@ import androidx.room.RoomDatabase
 import androidx.room.ConstructedBy
 import androidx.room.RoomDatabaseConstructor
 import com.rendyhd.vicu.data.local.dao.AttachmentDao
+import com.rendyhd.vicu.data.local.dao.CollaborationDao
 import com.rendyhd.vicu.data.local.dao.LabelDao
+import com.rendyhd.vicu.data.local.dao.LocalDataDao
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.ProjectDao
 import com.rendyhd.vicu.data.local.dao.RoutineArchiveDao
@@ -13,9 +15,12 @@ import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.AttachmentEntity
 import com.rendyhd.vicu.data.local.entity.LabelEntity
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
+import com.rendyhd.vicu.data.local.entity.ProjectMemberEntity
 import com.rendyhd.vicu.data.local.entity.ProjectEntity
 import com.rendyhd.vicu.data.local.entity.RoutineOccurrenceArchiveEntity
+import com.rendyhd.vicu.data.local.entity.TaskCommentEntity
 import com.rendyhd.vicu.data.local.entity.TaskEntity
+import com.rendyhd.vicu.data.local.entity.TaskSignalEntity
 
 @Database(
     entities = [
@@ -25,8 +30,11 @@ import com.rendyhd.vicu.data.local.entity.TaskEntity
         PendingActionEntity::class,
         AttachmentEntity::class,
         RoutineOccurrenceArchiveEntity::class,
+        ProjectMemberEntity::class,
+        TaskSignalEntity::class,
+        TaskCommentEntity::class,
     ],
-    version = 2,
+    version = 4,
     exportSchema = true,
 )
 @ConstructedBy(VikunjaDatabaseConstructor::class)
@@ -37,6 +45,8 @@ abstract class VikunjaDatabase : RoomDatabase() {
     abstract fun pendingActionDao(): PendingActionDao
     abstract fun attachmentDao(): AttachmentDao
     abstract fun routineArchiveDao(): RoutineArchiveDao
+    abstract fun localDataDao(): LocalDataDao
+    abstract fun collaborationDao(): CollaborationDao
 }
 
 @Suppress("NO_ACTUAL_FOR_EXPECT")

@@ -18,11 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.List
-import androidx.compose.material.icons.outlined.AllInclusive
-import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.MoveToInbox
-import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -41,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -51,6 +48,8 @@ import com.rendyhd.vicu.data.local.CustomListStore
 import com.rendyhd.vicu.data.local.dao.ProjectDao
 import com.rendyhd.vicu.data.local.entity.ProjectEntity
 import com.rendyhd.vicu.domain.model.CustomList
+import com.rendyhd.vicu.ui.components.shared.SmartListIdentity
+import com.rendyhd.vicu.ui.theme.LocalVicuColors
 import com.rendyhd.vicu.ui.theme.VicuTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -121,6 +120,7 @@ private fun ConfigScreen(
     onSelect: (WidgetConfig) -> Unit,
 ) {
     val context = LocalContext.current
+    val identity = LocalVicuColors.current.identity
     var projects by remember { mutableStateOf<List<ProjectEntity>>(emptyList()) }
     var customLists by remember { mutableStateOf<List<CustomList>>(emptyList()) }
     var selectedConfig by remember { mutableStateOf(WidgetConfig()) }
@@ -175,7 +175,8 @@ private fun ConfigScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             SectionLabel("Smart Lists")
             ConfigOption(
-                icon = Icons.Outlined.WbSunny,
+                icon = SmartListIdentity.TODAY.icon,
+                iconTint = SmartListIdentity.TODAY.color(identity),
                 label = "Today",
                 selected = selectedConfig.viewType == WidgetViewType.TODAY,
                 onClick = {
@@ -183,7 +184,8 @@ private fun ConfigScreen(
                 },
             )
             ConfigOption(
-                icon = Icons.Outlined.MoveToInbox,
+                icon = SmartListIdentity.INBOX.icon,
+                iconTint = SmartListIdentity.INBOX.color(identity),
                 label = "Inbox",
                 selected = selectedConfig.viewType == WidgetViewType.INBOX,
                 onClick = {
@@ -191,7 +193,8 @@ private fun ConfigScreen(
                 },
             )
             ConfigOption(
-                icon = Icons.Outlined.CalendarMonth,
+                icon = SmartListIdentity.UPCOMING.icon,
+                iconTint = SmartListIdentity.UPCOMING.color(identity),
                 label = "Upcoming",
                 selected = selectedConfig.viewType == WidgetViewType.UPCOMING,
                 onClick = {
@@ -199,7 +202,8 @@ private fun ConfigScreen(
                 },
             )
             ConfigOption(
-                icon = Icons.Outlined.AllInclusive,
+                icon = SmartListIdentity.ANYTIME.icon,
+                iconTint = SmartListIdentity.ANYTIME.color(identity),
                 label = "Anytime",
                 selected = selectedConfig.viewType == WidgetViewType.ANYTIME,
                 onClick = {
@@ -268,6 +272,7 @@ private fun ConfigOption(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
+    iconTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
     Row(
         modifier = Modifier
@@ -279,7 +284,7 @@ private fun ConfigOption(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = iconTint,
         )
         Spacer(modifier = Modifier.width(16.dp))
         Text(

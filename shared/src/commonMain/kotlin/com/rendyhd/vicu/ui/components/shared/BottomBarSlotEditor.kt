@@ -16,18 +16,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -43,6 +45,7 @@ import com.rendyhd.vicu.domain.model.BottomBarSlot
 import com.rendyhd.vicu.domain.model.BottomBarSlotType
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.util.parseHexColor
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -57,6 +60,7 @@ fun BottomBarSlotEditor(
     var selectedType by remember { mutableStateOf(currentSlot.type) }
     var selectedReferenceId by remember { mutableStateOf(currentSlot.referenceId) }
     var selectedIconKey by remember { mutableStateOf(currentSlot.iconKey) }
+    var selectedColorHex by remember { mutableStateOf(currentSlot.colorHex) }
     var typeDropdownExpanded by remember { mutableStateOf(false) }
 
     val typeOptions = listOf(
@@ -77,7 +81,8 @@ fun BottomBarSlotEditor(
         onDismissRequest = onDismiss,
         title = { Text("Bottom Bar Slot ${slotIndex + 1}") },
         text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            // Scrolls on a short screen: the lists inside have a fixed maximum height.
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
                 // Type dropdown
                 Text(
                     "View type",
@@ -96,7 +101,7 @@ fun BottomBarSlotEditor(
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(typeDropdownExpanded) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
                     )
                     ExposedDropdownMenu(
                         expanded = typeDropdownExpanded,
@@ -110,6 +115,7 @@ fun BottomBarSlotEditor(
                                         selectedType = type
                                         selectedReferenceId = ""
                                         selectedIconKey = ""
+                                        selectedColorHex = ""
                                     }
                                     typeDropdownExpanded = false
                                 },
@@ -137,7 +143,7 @@ fun BottomBarSlotEditor(
                                 RoundedCornerShape(8.dp),
                             ),
                     ) {
-                        items(projects, key = { it.id }) { project ->
+                        items(projects, key = { it.id }, contentType = { "project" }) { project ->
                             val isSelected = selectedReferenceId == project.id.toString()
                             Row(
                                 modifier = Modifier
@@ -182,7 +188,7 @@ fun BottomBarSlotEditor(
                                 RoundedCornerShape(8.dp),
                             ),
                     ) {
-                        items(customLists, key = { it.id }) { list ->
+                        items(customLists, key = { it.id }, contentType = { "list" }) { list ->
                             val isSelected = selectedReferenceId == list.id
                             Row(
                                 modifier = Modifier
@@ -209,8 +215,9 @@ fun BottomBarSlotEditor(
                     }
                 }
 
-                // Icon picker (only for project/custom list)
+                // Icon and colour (only for project/custom list: a smart list keeps its own)
                 if (selectedType == BottomBarSlotType.PROJECT || selectedType == BottomBarSlotType.CUSTOM_LIST) {
+                    val chosenColor = parseHexColor(selectedColorHex)
                     Spacer(Modifier.height(12.dp))
                     HorizontalDivider()
                     Spacer(Modifier.height(12.dp))
@@ -250,12 +257,28 @@ fun BottomBarSlotEditor(
                                 Icon(
                                     iconOption.icon,
                                     contentDescription = iconOption.label,
-                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = if (isSelected) {
+                                        chosenColor ?: MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
                                     modifier = Modifier.size(22.dp),
                                 )
                             }
                         }
                     }
+
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Choose colour",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    IconColorPicker(
+                        selectedHex = selectedColorHex,
+                        onSelect = { selectedColorHex = it },
+                    )
                 }
             }
         },
@@ -272,6 +295,10 @@ fun BottomBarSlotEditor(
                             iconKey = when (selectedType) {
                                 BottomBarSlotType.TODAY, BottomBarSlotType.UPCOMING, BottomBarSlotType.ANYTIME -> ""
                                 else -> selectedIconKey
+                            },
+                            colorHex = when (selectedType) {
+                                BottomBarSlotType.TODAY, BottomBarSlotType.UPCOMING, BottomBarSlotType.ANYTIME -> ""
+                                else -> selectedColorHex
                             },
                         ),
                     )

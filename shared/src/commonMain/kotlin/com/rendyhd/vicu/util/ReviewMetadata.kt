@@ -1,11 +1,8 @@
 package com.rendyhd.vicu.util
 
-import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
-import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
-import kotlinx.datetime.todayIn
 import kotlinx.datetime.daysUntil
 
 enum class ReviewState { NEVER, REVIEWED, EXCLUDED }
@@ -77,10 +74,33 @@ data class ReviewMetadata(
             return if (body.isEmpty()) footer else "$body\n\n$footer"
         }
 
+        /** [description] with its footer saying the project was reviewed on [today]; a cadence of its own is kept. */
+        fun reviewedDescription(description: String, today: LocalDate): String {
+            val current = parse(description)
+            return upsert(description, ReviewMetadata(ReviewState.REVIEWED, today.toString(), current.cadenceDaysOverride))
+        }
+
+        /**
+         * [description] with the project left out of review ([excluded]) or back in it: then it has
+         * never been reviewed and keeps a cadence of its own. The desktop's `excludeDescription`.
+         */
+        fun excludedDescription(description: String, excluded: Boolean): String {
+            val meta = if (excluded) {
+                ReviewMetadata(ReviewState.EXCLUDED, null, null)
+            } else {
+                ReviewMetadata(ReviewState.NEVER, null, parse(description).cadenceDaysOverride)
+            }
+            return upsert(description, meta)
+        }
+
+        /**
+         * Review status from local calendar dates only (docs/cross-app-semantics-v1.md, section 4).
+         * [today] is the device's local date from DayClock, so the status follows midnight.
+         */
         fun computeStatus(
             meta: ReviewMetadata,
             globalCadenceDays: Int,
-            today: LocalDate = Clock.System.todayIn(TimeZone.currentSystemDefault()),
+            today: LocalDate,
         ): ReviewStatus {
             val cadence = meta.cadenceDaysOverride ?: globalCadenceDays
             if (meta.state == ReviewState.EXCLUDED) {
@@ -95,9 +115,6 @@ data class ReviewMetadata(
             val daysUntil = today.daysUntil(next).toLong()
             return ReviewStatus(meta, cadence, next, daysUntil < 0, daysSince, daysUntil)
         }
-
-        /** Local-calendar today as YYYY-MM-DD, used when marking reviewed. */
-        fun todayLocalIsoDate(): String = Clock.System.todayIn(TimeZone.currentSystemDefault()).toString()
     }
 }
 

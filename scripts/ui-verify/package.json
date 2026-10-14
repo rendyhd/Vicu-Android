@@ -1,0 +1,14 @@
+{
+  "name": "vicu-android-ui-verify",
+  "private": true,
+  "type": "module",
+  "description": "Emulator harness for Vicu Android UI checks (captures, accessibility report). Not part of the app build.",
+  "scripts": {
+    "shots": "node shots.mjs",
+    "a11y": "node a11y.mjs",
+    "login": "node login.mjs"
+  },
+  "dependencies": {
+    "pngjs": "7.0.0"
+  }
+}
