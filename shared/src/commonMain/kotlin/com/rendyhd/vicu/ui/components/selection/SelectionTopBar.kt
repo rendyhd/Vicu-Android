@@ -92,7 +92,7 @@ fun SelectionTopBar(
                     onApplyLabel()
                 }
                 if (onAssign != null) {
-                    SelectionMenuItem("Assign…") {
+                    SelectionMenuItem("Assign") {
                         overflowExpanded = false
                         onAssign()
                     }
