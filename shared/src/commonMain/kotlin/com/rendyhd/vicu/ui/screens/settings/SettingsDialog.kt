@@ -36,7 +36,7 @@ internal sealed interface SettingsDialog {
     data class RenameCategory(val categoryId: String) : SettingsDialog
     data class MoveToCategory(val projectId: Long) : SettingsDialog
 
-    /** "New category…" in [MoveToCategory]: a new category that [projectId] moves into. */
+    /** "New category" in [MoveToCategory]: a new category that [projectId] moves into. */
     data class NewCategoryFor(val projectId: Long) : SettingsDialog
     data class AddCategoryAbove(val projectId: Long) : SettingsDialog
 

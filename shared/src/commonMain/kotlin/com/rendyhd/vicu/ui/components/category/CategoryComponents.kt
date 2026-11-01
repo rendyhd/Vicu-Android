@@ -59,10 +59,9 @@ import com.rendyhd.vicu.util.countOf
 
 /** The words of the category actions, the same on the desktop. */
 object CategoryLabels {
-    const val MOVE_TO = "Move to category…"
+    const val MOVE_TO = "Move to category"
     const val ADD_ABOVE = "Add category above"
     const val NONE = "No category"
-    const val NEW_FROM_MENU = "New category…"
     const val NEW = "New category"
     const val RENAME = "Rename"
     const val RENAME_TITLE = "Rename category"
@@ -257,8 +256,8 @@ fun CategoryNameDialog(
 }
 
 /**
- * "Move to category…" for [projectTitle]: no category or one of [categories] (display order), the
- * one it is in ([currentId]) marked, and "New category…" to make one and move it there.
+ * "Move to category" for [projectTitle]: no category or one of [categories] (display order), the
+ * one it is in ([currentId]) marked, and "New category" to make one and move it there.
  */
 @Composable
 fun MoveToCategoryDialog(
@@ -279,7 +278,7 @@ fun MoveToCategoryDialog(
                     CategoryChoice(category.name, selected = category.id == currentId) { onChoose(category) }
                 }
                 TextButton(onClick = onNewCategory, modifier = Modifier.padding(top = 4.dp)) {
-                    Text(CategoryLabels.NEW_FROM_MENU)
+                    Text(CategoryLabels.NEW)
                 }
             }
         },

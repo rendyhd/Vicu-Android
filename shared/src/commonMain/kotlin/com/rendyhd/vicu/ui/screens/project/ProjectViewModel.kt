@@ -472,12 +472,12 @@ class ProjectViewModel(
         }
     }
 
-    /** "Move to category…": this project into [category], or with null out of its category. */
+    /** "Move to category": this project into [category], or with null out of its category. */
     fun moveToCategory(category: ProjectCategory?) {
         viewModelScope.launch { currentProject()?.let { report(projectActions.assignCategory(it, category)) } }
     }
 
-    /** "New category…": a new category [name], last, with this project in it. */
+    /** "New category": a new category [name], last, with this project in it. */
     fun moveToNewCategory(name: String) {
         viewModelScope.launch { currentProject()?.let { report(projectActions.createCategory(name, it)) } }
     }

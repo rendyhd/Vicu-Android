@@ -69,7 +69,7 @@ class ProjectViewModelMenuTest {
             menu.entries(),
         )
         assertEquals(
-            listOf("Sort tasks", "Edit project", "Add subproject", "Move to category…", "Set as Inbox", "Mark reviewed", "Archive", "Delete"),
+            listOf("Sort tasks", "Edit project", "Add subproject", "Move to category", "Set as Inbox", "Mark reviewed", "Archive", "Delete"),
             menu.entries().map { it.label },
         )
         assertTrue(ProjectMenuEntry.DELETE.destructive)
