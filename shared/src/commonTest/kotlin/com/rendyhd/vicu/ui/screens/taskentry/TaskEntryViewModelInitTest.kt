@@ -121,4 +121,21 @@ class TaskEntryViewModelInitTest {
         assertEquals("Read this\nlater", vm.uiState.value.description)
         authScope.cancel()
     }
+
+    @Test
+    fun `a shared screenshot opens the sheet with an empty title and the image attached`() = runTest {
+        val authScope = CoroutineScope(SupervisorJob())
+        val vm = viewModel(authScope)
+        val uri = "content://com.android.systemui/screenshot/42"
+
+        vm.initWithSharedContent(
+            1L,
+            SharedContent(subject = "Screenshot (Nov 3, 2026, 10:12:34 AM)", fileUris = listOf(uri), mimeType = "image/png"),
+        )
+        runCurrent()
+
+        assertEquals("", vm.uiState.value.title)
+        assertEquals(listOf(uri), vm.uiState.value.pendingAttachmentUris)
+        authScope.cancel()
+    }
 }

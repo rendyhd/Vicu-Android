@@ -66,12 +66,18 @@ final class ShareModel: ObservableObject {
             texts.removeFirst()
         }
         // As Android's share (SharedContent): the subject is the title, else the first line of
-        // the text; the text goes into the notes unless it is all the title already says.
+        // the text; the text goes into the notes unless it is all the title already says. Files
+        // start without a title: the subject that comes with them is the sender's name for them.
         var seen = Set<String>()
         let text = (texts + urls).filter { seen.insert($0).inserted }.joined(separator: "\n")
-        let firstLine = text.split(whereSeparator: \.isNewline).first.map { String($0.prefix(100)) }
-        title = subject ?? firstLine ?? ""
-        notes = text == title ? "" : text
+        if files.isEmpty {
+            let firstLine = text.split(whereSeparator: \.isNewline).first.map { String($0.prefix(100)) }
+            title = subject ?? firstLine ?? ""
+            notes = text == title ? "" : text
+        } else {
+            title = ""
+            notes = text == subject ? "" : text
+        }
         loading = false
     }
 
