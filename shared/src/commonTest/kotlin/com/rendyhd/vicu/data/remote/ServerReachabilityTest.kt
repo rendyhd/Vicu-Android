@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
 class ServerReachabilityTest {
 
     @Test
-    fun `an answer means the server is there, unless a proxy says it is gone`() {
+    fun `an answer means the server is there unless a proxy says it is gone`() {
         val reachability = ServerReachability()
         assertFalse(reachability.unreachable.value)
 

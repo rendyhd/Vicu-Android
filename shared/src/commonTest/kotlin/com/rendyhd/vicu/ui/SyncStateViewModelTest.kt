@@ -118,7 +118,7 @@ class SyncStateViewModelTest {
     }
 
     @Test
-    fun `while the server is down it is asked again, and its return sends the queue`() = runTest {
+    fun `while the server is down it is asked again and its return sends the queue`() = runTest {
         val reachability = ServerReachability()
         val hooks = RecordingSettingsHooks()
         var status = HttpStatusCode.ServiceUnavailable
