@@ -130,7 +130,7 @@ fun TagScreen(
                     item {
                         EmptyState(
                             icon = Icons.AutoMirrored.Outlined.Label,
-                            title = "No tasks with this tag",
+                            title = "No tasks with this label",
                         )
                     }
                 } else {

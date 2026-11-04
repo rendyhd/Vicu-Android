@@ -204,6 +204,14 @@ object DateDisplay {
         else -> shortDate(value, today)
     }
 
+    /** Yesterday, today and tomorrow say the word and the date; any other day its weekday date. */
+    private fun Phrases.chipDay(diff: Int, value: LocalDateTime, today: LocalDate): String = when (diff) {
+        -1 -> "$YESTERDAY, ${shortDate(value, today)}"
+        0 -> "$TODAY, ${shortDate(value, today)}"
+        1 -> "$TOMORROW, ${shortDate(value, today)}"
+        else -> weekdayDate(value, today)
+    }
+
     /**
      * The text of a date for one context (section 8.3 of the contract). [value] is a local
      * wall-clock time and [today] the local date. [dateOnly] says the value has no time of day
@@ -228,7 +236,7 @@ object DateDisplay {
                     p.withTime(p.rowDay(diff, value, today), value, dateOnly, fmt)
                 }
             DateContext.ROW_IN_DAY_GROUP -> if (dateOnly) "" else p.time(value, fmt.hour12)
-            DateContext.CHIP -> p.withTime(p.weekdayDate(value, today), value, dateOnly, fmt)
+            DateContext.CHIP -> p.withTime(p.chipDay(diff, value, today), value, dateOnly, fmt)
             DateContext.HEADER_DAY -> when {
                 diff == 0 -> TODAY
                 diff == 1 -> TOMORROW
@@ -271,6 +279,18 @@ object DateDisplay {
         val instant = DateUtils.parseIsoDate(dueDate) ?: return ""
         return format(context, instant.toLocalDateTime(zone), today, DueDates.isDateOnly(instant, zone), fmt)
     }
+
+    /** A chip phrase in the middle of a sentence ("Remind today, Nov 4"): its word in lower case. */
+    fun midSentence(phrase: String): String =
+        if (phrase.startsWith(YESTERDAY) || phrase.startsWith(TODAY) || phrase.startsWith(TOMORROW)) {
+            phrase.replaceFirstChar { it.lowercase() }
+        } else {
+            phrase
+        }
+
+    /** The weekday date of a day ("Mon, Nov 9", "Mon 9 Nov"), with the year when it differs from [today]'s. */
+    fun formatWeekdayDate(date: LocalDate, today: LocalDate, fmt: DateDisplayFormat): String =
+        phrasesFor(fmt.localeTag).weekdayDate(date.atTime(0, 0), today)
 
     /** The short weekday of a day ("Wed"); the hint of a quick choice in the When sheet. */
     fun formatWeekdayShort(date: LocalDate, fmt: DateDisplayFormat): String =

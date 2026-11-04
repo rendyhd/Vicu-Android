@@ -72,7 +72,7 @@ class TaskRefresherTest {
         h.refresher.refresh()
         h.refresher.refresh()
 
-        assertTrue(h.server.lists().none { "expand" in it.params }, "expand=subtasks hides subtasks of tasks that do not match")
+        assertTrue(h.server.lists().none { "subtasks" in it.params["expand"].orEmpty() }, "expand=subtasks hides subtasks of tasks that do not match")
     }
 
     // ---- incremental ---------------------------------------------------------------------------

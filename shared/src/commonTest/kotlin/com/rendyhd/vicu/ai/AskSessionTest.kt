@@ -27,6 +27,7 @@ import io.ktor.client.engine.mock.toByteArray
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
@@ -184,5 +185,45 @@ class AskSessionTest {
         assertEquals(null, h.session.state.value.lingering)
         assertEquals("applied", h.session.conversation.outcomes.getValue("c1").status)
         assertEquals(2, h.sent.size)
+    }
+
+    @Test
+    fun stoppingAnswersAnOpenCallSoTheNextRequestIsValid() = runTest {
+        val h = harness(
+            sse(toolCall("c1", "propose_complete_tasks", """{"task_ids":[1],"done":true}""")),
+            answer("Stopped, as you asked."),
+        )
+        val turn = launch { h.session.send("Mark the milk done", AskList("Today"), talk = false) }
+        h.session.state.first { it.pending != null }
+        turn.cancelAndJoin()
+
+        h.session.stopped()
+
+        val state = h.session.state.value
+        assertTrue(state.stopped)
+        assertTrue(!state.busy)
+        assertTrue(state.conversation.messages.any { it is ChatMessage.User }, "what was asked stays")
+        val closed = assertIs<ChatMessage.ToolResults>(state.conversation.messages.last())
+        assertEquals("c1", closed.results.single().callId)
+        assertTrue(closed.results.single().isError)
+        assertTrue("cancelled" in closed.results.single().content)
+
+        h.session.send("Something else", AskList("Today"), talk = false)
+
+        assertTrue(!h.session.state.value.stopped, "the next turn clears it")
+        val messages = h.sent[1].getValue("messages").jsonArray
+        assertEquals("tool", messages[messages.size - 2].jsonObject.getValue("role").jsonPrimitive.content)
+    }
+
+    @Test
+    fun stoppingWithoutAnOpenCallAddsNothing() = runTest {
+        val h = harness(answer("Hello"))
+        h.session.send("Hi", AskList("Today"), talk = false)
+        val before = h.session.conversation.messages
+
+        h.session.stopped()
+
+        assertEquals(before, h.session.conversation.messages)
+        assertTrue(h.session.state.value.stopped)
     }
 }

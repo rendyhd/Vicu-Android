@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.data.local.RowDensity
 import com.rendyhd.vicu.data.local.ThemeMode
 import com.rendyhd.vicu.ui.theme.supportsDeviceColors
 
@@ -134,6 +135,38 @@ internal fun LazyListScope.appearanceSection(
             checked = useDeviceColors,
             onCheckedChange = viewModel::setUseDeviceColors,
         )
+    }
+
+    item(key = "row_density") {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text(text = "Task rows", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = "Comfortable shows longer titles and a line of notes",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            @OptIn(ExperimentalMaterial3Api::class)
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                val options = listOf(
+                    RowDensity.COMPACT to "Compact",
+                    RowDensity.COMFORTABLE to "Comfortable",
+                )
+                options.forEachIndexed { index, (density, label) ->
+                    SegmentedButton(
+                        selected = state.behaviorPrefs.rowDensity == density,
+                        onClick = { viewModel.setRowDensity(density) },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                    ) {
+                        Text(label)
+                    }
+                }
+            }
+        }
     }
 
     item(key = "theme_divider") {

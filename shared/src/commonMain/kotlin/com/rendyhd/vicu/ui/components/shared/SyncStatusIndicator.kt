@@ -7,10 +7,13 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -29,14 +32,37 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
+/**
+ * What the banner says while changes cannot be sent: no network, or a network and a server that
+ * does not answer. Null when neither holds.
+ */
+internal fun offlineBannerText(isOffline: Boolean, serverUnreachable: Boolean, pendingCount: Int): String? {
+    val state = when {
+        isOffline -> "Offline"
+        serverUnreachable -> "Can't reach the server"
+        else -> return null
+    }
+    return if (pendingCount > 0) "$state — ${countOf(pendingCount, "change")} pending" else state
+}
+
+/**
+ * A quiet band: nothing is wrong with the user's work, it waits. The bands sit at the top of the
+ * screen, so each pays for the status bar itself; the band above and the screen below take that
+ * off through consumed insets (see the banners' place in VicuApp).
+ */
 @Composable
 fun OfflineBanner(
     isOffline: Boolean,
+    serverUnreachable: Boolean,
     pendingCount: Int,
     modifier: Modifier = Modifier,
 ) {
+    val text = offlineBannerText(isOffline, serverUnreachable, pendingCount)
+    // The last words stay while the band closes.
+    val shown = remember { mutableStateOf("") }
+    if (text != null) shown.value = text
     AnimatedVisibility(
-        visible = isOffline,
+        visible = text != null,
         enter = expandVertically(),
         exit = shrinkVertically(),
         modifier = modifier,
@@ -44,25 +70,22 @@ fun OfflineBanner(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.errorContainer)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 imageVector = Icons.Outlined.CloudOff,
-                contentDescription = "Offline",
-                tint = MaterialTheme.colorScheme.onErrorContainer,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = if (pendingCount > 0) {
-                    "Offline — ${countOf(pendingCount, "change")} pending"
-                } else {
-                    "Offline"
-                },
+                text = shown.value,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onErrorContainer,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -91,6 +114,7 @@ fun FailedActionsBanner(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.errorContainer)
+                .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

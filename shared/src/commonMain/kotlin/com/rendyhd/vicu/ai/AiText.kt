@@ -58,7 +58,7 @@ object AiText {
         }
     }
 
-    private fun decodeEntities(text: String): String =
+    internal fun decodeEntities(text: String): String =
         text.replace(Regex("&#(x?[0-9a-fA-F]+);")) { m ->
             val v = m.groupValues[1]
             val code = if (v.startsWith("x") || v.startsWith("X")) v.substring(1).toIntOrNull(16) else v.toIntOrNull()

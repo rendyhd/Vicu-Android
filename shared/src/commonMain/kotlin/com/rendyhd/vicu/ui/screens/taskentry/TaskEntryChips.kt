@@ -37,8 +37,8 @@ internal fun entryProjectChipLabel(
 }
 
 /**
- * The tags chip: the labels picked by hand and the ones the text names (each once, in that order),
- * in words. Null when there are none (the chip then says "Tags"). One or two names are listed,
+ * The labels chip: the labels picked by hand and the ones the text names (each once, in that order),
+ * in words. Null when there are none (the chip then says "Labels"). One or two names are listed,
  * more are counted.
  */
 internal fun entryLabelsWords(pickedTitles: List<String>, parsedNames: List<String>): String? {
@@ -47,7 +47,7 @@ internal fun entryLabelsWords(pickedTitles: List<String>, parsedNames: List<Stri
     return when {
         all.isEmpty() -> null
         all.size <= 2 -> all.joinToString(", ")
-        else -> "${all.size} tags"
+        else -> "${all.size} labels"
     }
 }
 

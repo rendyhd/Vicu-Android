@@ -23,6 +23,12 @@ enum class SwipeAction { COMPLETE, CHOOSE_WHEN, DUE_TODAY, DUE_TOMORROW, URGENT,
 /** Controls whether subtasks stay in task details or can expand inline in task lists. */
 enum class SubtaskDisplayMode { INSIDE_TASK, EXPANDABLE }
 
+/** How much of a task a row shows (design-system section 4); the values are in `design-tokens-v1.json`. */
+enum class RowDensity(val titleLines: Int, val notesLines: Int) {
+    COMPACT(titleLines = 1, notesLines = 0),
+    COMFORTABLE(titleLines = 3, notesLines = 1),
+}
+
 /** Controls whether child projects expose their tasks as sections or navigate as project rows. */
 enum class SubprojectDisplayMode { SECTIONS, PROJECT_ROWS }
 
@@ -42,6 +48,7 @@ data class BehaviorPrefs(
     val keepEntryOpen: Boolean = false,
     val fabAlignStart: Boolean = false,
     val subtaskDisplayMode: SubtaskDisplayMode = SubtaskDisplayMode.INSIDE_TASK,
+    val rowDensity: RowDensity = RowDensity.COMPACT,
     val subprojectDisplayMode: SubprojectDisplayMode = SubprojectDisplayMode.SECTIONS,
     /** Progress rings next to the projects in the drawer. */
     val showProjectProgress: Boolean = true,
@@ -78,6 +85,7 @@ class BehaviorPrefsStore(
         private val KEY_KEEP_ENTRY_OPEN = booleanPreferencesKey("keep_entry_open")
         private val KEY_FAB_ALIGN_START = booleanPreferencesKey("fab_align_start")
         private val KEY_SUBTASK_DISPLAY_MODE = stringPreferencesKey("subtask_display_mode")
+        private val KEY_ROW_DENSITY = stringPreferencesKey("row_density")
         private val KEY_SUBPROJECT_DISPLAY_MODE = stringPreferencesKey("subproject_display_mode")
         private val KEY_SHOW_PROJECT_PROGRESS = booleanPreferencesKey("show_project_progress")
         private val KEY_SHOW_PROJECT_TASK_COUNT = booleanPreferencesKey("show_project_task_count")
@@ -98,6 +106,7 @@ class BehaviorPrefsStore(
                 subtaskDisplayMode = prefs[KEY_SUBTASK_DISPLAY_MODE]
                     ?.let { runCatching { SubtaskDisplayMode.valueOf(it) }.getOrNull() }
                     ?: SubtaskDisplayMode.INSIDE_TASK,
+                rowDensity = RowDensity.entries.firstOrNull { it.name == prefs[KEY_ROW_DENSITY] } ?: RowDensity.COMPACT,
                 subprojectDisplayMode = prefs[KEY_SUBPROJECT_DISPLAY_MODE]
                     ?.let { runCatching { SubprojectDisplayMode.valueOf(it) }.getOrNull() }
                     ?: SubprojectDisplayMode.SECTIONS,
@@ -150,6 +159,10 @@ class BehaviorPrefsStore(
 
     suspend fun setSubtaskDisplayMode(mode: SubtaskDisplayMode) {
         dataStore.edit { it[KEY_SUBTASK_DISPLAY_MODE] = mode.name }
+    }
+
+    suspend fun setRowDensity(density: RowDensity) {
+        dataStore.edit { it[KEY_ROW_DENSITY] = density.name }
     }
 
     suspend fun setSubprojectDisplayMode(mode: SubprojectDisplayMode) {

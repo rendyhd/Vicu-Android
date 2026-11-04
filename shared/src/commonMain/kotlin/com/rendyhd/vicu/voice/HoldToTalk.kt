@@ -57,7 +57,7 @@ enum class VoiceBegin {
 }
 
 /** A task added from the words: the confirmation to show, and how to take it back (null when it failed). */
-class VoiceAddResult(val message: String, val undo: (suspend () -> Unit)? = null)
+class VoiceAddResult(val message: String, val taskId: Long? = null, val undo: (suspend () -> Unit)? = null)
 
 /**
  * The session behind holding the + button: listens while the finger is down and shows the words
@@ -298,7 +298,7 @@ class HoldToTalk(
             val undo = result.undo
             if (undo != null) {
                 onVoiceAdded()
-                messages.post(result.message, "Undo") { scope.launch { undo() } }
+                messages.post(result.message, "Undo", openTaskId = result.taskId) { scope.launch { undo() } }
             } else if (result.message.isNotEmpty()) {
                 messages.post(result.message)
             }

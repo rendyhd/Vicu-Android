@@ -40,7 +40,8 @@ async function step(name, fn) {
 /** Scrolls the open dialog until a node matches. */
 async function findInDialog(pred, label) {
   for (let i = 0; i < 8; i++) {
-    const node = d.dump().find(pred)
+    const nodes = d.dump()
+    const node = nodes.find((n) => pred(n, nodes))
     if (node) return node
     const s = v.sc
     await d.swipe(Math.round(s.width / 2), Math.round(s.height * 0.62), Math.round(s.width / 2), Math.round(s.height * 0.38), 350, 700)
@@ -50,9 +51,14 @@ async function findInDialog(pred, label) {
 
 /** Picks [option] in the dropdown under the label [field]. */
 async function pick(field, option) {
-  const label = await findInDialog((n) => n.text === field, field)
-  const box = d.dump().filter((n) => n.class === 'android.widget.EditText' && n.cy > label.cy).sort((a, b) => a.cy - b.cy)[0]
-  if (!box) throw new Error(`no dropdown under ${field}`)
+  const box = await findInDialog((n, nodes) => {
+    if (n.text !== field) return false
+    return nodes.some((x) => x.class === 'android.widget.EditText' && x.cy > n.cy)
+  }, `the dropdown under ${field}`).then(() => {
+    const nodes = d.dump()
+    const label = nodes.find((n) => n.text === field)
+    return nodes.filter((n) => n.class === 'android.widget.EditText' && n.cy > label.cy).sort((a, c) => a.cy - c.cy)[0]
+  })
   await d.tap(box.cx, box.cy, 900)
   await d.tapText(option, { wait: 900 })
 }

@@ -64,6 +64,6 @@ class TaskEntryChipsTest {
         assertNull(entryLabelsWords(emptyList(), emptyList()))
         assertEquals("errand", entryLabelsWords(listOf("errand"), emptyList()))
         assertEquals("errand, call", entryLabelsWords(listOf("errand"), listOf("Errand", "call")))
-        assertEquals("3 tags", entryLabelsWords(listOf("a", "b"), listOf("c")))
+        assertEquals("3 labels", entryLabelsWords(listOf("a", "b"), listOf("c")))
     }
 }

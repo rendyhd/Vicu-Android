@@ -12,9 +12,9 @@ import com.rendyhd.vicu.util.Collaboration
 
 /**
  * Collaboration as the rows, the editor and the comments screen see it (docs/cross-app-semantics-v1.md
- * section 9): who you are, the access of every project, the comment signals of the tasks in shared
- * projects, and the two things a row or a chip can start. Provided once at the app root; without a
- * provider every project looks private and nothing new is drawn.
+ * section 9): who you are, the access of every project, the comment signals of the tasks, and the
+ * two things a row or a chip can start. Provided once at the app root; without a provider every
+ * project looks private and nothing new is drawn.
  */
 @Immutable
 data class CollabUi(
@@ -29,9 +29,11 @@ data class CollabUi(
 ) {
     fun access(projectId: Long): ProjectAccess = state.access(projectId)
 
-    /** The signal of [taskId] when its project is shared, else none. */
-    fun signal(task: Task): TaskSignal? =
-        if (access(task.projectId).shared) signals[task.id] ?: TaskSignal() else null
+    /** The comment signal of [task]: the count on every project, unread only on a shared one (section 9.1). */
+    fun signal(task: Task): TaskSignal {
+        val signal = signals[task.id] ?: return NO_SIGNAL
+        return if (signal.isUnread && !access(task.projectId).shared) signal.copy(isUnread = false) else signal
+    }
 
     /** The assignees of [task] in contract order (you first) when its project is shared, else none. */
     fun assignees(task: Task): List<User> =
@@ -44,5 +46,7 @@ data class CollabUi(
     /** "You, Maya" and the like, for [people] already in order. */
     fun nameList(people: List<User>): String = Collaboration.nameList(people.map { it.toCollabUser() }, state.me)
 }
+
+private val NO_SIGNAL = TaskSignal()
 
 val LocalCollab = compositionLocalOf { CollabUi() }

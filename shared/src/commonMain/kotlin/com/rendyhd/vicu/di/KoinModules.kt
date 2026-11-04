@@ -100,6 +100,7 @@ val databaseModule = module {
 val networkModule = module {
     single { createApiJson() }
     single { BaseUrlHolder(get()) }
+    single { ServerReachability() }
     single {
         KtorClientFactory.create(
             engine = get(),
@@ -110,6 +111,7 @@ val networkModule = module {
             enableLogging = BuildInfo.isDebug,
             tokenCheck = ApiTokenCheck(time = get()),
             userAgent = VikunjaUserAgent.current(),
+            reachability = get(),
         )
     }
     single { VikunjaApiService(get(), get()) }
@@ -121,7 +123,7 @@ val repositoryModule = module {
     single { ProjectMapper() }
     single { AttachmentMapper() }
 
-    single { TaskRefresher(taskDao = get(), pendingActionDao = get(), api = get(), taskMapper = get(), platformHooks = get(), cursorStore = get(), time = get(), currentUser = get<AuthManager>(), routineDeviceId = get<RoutinePrefsStore>()::getOrCreateDeviceId) }
+    single { TaskRefresher(taskDao = get(), pendingActionDao = get(), api = get(), taskMapper = get(), platformHooks = get(), cursorStore = get(), time = get(), currentUser = get<AuthManager>(), routineDeviceId = get<RoutinePrefsStore>()::getOrCreateDeviceId, collaborationDao = get()) }
     single {
         LabelRefresher(
             labelDao = get(),
@@ -313,7 +315,7 @@ val commonModule = module {
             scope = get(),
             addTask = { text, format, defaults ->
                 when (val result = creator.create(text, format, defaults.projectId, defaults.dueDate)) {
-                    is TextTaskCreator.Result.Created -> VoiceAddResult(result.confirmation) {
+                    is TextTaskCreator.Result.Created -> VoiceAddResult(result.confirmation, result.task.id) {
                         messages.postIfRefused(tasks.delete(result.task.id), "undo the task")
                     }
                     is TextTaskCreator.Result.Failed -> VoiceAddResult(result.message)

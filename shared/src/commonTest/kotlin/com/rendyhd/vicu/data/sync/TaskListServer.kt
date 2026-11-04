@@ -40,6 +40,9 @@ class TaskListServer {
         var remindersJson: String = "[]",
         /** The user who created it (`created_by.id`); hidden tasks only count for their creator. */
         var createdBy: Long = 1,
+        /** Sent only when the request asks for it (`expand=comment_count`, `expand=is_unread`). */
+        var commentCount: Int = 0,
+        var isUnread: Boolean = false,
     )
 
     val tasks = LinkedHashMap<Long, T>()
@@ -67,10 +70,12 @@ class TaskListServer {
     /** The GET /tasks requests, in order. */
     fun lists(): List<Req> = requests.filter { it.method == "GET" && it.path == "/tasks" }
 
-    private fun T.toJson(): String =
+    private fun T.toJson(expand: List<String> = emptyList()): String =
         """{"id":$id,"title":${quote(title)},"description":${quote(description)},"done":$done,""" +
             """"done_at":${quote(doneAt)},"due_date":${quote(dueDate)},"project_id":$projectId,""" +
             """"updated":${quote(updated)},"reminders":$remindersJson,""" +
+            (if ("comment_count" in expand && commentCount > 0) """"comment_count":$commentCount,""" else "") +
+            (if ("is_unread" in expand && isUnread) """"is_unread":true,""" else "") +
             """"created_by":{"id":$createdBy,"username":"user$createdBy"}}"""
 
     private fun quote(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -110,7 +115,7 @@ class TaskListServer {
                 val totalPages = maxOf(1, (found.size + perPage - 1) / perPage)
                 val items = found.drop((page - 1) * perPage).take(perPage)
                 respond(
-                    """{"items":[${items.joinToString(",") { it.toJson() }}],"total":${found.size},""" +
+                    """{"items":[${items.joinToString(",") { it.toJson(req.params["expand"].orEmpty()) }}],"total":${found.size},""" +
                         """"page":$page,"per_page":$perPage,"total_pages":$totalPages}""",
                     HttpStatusCode.OK,
                     authTestJsonHeaders,

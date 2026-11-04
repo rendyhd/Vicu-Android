@@ -144,7 +144,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.rendyhd.vicu.domain.model.Attachment
-import com.rendyhd.vicu.domain.model.TaskSignal
 import com.rendyhd.vicu.domain.model.toCollabUser
 import com.rendyhd.vicu.ui.components.collab.AssignSheet
 import com.rendyhd.vicu.ui.components.collab.AvatarStack
@@ -597,7 +596,7 @@ fun TaskDetailScreen(
                 val collab = LocalCollab.current
                 val access = collab.access(task.projectId)
                 val assignees = if (access.shared) collab.assignees(task) else emptyList()
-                val signal = collab.signals[task.id] ?: TaskSignal()
+                val signal = collab.signal(task)
                 val places by placesViewModel.places.collectAsStateWithLifecycle()
 
                 fun toggle(key: String) {
@@ -674,12 +673,12 @@ fun TaskDetailScreen(
                             }
                         }
                     },
-                    EditorEntry("label", set = task.labels.isNotEmpty(), addLabel = "Tags", addIcon = Icons.AutoMirrored.Outlined.Label, onAdd = { showLabelPicker = true }) {
+                    EditorEntry("label", set = task.labels.isNotEmpty(), addLabel = "Labels", addIcon = Icons.AutoMirrored.Outlined.Label, onAdd = { showLabelPicker = true }) {
                         PropertyRow(
                             icon = Icons.AutoMirrored.Outlined.Label,
-                            name = "Tags",
+                            name = "Labels",
                             value = task.labels.joinToString(", ") { it.title }.ifEmpty { null },
-                            description = "Tags: ${task.labels.joinToString(", ") { it.title }}",
+                            description = "Labels: ${task.labels.joinToString(", ") { it.title }}",
                             onClick = { showLabelPicker = true },
                             trailing = {
                                 task.labels.take(MAX_ROW_LABELS).forEach { label ->
@@ -855,7 +854,6 @@ fun TaskDetailScreen(
                     EditorEntry(
                         "comments",
                         set = signal.commentCount > 0,
-                        present = access.shared,
                         addLabel = "Comments",
                         addIcon = Icons.Outlined.ChatBubbleOutline,
                         onAdd = { collab.openComments(task.id) },
@@ -1340,7 +1338,7 @@ fun TaskDetailScreen(
 /** Where the subtasks section starts in the editor's list: after the headline, the quick moves, the notes and the properties. */
 private const val SUBTASKS_ITEM_INDEX = 4
 
-/** How many label chips a Tags row shows before "+N". */
+/** How many label chips a Labels row shows before "+N". */
 private const val MAX_ROW_LABELS = 2
 
 /** How many saved places the Remind row offers as "Arrive: Home" presets. */

@@ -5,8 +5,11 @@ import com.rendyhd.vicu.util.Logger
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
@@ -21,10 +24,15 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarData
+import androidx.compose.material3.SnackbarDefaults
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SnackbarVisuals
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -32,6 +40,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ProvidedValue
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,8 +54,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -62,6 +73,7 @@ import com.rendyhd.vicu.auth.AuthState
 import com.rendyhd.vicu.data.local.BehaviorPrefs
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.SwipeAction
+import com.rendyhd.vicu.data.local.TempIdGenerator
 import com.rendyhd.vicu.domain.model.BottomBarSlot
 import com.rendyhd.vicu.domain.model.BottomBarSlotType
 import com.rendyhd.vicu.domain.model.CustomList
@@ -100,6 +112,7 @@ import com.rendyhd.vicu.ui.components.task.LocalTaskRowActions
 import com.rendyhd.vicu.util.descendantsDepthFirst
 import com.rendyhd.vicu.ui.components.task.TaskEntrySheet
 import com.rendyhd.vicu.ui.components.task.TaskRowActions
+import com.rendyhd.vicu.ui.components.task.LocalRowDensity
 import com.rendyhd.vicu.ui.components.task.LocalSubtaskDisplayMode
 import com.rendyhd.vicu.ui.navigation.AnytimeRoute
 import com.rendyhd.vicu.ui.navigation.AskRoute
@@ -163,9 +176,46 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+
+/** An app message on the snackbar; [openTaskId] puts Open next to its action. */
+private class AppSnackbarVisuals(
+    override val message: String,
+    override val actionLabel: String?,
+    override val duration: SnackbarDuration,
+    val openTaskId: Long?,
+) : SnackbarVisuals {
+    override val withDismissAction: Boolean get() = false
+}
+
+/** The standard snackbar has room for one action; this one has Open and the message's own. */
+@Composable
+private fun SnackbarWithOpen(data: SnackbarData, onOpen: () -> Unit) {
+    val colors = ButtonDefaults.textButtonColors(contentColor = SnackbarDefaults.actionColor)
+    Snackbar(
+        modifier = Modifier.padding(12.dp),
+        actionOnNewLine = true,
+        action = {
+            Row {
+                TextButton(
+                    colors = colors,
+                    onClick = {
+                        data.dismiss()
+                        onOpen()
+                    },
+                ) { Text("Open") }
+                data.visuals.actionLabel?.let { label ->
+                    TextButton(colors = colors, onClick = data::performAction) { Text(label) }
+                }
+            }
+        },
+    ) {
+        Text(data.visuals.message)
+    }
+}
 
 internal data class BottomNavItem(
     val label: String,
@@ -391,15 +441,14 @@ fun VicuApp(
     }
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val tempIds = koinInject<TempIdGenerator>()
     val accessibility = LocalAccessibilityManager.current
     LaunchedEffect(appMessages) {
         appMessages.messages.collectLatest { message ->
             val millis = message.durationMillis
             val result = if (millis == null) {
                 snackbarHostState.showSnackbar(
-                    message = message.text,
-                    actionLabel = message.actionLabel,
-                    duration = SnackbarDuration.Long,
+                    AppSnackbarVisuals(message.text, message.actionLabel, SnackbarDuration.Long, message.openTaskId),
                 )
             } else {
                 // A message with its own time (the completion toast): the time runs out here, and an
@@ -412,9 +461,7 @@ fun VicuApp(
                 ) ?: millis
                 withTimeoutOrNull(timeout) {
                     snackbarHostState.showSnackbar(
-                        message = message.text,
-                        actionLabel = message.actionLabel,
-                        duration = SnackbarDuration.Indefinite,
+                        AppSnackbarVisuals(message.text, message.actionLabel, SnackbarDuration.Indefinite, message.openTaskId),
                     )
                 } ?: SnackbarResult.Dismissed
             }
@@ -639,6 +686,7 @@ fun VicuApp(
         onStartDictationConsumed()
     }
     val subtaskDisplayMode by drawerViewModel.subtaskDisplayMode.collectAsStateWithLifecycle()
+    val rowDensity by drawerViewModel.rowDensity.collectAsStateWithLifecycle()
 
     // Ask, a sheet over the list it is opened from (next to Search in the lists' top bars, the
     // drawer, Settings' Try it).
@@ -663,6 +711,7 @@ fun VicuApp(
     val appLocals = arrayOf<ProvidedValue<*>>(
         LocalFabAlignStart provides fabAlignStart,
         LocalSubtaskDisplayMode provides subtaskDisplayMode,
+        LocalRowDensity provides rowDensity,
         LocalToday provides clockDay.date,
         LocalClockDay provides clockDay,
         LocalIs24Hour provides is24Hour,
@@ -695,6 +744,10 @@ fun VicuApp(
     val isOnline by syncStateViewModel.isOnline.collectAsStateWithLifecycle()
     val pendingCount by syncStateViewModel.pendingCount.collectAsStateWithLifecycle(initialValue = 0)
     val failedCount by syncStateViewModel.failedCount.collectAsStateWithLifecycle(initialValue = 0)
+    // Collected only while signed in and in the foreground: collecting is what asks the server again.
+    val serverUnreachable by remember(authState) {
+        if (authState == AuthState.Authenticated) syncStateViewModel.serverUnreachable else flowOf(false)
+    }.collectAsStateWithLifecycle(initialValue = false)
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -793,18 +846,35 @@ fun VicuApp(
             },
         ) { innerPadding ->
             Column(modifier = Modifier.padding(innerPadding)) {
+                // A band at the top pays for the status bar itself. What comes below it takes off as
+                // much of the status bar's inset as the bands are tall, by their measured height, so
+                // the top bars stay exactly where they are until a band has outgrown the status bar.
+                var offlineBandHeight by remember { mutableIntStateOf(0) }
+                var failedBandHeight by remember { mutableIntStateOf(0) }
+                val density = LocalDensity.current
                 if (authState == AuthState.Authenticated) {
                     OfflineBanner(
                         isOffline = !isOnline,
+                        serverUnreachable = serverUnreachable,
                         pendingCount = pendingCount,
+                        modifier = Modifier.onSizeChanged { offlineBandHeight = it.height },
                     )
                     FailedActionsBanner(
                         failedCount = failedCount,
                         onRetry = syncStateViewModel::retryFailed,
                         onDiscard = syncStateViewModel::discardFailed,
+                        modifier = Modifier
+                            .consumeWindowInsets(PaddingValues(top = with(density) { offlineBandHeight.toDp() }))
+                            .onSizeChanged { failedBandHeight = it.height },
                     )
                 }
-                Box(modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .consumeWindowInsets(
+                            PaddingValues(top = with(density) { (offlineBandHeight + failedBandHeight).toDp() }),
+                        ),
+                ) {
                     CompositionLocalProvider(
                         *appLocals,
                         LocalAppFabHost provides fabHost,
@@ -951,7 +1021,20 @@ fun VicuApp(
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
                     .padding(bottom = if (showBottomBar && !taskDetailVisible && commentsTaskId == 0L) 80.dp else 0.dp),
-            )
+            ) { data ->
+                val openTaskId = (data.visuals as? AppSnackbarVisuals)?.openTaskId
+                if (openTaskId == null) {
+                    Snackbar(data)
+                } else {
+                    SnackbarWithOpen(
+                        data = data,
+                        onOpen = {
+                            // A task made offline may have got its server id since the message came.
+                            scope.launch { onTaskClick(tempIds.realIdFor(openTaskId) ?: openTaskId) }
+                        },
+                    )
+                }
+            }
         }
 
         NotificationPermissionSheet(notificationPermission)

@@ -149,7 +149,7 @@ class TaskEntryPlaceTest {
         val reminder = rig.locations.reminderFor(500).first()!!
         assertEquals("Home", reminder.placeName)
         assertEquals(LocationTrigger.LEAVE, reminder.trigger)
-        assertTrue(rig.messages.isEmpty(), "Always and a known position need no word")
+        assertEquals(listOf("Undo"), rig.messages.map { it.actionLabel }, "Always and a known position need no word beyond the confirmation")
         rig.authScope.cancel()
     }
 

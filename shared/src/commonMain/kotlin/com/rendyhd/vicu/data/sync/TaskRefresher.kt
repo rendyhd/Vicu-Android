@@ -2,10 +2,12 @@ package com.rendyhd.vicu.data.sync
 
 import com.rendyhd.vicu.auth.CurrentUser
 import com.rendyhd.vicu.data.local.SyncCursorStore
+import com.rendyhd.vicu.data.local.dao.CollaborationDao
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.local.entity.TaskEntity
+import com.rendyhd.vicu.data.local.entity.TaskSignalEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.createApiJson
 import com.rendyhd.vicu.data.remote.api.TaskDto
@@ -24,6 +26,7 @@ import com.rendyhd.vicu.util.SystemTimeSource
 import com.rendyhd.vicu.util.TimeSource
 import com.rendyhd.vicu.worker.MissingResourceCheck
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.buildJsonObject
@@ -86,6 +89,8 @@ class TaskRefresher(
      * the server lost to a write made at the same moment (cross-app semantics 6.8).
      */
     private val routineDeviceId: (suspend () -> String)? = null,
+    /** Where the comment counts the task reads bring are kept (cross-app semantics 9.4). */
+    private val collaborationDao: CollaborationDao? = null,
 ) {
     companion object {
         private const val TAG = "TaskRefresher"
@@ -149,7 +154,8 @@ class TaskRefresher(
         val now = time.now()
         val since = state.tasksUpdatedSince?.let { DateUtils.parseIsoDate(it) }
         val full = forceFull || since == null || state.fullReconcileRequested ||
-            isFullReconcileDue(state.lastFullReconcileMs, now)
+            isFullReconcileDue(state.lastFullReconcileMs, now) ||
+            (collaborationDao != null && !state.signalsRead)
         if (full) reconcile(ticket, now) else incremental(ticket, checkNotNull(since), now)
     }
 
@@ -164,9 +170,10 @@ class TaskRefresher(
 
     private suspend fun incremental(ticket: SyncCursorStore.Ticket, since: Instant, now: Instant): Outcome {
         val from = Instant.fromEpochSeconds(since.epochSeconds - OVERLAP_SECONDS)
-        val dtos = api.getAllTasks(mapOf("filter" to "updated >= '$from'"), expandSubtasks = false)
+        val dtos = api.getAllTasks(mapOf("filter" to "updated >= '$from'"), expandSubtasks = false, collabSignals = true)
         val acc = Accumulator()
         merge(dtos, acc)
+        storeSignals(dtos)
         checkSharedCarriers(now, acc)
         finish(acc)
         val newest = (dtos.mapNotNull { DateUtils.parseIsoDate(it.updated) } + since).max()
@@ -211,11 +218,12 @@ class TaskRefresher(
             expandSubtasks = false,
         ).items.firstOrNull()?.updated?.let { DateUtils.parseIsoDate(it) }
 
-        val open = api.getAllTasks(mapOf("filter" to "done = false"), expandSubtasks = false)
+        val open = api.getAllTasks(mapOf("filter" to "done = false"), expandSubtasks = false, collabSignals = true)
         val carriers = doneRoutineCarriers()
 
         val acc = Accumulator()
         merge(open + carriers, acc)
+        storeSignals(open)
 
         val protectedIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
         val serverIds = HashSet<Long>().apply {
@@ -335,7 +343,9 @@ class TaskRefresher(
     /** Fetches the tasks [filters] match (a search, a custom list) and merges them. Deletes nothing. */
     suspend fun refreshMatching(filters: Map<String, String>) = mutex.withLock {
         val acc = Accumulator()
-        merge(api.getAllTasks(filters, expandSubtasks = false), acc)
+        val dtos = api.getAllTasks(filters, expandSubtasks = false, collabSignals = true)
+        merge(dtos, acc)
+        storeSignals(dtos)
         finish(acc)
     }
 
@@ -359,11 +369,13 @@ class TaskRefresher(
                 "page" to page.toString(),
             ),
             expandSubtasks = false,
+            collabSignals = true,
         )
         val dtos = response.items
         val hasMore = page < response.totalPages || (response.totalPages == 0 && dtos.size >= pageSize)
         val acc = Accumulator()
         merge(dtos, acc)
+        storeSignals(dtos)
         if (page == 1) reconcileCompletedHead(dtos, hasMore, completedSince, acc)
         finish(acc)
         CompletedPage(loaded = dtos.size, hasMore = hasMore)
@@ -448,6 +460,28 @@ class TaskRefresher(
             if (remindersAffected(old, entity)) acc.alarmTasks += with(taskMapper) { entity.toDomain() }
         }
         acc.changed += changed.size
+    }
+
+    /**
+     * Keeps the comment counts and unread marks [dtos] came with, in place of a request of their
+     * own. A task without comments writes a row only to replace one that said otherwise, and a task
+     * with changes queued keeps its count, which may include a comment not sent yet.
+     */
+    private suspend fun storeSignals(dtos: List<TaskDto>) {
+        val dao = collaborationDao ?: return
+        if (dtos.isEmpty()) return
+        val protectedIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
+        val known = dao.observeSignals().first().associateBy { it.taskId }
+        val changed = dtos.mapNotNull { dto ->
+            val signal = TaskSignalEntity(dto.id, dto.commentCount ?: 0, dto.isUnread ?: false)
+            val old = known[dto.id]
+            when {
+                dto.id in protectedIds || old == signal -> null
+                old == null && signal.commentCount == 0 && !signal.isUnread -> null
+                else -> signal
+            }
+        }
+        if (changed.isNotEmpty()) dao.upsertSignals(changed)
     }
 
     /**

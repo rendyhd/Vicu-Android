@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.MicNone
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
+import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -174,7 +175,7 @@ internal fun Conversation(state: AskUiState, viewModel: AskViewModel, onTaskClic
     val conversation = session.conversation
     val listState = rememberLazyListState()
     val finalAnswer = AiContract.message("finalAnswer")
-    LaunchedEffect(conversation.messages.size, session.streaming.length, session.pending, session.busy, session.error) {
+    LaunchedEffect(conversation.messages.size, session.streaming.length, session.pending, session.busy, session.error, session.stopped) {
         val count = listState.layoutInfo.totalItemsCount
         if (count > 0) listState.scrollToItem(count - 1)
     }
@@ -231,6 +232,14 @@ internal fun Conversation(state: AskUiState, viewModel: AskViewModel, onTaskClic
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     Text(session.activity ?: "Thinking", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        }
+        if (session.stopped) {
+            item(key = "stopped") {
+                Column {
+                    Text("Stopped.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = viewModel::retry) { Text("Retry") }
                 }
             }
         }
@@ -439,14 +448,20 @@ internal fun InputBar(state: AskUiState, viewModel: AskViewModel) {
                 modifier = Modifier.weight(1f),
                 maxLines = 5,
             )
-            IconButton(
-                onClick = {
-                    viewModel.send(text)
-                    text = ""
-                },
-                enabled = text.isNotBlank() && !busy,
-            ) {
-                Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = "Send")
+            if (busy) {
+                IconButton(onClick = viewModel::stop) {
+                    Icon(Icons.Outlined.Stop, contentDescription = "Stop")
+                }
+            } else {
+                IconButton(
+                    onClick = {
+                        viewModel.send(text)
+                        text = ""
+                    },
+                    enabled = text.isNotBlank(),
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = "Send")
+                }
             }
         }
     }

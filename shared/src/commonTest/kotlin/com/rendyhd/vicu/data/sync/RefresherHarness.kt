@@ -2,6 +2,7 @@ package com.rendyhd.vicu.data.sync
 
 import com.rendyhd.vicu.auth.CurrentUser
 import com.rendyhd.vicu.auth.authTestJson
+import com.rendyhd.vicu.data.local.FakeCollaborationDao
 import com.rendyhd.vicu.data.local.SyncCursorStore
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
@@ -28,6 +29,8 @@ class RefresherHarness(
     val currentUser: CurrentUser = CurrentUser.fixed(1),
     /** This device's id in routine records; with it a refresh writes lost routine changes again. */
     val routineDeviceId: String? = null,
+    /** With it a refresh keeps the comment counts its reads bring. */
+    val collaborationDao: FakeCollaborationDao? = null,
 ) {
     private val client = HttpClient(MockEngine { request -> server.handle(this, request) }) {
         install(ContentNegotiation) { json(authTestJson) }
@@ -45,6 +48,7 @@ class RefresherHarness(
         time = time,
         currentUser = currentUser,
         routineDeviceId = routineDeviceId?.let { id -> { id } },
+        collaborationDao = collaborationDao,
     )
 
     suspend fun queueTaskAction(taskId: Long, type: String = "update", status: String = "pending") {
