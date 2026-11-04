@@ -424,9 +424,23 @@ class FakeCollaborationRepository(initial: CollabState = CollabState()) : Collab
     override suspend fun refresh(force: Boolean): NetworkResult<Unit> = NetworkResult.Success(Unit)
     override suspend fun memberPermissions(projectId: Long): Map<Long, Int?> = emptyMap()
     override fun comments(taskId: Long): Flow<List<TaskComment>> = flowOf(emptyList())
-    override suspend fun refreshComments(taskId: Long): NetworkResult<Boolean> = NetworkResult.Success(false)
+    /** Holds [refreshComments] until a test says so. */
+    var refreshCommentsGate: CompletableDeferred<Unit>? = null
+
+    override suspend fun refreshComments(taskId: Long): NetworkResult<Boolean> {
+        refreshCommentsGate?.await()
+        return NetworkResult.Success(false)
+    }
     override suspend fun loadOlderComments(taskId: Long, page: Int): NetworkResult<Boolean> = NetworkResult.Success(false)
-    override suspend fun postComment(taskId: Long, html: String): NetworkResult<Unit> = NetworkResult.Error("not faked")
+    /** (task id, comment HTML) of every post. */
+    val postedComments = mutableListOf<Pair<Long, String>>()
+    var postCommentResult: NetworkResult<Unit> = NetworkResult.Error("not faked")
+
+    override suspend fun postComment(taskId: Long, html: String): NetworkResult<Unit> {
+        postedComments += taskId to html
+        return postCommentResult
+    }
+
     override suspend fun editComment(taskId: Long, commentId: Long, html: String): NetworkResult<Unit> = NetworkResult.Error("not faked")
     override suspend fun deleteComment(taskId: Long, commentId: Long): NetworkResult<Unit> = NetworkResult.Error("not faked")
     override suspend fun markRead(taskId: Long) = Unit
