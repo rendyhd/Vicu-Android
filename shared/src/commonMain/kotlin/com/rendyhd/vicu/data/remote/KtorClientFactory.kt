@@ -2,6 +2,7 @@ package com.rendyhd.vicu.data.remote
 
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.util.isNetworkFailure
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpSend
@@ -120,6 +121,7 @@ object KtorClientFactory {
         tokenCheck: ApiTokenCheck = ApiTokenCheck(),
         // The server lists a session under the User-Agent of its sign-in ([VikunjaUserAgent]).
         userAgent: String = VikunjaUserAgent.PRODUCT,
+        reachability: ServerReachability = ServerReachability(),
     ): HttpClient {
         val client = HttpClient(engine) {
             install(ContentNegotiation) {
@@ -236,6 +238,21 @@ object KtorClientFactory {
             }
 
             response
+        }
+
+        // 4. Whether the server answers, for the banner. Registered last, so it is the innermost
+        // sender and sees each attempt, the retry after a token refresh included.
+        client.plugin(HttpSend).intercept { request ->
+            val call = try {
+                execute(request)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (isNetworkFailure(e)) reachability.noAnswer()
+                throw e
+            }
+            reachability.answered(call.response.status.value)
+            call
         }
 
         return client

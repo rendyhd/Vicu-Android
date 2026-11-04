@@ -20,8 +20,9 @@ interface CollaborationRepository {
     val state: Flow<CollabState>
 
     /**
-     * Comment counts and unread marks of the open tasks in shared projects, by task id, plus those
-     * of the done tasks a custom list asked for ([refreshSignalsFor]).
+     * Comment counts and unread marks by task id: of the tasks the task refresh read and of the
+     * open tasks in shared projects, plus those of the done tasks a custom list asked for
+     * ([refreshSignalsFor]).
      */
     val signals: Flow<Map<Long, TaskSignal>>
 

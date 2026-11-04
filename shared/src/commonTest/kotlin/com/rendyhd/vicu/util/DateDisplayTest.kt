@@ -54,7 +54,7 @@ class DateDisplayFixtureTest {
 
     @Test
     fun `the fixture has the vectors`() {
-        assertEquals(220, vectors.size)
+        assertEquals(230, vectors.size)
         assertEquals(DateContext.entries.size, vectors.map { it.context }.distinct().size)
     }
 

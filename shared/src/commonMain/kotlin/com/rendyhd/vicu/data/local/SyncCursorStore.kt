@@ -18,11 +18,14 @@ import kotlinx.coroutines.sync.withLock
  * @property lastFullReconcileMs when the last full reconcile finished (0 = never).
  * @property fullReconcileRequested a full reconcile was asked for (changes were thrown away, so
  * the cached rows may differ from the server in ways a delta cannot show).
+ * @property signalsRead a full reconcile has also read the tasks' comment counts. Before the counts
+ * came with the task refresh only shared projects had them, and a delta brings only what changes.
  */
 data class SyncCursor(
     val tasksUpdatedSince: String? = null,
     val lastFullReconcileMs: Long = 0L,
     val fullReconcileRequested: Boolean = false,
+    val signalsRead: Boolean = false,
 )
 
 /**
@@ -39,6 +42,7 @@ class SyncCursorStore(private val dataStore: DataStore<Preferences>) {
         val KEY_SINCE = stringPreferencesKey("tasks_updated_since")
         val KEY_FULL_AT = longPreferencesKey("last_full_reconcile_ms")
         val KEY_FULL_REQUESTED = booleanPreferencesKey("full_reconcile_requested")
+        val KEY_SIGNALS_READ = booleanPreferencesKey("comment_signals_read")
     }
 
     class Ticket internal constructor(val cursor: SyncCursor, internal val generation: Long)
@@ -52,6 +56,7 @@ class SyncCursorStore(private val dataStore: DataStore<Preferences>) {
             tasksUpdatedSince = prefs[KEY_SINCE],
             lastFullReconcileMs = prefs[KEY_FULL_AT] ?: 0L,
             fullReconcileRequested = prefs[KEY_FULL_REQUESTED] ?: false,
+            signalsRead = prefs[KEY_SIGNALS_READ] ?: false,
         )
     }
 
@@ -69,6 +74,7 @@ class SyncCursorStore(private val dataStore: DataStore<Preferences>) {
                 if (tasksUpdatedSince != null) prefs[KEY_SINCE] = tasksUpdatedSince
                 if (fullReconcileAtMs != null) {
                     prefs[KEY_FULL_AT] = fullReconcileAtMs
+                    prefs[KEY_SIGNALS_READ] = true
                     prefs.remove(KEY_FULL_REQUESTED)
                 }
             }

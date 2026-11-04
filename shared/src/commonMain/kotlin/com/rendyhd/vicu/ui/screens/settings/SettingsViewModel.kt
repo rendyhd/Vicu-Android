@@ -793,6 +793,10 @@ class SettingsViewModel(
         viewModelScope.launch { behaviorPrefsStore.setSubtaskDisplayMode(mode) }
     }
 
+    fun setRowDensity(density: com.rendyhd.vicu.data.local.RowDensity) {
+        viewModelScope.launch { behaviorPrefsStore.setRowDensity(density) }
+    }
+
     fun setSubprojectDisplayMode(mode: SubprojectDisplayMode) {
         viewModelScope.launch { behaviorPrefsStore.setSubprojectDisplayMode(mode) }
     }

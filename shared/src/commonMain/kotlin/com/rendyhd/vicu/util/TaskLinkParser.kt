@@ -1,5 +1,7 @@
 package com.rendyhd.vicu.util
 
+import com.rendyhd.vicu.ai.AiText
+
 /**
  * Extracts embedded links from task description HTML comments.
  * Mirrors the desktop app's `note-link.ts`.
@@ -71,6 +73,27 @@ object TaskLinkParser {
             .replace(Regex("<[^>]+>"), "")
             .replace(Regex("\\s|&nbsp;"), "")
         return stripped.isNotEmpty()
+    }
+
+    private val htmlCommentRegex = Regex("""<!--[\s\S]*?-->""")
+    private val imageTokenRegex = Regex("""\[\[image(-pending)?:[^\]]*]]""")
+    private val lineBreakRegex = Regex("""(?i)<br\s*/?>|</(p|li|div|h[1-6]|blockquote|pre)>""")
+    private val tagRegex = Regex("""<[^>]+>""")
+    private val whitespaceRegex = Regex("""\s+""")
+
+    /**
+     * The notes as one line of plain text, for a Comfortable row (design-system section 4): no link
+     * markers and images, line breaks as spaces. Empty when no text is left. The same as the
+     * desktop's `notesPreview`.
+     */
+    fun notesPreview(description: String?): String {
+        if (description.isNullOrBlank()) return ""
+        val text = stripLinks(RoutineEnvelope.strip(description))
+            .replace(htmlCommentRegex, " ")
+            .replace(imageTokenRegex, " ")
+            .replace(lineBreakRegex, " ")
+            .replace(tagRegex, "")
+        return AiText.decodeEntities(text).replace(whitespaceRegex, " ").trim()
     }
 
     /** Extract the raw link HTML portion from a description (for re-appending on save). */

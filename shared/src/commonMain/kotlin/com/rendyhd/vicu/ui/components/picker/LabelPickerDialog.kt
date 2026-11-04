@@ -47,6 +47,22 @@ import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.util.PRESET_COLORS
 import com.rendyhd.vicu.util.parseHexColor
 
+/**
+ * The name a search can create a label with: what was typed, unless a label already has that name
+ * (any case). Null when there is nothing to create.
+ */
+internal fun labelToCreateFrom(searchQuery: String, labels: List<Label>): String? {
+    val name = searchQuery.trim()
+    if (name.isEmpty() || labels.any { it.title.equals(name, ignoreCase = true) }) return null
+    return name
+}
+
+/**
+ * Pick labels and make new ones. The footer holds one row: New label on the left and Done on the
+ * right, and while a new label is being named Cancel and Create in their place, so Done cannot be
+ * tapped by mistake with a name typed and not created. A search without an exact match offers to
+ * create that label at once; New label is for choosing its colour too.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LabelPickerDialog(
@@ -65,23 +81,37 @@ fun LabelPickerDialog(
         if (searchQuery.isBlank()) allLabels
         else allLabels.filter { it.title.contains(searchQuery, ignoreCase = true) }
     }
+    val nameFromSearch = remember(allLabels, searchQuery) { labelToCreateFrom(searchQuery, allLabels) }
+
+    fun closeCreateSection() {
+        newLabelName = ""
+        showCreateSection = false
+    }
+
+    fun createNewLabel() {
+        if (newLabelName.isBlank()) return
+        onCreateLabel(newLabelName.trim(), selectedColor)
+        searchQuery = ""
+        closeCreateSection()
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        // Back or a tap outside leaves the new label first, then the dialog.
+        onDismissRequest = { if (showCreateSection) closeCreateSection() else onDismiss() },
         title = { Text("Labels") },
         text = {
             Column {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search labels...") },
+                    placeholder = { Text("Search labels") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (filteredLabels.isEmpty()) {
+                if (filteredLabels.isEmpty() && nameFromSearch == null) {
                     Text(
                         text = if (allLabels.isEmpty()) "No labels yet" else "No label matches",
                         style = MaterialTheme.typography.bodyMedium,
@@ -121,24 +151,38 @@ fun LabelPickerDialog(
                             )
                         }
                     }
+                    if (nameFromSearch != null && !showCreateSection) {
+                        item(key = "create-from-search", contentType = "create") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clickable {
+                                        onCreateLabel(nameFromSearch, PRESET_COLORS[allLabels.size % PRESET_COLORS.size])
+                                        searchQuery = ""
+                                    }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Default.Add,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 12.dp).size(24.dp),
+                                )
+                                Text(
+                                    text = "Create \"$nameFromSearch\"",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                    }
                 }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                if (showCreateSection) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                if (!showCreateSection) {
-                    TextButton(
-                        onClick = {
-                            // What was searched for and not found is the likely name of the new label.
-                            if (newLabelName.isBlank()) newLabelName = searchQuery.trim()
-                            showCreateSection = true
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Create new label")
-                    }
-                } else {
                     Text("New label", style = MaterialTheme.typography.labelMedium)
                     Spacer(modifier = Modifier.height(4.dp))
 
@@ -149,15 +193,7 @@ fun LabelPickerDialog(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(
-                            onDone = {
-                                if (newLabelName.isNotBlank()) {
-                                    onCreateLabel(newLabelName.trim(), selectedColor)
-                                    newLabelName = ""
-                                    showCreateSection = false
-                                }
-                            },
-                        ),
+                        keyboardActions = KeyboardActions(onDone = { createNewLabel() }),
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -187,29 +223,37 @@ fun LabelPickerDialog(
                             )
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    TextButton(
-                        onClick = {
-                            if (newLabelName.isNotBlank()) {
-                                onCreateLabel(newLabelName.trim(), selectedColor)
-                                newLabelName = ""
-                                showCreateSection = false
-                            }
-                        },
-                        enabled = newLabelName.isNotBlank(),
-                    ) {
-                        Text("Create")
-                    }
                 }
             }
         },
+        // One row across the dialog: the buttons slot is as wide as what it is given.
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Done")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (showCreateSection) {
+                    TextButton(onClick = { closeCreateSection() }) { Text("Cancel") }
+                    Spacer(modifier = Modifier.weight(1f))
+                    TextButton(onClick = { createNewLabel() }, enabled = newLabelName.isNotBlank()) {
+                        Text("Create")
+                    }
+                } else {
+                    TextButton(
+                        onClick = {
+                            // What was searched for and not found is the likely name of the new label.
+                            newLabelName = nameFromSearch.orEmpty()
+                            showCreateSection = true
+                        },
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("New label")
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    TextButton(onClick = onDismiss) { Text("Done") }
+                }
             }
         },
-        dismissButton = {},
     )
 }

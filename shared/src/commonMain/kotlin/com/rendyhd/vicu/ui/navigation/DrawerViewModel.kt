@@ -158,6 +158,16 @@ class DrawerViewModel(
                 com.rendyhd.vicu.data.local.SubtaskDisplayMode.INSIDE_TASK,
             )
 
+    /** Exposed for the app-root CompositionLocal that sets how much of a task a row shows. */
+    val rowDensity: StateFlow<com.rendyhd.vicu.data.local.RowDensity> =
+        behaviorPrefsStore.getPrefs()
+            .map { it.rowDensity }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5000),
+                com.rendyhd.vicu.data.local.RowDensity.COMPACT,
+            )
+
     /** Whether the drawer shows progress rings (Settings); off, nothing is asked for them either. */
     private val showProgress: Flow<Boolean> = behaviorPrefsStore.getPrefs()
         .map { it.showProjectProgress }

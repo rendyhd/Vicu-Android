@@ -351,7 +351,7 @@ class DictationController(
                 else -> {
                     val text = (if (n == 1) "Added 1 task" else "Added $n tasks") +
                         if (added.failed > 0) ", ${added.failed} failed" else ""
-                    messages.post(text, "Undo") { scope.launch { writer.undo(added) } }
+                    messages.post(text, "Undo", openTaskId = added.taskIds.singleOrNull()) { scope.launch { writer.undo(added) } }
                 }
             }
         }
@@ -376,7 +376,11 @@ class DictationController(
             kept.clear()
             val tasks = added.drafts?.taskIds?.size ?: 0
             val failed = added.drafts?.failed ?: 0
-            messages.post(addedText(added.projectIds.size, tasks) + if (failed > 0) ", $failed failed" else "", "Undo") {
+            messages.post(
+                addedText(added.projectIds.size, tasks) + if (failed > 0) ", $failed failed" else "",
+                "Undo",
+                openTaskId = added.drafts?.taskIds?.singleOrNull(),
+            ) {
                 scope.launch { planWriter.undo(added) }
             }
         }
@@ -389,7 +393,7 @@ class DictationController(
         scope.launch {
             kept.clear()
             when (val result = textTasks.create(current.transcript, format, current.defaults.projectId, current.defaults.dueDate)) {
-                is TextTaskCreator.Result.Created -> messages.post(result.confirmation, "Undo") {
+                is TextTaskCreator.Result.Created -> messages.post(result.confirmation, "Undo", openTaskId = result.task.id) {
                     scope.launch { messages.postIfRefused(tasks.delete(result.task.id), "undo the task") }
                 }
                 is TextTaskCreator.Result.Failed -> messages.post(result.message)

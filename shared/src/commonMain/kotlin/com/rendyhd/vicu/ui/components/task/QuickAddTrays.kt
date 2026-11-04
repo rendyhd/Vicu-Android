@@ -299,7 +299,7 @@ internal fun PriorityTrayContent(current: Int, onPick: (Int) -> Unit) {
 }
 
 /**
- * Tags: every label as a chip in its colour, picked ones checked; "New tag" names one and picks
+ * Labels: every label as a chip in its colour, picked ones checked; "New label" names one and picks
  * it. [readFromTitle] are the names the title's "*tag" words add; they show as picked.
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -335,7 +335,7 @@ internal fun TagsTrayContent(
                 },
             )
         }
-        PresetChip(label = "New tag", icon = Icons.Outlined.Add, onClick = { naming = true })
+        PresetChip(label = "New label", icon = Icons.Outlined.Add, onClick = { naming = true })
     }
     if (naming) {
         NewTagDialog(
@@ -353,7 +353,7 @@ private fun NewTagDialog(onCreate: (String) -> Unit, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New tag") },
+        title = { Text("New label") },
         text = {
             OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Name") })
         },

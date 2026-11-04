@@ -552,7 +552,7 @@ async function a5QuickAdd(ctx) {
     if (!withPersonal.includes('+ Notes')) throw new Error('no "+ Notes" chip')
     printFindings(`${ctx.theme}-compact`, audit(nodes), ctx.outDir) // reported, never failing
     const scrolled = await chipTexts('Priority')
-    for (const name of ['Tags', 'Priority']) if (!scrolled.includes(name)) warn(`a5: no "${name}" chip, even after scrolling the row`)
+    for (const name of ['Labels', 'Priority']) if (!scrolled.includes(name)) warn(`a5: no "${name}" chip, even after scrolling the row`)
     await d.swipe(60, nodes.find((n) => n.text === '+ Notes').cy, 700, nodes.find((n) => n.text === '+ Notes').cy, 300, 600) // back
   })
 

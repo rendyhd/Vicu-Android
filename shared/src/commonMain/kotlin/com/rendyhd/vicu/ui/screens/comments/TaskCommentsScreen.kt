@@ -177,12 +177,10 @@ fun TaskCommentsScreen(
 
     EditorBackHandler(enabled = backEnabled, backState = backState, onBack = onClose)
 
-    // A project that stops being shared takes its comments with it; a task that is gone too.
-    var wasShared by remember(taskId) { mutableStateOf(false) }
+    // A task that is gone takes its comments with it. A project that stops being shared does not.
     var hadTask by remember(taskId) { mutableStateOf(false) }
-    LaunchedEffect(access.shared, task != null) {
+    LaunchedEffect(task != null) {
         if (task != null) hadTask = true else if (hadTask) onClose()
-        if (access.shared) wasShared = true else if (wasShared) onClose()
     }
 
     var selectedId by remember(taskId) { mutableStateOf<Long?>(null) }
@@ -241,8 +239,9 @@ fun TaskCommentsScreen(
                         }
                     },
                     actions = {
-                        // Not offered with an API token: Vikunja does not let tokens follow tasks (section 9.7).
-                        if (state.canFollow) {
+                        // Only on a shared project, and not with an API token: Vikunja does not let
+                        // tokens follow tasks (section 9.7).
+                        if (state.canFollow && access.shared) {
                             val on = state.subscribed == true
                             IconToggleButton(
                                 checked = on,
@@ -277,6 +276,7 @@ fun TaskCommentsScreen(
                                 taskId = taskId,
                                 members = members,
                                 me = me,
+                                shared = access.shared,
                                 onSend = { text ->
                                     val html = Collaboration.encodeCommentHtml(text, collabMembers)
                                     if (html.isEmpty()) {
@@ -562,6 +562,7 @@ private fun Composer(
     taskId: Long,
     members: List<User>,
     me: Long?,
+    shared: Boolean,
     onSend: (String) -> Boolean,
 ) {
     var value by rememberSaveable(taskId, stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
@@ -620,7 +621,7 @@ private fun Composer(
                     ) {
                         if (value.text.isEmpty()) {
                             Text(
-                                text = "Comment. Type @ to mention",
+                                text = if (shared) "Comment. Type @ to mention" else "Comment",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = scheme.onSurfaceVariant,
                             )

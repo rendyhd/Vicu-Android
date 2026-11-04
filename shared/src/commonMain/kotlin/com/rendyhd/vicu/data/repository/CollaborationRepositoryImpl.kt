@@ -164,18 +164,20 @@ class CollaborationRepositoryImpl(
 
     private suspend fun sharedProjectIds(): List<Long> = state.first().projects.filterValues { it.shared }.keys.toList()
 
+    /**
+     * Others can write on a shared project at any moment, so those counts are read on every refresh.
+     * The counts of every other task come with the task refresh's own requests (cross-app semantics
+     * 9.4), so a user who shares nothing costs no request here.
+     */
     override suspend fun refreshSignals(): NetworkResult<Unit> = attempt("read the comment counts") {
         val shared = sharedProjectIds()
-        if (shared.isEmpty()) {
-            collaborationDao.replaceSignals(emptyList())
-            return@attempt
-        }
+        if (shared.isEmpty()) return@attempt
         val filter = "done = false && project in ${shared.joinToString(", ")}"
         val tasks = api.getAllTasks(mapOf("filter" to filter), expandSubtasks = false, collabSignals = true)
         val serverIds = tasks.map { it.id }.toSet()
         collaborationDao.replaceSignals(
             tasks.map { TaskSignalEntity(it.id, it.commentCount ?: 0, it.isUnread ?: false) } +
-                pendingCommentSignals(serverIds) + doneTaskSignals(serverIds),
+                pendingCommentSignals(serverIds) + signalsOutsideTheAnswer(serverIds, shared),
         )
         // The answer carries the assignees too: take them now instead of waiting for the next task
         // refresh to read the tasks again.
@@ -192,26 +194,28 @@ class CollaborationRepositoryImpl(
     }
 
     override suspend fun refreshSignalsFor(filter: String): NetworkResult<Unit> = attempt("read the comment counts") {
-        val shared = sharedProjectIds()
-        if (shared.isEmpty()) return@attempt
-        val inShared = "project in ${shared.joinToString(", ")}"
-        val combined = if (filter.isBlank()) inShared else "($filter) && $inShared"
-        val tasks = api.getAllTasks(mapOf("filter" to combined), expandSubtasks = false, collabSignals = true)
+        val params = if (filter.isBlank()) emptyMap() else mapOf("filter" to filter)
+        val tasks = api.getAllTasks(params, expandSubtasks = false, collabSignals = true)
         collaborationDao.upsertSignals(tasks.map { TaskSignalEntity(it.id, it.commentCount ?: 0, it.isUnread ?: false) })
     }
 
     /**
-     * The signals of done tasks that [refreshSignalsFor] read stay when [refreshSignals] replaces
-     * the open ones; that list's next fetch brings them up to date.
+     * The rows [refreshSignals] did not ask about stay when it replaces the open tasks of the shared
+     * projects: done tasks (the next read of them brings them up to date) and the tasks of every
+     * other project. A row of a task that is open in a shared project and missing from the answer,
+     * or of a task no longer here, goes.
      */
-    private suspend fun doneTaskSignals(serverIds: Set<Long>): List<TaskSignalEntity> {
+    private suspend fun signalsOutsideTheAnswer(serverIds: Set<Long>, shared: List<Long>): List<TaskSignalEntity> {
         val others = collaborationDao.observeSignals().first().filter { it.taskId > 0 && it.taskId !in serverIds }
         if (others.isEmpty()) return emptyList()
-        val done = taskDao.getByIds(others.map { it.taskId }).filter { it.done }.mapTo(HashSet()) { it.id }
-        return others.filter { it.taskId in done }
+        val sharedIds = shared.toSet()
+        val kept = taskDao.getByIds(others.map { it.taskId })
+            .filter { it.done || it.projectId !in sharedIds }
+            .mapTo(HashSet()) { it.id }
+        return others.filter { it.taskId in kept }
     }
 
-    /** Tasks created offline in a shared project keep the count of their queued comments. */
+    /** Tasks created offline keep the count of their queued comments. */
     private suspend fun pendingCommentSignals(serverIds: Set<Long>): List<TaskSignalEntity> =
         collaborationDao.observeSignals().first()
             .filter { it.taskId < 0 && it.taskId !in serverIds }
@@ -476,16 +480,22 @@ class CollaborationRepositoryImpl(
         )
     }
 
+    /** The unread mark and Notify me are about other people: nothing to ask on a private project (9.1). */
+    private suspend fun inSharedProject(taskId: Long): Boolean {
+        val projectId = taskDao.getByIdSync(taskId)?.projectId ?: return false
+        return state.first().access(projectId).shared
+    }
+
     override suspend fun markRead(taskId: Long) {
         val id = currentTaskId(taskId)
         collaborationDao.markRead(id)
-        if (id <= 0L) return
+        if (id <= 0L || !inSharedProject(id)) return
         attempt("mark the comments read") { api.markTaskRead(id) }
     }
 
     override suspend fun isSubscribed(taskId: Long): NetworkResult<Boolean> {
         val id = currentTaskId(taskId)
-        if (id <= 0L) return NetworkResult.Success(false)
+        if (id <= 0L || !inSharedProject(id)) return NetworkResult.Success(false)
         return attempt("read notifications for the task") { api.isSubscribed(id) }
     }
 

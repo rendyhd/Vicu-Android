@@ -69,6 +69,8 @@ data class AskState(
      */
     val lingering: PendingProposal? = null,
     val error: String? = null,
+    /** The person stopped the last turn; the next one clears it. */
+    val stopped: Boolean = false,
 )
 
 /**
@@ -144,7 +146,23 @@ class AskSession(
             val kept = c.messages.take(size)
             c.copy(messages = kept, title = if (kept.none { it is ChatMessage.User }) "" else c.title)
         }
-        _state.update { it.copy(error = null) }
+        _state.update { it.copy(error = null, stopped = false) }
+        store.save(conversation)
+    }
+
+    /**
+     * The person stopped the turn, and the job running it has ended. What they asked stays in the
+     * conversation, and a tool call left without its result gets one, so the next request is valid.
+     */
+    suspend fun stopped() {
+        val last = conversation.messages.lastOrNull()
+        if (last is ChatMessage.Assistant && last.toolCalls.isNotEmpty()) {
+            val results = last.toolCalls.map {
+                ToolResult(it.id, it.name, error("cancelled", "the user stopped this"), isError = true)
+            }
+            update { c -> c.copy(messages = c.messages + ChatMessage.ToolResults(results)) }
+        }
+        _state.update { it.copy(error = null, stopped = true) }
         store.save(conversation)
     }
 
@@ -184,7 +202,7 @@ class AskSession(
             _state.update { it.copy(error = "Set up Ask in the assistant settings first.") }
             return
         }
-        _state.update { it.copy(busy = true, error = null, streaming = "") }
+        _state.update { it.copy(busy = true, error = null, stopped = false, streaming = "") }
         val system = AiContract.prompt("ask") + if (talk) "\n\n" + AiContract.prompt("talk") else ""
         val tools = AiContract.askTools.filter { it.enabled }
         var rounds = 0

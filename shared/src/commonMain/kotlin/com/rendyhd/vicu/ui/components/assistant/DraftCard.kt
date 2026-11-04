@@ -171,7 +171,7 @@ fun DraftCard(
                 }
                 draft.reminder?.let { r ->
                     val text = r.beforeDueMinutes?.let { m -> if (m == 0) "Remind at due time" else "Remind ${minutesText(m)} before" }
-                        ?: r.at?.let { at -> "Remind " + DateDisplay.format(DateContext.CHIP, at, LocalClockDay.current.date, false, LocalDateFormat.current) }
+                        ?: r.at?.let { at -> "Remind " + DateDisplay.midSentence(DateDisplay.format(DateContext.CHIP, at, LocalClockDay.current.date, false, LocalDateFormat.current)) }
                         ?: ""
                     DraftChip(text, "reminder" in guessed, "reminder" in changed, if (editable) ({ onChange(draft.copy(reminder = null)) }) else null, editable)
                 }
@@ -236,9 +236,23 @@ private fun DueChip(draft: CheckedDraft, editable: Boolean, guessed: Boolean, ch
                 open = false
                 onChange(draft.copy(due = date?.atTime(DictationChecks.DATE_ONLY), dueHasTime = false, reminder = if (date == null && draft.reminder?.beforeDueMinutes != null) null else draft.reminder))
             }
-            DropdownMenuItem(text = { Text("Today") }, onClick = { pick(day.date) })
-            DropdownMenuItem(text = { Text("Tomorrow") }, onClick = { pick(day.date.plus(1, DateTimeUnit.DAY)) })
-            DropdownMenuItem(text = { Text("Next week") }, onClick = { pick(com.rendyhd.vicu.util.DueDates.nextWeekStart(day.date)) })
+            @Composable
+            fun quickChoice(label: String, date: LocalDate) {
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    trailingIcon = {
+                        Text(
+                            DateDisplay.formatWeekdayDate(date, day.date, format),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    onClick = { pick(date) },
+                )
+            }
+            quickChoice("Today", day.date)
+            quickChoice("Tomorrow", day.date.plus(1, DateTimeUnit.DAY))
+            quickChoice("Next week", com.rendyhd.vicu.util.DueDates.nextWeekStart(day.date))
             DropdownMenuItem(text = { Text("No date") }, onClick = { pick(null) })
         }
     }

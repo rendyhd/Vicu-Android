@@ -120,7 +120,10 @@ fun TaskItem(
     // Walking the subtask tree and parsing the description are per-row work: done again only when
     // the thing they read changes, not on every recomposition while the list scrolls.
     val (completedSubtasks, subtaskCount) = remember(task.relatedTasks) { task.subtaskProgress() }
-    val hasNotes = remember(task.description) { TaskLinkParser.hasNotesContent(task.description) }
+    val density = LocalRowDensity.current
+    // Comfortable, the notes show as a line of text, which takes the place of their icon.
+    val notesLine = if (density.notesLines > 0) remember(task.description) { TaskLinkParser.notesPreview(task.description) } else ""
+    val hasNotes = remember(task.description) { TaskLinkParser.hasNotesContent(task.description) } && notesLine.isEmpty()
     val displayMode = LocalSubtaskDisplayMode.current
     var subtasksExpanded by rememberSaveable(task.id) { mutableStateOf(false) }
     var pendingCompletion by remember { mutableStateOf<Task?>(null) }
@@ -204,10 +207,10 @@ fun TaskItem(
             val metaLabels = rowLabels(task.labels, view)
             val parentTitle = task.relatedTasks[RelationKind.PARENTTASK].orEmpty().firstOrNull()?.title
             val isRepeating = isRecurring(task.repeatAfter, task.repeatMode)
-            // Collaboration signals, only on tasks of shared projects (cross-app semantics 9).
+            // The comment count is on every task, the assignees only on shared projects (cross-app semantics 9).
             val collab = LocalCollab.current
             val signal = collab.signal(task)
-            val commentCount = signal?.commentCount ?: 0
+            val commentCount = signal.commentCount
             val assignees = collab.assignees(task)
             val rowSurface = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface
             val hasMeta = metaProject != null || metaLabels.isNotEmpty() || parentTitle != null ||
@@ -227,9 +230,19 @@ fun TaskItem(
                         MaterialTheme.colorScheme.onSurface
                     },
                     textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None,
-                    maxLines = 1,
+                    maxLines = density.titleLines,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (notesLine.isNotEmpty()) {
+                    Text(
+                        text = notesLine,
+                        modifier = Modifier.padding(top = 2.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = density.notesLines,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 if (hasMeta) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
@@ -343,7 +356,7 @@ fun TaskItem(
                             if (selectionActive) {
                                 // While selecting, a tap selects the row: the count is only shown.
                                 Text(
-                                    text = Collaboration.commentCountLabel(commentCount, signal?.isUnread == true),
+                                    text = Collaboration.commentCountLabel(commentCount, signal.isUnread),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -351,7 +364,7 @@ fun TaskItem(
                             } else {
                                 RowCommentCount(
                                     count = commentCount,
-                                    unread = signal?.isUnread == true,
+                                    unread = signal.isUnread,
                                     onOpen = { collab.openComments(task.id) },
                                     ringColor = rowSurface,
                                 )

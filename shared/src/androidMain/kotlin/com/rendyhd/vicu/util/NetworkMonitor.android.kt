@@ -23,17 +23,19 @@ class AndroidNetworkMonitor(
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
 
+        // Counted from the callbacks, which all run on one thread. With every network going down at
+        // once (airplane mode) the state read back in onLost could stay online with nothing to correct it.
+        val networks = mutableSetOf<Network>()
         connectivityManager.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
+                networks += network
                 _isOnline.value = true
             }
 
+            // Also called when a network stops having internet: it no longer matches the request.
             override fun onLost(network: Network) {
-                _isOnline.value = checkCurrentConnectivity()
-            }
-
-            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                _isOnline.value = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                networks -= network
+                _isOnline.value = networks.isNotEmpty()
             }
         })
     }

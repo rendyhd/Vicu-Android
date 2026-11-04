@@ -1,7 +1,7 @@
 // Collaboration checks on emulator-5554 (design handoff M1 to M5): the shared "Trip to Lisbon"
 // project of the desktop seed (scripts/ui-verify/seed.mjs in the vicu repo) shows assignee avatars
 // and comment counts on its rows, the editor has Assign and Comments chips, the Comments screen
-// shows the thread and posts a comment, and a private project shows none of it.
+// shows the thread and posts a comment, and a private project shows no avatars or Assign, with Comments on its tasks.
 //
 //   node collab.mjs [--out DIR]
 //
@@ -118,10 +118,8 @@ await step('editor-chips', async () => {
   const descs = nodes.map((n) => n['content-desc'] ?? '')
   const project = descs.findIndex((t) => t.startsWith('Project:'))
   const assign = descs.findIndex((t) => t === 'Assign' || t.startsWith('Assigned:'))
-  const attach = descs.findIndex((t) => t.startsWith('Add attachment'))
   const comments = descs.findIndex((t) => t.startsWith('Comments'))
-  const more = descs.findIndex((t) => t === 'More')
-  check(assign > project && attach > assign && comments > attach && more > comments, `chips in order Project, Assign, Attachments, Comments, More (${[project, assign, attach, comments, more].join(',')})`)
+  check(assign > project && comments > assign, `chips in order Project, Assign, Comments (${[project, assign, comments].join(',')})`)
   check(descs.some((t) => t.startsWith('Assigned: You')), 'the Assign chip names the assignees ("Assigned: You, ...")')
 })
 
@@ -171,6 +169,11 @@ await step('private-project', async () => {
   d.shot('private-rows')
   const nodes = d.dump()
   check(!nodes.some((n) => /^Assigned to /.test(n['content-desc'] ?? '') || /^\d+ comments?/.test(n['content-desc'] ?? '')), 'a private project shows no avatars or counts')
+  await v.openFirstTask()
+  const chips = d.dump().map((n) => n['content-desc'] ?? '')
+  check(chips.some((t) => /comments/i.test(t)), 'a private task has Comments')
+  check(!chips.some((t) => /assign/i.test(t)), 'a private task has no Assign')
+  await d.back()
 })
 
 console.log(failures ? `${failures} check(s) failed` : 'all checks passed')

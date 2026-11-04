@@ -38,22 +38,22 @@ class ParseChipTextTest {
     @Test
     fun `a time keeps its minutes`() {
         val due = LocalDateTime(2026, 10, 8, 15, 30)
-        assertEquals("Thu 8 Oct, 15:30", formatDateChip(due, hasTime = true, today = today, dateFormat = gb24))
-        assertEquals("Thu, Oct 8, 3:30 PM", formatDateChip(due, hasTime = true, today = today, dateFormat = us12))
+        assertEquals("Tomorrow, 8 Oct, 15:30", formatDateChip(due, hasTime = true, today = today, dateFormat = gb24))
+        assertEquals("Tomorrow, Oct 8, 3:30 PM", formatDateChip(due, hasTime = true, today = today, dateFormat = us12))
     }
 
     @Test
     fun `times just after midnight and just before it are shown`() {
         assertEquals(
-            "Wed 7 Oct, 23:45",
+            "Today, 7 Oct, 23:45",
             formatDateChip(LocalDateTime(2026, 10, 7, 23, 45), hasTime = true, today = today, dateFormat = gb24),
         )
         assertEquals(
-            "Wed 7 Oct, 00:05",
+            "Today, 7 Oct, 00:05",
             formatDateChip(LocalDateTime(2026, 10, 7, 0, 5), hasTime = true, today = today, dateFormat = gb24),
         )
         assertEquals(
-            "Wed, Oct 7, 12:05 AM",
+            "Today, Oct 7, 12:05 AM",
             formatDateChip(LocalDateTime(2026, 10, 7, 0, 5), hasTime = true, today = today, dateFormat = us12),
         )
     }
@@ -61,7 +61,7 @@ class ParseChipTextTest {
     @Test
     fun `a date without a time shows no time - even at midnight`() {
         assertEquals(
-            "Wed 7 Oct",
+            "Today, 7 Oct",
             formatDateChip(LocalDateTime(2026, 10, 7, 0, 0), hasTime = false, today = today, dateFormat = gb24),
         )
         assertEquals(
@@ -71,7 +71,7 @@ class ParseChipTextTest {
     }
 
     @Test
-    fun `a chip always names the weekday date - never a relative word`() {
+    fun `a chip says the word for three days and otherwise the weekday date`() {
         fun chip(date: LocalDateTime, hasTime: Boolean = false, format: DateDisplayFormat = gb24) =
             formatDateChip(date, hasTime = hasTime, today = today, dateFormat = format)
 
@@ -81,7 +81,7 @@ class ParseChipTextTest {
         assertEquals("Sat, Oct 10, 3:00 PM", chip(LocalDateTime(2026, 10, 10, 15, 0), hasTime = true, format = us12))
         assertEquals("Tue 13 Oct", chip(LocalDateTime(2026, 10, 13, 23, 59, 59)))
         assertEquals("Fri 15 Jan 2027", chip(LocalDateTime(2027, 1, 15, 23, 59, 59)))
-        assertEquals("Tue 6 Oct", chip(LocalDateTime(2026, 10, 6, 23, 59, 59)))
+        assertEquals("Yesterday, 6 Oct", chip(LocalDateTime(2026, 10, 6, 23, 59, 59)))
     }
 
     @Test

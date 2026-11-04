@@ -345,7 +345,7 @@ fun CustomListDialog(
                         Switch(checked = sharedOnly, onCheckedChange = { sharedOnly = it })
                     }
                     Text(
-                        text = "Assigned and Comments only match tasks in projects someone else can see.",
+                        text = "Assigned and unread comments only match tasks in projects someone else can see.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

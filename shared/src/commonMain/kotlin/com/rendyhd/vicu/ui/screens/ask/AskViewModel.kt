@@ -114,7 +114,7 @@ class AskViewModel(
     /** The conversation's length before the spoken turn still running: talking again goes back to it. */
     private var rollback: Int? = null
 
-    /** A cancelled turn being taken out of the conversation; the next message waits for it. */
+    /** A cancelled turn being taken out of the conversation or closed; the next message waits for it. */
     private var withdrawing: Job? = null
 
     private val sessionState = session.flatMapLatest { it?.state ?: flowOf(null) }
@@ -283,7 +283,8 @@ class AskViewModel(
             else -> if (n == 1) "Changed 1 task" else "Changed $n tasks"
         }
         val undo = applied.undo
-        if (undo == null) messages.post(text) else messages.post(text, "Undo") { viewModelScope.launch { undo() } }
+        val created = applied.appliedIds.singleOrNull().takeIf { proposal is Proposal.Create }
+        if (undo == null) messages.post(text) else messages.post(text, "Undo", openTaskId = created) { viewModelScope.launch { undo() } }
     }
 
     private suspend fun speakLastAnswer(s: AskSession) {
@@ -408,11 +409,29 @@ class AskViewModel(
     private fun withdraw(s: AskSession) {
         val to = rollback ?: return
         rollback = null
+        endTurn { s.withdraw(to) }
+    }
+
+    /**
+     * The Stop button, while the model works and no card is open: the turn ends, what was asked stays
+     * in the conversation and the app says "Stopped.", as the desktop does.
+     */
+    fun stop() {
+        val s = session.value ?: return
+        val state = s.state.value
+        if (!state.busy || state.pending != null) return
+        rollback = null
+        sender.reset()
+        endTurn { s.stopped() }
+    }
+
+    /** Cancels the running turn, then runs [after]; the next message waits for both. */
+    private fun endTurn(after: suspend () -> Unit) {
         val running = turn
         turn = null
         val job = viewModelScope.launch {
             running?.cancelAndJoin()
-            s.withdraw(to)
+            after()
         }
         withdrawing = job
         job.invokeOnCompletion { viewModelScope.launch { if (withdrawing === job) withdrawing = null } }

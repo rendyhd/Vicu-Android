@@ -207,6 +207,92 @@ class CollaborationRepositoryImplTest {
     }
 
     @Test
+    fun `a refresh of the shared projects keeps the counts of other tasks and drops what is gone`() = runTest {
+        val rig = Rig { request ->
+            when (request.url.encodedPath) {
+                "/tasks" -> json("""{"items":[{"id":42,"title":"Flights","project_id":7,"comment_count":1}],"total":1,"page":1,"per_page":1000,"total_pages":1}""")
+                else -> error("unexpected ${request.url.encodedPath}")
+            }
+        }
+        rig.storage.storeUserId(1)
+        rig.taskDao.upsertAll(
+            listOf(
+                TaskEntity(id = 50, title = "Private", projectId = 8),
+                TaskEntity(id = 51, title = "Gone from the answer", projectId = 7),
+                TaskEntity(id = 52, title = "Done", projectId = 7, done = true),
+            ),
+        )
+        rig.collaborationDao.upsertMembers(
+            listOf(
+                ProjectMemberEntity(7, 1, "rendy", "Rendy", 0),
+                ProjectMemberEntity(7, 2, "maya", "Maya", 1),
+                ProjectMemberEntity(8, 1, "rendy", "Rendy", 0),
+            ),
+        )
+        rig.collaborationDao.upsertSignals(
+            listOf(
+                TaskSignalEntity(50, commentCount = 2),
+                TaskSignalEntity(51, commentCount = 3),
+                TaskSignalEntity(52, commentCount = 4),
+                TaskSignalEntity(99, commentCount = 5),
+            ),
+        )
+        rig.repository.state.first()
+
+        rig.repository.refreshSignals()
+
+        assertEquals(1, rig.collaborationDao.getSignal(42)?.commentCount)
+        assertEquals(2, rig.collaborationDao.getSignal(50)?.commentCount, "a private task keeps its count")
+        assertEquals(null, rig.collaborationDao.getSignal(51), "open in a shared project and not in the answer")
+        assertEquals(4, rig.collaborationDao.getSignal(52)?.commentCount, "a done task keeps its count")
+        assertEquals(null, rig.collaborationDao.getSignal(99), "the task is no longer here")
+    }
+
+    @Test
+    fun `with nothing shared a refresh sends nothing and the counts stay`() = runTest {
+        val rig = Rig { request -> error("unexpected ${request.url.encodedPath}") }
+        rig.storage.storeUserId(1)
+        rig.collaborationDao.upsertMembers(listOf(ProjectMemberEntity(7, 1, "rendy", "Rendy", 0)))
+        rig.collaborationDao.upsertSignals(listOf(TaskSignalEntity(42, commentCount = 2)))
+        rig.repository.state.first()
+
+        rig.repository.refreshSignals()
+
+        assertTrue(rig.sent.isEmpty())
+        assertEquals(2, rig.collaborationDao.getSignal(42)?.commentCount)
+    }
+
+    @Test
+    fun `on a private project nothing asks the server about read marks or following`() = runTest {
+        val rig = Rig { request -> error("unexpected ${request.url.encodedPath}") }
+        rig.storage.storeUserId(1)
+        rig.collaborationDao.upsertMembers(listOf(ProjectMemberEntity(7, 1, "rendy", "Rendy", 0)))
+        rig.collaborationDao.upsertSignals(listOf(TaskSignalEntity(42, commentCount = 2, isUnread = true)))
+        rig.repository.state.first()
+
+        rig.repository.markRead(42)
+        val following = rig.repository.isSubscribed(42)
+
+        assertTrue(rig.sent.isEmpty())
+        assertEquals(false, (following as NetworkResult.Success).data)
+        assertEquals(TaskSignalEntity(42, 2, false), rig.collaborationDao.getSignal(42))
+    }
+
+    @Test
+    fun `on a shared project opening the comments marks them read on the server`() = runTest {
+        val rig = Rig { request ->
+            if (request.url.encodedPath == "/tasks/42/read") json("{}") else error("unexpected ${request.url.encodedPath}")
+        }
+        rig.storage.storeUserId(1)
+        rig.collaborationDao.upsertMembers(listOf(ProjectMemberEntity(7, 1, "rendy", "Rendy", 0), ProjectMemberEntity(7, 2, "maya", "Maya", 1)))
+        rig.repository.state.first()
+
+        rig.repository.markRead(42)
+
+        assertEquals(listOf("PUT /tasks/42/read"), rig.sent)
+    }
+
+    @Test
     fun `a project's access follows its members and your permission`() = runTest {
         val rig = Rig { unavailable() }
         rig.storage.storeUserId(1)

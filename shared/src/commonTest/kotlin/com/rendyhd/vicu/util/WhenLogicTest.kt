@@ -172,7 +172,7 @@ class WhenLogicTest {
         val saturdayAt3 = WhenValue(LocalDate(2026, 10, 10), LocalTime(15, 0))
         assertEquals("Sat, Oct 10, 3:00 PM", WhenLogic.text(saturdayAt3, thursday, us12))
         assertEquals("Sat 10 Oct, 15:00", WhenLogic.text(saturdayAt3, thursday, gb24))
-        assertEquals("Fri, Oct 9", WhenLogic.text(WhenValue(LocalDate(2026, 10, 9), null), thursday, us12))
+        assertEquals("Tomorrow, Oct 9", WhenLogic.text(WhenValue(LocalDate(2026, 10, 9), null), thursday, us12))
         assertEquals("", WhenLogic.text(WhenValue.EMPTY, thursday, us12))
     }
 

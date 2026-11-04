@@ -9,13 +9,15 @@ import kotlinx.coroutines.flow.receiveAsFlow
  * A message for the app-wide snackbar. When [actionLabel] and [onAction] are set the snackbar
  * shows that action (for example "Undo") and calls [onAction] if the user taps it. A message with
  * [durationMillis] stays that long (longer when an accessibility service asks for more time)
- * instead of the snackbar's long default; a newer message replaces it.
+ * instead of the snackbar's long default; a newer message replaces it. With [openTaskId], for a
+ * message about one new task, the snackbar also offers Open, which opens that task's editor.
  */
 class AppMessage(
     val text: String,
     val actionLabel: String? = null,
     val onAction: (() -> Unit)? = null,
     val durationMillis: Long? = null,
+    val openTaskId: Long? = null,
 )
 
 /**
@@ -39,10 +41,16 @@ class AppMessages {
 
     /**
      * Posts [message] with an action the user can tap (an Undo, for example), for [durationMillis]
-     * when given.
+     * when given. With [openTaskId] the snackbar also offers Open for that task.
      */
-    fun post(message: String, actionLabel: String, durationMillis: Long? = null, onAction: () -> Unit) {
-        if (message.isNotBlank()) channel.trySend(AppMessage(message, actionLabel, onAction, durationMillis))
+    fun post(
+        message: String,
+        actionLabel: String,
+        durationMillis: Long? = null,
+        openTaskId: Long? = null,
+        onAction: () -> Unit,
+    ) {
+        if (message.isNotBlank()) channel.trySend(AppMessage(message, actionLabel, onAction, durationMillis, openTaskId))
     }
 
     private companion object {

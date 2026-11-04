@@ -52,7 +52,7 @@ interface CollaborationDao {
     @Query("DELETE FROM task_signals")
     suspend fun deleteAllSignals()
 
-    /** The signals of the open tasks of the shared projects, as the server counted them; every other row goes. */
+    /** The signals as they now stand: whatever the caller wants kept is in [signals], every other row goes. */
     @Transaction
     suspend fun replaceSignals(signals: List<TaskSignalEntity>) {
         deleteAllSignals()

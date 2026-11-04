@@ -129,7 +129,8 @@ object CustomListFilterBuilder {
         val signal = context.signals[task.id]
         when (filter.comments) {
             "unread" -> if (!shared || signal?.isUnread != true) return false
-            "any" -> if (!shared || (signal?.commentCount ?: 0) <= 0) return false
+            // Comments are on every task; only the unread mark needs someone else (section 9.1).
+            "any" -> if ((signal?.commentCount ?: 0) <= 0) return false
         }
 
         val days = filter.changedDays

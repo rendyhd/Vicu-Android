@@ -26,6 +26,7 @@ import com.rendyhd.vicu.location.LocationTrigger
 import com.rendyhd.vicu.location.PlaceMatch
 import com.rendyhd.vicu.location.SavedPlace
 import com.rendyhd.vicu.util.Constants
+import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DefaultReminder
@@ -34,6 +35,7 @@ import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.RecurrenceValue
 import com.rendyhd.vicu.util.TextTaskCreator
+import com.rendyhd.vicu.util.postIfRefused
 import com.rendyhd.vicu.util.parser.ParseResult
 import com.rendyhd.vicu.util.parser.ParserConfig
 import com.rendyhd.vicu.util.parser.SyntaxPrefixes
@@ -93,7 +95,17 @@ data class TaskEntryUiState(
     val pickedPlace: PlacePick? = null,
     /** The checklist of the full-height sheet: created as subtasks once the task exists. */
     val subtasks: List<String> = emptyList(),
+    /** The draft was just cleared: Undo can put it back until the user types or the sheet closes. */
+    val canUndoClear: Boolean = false,
 ) {
+    /** Anything the user wrote or picked that Clear would take away. */
+    val hasDraft: Boolean
+        get() = title.isNotEmpty() || description.isNotBlank() || pendingImages.isNotEmpty() ||
+            pendingAttachmentUris.isNotEmpty() || subtasks.isNotEmpty() || selectedLabelIds.isNotEmpty() ||
+            reminders.isNotEmpty() || manualRecurrence != null || pickedPlace != null ||
+            dueDateIsManual || priorityIsManual || projectIsManual
+
+
     /** The location reminder the title asks for ("when I get home"), or null. */
     val placeMatch: PlaceMatch?
         get() {
@@ -139,6 +151,15 @@ class TaskEntryViewModel(
 
     /** The due date the opening screen asked for; a fresh draft (mass-add) starts from it again. */
     private var seedDueDate: String? = null
+
+    /** What Clear took away, while Undo can still put it back. */
+    private var clearedDraft: ClearedDraft? = null
+
+    private class ClearedDraft(
+        val state: TaskEntryUiState,
+        val suppressedRawTexts: Map<TokenType, List<String>>,
+        val pinnedTypes: Set<TokenType>,
+    )
 
     /**
      * True once a screen has initialised the draft ([initWithDefaults] or [initWithSharedContent]).
@@ -288,6 +309,7 @@ class TaskEntryViewModel(
     }
 
     fun setTitle(title: String) {
+        if (title.isNotEmpty()) forgetClearedDraft()
         _uiState.update { state ->
             // Auto-lift stale suppressions: if the raw text no longer appears in input
             val activeSuppressed = state.suppressedTypes.filter { type ->
@@ -473,7 +495,8 @@ class TaskEntryViewModel(
         }
     }
 
-    fun save() {
+    /** [format] phrases the date of the confirmation. */
+    fun save(format: DateDisplayFormat = DateDisplayFormat.system(is24Hour = true)) {
         val state = _uiState.value
         val config = state.parserConfig
         val parseResult = state.parseResult
@@ -566,15 +589,21 @@ class TaskEntryViewModel(
                         for (labelId in resolvedLabelIds) {
                             labelRepository.addToTask(createdTask.id, labelId)
                         }
-                        if (placeReminder != null) setLocationReminder(createdTask.id, placeReminder)
+                        // A newer message replaces the one on screen: what the user must act on or
+                        // know about keeps the snackbar instead of the confirmation.
+                        var somethingToSay = placeReminder != null && setLocationReminder(createdTask.id, placeReminder)
                         // The checklist, in its order; one that fails is reported and the rest go on.
                         for (subtask in subtasks) {
                             val made = taskRepository.createSubtask(
                                 createdTask.id,
                                 Task(id = 0, title = subtask, projectId = createdTask.projectId),
                             )
-                            if (made is NetworkResult.Error) appMessages.post(made.message)
+                            if (made is NetworkResult.Error) {
+                                appMessages.post(made.message)
+                                somethingToSay = true
+                            }
                         }
+                        if (!somethingToSay && !state.keepEntryOpen) confirmCreated(createdTask, state, format)
                         if (pendingUris.isNotEmpty()) {
                             uploadPendingAttachments(createdTask.id, pendingUris)
                         }
@@ -606,17 +635,33 @@ class TaskEntryViewModel(
         }
     }
 
+    /** The sheet has closed: the snackbar says what was added, with Open and Undo, as the other adds do. */
+    private fun confirmCreated(created: Task, state: TaskEntryUiState, format: DateDisplayFormat) {
+        val project = state.allProjects.find { it.id == created.projectId }?.takeIf { it.id != state.inboxProjectId }?.title
+        val text = TextTaskCreator.confirmation(created.title, created.dueDate, project, dayClock.day.value, format)
+        appMessages.post(text, "Undo", openTaskId = created.id) {
+            viewModelScope.launch { appMessages.postIfRefused(taskRepository.delete(created.id), "undo the task") }
+        }
+    }
+
     /**
      * "When I get home" in the title: the reminder, and a word when this phone cannot remind there
-     * (the place was saved on another device, or location access is not Always).
+     * (the place was saved on another device, or location access is not Always). Returns whether it
+     * said anything.
      */
-    private suspend fun setLocationReminder(taskId: Long, match: PlacePick) {
+    private suspend fun setLocationReminder(taskId: Long, match: PlacePick): Boolean {
         locations.setReminder(locations.reminderAt(taskId, match.place, match.trigger))
         locationPermission.refresh()
-        when {
-            match.place.position == null -> appMessages.post(TextTaskCreator.notLocated(match.place.name))
-            locationPermission.access.value != LocationAccess.ALWAYS ->
+        return when {
+            match.place.position == null -> {
+                appMessages.post(TextTaskCreator.notLocated(match.place.name))
+                true
+            }
+            locationPermission.access.value != LocationAccess.ALWAYS -> {
                 appMessages.post(NEEDS_ALWAYS, "Settings") { locationPermission.openSettings() }
+                true
+            }
+            else -> false
         }
     }
 
@@ -649,11 +694,51 @@ class TaskEntryViewModel(
         }
     }
 
+    /** The draft's clear button: everything goes, as after a save, and Undo can bring it back. */
+    fun clearDraft() {
+        val before = _uiState.value
+        if (!before.hasDraft) return
+        val cleared = ClearedDraft(before, suppressedRawTexts, pinnedTypes)
+        reset()
+        clearedDraft = cleared
+        _uiState.update { it.copy(canUndoClear = true) }
+    }
+
+    fun undoClearDraft() {
+        val cleared = clearedDraft ?: return
+        clearedDraft = null
+        suppressedRawTexts = cleared.suppressedRawTexts
+        pinnedTypes = cleared.pinnedTypes
+        _uiState.update { now ->
+            // The draft's own fields; what the app knows (projects, labels, settings) stays current.
+            cleared.state.copy(
+                allProjects = now.allProjects,
+                allLabels = now.allLabels,
+                places = now.places,
+                parserConfig = now.parserConfig.copy(suppressTypes = cleared.state.parserConfig.suppressTypes),
+                inboxProjectId = now.inboxProjectId,
+                keepEntryOpen = now.keepEntryOpen,
+                isSaving = false,
+                savedTaskId = null,
+                error = null,
+                canUndoClear = false,
+            )
+        }
+    }
+
+    private fun forgetClearedDraft() {
+        if (clearedDraft == null) return
+        clearedDraft = null
+        _uiState.update { it.copy(canUndoClear = false) }
+    }
+
     fun reset() {
+        clearedDraft = null
         suppressedRawTexts = emptyMap()
         pinnedTypes = emptySet()
         _uiState.update {
             it.copy(
+                canUndoClear = false,
                 title = "",
                 description = "",
                 dueDate = seedDueDate ?: "",

@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -332,6 +333,20 @@ fun TaskEntrySheet(
         visibility.targetState = false
     }
 
+    // The draft stays when the sheet closes, so it can also be cleared by hand: everything goes, as
+    // after a save, and Undo stands in the button's place until the user types or closes the sheet.
+    fun clearDraft() {
+        viewModel.clearDraft()
+        textFieldValue = TextFieldValue("")
+        notesShown = false
+    }
+
+    fun undoClearDraft() {
+        viewModel.undoClearDraft()
+        val title = viewModel.uiState.value.title
+        textFieldValue = TextFieldValue(title, TextRange(title.length))
+    }
+
     NavigationBackHandler(
         state = rememberNavigationEventState(NavigationEventInfo.None),
         isBackEnabled = !closing,
@@ -396,7 +411,7 @@ fun TaskEntrySheet(
     val canSave = viewModel.effectiveTitle().isNotBlank() && !state.isSaving
     val save = {
         descriptionEditorController.flush()
-        viewModel.save()
+        viewModel.save(dateFormat)
     }
 
     // The words of each property, shared by the chips and the rows.
@@ -535,7 +550,16 @@ fun TaskEntrySheet(
             ) {
                 Column(modifier = Modifier.clearDescriptionEditorFocusOnHostTap(descriptionEditorController)) {
                     if (expanded) {
-                        ExpandedHeader(canSave = canSave, onCollapse = ::collapse, onAdd = save)
+                        ExpandedHeader(
+                            canSave = canSave,
+                            onCollapse = ::collapse,
+                            onAdd = save,
+                            clear = when {
+                                state.hasDraft -> "Clear" to ::clearDraft
+                                state.canUndoClear -> "Undo" to ::undoClearDraft
+                                else -> null
+                            },
+                        )
                     } else {
                         GrowHandle(onGrow = ::expand, onClose = ::dismiss)
                     }
@@ -559,6 +583,21 @@ fun TaskEntrySheet(
                                     },
                                     placeholder = { Text("New task", style = titleStyle) },
                                     maxLines = if (expanded) 6 else 3,
+                                    // At full height the header has the room to say it in a word.
+                                    trailingIcon = when {
+                                        expanded -> null
+                                        state.hasDraft -> {
+                                            {
+                                                IconButton(onClick = ::clearDraft) {
+                                                    Icon(Icons.Outlined.Close, contentDescription = "Clear the draft")
+                                                }
+                                            }
+                                        }
+                                        state.canUndoClear -> {
+                                            { TextButton(onClick = ::undoClearDraft) { Text("Undo") } }
+                                        }
+                                        else -> null
+                                    },
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .focusRequester(titleFocus)
@@ -668,7 +707,7 @@ fun TaskEntrySheet(
                                     Triple(EntryTray.WHEN, Icons.Outlined.CalendarMonth, "When" to dateWords),
                                     Triple(EntryTray.REMIND, Icons.Outlined.Notifications, "Remind" to remindWords),
                                     Triple(EntryTray.PRIORITY, Icons.Outlined.Flag, "Priority" to priorityWords),
-                                    Triple(EntryTray.TAGS, Icons.AutoMirrored.Outlined.Label, "Tags" to labelWords),
+                                    Triple(EntryTray.TAGS, Icons.AutoMirrored.Outlined.Label, "Labels" to labelWords),
                                     Triple(EntryTray.REPEAT, Icons.Outlined.Repeat, "Repeat" to repeatWords),
                                     Triple(EntryTray.PROJECT, Icons.Outlined.Folder, "Project" to projectWords),
                                 )
@@ -687,7 +726,7 @@ fun TaskEntrySheet(
                             Spacer(modifier = Modifier.height(4.dp))
                             // One line of chips: When, Remind and Priority. A chip says its value in
                             // words; the colour of a value read from the title is the colour of its
-                            // highlight. Tags, the project and a repeat live at full height and join
+                            // highlight. Labels, the project and a repeat live at full height and join
                             // the line only once they hold something (typed in the title or picked
                             // there); a line that does not fit scrolls sideways.
                             Row(
@@ -875,9 +914,17 @@ private fun GrowHandle(onGrow: () -> Unit, onClose: () -> Unit) {
     )
 }
 
-/** The full-height sheet's header: back to compact, its name, and Add. A drag down collapses it. */
+/**
+ * The full-height sheet's header: back to compact, its name, [clear] (Clear, or Undo right after
+ * it, with what it does) and Add. A drag down collapses it.
+ */
 @Composable
-private fun ExpandedHeader(canSave: Boolean, onCollapse: () -> Unit, onAdd: () -> Unit) {
+private fun ExpandedHeader(
+    canSave: Boolean,
+    onCollapse: () -> Unit,
+    onAdd: () -> Unit,
+    clear: Pair<String, () -> Unit>?,
+) {
     val threshold = with(LocalDensity.current) { GROW_DRAG_DP.dp.toPx() }
     Row(
         modifier = Modifier
@@ -905,6 +952,10 @@ private fun ExpandedHeader(canSave: Boolean, onCollapse: () -> Unit, onAdd: () -
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f).padding(start = 4.dp).semantics { heading() },
         )
+        clear?.let { (label, action) ->
+            TextButton(onClick = action) { Text(label) }
+            Spacer(Modifier.width(4.dp))
+        }
         Button(onClick = onAdd, enabled = canSave) { Text("Add") }
     }
 }
