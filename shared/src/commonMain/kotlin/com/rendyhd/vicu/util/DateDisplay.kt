@@ -315,6 +315,22 @@ object DateDisplay {
     fun formatTime(time: kotlinx.datetime.LocalTime, fmt: DateDisplayFormat): String =
         phrasesFor(fmt.localeTag).time(LocalDateTime(2000, 1, 1, time.hour, time.minute), fmt.hour12)
 
+    /** A time block's times: the start, an en dash without spaces, and the end ("15:00–15:30"). */
+    fun formatBlockRange(start: LocalDateTime, end: LocalDateTime, fmt: DateDisplayFormat): String {
+        val p = phrasesFor(fmt.localeTag)
+        return "${p.time(start, fmt.hour12)}–${p.time(end, fmt.hour12)}"
+    }
+
+    /**
+     * A time block on a row (`row.block`, section 8.3): the range alone today, otherwise the row's
+     * day phrase, a comma and the range ("Tomorrow, 15:00–15:30").
+     */
+    fun formatBlockRow(start: LocalDateTime, end: LocalDateTime, today: LocalDate, fmt: DateDisplayFormat): String {
+        val range = formatBlockRange(start, end, fmt)
+        val diff = today.daysUntil(start.date)
+        return if (diff == 0) range else "${phrasesFor(fmt.localeTag).rowDay(diff, start, today)}, $range"
+    }
+
     /** The short date with its year of a stored instant, read in [zone]; empty for no date. */
     fun formatDayMonthYear(isoDate: String?, zone: TimeZone, fmt: DateDisplayFormat): String {
         val instant = DateUtils.parseIsoDate(isoDate) ?: return ""

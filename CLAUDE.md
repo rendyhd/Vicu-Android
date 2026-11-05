@@ -95,7 +95,7 @@ shared/commonMain
   di/                 KoinModules.kt (shared modules)
   ui/                 VicuApp, navigation/, screens/<name>/(Screen + ViewModel), components/, theme/;
                       screens/guided/ (the guided sessions and the weekly review)
-  util/               DayClock, DueDates, DateUtils, RecurrenceUtils, parser/ (quick-add), routine*, reminder*, envelopes, Guided,
+  util/               DayClock, DueDates, DateUtils, RecurrenceUtils, TimeBlocks, parser/ (quick-add, `for 30m` with a time makes a time block: contract 5.4), routine*, reminder*, envelopes, Guided,
                       LocalNotifications (planner and budget), RoutineAlarmPlanner, NotificationActions
   widget/             TaskWidgetStates, WidgetModels, RoutineWidgetState (both platforms), WidgetSnapshots (iOS JSON)
   worker/             SyncEngine, PeriodicSyncRunner, DailySummaryRun, SyncRequester (platform-free work run by the

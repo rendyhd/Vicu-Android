@@ -7,6 +7,7 @@ import com.rendyhd.vicu.util.parser.ParseResult
 import com.rendyhd.vicu.util.parser.TokenType
 import com.rendyhd.vicu.util.parser.recurrenceToVikunja
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
 
 internal data class TaskEditShortcutResult(
     val task: Task,
@@ -30,6 +31,13 @@ internal fun applyTaskEditShortcuts(
         parseResult.dueDate?.let { dueDate ->
             updated = updated.copy(
                 dueDate = DueDates.fromParsed(dueDate, parseResult.dueDateHasTime, zone).toString(),
+            )
+        }
+        // "at 4pm for 30m" makes a time block, which holds the time.
+        parseResult.block?.let { block ->
+            updated = updated.copy(
+                startDate = block.start.toInstant(zone).toString(),
+                endDate = block.end.toInstant(zone).toString(),
             )
         }
     }

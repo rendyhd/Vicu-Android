@@ -64,6 +64,8 @@ data class DateOptions(
     val skipTimeOnly: Boolean = false,
     /** Take the phrase that overlaps this region (the weekday of "every monday") before any other. */
     val prefer: IntRange? = null,
+    /** Words read as if they were not there: they are no date and do not split one (`for 30m`). */
+    val hidden: List<IntRange> = emptyList(),
 )
 
 /** The local date and time on the device clock in [zone]. */
@@ -86,7 +88,7 @@ fun extractDate(
     consumed: MutableList<IntRange>,
     options: DateOptions,
 ): DateResult {
-    val working = buildWorkingText(input, consumed)
+    val working = buildWorkingText(input, consumed + options.hidden)
     val atoms = findAtoms(working, consumed, options)
     val phrases = mergeAtoms(atoms, working, consumed)
 
@@ -108,16 +110,38 @@ fun extractDate(
         if (!overlapsConsumed(extended, chosen.end, consumed)) start = extended
     }
 
-    val end = chosen.end
-    consumed.add(start until end)
-    val token = ParsedToken(
-        type = TokenType.DATE,
-        start = start,
-        end = end,
-        value = resolved.dateTime,
-        raw = input.substring(start, end),
-    )
-    return DateResult(resolved.dateTime, listOf(token), hasTime = resolved.hasTime)
+    // Hidden words inside the phrase ("tomorrow for 1h at 9am") are not part of it, so it can be two
+    // pieces: tokens never overlap, and the words are the title's unless the caller takes them.
+    val tokens = withoutHidden(start, chosen.end, options.hidden, input).map { piece ->
+        consumed.add(piece)
+        ParsedToken(
+            type = TokenType.DATE,
+            start = piece.first,
+            end = piece.last + 1,
+            value = resolved.dateTime,
+            raw = input.substring(piece.first, piece.last + 1),
+        )
+    }
+    return DateResult(resolved.dateTime, tokens, hasTime = resolved.hasTime)
+}
+
+/** The region from [start] to [end] without the [hidden] ones and the spaces next to them. */
+private fun withoutHidden(start: Int, end: Int, hidden: List<IntRange>, input: String): List<IntRange> {
+    val pieces = mutableListOf<IntRange>()
+    var from = start
+    fun add(to: Int) {
+        var last = to
+        while (last > from && input[last - 1].isWhitespace()) last--
+        if (last > from) pieces += from until last
+    }
+    for (region in hidden.sortedBy { it.first }) {
+        if (region.last + 1 <= from || region.first >= end) continue
+        add(region.first)
+        from = region.last + 1
+        while (from < end && input[from].isWhitespace()) from++
+    }
+    add(end)
+    return pieces
 }
 
 /**

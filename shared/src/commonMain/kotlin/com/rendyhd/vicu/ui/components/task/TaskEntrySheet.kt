@@ -416,7 +416,11 @@ fun TaskEntrySheet(
 
     // The words of each property, shared by the chips and the rows.
     val dateWords = if (hasDate) {
-        DateDisplay.formatDue(DateContext.CHIP, fields.dueDate, day.date, day.zone, dateFormat)
+        val due = DateDisplay.formatDue(DateContext.CHIP, fields.dueDate, day.date, day.zone, dateFormat)
+        // A time block holds the time: the due date alone would read as a day without one.
+        parseResult?.block?.takeIf { fields.blockStart.isNotEmpty() }
+            ?.let { "$due, ${DateDisplay.formatBlockRange(it.start, it.end, dateFormat)}" }
+            ?: due
     } else {
         null
     }

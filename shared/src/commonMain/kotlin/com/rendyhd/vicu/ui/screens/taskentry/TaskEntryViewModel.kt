@@ -562,6 +562,8 @@ class TaskEntryViewModel(
                     title = title,
                     description = descriptionAtSave,
                     dueDate = dueDate,
+                    startDate = fields.blockStart,
+                    endDate = fields.blockEnd,
                     priority = priority,
                     projectId = projectId,
                     reminders = state.reminders,
@@ -577,6 +579,8 @@ class TaskEntryViewModel(
                         dueDate = task.dueDate,
                         offsetSeconds = prefs.defaultReminderOffset,
                         relativeTo = prefs.defaultReminderRelativeTo,
+                        blockStart = task.startDate,
+                        blockEnd = task.endDate,
                     )
                     if (synthesized != null) task.copy(reminders = listOf(synthesized)) else task
                 } else {
@@ -638,7 +642,8 @@ class TaskEntryViewModel(
     /** The sheet has closed: the snackbar says what was added, with Open and Undo, as the other adds do. */
     private fun confirmCreated(created: Task, state: TaskEntryUiState, format: DateDisplayFormat) {
         val project = state.allProjects.find { it.id == created.projectId }?.takeIf { it.id != state.inboxProjectId }?.title
-        val text = TextTaskCreator.confirmation(created.title, created.dueDate, project, dayClock.day.value, format)
+        val block = state.parseResult?.block.takeIf { !state.dueDateIsManual }
+        val text = TextTaskCreator.confirmation(created.title, created.dueDate, project, dayClock.day.value, format, block = block)
         appMessages.post(text, "Undo", openTaskId = created.id) {
             viewModelScope.launch { appMessages.postIfRefused(taskRepository.delete(created.id), "undo the task") }
         }

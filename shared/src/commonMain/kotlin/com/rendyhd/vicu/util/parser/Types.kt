@@ -8,8 +8,9 @@ enum class SyntaxMode { TODOIST, VIKUNJA }
 /**
  * [PLACE] is the phone's own: "when I get home" for a saved place (PlacePhrases), read only when
  * the caller passes the saved places. It is not in the shared contract (the desktop saves no places).
+ * [LENGTH] is `for 30m` when it makes a time block (section 5.4 of the contract).
  */
-enum class TokenType { LABEL, PROJECT, PRIORITY, RECURRENCE, DATE, PLACE }
+enum class TokenType { LABEL, PROJECT, PRIORITY, RECURRENCE, DATE, LENGTH, PLACE }
 
 data class ParsedToken(
     val type: TokenType,
@@ -26,6 +27,9 @@ data class ParsedRecurrence(
 
 enum class RecurrenceUnit { DAY, WEEK, MONTH, YEAR }
 
+/** The time block `for 30m` makes with the text's time of day, in the zone it was read in. */
+data class ParsedBlock(val start: LocalDateTime, val end: LocalDateTime)
+
 data class ParseResult(
     val title: String,
     val dueDate: LocalDateTime? = null,
@@ -34,6 +38,8 @@ data class ParseResult(
      * date-only (see DueDates.fromParsed); its time of day is a placeholder.
      */
     val dueDateHasTime: Boolean = false,
+    /** With a block the due date is that day, date-only, and the block holds the time. */
+    val block: ParsedBlock? = null,
     val priority: Int? = null,
     val labels: List<String> = emptyList(),
     val project: String? = null,

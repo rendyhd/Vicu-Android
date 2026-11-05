@@ -267,6 +267,7 @@ class TaskMapper(private val json: Json) {
         done = done,
         dueDate = dateOrNullable(dueDate),
         startDate = dateOrNullable(startDate),
+        endDate = dateOrNullable(endDate),
         priority = priority,
         repeatAfter = repeatAfter,
         repeatMode = repeatMode,
