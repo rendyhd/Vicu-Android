@@ -24,7 +24,6 @@ const TOKEN = resolveToken()
 if (!TOKEN) throw new Error('no API token: run the seed script in the vicu repo first')
 
 const LISBON = 'Trip to Lisbon'
-const LISBON_ID = 690
 const TITLE = 'Comment files check'
 const SHOT = 'vicu-check-shot.png'
 const NOTES = 'vicu-check-notes.txt'
@@ -90,7 +89,9 @@ async function waitUntil(pred, what, ms = 15000) {
   throw new Error(`timed out waiting for ${what}`)
 }
 
-const task = await api('POST', `projects/${LISBON_ID}/tasks`, { title: TITLE })
+const lisbon = items(await api('GET', 'projects')).find((p) => p.title === LISBON)
+if (!lisbon) throw new Error(`no project ${LISBON}: run the seed script in the vicu repo first`)
+const task = await api('POST', `projects/${lisbon.id}/tasks`, { title: TITLE })
 console.log(`task ${task.id}`)
 
 try {

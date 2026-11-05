@@ -24,7 +24,9 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.BrokenImage
+import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -227,9 +229,24 @@ internal fun AttachButton(onPicked: (String) -> Unit) {
     }
 }
 
+/** Offered while the clipboard holds an image that has not been pasted yet. */
+@Composable
+internal fun PasteImageChip(onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text("Paste image") },
+        leadingIcon = { Icon(Icons.Outlined.ContentPaste, contentDescription = null, modifier = Modifier.size(18.dp)) },
+        modifier = Modifier.height(32.dp),
+    )
+}
+
 /** The files added to the comment being written: uploading with a spinner, a tap on the chip removes one. */
 @Composable
-internal fun StagedAttachments(staged: List<StagedAttachment>, onRemove: (Long) -> Unit) {
+internal fun StagedAttachments(
+    staged: List<StagedAttachment>,
+    onRemove: (Long) -> Unit,
+    trailing: @Composable () -> Unit = {},
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -255,5 +272,6 @@ internal fun StagedAttachments(staged: List<StagedAttachment>, onRemove: (Long) 
                 modifier = Modifier.height(32.dp),
             )
         }
+        trailing()
     }
 }

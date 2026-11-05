@@ -27,6 +27,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldDecorator
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -59,12 +63,20 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
@@ -78,7 +90,10 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.rendyhd.vicu.domain.model.TaskComment
 import com.rendyhd.vicu.domain.model.User
 import com.rendyhd.vicu.domain.model.toCollabUser
@@ -88,6 +103,8 @@ import com.rendyhd.vicu.ui.components.collab.PersonAvatar
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.components.task.ImageViewerDialog
+import com.rendyhd.vicu.ui.imagePasteReceiver
+import com.rendyhd.vicu.ui.rememberClipboardImage
 import com.rendyhd.vicu.ui.screens.taskdetail.EditorBackHandler
 import com.rendyhd.vicu.ui.screens.taskdetail.EditorBackState
 import com.rendyhd.vicu.util.ClockDay
@@ -99,8 +116,18 @@ import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.ImageTokens
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+
+/** How often the composer looks whether the clipboard holds an image. Asking shows no paste notice. */
+private const val CLIPBOARD_CHECK_MS = 1_000L
+
+/** The composer's text and caret, all a restored draft needs, in types iOS's `UiStateCodec` keeps. */
+private val ComposerFieldSaver = listSaver<TextFieldState, Any>(
+    save = { listOf(it.text.toString(), it.selection.start, it.selection.end) },
+    restore = { TextFieldState(it[0] as String, TextRange(it[1] as Int, it[2] as Int)) },
+)
 
 /** What the thread lists, in reading order (oldest first). */
 private sealed interface ThreadEntry {
@@ -656,17 +683,46 @@ private fun Composer(
     onRemoveStaged: (Long) -> Unit,
     onSend: (String) -> Boolean,
 ) {
-    var value by rememberSaveable(taskId, stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
-    val mention = remember(value.text, value.selection) {
-        if (value.selection.collapsed) Collaboration.mentionQueryAt(value.text, value.selection.start) else null
+    // A TextFieldState because only that kind of field takes an image: a long press's Paste or the
+    // keyboard's clipboard hands it to imagePasteReceiver below.
+    val field = rememberSaveable(taskId, saver = ComposerFieldSaver) { TextFieldState() }
+    val text = field.text.toString()
+    val selection = field.selection
+    val mention = remember(text, selection) {
+        if (selection.collapsed) Collaboration.mentionQueryAt(text, selection.start) else null
     }
     val suggestions = remember(mention, members, me) {
         mention?.let { m -> Collaboration.mentionSuggestions(m.query, members, me) { it.toCollabUser() } }.orEmpty()
     }
     val scheme = MaterialTheme.colorScheme
 
+    // The clipboard's image is offered until it has been pasted, however it was pasted.
+    val clipboard = rememberClipboardImage()
+    var offeredImage by remember { mutableStateOf<Long?>(null) }
+    var pastedImage by remember(taskId) { mutableStateOf<Long?>(null) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(clipboard, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                offeredImage = clipboard.stamp()
+                delay(CLIPBOARD_CHECK_MS)
+            }
+        }
+    }
+    val pasteImage = {
+        val stamp = clipboard.stamp()
+        clipboard.read()?.let { address ->
+            pastedImage = stamp
+            onAttach(address)
+        }
+        Unit
+    }
+    val offerPaste = offeredImage != null && offeredImage != pastedImage
+
     Column(modifier = Modifier.fillMaxWidth()) {
-        if (staged.isNotEmpty()) StagedAttachments(staged, onRemoveStaged)
+        if (staged.isNotEmpty() || offerPaste) {
+            StagedAttachments(staged, onRemoveStaged, trailing = { if (offerPaste) PasteImageChip(pasteImage) })
+        }
         if (mention != null && suggestions.isNotEmpty()) {
             Row(
                 modifier = Modifier
@@ -679,8 +735,11 @@ private fun Composer(
                     InputChip(
                         selected = false,
                         onClick = {
-                            val edit = Collaboration.applyMention(value.text, value.selection.start, mention, person.username)
-                            value = TextFieldValue(edit.text, TextRange(edit.caret))
+                            val edit = Collaboration.applyMention(text, selection.start, mention, person.username)
+                            field.edit {
+                                replace(0, length, edit.text)
+                                this.selection = TextRange(edit.caret)
+                            }
                         },
                         label = { Text(Collaboration.displayName(person.toCollabUser())) },
                         avatar = { PersonAvatar(person, 24.dp) },
@@ -696,14 +755,28 @@ private fun Composer(
         ) {
             AttachButton(onPicked = onAttach)
             BasicTextField(
-                value = value,
-                onValueChange = { value = it },
-                modifier = Modifier.weight(1f),
+                state = field,
+                modifier = Modifier
+                    .weight(1f)
+                    .imagePasteReceiver { address ->
+                        pastedImage = clipboard.stamp()
+                        onAttach(address)
+                    }
+                    .onPreviewKeyEvent { event ->
+                        val pasteKeys = event.type == KeyEventType.KeyDown && event.key == Key.V &&
+                            (event.isCtrlPressed || event.isMetaPressed)
+                        if (pasteKeys && clipboard.stamp() != null) {
+                            pasteImage()
+                            true
+                        } else {
+                            false
+                        }
+                    },
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
                 cursorBrush = SolidColor(scheme.primary),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                maxLines = 6,
-                decorationBox = { inner ->
+                lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 6),
+                decorator = TextFieldDecorator { inner ->
                     Box(
                         modifier = Modifier
                             .heightIn(min = 48.dp)
@@ -712,7 +785,7 @@ private fun Composer(
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
-                        if (value.text.isEmpty()) {
+                        if (text.isEmpty()) {
                             Text(
                                 text = if (shared) "Comment. Type @ to mention" else "Comment",
                                 style = MaterialTheme.typography.bodyLarge,
@@ -723,9 +796,9 @@ private fun Composer(
                     }
                 },
             )
-            val canSend = (value.text.isNotBlank() || staged.isNotEmpty()) && staged.none { it.attachment == null }
+            val canSend = (text.isNotBlank() || staged.isNotEmpty()) && staged.none { it.attachment == null }
             FilledIconButton(
-                onClick = { if (onSend(value.text)) value = TextFieldValue() },
+                onClick = { if (onSend(text)) field.clearText() },
                 enabled = canSend,
                 modifier = Modifier.size(48.dp),
                 colors = IconButtonDefaults.filledIconButtonColors(

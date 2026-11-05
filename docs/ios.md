@@ -272,6 +272,10 @@ background refresh, then syncs and says so in the snackbar.
 - **No exact-alarm banner and no badge.** The snooze button reads "Snooze 15 min".
 - **Background sync** runs when iOS allows it, not every 30 minutes. Settings > General >
   Background activity shows the last runs.
+- **Pasting an image into a comment.** A text field on iOS cannot take an image, so the composer's
+  Paste image chip, shown while the pasteboard holds one, and Cmd+V do it; iOS asks whether to allow
+  the paste when it is read. Android also takes it from a long press's Paste and the keyboard's
+  clipboard.
 - **Widget buttons** run in the widget extension: the row goes at once, and the change is stored
   and sent when the app next runs (opened, or the background refresh). Android sends it from the
   widget straight away. A small Tasks widget has one tap target (opens the list), no + and no

@@ -12,11 +12,13 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.cinterop.useContents
 import platform.CoreGraphics.CGRectMake
+import platform.Foundation.NSData
 import platform.Foundation.NSDate
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileModificationDate
 import platform.Foundation.NSURL
 import platform.Foundation.timeIntervalSinceNow
+import platform.Foundation.writeToFile
 import platform.QuickLook.QLPreviewController
 import platform.QuickLook.QLPreviewControllerDataSourceProtocol
 import platform.QuickLook.QLPreviewItemProtocol
@@ -168,6 +170,12 @@ class IosPlatformFiles : PlatformFiles {
             val target = "${newStagingDir()}/$name"
             val copied = NSFileManager.defaultManager.copyItemAtURL(from, NSURL.fileURLWithPath(target), null)
             return if (copied) target else null
+        }
+
+        /** Writes [data] into a new staging folder and returns the file's path. */
+        internal fun stage(data: NSData, name: String): String? {
+            val target = "${newStagingDir()}/${safeFileName(name)}"
+            return if (data.writeToFile(target, atomically = true)) target else null
         }
 
         private fun isStaged(path: String): Boolean = "/$STAGING_DIR/" in path
