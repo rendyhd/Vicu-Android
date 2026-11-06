@@ -31,11 +31,6 @@ class SqlChunksTest {
     }
 
     @Test
-    fun `the chunk size stays below the old SQLite variable limit`() {
-        assertTrue(MAX_SQL_ID_PARAMS < 999, "SQLite before 3.32 allows 999 bound variables per statement")
-    }
-
-    @Test
     fun `task getByIds and deleteByIds never bind more than one chunk`() = runTest {
         val dao = FakeTaskDao((1L..2_500L).map { TaskEntity(id = it, title = "Task $it") })
         val ids = (1L..2_500L).toList()

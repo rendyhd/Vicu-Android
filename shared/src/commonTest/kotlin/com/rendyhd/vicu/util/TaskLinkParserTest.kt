@@ -22,6 +22,19 @@ class TaskLinkParserTest {
     }
 
     @Test
+    fun `hasNotesContent returns false for empty html`() {
+        assertFalse(TaskLinkParser.hasNotesContent("<p></p>"))
+        assertFalse(TaskLinkParser.hasNotesContent("<p><br></p>"))
+        assertFalse(TaskLinkParser.hasNotesContent("<p>&nbsp;</p>"))
+        assertFalse(TaskLinkParser.hasNotesContent("<div>\n  \n</div>"))
+    }
+
+    @Test
+    fun `hasNotesContent returns true for text inside html`() {
+        assertTrue(TaskLinkParser.hasNotesContent("<p>Buy milk</p>"))
+    }
+
+    @Test
     fun `hasNotesContent returns false for description that is only an Obsidian note link`() {
         val onlyLink =
             """<!-- notelink:obsidian://open?vault=Personal&file=Tasks/X --><p><a href="obsidian://open?vault=Personal&file=Tasks/X">""" +
