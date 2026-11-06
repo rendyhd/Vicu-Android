@@ -126,6 +126,13 @@ class ListPositioner(
     suspend fun listViewIdOrNull(projectId: Long): Long? =
         listViewId(projectId, cache.value.generation).takeIf { it != NO_LIST_VIEW }
 
+    /**
+     * Runs [block] while no position is being set: reading a list view and storing what it said.
+     * Without this a read sent just before a new task is put at the end comes back with the
+     * task's first position, the top of the list, and can be stored over the right one.
+     */
+    suspend fun <T> withoutPositionsChanging(block: suspend () -> T): T = mutex.withLock { block() }
+
     /** Forgets what is remembered about [projectId]: a task moved in or out, or a request failed. */
     fun invalidate(projectId: Long) {
         cache.update { it.copy(listViewIds = it.listViewIds - projectId, lastPositions = it.lastPositions - projectId) }

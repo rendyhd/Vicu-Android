@@ -206,7 +206,7 @@ class TaskRepositoryImpl(
         order: TaskOrder,
     ): NetworkResult<Unit> = dropMutex.withLock {
         val listed = try {
-            readListPositions(projectId)
+            positioner.withoutPositionsChanging { readListPositions(projectId) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -255,10 +255,12 @@ class TaskRepositoryImpl(
 
     override suspend fun refreshListPositions(projectId: Long): NetworkResult<Unit> {
         return try {
-            val listed = readListPositions(projectId) ?: return NetworkResult.Success(Unit)
-            val cached = taskDao.getByIds(listed.keys.toList()).associateBy { it.id }
-            val changed = listed.filter { (id, position) -> cached[id]?.let { it.position != position } == true }
-            if (changed.isNotEmpty()) taskDao.updatePositions(changed)
+            positioner.withoutPositionsChanging {
+                val listed = readListPositions(projectId) ?: return@withoutPositionsChanging
+                val cached = taskDao.getByIds(listed.keys.toList()).associateBy { it.id }
+                val changed = listed.filter { (id, position) -> cached[id]?.let { it.position != position } == true }
+                if (changed.isNotEmpty()) taskDao.updatePositions(changed)
+            }
             NetworkResult.Success(Unit)
         } catch (e: CancellationException) {
             throw e
