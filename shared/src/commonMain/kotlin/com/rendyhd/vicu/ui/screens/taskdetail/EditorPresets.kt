@@ -18,7 +18,7 @@ import kotlinx.datetime.plus
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 
-/** The most quick moves the editor shows above the notes. */
+/** The most quick moves the editor shows under the notes. */
 internal const val MAX_QUICK_MOVES = 3
 
 /**

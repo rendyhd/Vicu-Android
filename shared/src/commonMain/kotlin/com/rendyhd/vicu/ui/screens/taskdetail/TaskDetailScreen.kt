@@ -531,17 +531,6 @@ fun TaskDetailScreen(
                 }
             }
 
-            // The likely next move as buttons: Today, Tomorrow, This weekend, Next week, without the
-            // day the task is already due (quickMoves). Always an item, so the indexes after it stay put.
-            item(key = "quick_moves") {
-                val clockDay = LocalClockDay.current
-                val moves = remember(task.dueDate, clockDay) { quickMoves(task.dueDate, clockDay.date, clockDay.zone) }
-                if (!task.done && moves.isNotEmpty()) {
-                    QuickMoveRow(moves = moves, onMove = viewModel::moveDue)
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
-
             // Notes, as plain text under the headline
             item(key = "description") {
                 DescriptionField(
@@ -589,6 +578,17 @@ fun TaskDetailScreen(
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // The likely next move as buttons: Today, Tomorrow, This weekend, Next week, without the
+            // day the task is already due (quickMoves). Always an item, so the indexes after it stay put.
+            item(key = "quick_moves") {
+                val clockDay = LocalClockDay.current
+                val moves = remember(task.dueDate, clockDay) { quickMoves(task.dueDate, clockDay.date, clockDay.zone) }
+                if (!task.done && moves.isNotEmpty()) {
+                    QuickMoveRow(moves = moves, onMove = viewModel::moveDue)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
             }
 
             // The properties as rows, in the order of the desktop card bar (design-system-v1.md
@@ -1375,7 +1375,7 @@ fun TaskDetailScreen(
     }
 }
 
-/** Where the subtasks section starts in the editor's list: after the headline, the quick moves, the notes and the properties. */
+/** Where the subtasks section starts in the editor's list: after the headline, the notes, the quick moves and the properties. */
 private const val SUBTASKS_ITEM_INDEX = 4
 
 /** How many label chips a Labels row shows before "+N". */
