@@ -5,6 +5,7 @@ import com.rendyhd.vicu.data.repository.TaskRepositoryHarness.Companion.jsonOk
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.util.MutableTimeSource
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.PositionUpdate
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
@@ -204,7 +205,7 @@ class TaskRepositoryCreatePositionTest {
         h.positioner.awaitIdle()
         h.clearSent()
 
-        h.repository.updatePosition(taskId = 3, projectId = 7, newPosition = 500_000.0)
+        h.repository.applyPositions(7, listOf(PositionUpdate(3, 500_000.0)))
         h.createIn()
         h.positioner.awaitIdle()
 

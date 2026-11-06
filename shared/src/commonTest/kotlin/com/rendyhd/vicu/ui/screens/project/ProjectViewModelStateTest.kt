@@ -89,6 +89,91 @@ class ProjectViewModelStateTest {
         assertFalse(vm.moveTaskBy(99, offset = 1), "a task that is not on the screen")
     }
 
+    private fun Rig.abc() {
+        tasks.put(Task(id = 5, title = "A", projectId = 1, position = 100.0))
+        tasks.put(Task(id = 6, title = "B", projectId = 1, position = 200.0))
+        tasks.put(Task(id = 7, title = "C", projectId = 1, position = 300.0))
+    }
+
+    @Test
+    fun `opening the screen reads the order of its list once`() = runTest {
+        val rig = Rig(listOf(Project(id = 1, title = "Project")))
+        rig.abc()
+        val vm = rig.viewModel()
+        runCurrent()
+        assertEquals(listOf(1L), rig.tasks.positionRefreshes)
+
+        rig.tasks.put(Task(id = 8, title = "D", projectId = 1, position = 400.0))
+        runCurrent()
+
+        assertEquals(listOf(1L), rig.tasks.positionRefreshes, "a change does not read it again")
+        assertEquals(4, vm.uiState.value.unsectionedTasks.size)
+    }
+
+    @Test
+    fun `a task with no known position reads the list again - once however often the lists emit`() = runTest {
+        val rig = Rig(listOf(Project(id = 1, title = "Project")))
+        rig.abc()
+        rig.viewModel()
+        runCurrent()
+
+        rig.tasks.put(Task(id = 8, title = "From another device", projectId = 1))
+        runCurrent()
+        rig.tasks.put(Task(id = 9, title = "Known", projectId = 1, position = 900.0))
+        runCurrent()
+
+        assertEquals(listOf(1L, 1L), rig.tasks.positionRefreshes)
+    }
+
+    @Test
+    fun `a drop whose read fails puts the row back and says why`() = runTest {
+        val rig = Rig(listOf(Project(id = 1, title = "Project")))
+        rig.abc()
+        val vm = rig.viewModel()
+        runCurrent()
+        rig.tasks.positionRefreshResult = NetworkResult.Error("Can't reach the server, so the task stayed where it was", offline = true)
+
+        assertTrue(vm.onTaskMoved(7, 6))
+        vm.onTaskDropped(7)
+        runCurrent()
+
+        assertTrue(rig.tasks.appliedPositions.isEmpty(), "nothing is sent")
+        assertEquals(listOf(5L, 6L, 7L), vm.uiState.value.unsectionedTasks.map { it.id })
+        assertEquals("Can't reach the server, so the task stayed where it was", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `a drop whose write fails says so and shows the stored order`() = runTest {
+        val rig = Rig(listOf(Project(id = 1, title = "Project")))
+        rig.abc()
+        val vm = rig.viewModel()
+        runCurrent()
+        rig.tasks.positionResult = NetworkResult.Error("Could not save the new order")
+
+        assertTrue(vm.moveTaskBy(7, offset = -1))
+        runCurrent()
+
+        assertEquals("Could not save the new order", vm.uiState.value.error)
+        assertEquals(listOf(5L, 6L, 7L), vm.uiState.value.unsectionedTasks.map { it.id })
+    }
+
+    @Test
+    fun `a drop is planned from what the list view states`() = runTest {
+        val rig = Rig(listOf(Project(id = 1, title = "Project")))
+        rig.tasks.put(Task(id = 5, title = "A", projectId = 1))
+        rig.tasks.put(Task(id = 6, title = "B", projectId = 1))
+        rig.tasks.put(Task(id = 7, title = "C", projectId = 1))
+        rig.tasks.listPositions = mapOf(5L to 100.0, 6L to 200.0, 7L to 300.0)
+        val vm = rig.viewModel()
+        runCurrent()
+
+        assertTrue(vm.moveTaskBy(7, offset = -1))
+        runCurrent()
+
+        assertEquals(listOf(1L to listOf(PositionUpdate(7, 150.0))), rig.tasks.appliedPositions)
+        assertEquals(listOf(5L, 7L, 6L), vm.uiState.value.unsectionedTasks.map { it.id })
+    }
+
     @Test
     fun `the not found message goes away when the project arrives`() = runTest {
         val rig = Rig(emptyList())

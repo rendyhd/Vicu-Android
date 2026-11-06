@@ -79,6 +79,42 @@ class ProjectViewModelSectionsTest {
         checkNotNull(findProjectSection(uiState.value.sections, id)) { "no section $id" }
 
     @Test
+    fun `a section reads its own list - and a closed one waits until it is opened`() = runTest {
+        val stores = Stores()
+        stores.tasks.put(Task(id = 1, title = "In A", projectId = sectionA.id, position = 1.0))
+        stores.tasks.put(Task(id = 2, title = "In B", projectId = sectionB.id, position = 1.0))
+        stores.sectionPrefs.setExpanded(root.id, sectionB.id, isExpanded = false)
+        val vm = stores.viewModel()
+        runCurrent()
+        assertEquals(listOf(sectionA.id), stores.tasks.positionRefreshes)
+
+        vm.toggleSection(sectionB.id)
+        runCurrent()
+
+        assertEquals(listOf(sectionA.id, sectionB.id), stores.tasks.positionRefreshes)
+    }
+
+    @Test
+    fun `a drop in a section goes to that section's list - by drag and by Move up`() = runTest {
+        val stores = Stores()
+        stores.tasks.put(Task(id = 1, title = "One", projectId = sectionA.id, position = 100.0))
+        stores.tasks.put(Task(id = 2, title = "Two", projectId = sectionA.id, position = 200.0))
+        stores.tasks.put(Task(id = 3, title = "Three", projectId = sectionA.id, position = 300.0))
+        val vm = stores.viewModel()
+        runCurrent()
+
+        assertTrue(vm.onTaskMoved(3, 2))
+        vm.onTaskDropped(3)
+        runCurrent()
+        assertEquals(listOf(1L, 3L, 2L), vm.section(sectionA.id).tasks.map { it.id })
+        assertTrue(vm.moveTaskBy(2, offset = -1))
+        runCurrent()
+
+        assertEquals(listOf(sectionA.id, sectionA.id), stores.tasks.appliedPositions.map { it.first })
+        assertEquals(listOf(1L, 2L, 3L), vm.section(sectionA.id).tasks.map { it.id })
+    }
+
+    @Test
     fun `a section collapsed earlier is collapsed when a fresh ViewModel loads`() = runTest {
         val stores = Stores().apply {
             tasks.put(Task(id = 1, title = "In A", projectId = 10))

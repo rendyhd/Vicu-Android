@@ -30,7 +30,6 @@ import com.rendyhd.vicu.util.ProjectCategoryState
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.ReviewMetadata
 import com.rendyhd.vicu.util.ReviewState
-import com.rendyhd.vicu.util.dropPositionFor
 import com.rendyhd.vicu.util.moveTaskInList
 import com.rendyhd.vicu.util.neighbourForMove
 import com.rendyhd.vicu.util.sortProjectTasks
@@ -187,6 +186,13 @@ class ProjectViewModel(
     /** The "not found" or "archived" message of the last project state, told apart from action errors. */
     private var projectError: String? = null
 
+    /** Lists whose positions have been read on this screen, and tasks asked about (see [readPositionsOfNewLists]). */
+    private val listsRead = HashSet<Long>()
+    private val askedForPosition = HashSet<Long>()
+
+    /** Bumped to draw the lists again from what is stored (see [onTaskDropped]). */
+    private val redraw = MutableStateFlow(0)
+
     init {
         viewModelScope.launch {
             completions.heldIds.collect { ids -> _uiState.update { it.copy(completedTaskIds = ids) } }
@@ -200,7 +206,8 @@ class ProjectViewModel(
                 combine(
                     projectSectionPrefsStore.collapsedSectionIds(projectId),
                     taskOrderPreferences.settings,
-                ) { collapsed, orders -> collapsed to orders },
+                    redraw,
+                ) { collapsed, orders, _ -> collapsed to orders },
             ) { project, allProjects, parentTasks, behaviorPrefs, (collapsedSectionIds, taskOrders) ->
                 ProjectInputs(
                     project = project,
@@ -299,6 +306,7 @@ class ProjectViewModel(
                         error = newState.error ?: current.error?.takeUnless { it == previousProjectError },
                     )
                 }
+                readPositionsOfNewLists(_uiState.value)
             }
         }
         if (refresher.isStale()) refresh()
@@ -364,7 +372,11 @@ class ProjectViewModel(
         return true
     }
 
-    /** Drag released: persist the dropped task's new position from its current neighbors. */
+    /**
+     * Drag released: the repository reads the list's positions, plans the drop from them and sends
+     * it. When that fails the message says why and the list is drawn again from what is stored; a
+     * drop that was refused stored nothing, so nothing else would put the row back.
+     */
     fun onTaskDropped(taskId: Long) {
         val state = _uiState.value
         val inUnsectioned = state.unsectionedTasks.any { it.id == taskId }
@@ -374,9 +386,43 @@ class ProjectViewModel(
             val section = findTaskGroup(state.sections, taskId) ?: return
             Triple(section.tasks, section.project.id, section.order)
         }
-        val newPosition = dropPositionFor(tasks, taskId, order) ?: return
         viewModelScope.launch {
-            taskRepository.updatePosition(taskId, groupProjectId, newPosition)
+            val result = taskRepository.dropInListView(groupProjectId, tasks, taskId, order)
+            if (result is NetworkResult.Error) {
+                _uiState.update { it.copy(error = result.message) }
+                redraw.update { it + 1 }
+            }
+        }
+    }
+
+    /** The lists on screen: this project's own tasks and each section that is open. */
+    private fun shownLists(state: ProjectUiState): List<Pair<Long, List<Task>>> = buildList {
+        add(projectId to state.unsectionedTasks)
+        fun visit(sections: List<ProjectSection>) {
+            for (section in sections) {
+                if (!section.isExpanded) continue
+                add(section.project.id to section.tasks)
+                visit(section.children)
+            }
+        }
+        visit(state.sections)
+    }
+
+    /**
+     * The task lists do not carry positions (the server states them only for a list view), so a
+     * list is read when it first shows, and again for a task the cache knows no position for: one
+     * another device added, or one moved here. A list really tied at 0 stays at 0: each task is
+     * asked about once. A read that fails leaves the list as stored; a drop reads for itself.
+     */
+    private fun readPositionsOfNewLists(state: ProjectUiState) {
+        if (state.project == null || state.project.isArchived) return
+        for ((listId, tasks) in shownLists(state)) {
+            if (tasks.isEmpty()) continue
+            val firstLook = listsRead.add(listId)
+            val unknown = tasks.filter { it.position == 0.0 && it.id > 0L && askedForPosition.add(it.id) }
+            if (firstLook || unknown.isNotEmpty()) {
+                viewModelScope.launch { taskRepository.refreshListPositions(listId) }
+            }
         }
     }
 
@@ -402,6 +448,12 @@ class ProjectViewModel(
             // A failed refresh is shown (an offline one only when the user asked for it) and
             // leaves the app stale, so the next screen tries again.
             _uiState.update { it.copy(isRefreshing = false, error = result.refreshErrorToShow(showSpinner) ?: it.error) }
+            if (showSpinner) {
+                // Another device may have reordered these lists.
+                shownLists(_uiState.value)
+                    .filter { (_, tasks) -> tasks.isNotEmpty() }
+                    .forEach { (listId, _) -> taskRepository.refreshListPositions(listId) }
+            }
         }
     }
 

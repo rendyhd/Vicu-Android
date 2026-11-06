@@ -84,35 +84,15 @@ fun <T> moveIdBy(ids: List<T>, id: T, offset: Int): List<T>? {
 }
 
 /**
- * Position halfway between neighbors; half of next at the top; one step past prev at the end.
- *
- * Known limitation: when neighbors carry Vikunja's default position 0.0 (legacy lists that were
- * never anchored), the result can equal a neighbor's position and the relative order is then
- * server-undefined; accepted per the plan — dragging to the end heals such lists.
+ * [tasks] with the positions a list view just [listed], for planning a drop. A task the server did
+ * not list (completed, or moved away by another device) has no place in that list and is left out,
+ * so no position is worked out from it. A task that only exists on this device stays, with the
+ * position it has here: it is never sent.
  */
-fun computeDropPosition(prev: Double?, next: Double?): Double = when {
-    prev != null && next != null -> (prev + next) / 2.0
-    next != null -> next / 2.0
-    prev != null -> prev + POSITION_STEP
-    else -> POSITION_STEP
-}
-
-/**
- * New position for [taskId] given its neighbors in [tasks] (the already-reordered,
- * as-displayed list). Neighbors that are not manually ordered in [order] are ignored (dated ones
- * in the default order): their positions are meaningless for the manual ordering.
- *
- * The project screen's drop. It is not [planDrop] because that screen does not read its list view's
- * positions (no refreshListPositions), so its rows are usually at 0: [planDrop] would read that as no
- * room and send a fresh position for every task, replacing an order this device never read.
- */
-fun dropPositionFor(tasks: List<Task>, taskId: Long, order: TaskOrder = TaskOrder.DEFAULT): Double? {
-    val idx = tasks.indexOfFirst { it.id == taskId }
-    if (idx < 0) return null
-    val prev = tasks.getOrNull(idx - 1)?.takeIf { isManuallyOrdered(it, order) }?.position
-    val next = tasks.getOrNull(idx + 1)?.takeIf { isManuallyOrdered(it, order) }?.position
-    return computeDropPosition(prev, next)
-}
+fun withListedPositions(tasks: List<Task>, listed: Map<Long, Double>): List<Task> =
+    tasks.mapNotNull { task ->
+        if (task.id < 0L) task else listed[task.id]?.let { task.copy(position = it) }
+    }
 
 /** Neighbours closer than this have no room for another task between them. */
 const val MIN_POSITION_GAP = 1.0

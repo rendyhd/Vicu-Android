@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.domain.repository
 
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.model.TaskOrder
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.PositionUpdate
 import kotlinx.coroutines.flow.Flow
@@ -76,8 +77,21 @@ interface TaskRepository {
      * skipped. Returns how many were moved, or an error naming how many could not be.
      */
     suspend fun moveDescendantsToProject(taskId: Long, newProjectId: Long): NetworkResult<Int>
-    /** Manual reorder of one task: [applyPositions] with a single update. */
-    suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double): NetworkResult<Unit>
+    /**
+     * A drop of [taskId] in [projectId]'s list view, [displayed] being the list as it is now shown,
+     * the task already in its new place. The positions the drop is planned from are read from the
+     * server first: the cached ones can be 0 only because nobody asked, and a position worked out
+     * from those moves the task to the top of the server's list. A reorder cannot wait for later,
+     * so when the read fails nothing is stored or sent, and the error says why. When a write fails
+     * the error says so too and the cached rows go back to what the server holds: read again, or
+     * when that fails as well, as they were before the drop.
+     */
+    suspend fun dropInListView(
+        projectId: Long,
+        displayed: List<Task>,
+        taskId: Long,
+        order: TaskOrder,
+    ): NetworkResult<Unit>
 
     /**
      * Applies a manual reorder of [projectId]'s list view. The positions are stored on the cached

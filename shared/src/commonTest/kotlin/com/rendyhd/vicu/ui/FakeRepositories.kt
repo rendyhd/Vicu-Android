@@ -9,6 +9,7 @@ import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.ProjectShares
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.TaskComment
+import com.rendyhd.vicu.domain.model.TaskOrder
 import com.rendyhd.vicu.domain.model.TaskSignal
 import com.rendyhd.vicu.domain.model.User
 import com.rendyhd.vicu.domain.repository.AttachmentRepository
@@ -21,6 +22,7 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.util.DEFAULT_MAX_UPLOAD_BYTES
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.PositionUpdate
+import com.rendyhd.vicu.util.planDrop
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -187,8 +189,27 @@ class FakeTaskRepository : TaskRepository {
         return positionResult
     }
 
-    override suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double): NetworkResult<Unit> =
-        applyPositions(projectId, listOf(PositionUpdate(taskId, newPosition)))
+    /**
+     * Plans from the positions [listPositions] states and stores them with the plan, like the real
+     * repository. [positionRefreshResult] failing is a read that failed: nothing applied or stored.
+     * [positionResult] failing puts the rows back as they were before the drop.
+     */
+    override suspend fun dropInListView(
+        projectId: Long,
+        displayed: List<Task>,
+        taskId: Long,
+        order: TaskOrder,
+    ): NetworkResult<Unit> {
+        (positionRefreshResult as? NetworkResult.Error)?.let { return it }
+        val read = displayed.map { task -> listPositions[task.id]?.let { task.copy(position = it) } ?: task }
+        val plan = planDrop(read, taskId, order) ?: return NetworkResult.Error("not in the list")
+        appliedPositions += projectId to plan.updates
+        if (positionResult is NetworkResult.Success) {
+            read.forEach { task -> rowFor(task.id).value?.let { write(task.id, it.copy(position = task.position)) } }
+            plan.updates.forEach { update -> rowFor(update.id).value?.let { write(it.id, it.copy(position = update.position)) } }
+        }
+        return positionResult
+    }
 
     /** The projects [refreshListPositions] was asked about; [listPositions] is what the "server" says. */
     val positionRefreshes = mutableListOf<Long>()
