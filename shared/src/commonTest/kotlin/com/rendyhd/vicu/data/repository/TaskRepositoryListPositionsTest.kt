@@ -13,7 +13,13 @@ import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonObject
@@ -37,6 +43,7 @@ class TaskRepositoryListPositionsTest {
         var failViewTasks = false
         var failViewTasksOnCall: Set<Int> = emptySet()
         var failViews = false
+        var positionGate: CompletableDeferred<Unit>? = null
         var hasListView = true
         var positionCalls = 0
         var nextId = 55L
@@ -45,7 +52,7 @@ class TaskRepositoryListPositionsTest {
         private fun requestPosition(request: HttpRequestData): Double =
             Json.parseToJsonElement((request.body as TextContent).text).jsonObject.getValue("position").jsonPrimitive.double
 
-        fun handle(scope: MockRequestHandleScope, request: HttpRequestData): HttpResponseData = with(scope) {
+        suspend fun handle(scope: MockRequestHandleScope, request: HttpRequestData): HttpResponseData = with(scope) {
             val path = request.url.encodedPath
             when {
                 request.method.value == "POST" && path == "/projects/7/tasks" -> {
@@ -76,6 +83,7 @@ class TaskRepositoryListPositionsTest {
                 }
                 request.method.value == "PUT" && path.endsWith("/position") -> {
                     positionCalls++
+                    positionGate?.await()
                     if (positionCalls in failPositionOnCall) {
                         respond("", HttpStatusCode.InternalServerError)
                     } else {
@@ -320,6 +328,36 @@ class TaskRepositoryListPositionsTest {
 
         assertEquals(null, h.taskDao.entity(99))
         assertEquals(300.0, h.taskDao.entity(1)!!.position)
+    }
+
+    @Test
+    fun `a read waits while a new task is put at the end - so it cannot store the older position over it`() = runTest {
+        val server = Server().apply {
+            viewTasks = listOf(1L to 1_000.0)
+            positionGate = CompletableDeferred()
+        }
+        val h = harness(server)
+        h.repository.create(Task(id = 0, title = "New", projectId = 7))
+        val anchored = 1_000.0 + 65_536.0
+        fun reads() = h.sent.count { it.method == "GET" && it.path == "/projects/7/views/70/tasks" }
+        // The task's place is being set: its request is at the server, held by the gate.
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000) { while (h.putPositions().isEmpty()) delay(5) }
+        }
+        val readsToPlaceIt = reads()
+        // The server still has the new task at the top, where it first put it.
+        server.viewTasks = listOf(55L to 500.0, 1L to 1_000.0)
+
+        val read = launch(Dispatchers.Unconfined) { h.repository.refreshListPositions(7) }
+        withContext(Dispatchers.Default) { delay(100) }
+        assertEquals(readsToPlaceIt, reads(), "no read goes out while the task's place is being set")
+
+        server.positionGate!!.complete(Unit)
+        h.positioner.awaitIdle()
+        read.join()
+
+        assertEquals(readsToPlaceIt + 1, reads())
+        assertEquals(anchored, h.taskDao.entity(55)!!.position)
     }
 
     @Test
