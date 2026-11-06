@@ -1,5 +1,7 @@
 package com.rendyhd.vicu.util
 
+import com.rendyhd.vicu.domain.model.Attachment
+import com.rendyhd.vicu.domain.model.isViewableImage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -76,6 +78,37 @@ class AttachmentFormattingTest {
         assertEquals("20 MB", formatByteSize(20_000_000))
         assertEquals("35.2 MB", formatByteSize(35_240_000))
         assertEquals("1 GB", formatByteSize(1_000_000_000))
+    }
+
+    // ---- which attachments the viewer shows -------------------------------------------------
+
+    private fun file(mime: String, name: String) = Attachment(id = 1, taskId = 1, fileName = name, mimeType = mime)
+
+    @Test
+    fun `an image type every platform draws is viewable whatever the name says`() {
+        assertTrue(file("image/png", "Screenshot_20261105-035614.png").isViewableImage)
+        assertTrue(file("IMAGE/JPEG; charset=binary", "IMG_0001").isViewableImage)
+        assertTrue(file("image/webp", "a.webp").isViewableImage)
+    }
+
+    @Test
+    fun `another image type goes to another app whatever the name says`() {
+        assertFalse(file("image/heic", "IMG_0002.heic").isViewableImage)
+        assertFalse(file("image/tiff", "scan.jpg").isViewableImage)
+    }
+
+    @Test
+    fun `without an image type from the server the extension decides`() {
+        assertTrue(file("application/octet-stream", "Photo.JPG").isViewableImage)
+        assertTrue(file("", "pasted.png").isViewableImage)
+        assertFalse(file("", "scan.tiff").isViewableImage)
+    }
+
+    @Test
+    fun `other files are not taken for images`() {
+        assertFalse(file("application/pdf", "invoice.pdf").isViewableImage)
+        assertFalse(file("text/plain", "notes").isViewableImage)
+        assertFalse(file("", "png").isViewableImage)
     }
 
     // ---- cache file names ------------------------------------------------------------------

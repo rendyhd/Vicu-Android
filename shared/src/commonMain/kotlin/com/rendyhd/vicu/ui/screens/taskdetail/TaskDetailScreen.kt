@@ -143,7 +143,12 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import com.rendyhd.vicu.domain.model.Attachment
+import com.rendyhd.vicu.domain.model.isViewableImage
+import com.rendyhd.vicu.ui.components.task.ImageViewerDialog
 import com.rendyhd.vicu.domain.model.toCollabUser
 import com.rendyhd.vicu.ui.components.collab.AssignSheet
 import com.rendyhd.vicu.ui.components.collab.AvatarStack
@@ -258,6 +263,7 @@ fun TaskDetailScreen(
     }
 
     var attachmentPendingDelete by remember { mutableStateOf<Attachment?>(null) }
+    var viewingAttachmentId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     val filePickerLauncher = rememberFilePicker(viewModel::uploadAttachment)
     val imagePickerLauncher = rememberImagePicker(viewModel::addImageAttachment)
@@ -403,6 +409,21 @@ fun TaskDetailScreen(
             }
             val visibleAttachments = state.attachments.filter {
                 it.id !in imageTokenIds && it.id !in state.deletingAttachmentIds
+            }
+            val viewerImages = state.attachments.filter {
+                it.isViewableImage && it.id !in state.deletingAttachmentIds
+            }
+            val viewerIndex = viewerImages.indexOfFirst { it.id == viewingAttachmentId }
+            if (viewerIndex >= 0) {
+                ImageViewerDialog(
+                    taskId = task.id,
+                    images = viewerImages.map { ImageTokens.ImageRef.Image(it.id) },
+                    initialIndex = viewerIndex,
+                    onDismiss = { viewingAttachmentId = null },
+                    onSave = { id, report -> viewerImages.firstOrNull { it.id == id }?.let { viewModel.saveAttachment(it, report) } },
+                    onShare = { id, report -> viewerImages.firstOrNull { it.id == id }?.let { viewModel.shareAttachment(it, report) } },
+                    busyIds = state.downloadingAttachmentIds,
+                )
             }
 
             // The notes' toolbar (Hide keyboard among it) sits under the list, on top of the keyboard,
@@ -1042,18 +1063,37 @@ fun TaskDetailScreen(
                 // Image-token-referenced attachments are hidden here — they render
                 // as thumbnails inside DescriptionField instead.
                 items(visibleAttachments, key = { "att_${it.id}" }, contentType = { "attachment" }) { attachment ->
+                    // An image that cannot be drawn (offline, not really an image) is a file like any other.
+                    var thumbnailFailed by remember(attachment.id) { mutableStateOf(false) }
+                    val showsImage = attachment.isViewableImage && !thumbnailFailed
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable(
                                 enabled = attachment.id !in state.downloadingAttachmentIds,
-                                onClickLabel = "Open ${attachment.fileName}",
-                            ) { viewModel.openAttachment(attachment) }
+                                onClickLabel = "${if (showsImage) "View" else "Open"} ${attachment.fileName}",
+                            ) {
+                                if (showsImage) viewingAttachmentId = attachment.id else viewModel.openAttachment(attachment)
+                            }
                             .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
+                        if (showsImage) {
+                            AsyncImage(
+                                // VikunjaImages rewrites the placeholder host to the server and adds the sign-in.
+                                model = "http://localhost/tasks/${task.id}/attachments/${attachment.id}?preview_size=md",
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                onError = { thumbnailFailed = true },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainer),
+                            )
+                        } else {
+                            Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                        Spacer(modifier = Modifier.width(if (showsImage) 12.dp else 8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = attachment.fileName,

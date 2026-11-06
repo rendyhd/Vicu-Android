@@ -770,27 +770,32 @@ class TaskDetailViewModel(
     }
 
     /** Downloads the attachment to the app cache and offers it to other apps. */
-    fun shareAttachment(attachment: Attachment) {
-        withCachedAttachment(attachment) { path -> platformFiles.shareFile(path, attachment.mimeType) }
+    fun shareAttachment(attachment: Attachment, report: ((String) -> Unit)? = null) {
+        withCachedAttachment(attachment, report) { path -> platformFiles.shareFile(path, attachment.mimeType) }
     }
 
     /** Downloads the attachment and saves a copy where the user keeps files (Downloads; Files on iOS). */
-    fun saveAttachment(attachment: Attachment) {
-        withCachedAttachment(attachment) { path -> platformFiles.saveFile(path, attachment.fileName, attachment.mimeType) }
+    fun saveAttachment(attachment: Attachment, report: ((String) -> Unit)? = null) {
+        withCachedAttachment(attachment, report) { path -> platformFiles.saveFile(path, attachment.fileName, attachment.mimeType) }
     }
 
-    private fun withCachedAttachment(attachment: Attachment, present: suspend (String) -> String?) {
+    /** What there is to say goes to [report] when given (the image viewer covers the snackbar). */
+    private fun withCachedAttachment(
+        attachment: Attachment,
+        report: ((String) -> Unit)? = null,
+        present: suspend (String) -> String?,
+    ) {
         if (attachment.id in _uiState.value.downloadingAttachmentIds) return
         _uiState.update { it.copy(downloadingAttachmentIds = it.downloadingAttachmentIds + attachment.id) }
         viewModelScope.launch {
             val result = attachmentRepository.downloadToCache(attachment)
             _uiState.update { it.copy(downloadingAttachmentIds = it.downloadingAttachmentIds - attachment.id) }
-            when (result) {
-                is NetworkResult.Success -> present(result.data)?.let(appMessages::post)
-                is NetworkResult.Error ->
-                    appMessages.post("Could not download \"${attachment.fileName}\": ${result.message}")
-                else -> {}
-            }
+            val message = when (result) {
+                is NetworkResult.Success -> present(result.data)
+                is NetworkResult.Error -> "Could not download \"${attachment.fileName}\": ${result.message}"
+                else -> null
+            } ?: return@launch
+            if (report != null) report(message) else appMessages.post(message)
         }
     }
 
