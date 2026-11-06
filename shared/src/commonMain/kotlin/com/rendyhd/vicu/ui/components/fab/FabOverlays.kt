@@ -76,6 +76,7 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.location.LocationRepository
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
+import com.rendyhd.vicu.ui.components.shared.snackbarColors
 import com.rendyhd.vicu.ui.components.task.tokenBgColor
 import com.rendyhd.vicu.ui.components.task.tokenTextColor
 import com.rendyhd.vicu.ui.theme.VicuMotion
@@ -381,11 +382,11 @@ private fun BoxScope.DragGhost(controller: FabController) {
 
 @Composable
 private fun FabHintBubble(onClose: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
+    val colors = MaterialTheme.colorScheme.snackbarColors()
     Surface(
         shape = MaterialTheme.shapes.medium,
-        color = scheme.inverseSurface,
-        contentColor = scheme.inverseOnSurface,
+        color = colors.container,
+        contentColor = colors.content,
         shadowElevation = 4.dp,
         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
     ) {

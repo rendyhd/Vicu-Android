@@ -71,6 +71,7 @@ import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.components.shared.VicuDragHandle
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
+import com.rendyhd.vicu.ui.components.shared.snackbarColors
 import com.rendyhd.vicu.ui.navigation.ScreenReady
 import com.rendyhd.vicu.ui.theme.VicuMotion
 import com.rendyhd.vicu.ui.theme.rememberReduceMotion
@@ -546,11 +547,12 @@ private fun DrawerTab(count: Int, onOpen: () -> Unit, modifier: Modifier = Modif
 /** The picked task, until a time is tapped. Next free is the path without aiming at the grid. */
 @Composable
 private fun PlacingBanner(task: Task, onNextFree: () -> Unit, onCancel: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme.snackbarColors()
     Surface(
         modifier = modifier.padding(12.dp).fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.inverseSurface,
-        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+        color = colors.container,
+        contentColor = colors.content,
         shadowElevation = 6.dp,
     ) {
         Row(
@@ -564,8 +566,8 @@ private fun PlacingBanner(task: Task, onNextFree: () -> Unit, onCancel: () -> Un
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onNextFree) { Text("Next free", color = MaterialTheme.colorScheme.inversePrimary) }
-            TextButton(onClick = onCancel) { Text("Cancel", color = MaterialTheme.colorScheme.inversePrimary) }
+            TextButton(onClick = onNextFree) { Text("Next free", color = colors.action) }
+            TextButton(onClick = onCancel) { Text("Cancel", color = colors.action) }
         }
     }
 }

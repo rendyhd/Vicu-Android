@@ -16,7 +16,8 @@ internal data class SnackbarColors(val container: Color, val content: Color, val
 /**
  * Material's inverse roles make the bar nearly white in a dark theme, the brightest thing on the
  * screen at night. There it is the highest container instead, which still stands off the page, a
- * sheet and pure black. A light theme keeps the dark bar.
+ * sheet and pure black. A light theme keeps the dark bar. Also for anything else that floats over a
+ * list the way a snackbar does (the + hint, Plan's placing banner).
  */
 internal fun ColorScheme.snackbarColors(): SnackbarColors =
     if (background.luminance() < 0.5f) {
