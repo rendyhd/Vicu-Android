@@ -574,98 +574,73 @@ fun TaskEntrySheet(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp),
                     ) {
-                        // The title with its parsed words highlighted; compact, the expand and send
-                        // buttons sit next to it.
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            var fieldSize by remember { mutableStateOf(IntSize.Zero) }
-                            Box(modifier = Modifier.weight(1f)) {
-                                TextField(
-                                    value = textFieldValue,
-                                    onValueChange = { newValue ->
-                                        textFieldValue = newValue
-                                        viewModel.setTitle(newValue.text)
-                                    },
-                                    placeholder = { Text("New task", style = titleStyle) },
-                                    maxLines = if (expanded) 6 else 3,
-                                    // At full height the header has the room to say it in a word.
-                                    trailingIcon = when {
-                                        expanded -> null
-                                        state.hasDraft -> {
-                                            {
-                                                IconButton(onClick = ::clearDraft) {
-                                                    Icon(Icons.Outlined.Close, contentDescription = "Clear the draft")
-                                                }
-                                            }
+                        // The title with its parsed words highlighted, across the whole sheet; compact,
+                        // its buttons are in the row on the keyboard.
+                        var fieldSize by remember { mutableStateOf(IntSize.Zero) }
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            TextField(
+                                value = textFieldValue,
+                                onValueChange = { newValue ->
+                                    textFieldValue = newValue
+                                    viewModel.setTitle(newValue.text)
+                                },
+                                placeholder = { Text("New task", style = titleStyle) },
+                                maxLines = if (expanded) 6 else 3,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(titleFocus)
+                                    .onFocusChanged {
+                                        // Tapping the title brings the keyboard back where the tray was.
+                                        if (it.isFocused && !expanded && trayName != null) {
+                                            expectKeyboard()
+                                            trayName = null
                                         }
-                                        state.canUndoClear -> {
-                                            { TextButton(onClick = ::undoClearDraft) { Text("Undo") } }
-                                        }
-                                        else -> null
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(titleFocus)
-                                        .onFocusChanged {
-                                            // Tapping the title brings the keyboard back where the tray was.
-                                            if (it.isFocused && !expanded && trayName != null) {
-                                                expectKeyboard()
-                                                trayName = null
-                                            }
-                                        }
-                                        .onSizeChanged { fieldSize = it }
-                                        .onGloballyPositioned { titleBounds = it.boundsInRoot() },
-                                    textStyle = titleStyle,
-                                    keyboardOptions = KeyboardOptions(
-                                        capitalization = KeyboardCapitalization.Sentences,
-                                        imeAction = ImeAction.Send,
-                                    ),
-                                    keyboardActions = KeyboardActions(onSend = { if (canSave) save() }),
-                                    colors = TextFieldDefaults.colors(
-                                        focusedContainerColor = Color.Transparent,
-                                        unfocusedContainerColor = Color.Transparent,
-                                        disabledContainerColor = Color.Transparent,
-                                        focusedIndicatorColor = Color.Transparent,
-                                        unfocusedIndicatorColor = Color.Transparent,
-                                        disabledIndicatorColor = Color.Transparent,
-                                    ),
-                                    visualTransformation = NlpVisualTransformation(
-                                        tokens = parseResult?.tokens ?: emptyList(),
-                                        isDarkTheme = isDarkTheme,
-                                    ),
-                                )
+                                    }
+                                    .onSizeChanged { fieldSize = it }
+                                    .onGloballyPositioned { titleBounds = it.boundsInRoot() },
+                                textStyle = titleStyle,
+                                keyboardOptions = KeyboardOptions(
+                                    capitalization = KeyboardCapitalization.Sentences,
+                                    imeAction = ImeAction.Send,
+                                ),
+                                keyboardActions = KeyboardActions(onSend = { if (canSave) save() }),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    disabledContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                    disabledIndicatorColor = Color.Transparent,
+                                ),
+                                visualTransformation = NlpVisualTransformation(
+                                    tokens = parseResult?.tokens ?: emptyList(),
+                                    isDarkTheme = isDarkTheme,
+                                ),
+                            )
 
-                                NlpAutocompleteDropdown(
-                                    inputValue = textFieldValue.text,
-                                    cursorPosition = textFieldValue.selection.start,
-                                    prefixes = getPrefixes(state.parserConfig.syntaxMode),
-                                    projects = state.allProjects,
-                                    labels = state.allLabels,
-                                    enabled = state.parserConfig.enabled,
-                                    onSelect = { newText, newCursor ->
-                                        textFieldValue = TextFieldValue(
-                                            text = newText,
-                                            selection = TextRange(newCursor),
-                                        )
-                                        viewModel.setTitle(newText)
-                                    },
-                                    anchorSize = fieldSize,
-                                )
-                                // The keyboard opens with the sheet: the title is focused as soon as
-                                // it is there (the sheet's content is composed once it starts to rise).
-                                LaunchedEffect(Unit) { titleFocus.requestFocus() }
-                            }
-                            if (!expanded) {
-                                FilledTonalIconButton(onClick = ::expand) {
-                                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Show all details")
-                                }
-                                FilledIconButton(onClick = save, enabled = canSave) {
-                                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Save task")
-                                }
-                            }
+                            NlpAutocompleteDropdown(
+                                inputValue = textFieldValue.text,
+                                cursorPosition = textFieldValue.selection.start,
+                                prefixes = getPrefixes(state.parserConfig.syntaxMode),
+                                projects = state.allProjects,
+                                labels = state.allLabels,
+                                enabled = state.parserConfig.enabled,
+                                onSelect = { newText, newCursor ->
+                                    textFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursor),
+                                    )
+                                    viewModel.setTitle(newText)
+                                },
+                                anchorSize = fieldSize,
+                            )
+                            // The keyboard opens with the sheet: the title is focused as soon as
+                            // it is there (the sheet's content is composed once it starts to rise).
+                            LaunchedEffect(Unit) { titleFocus.requestFocus() }
                         }
 
-                        // Notes can be written before the task exists: a quiet Notes line opens them
-                        // under the title. At full height they are always there.
+                        // Notes can be written before the task exists: the Notes button on the keyboard
+                        // row opens them under the title. At full height they are always there.
                         if (showNotes) {
                             val entryImagePickerLauncher = rememberImagePicker(viewModel::stagePendingImage)
                             DescriptionField(
@@ -683,16 +658,6 @@ fun TaskEntrySheet(
                                 plain = true,
                                 hostedToolbar = true,
                             )
-                        } else {
-                            TextButton(
-                                onClick = { notesShown = true },
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.Notes, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Notes", style = MaterialTheme.typography.bodyLarge)
-                            }
                         }
 
                         if (expanded) {
@@ -826,7 +791,46 @@ fun TaskEntrySheet(
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(if (expanded) 12.dp else 4.dp))
+                    }
+
+                    // Compact, the sheet's actions ride on the keyboard (or the tray in its place). They
+                    // stay outside the scrolling part, so long notes cannot push them away. At full
+                    // height the header has them.
+                    if (!expanded) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (!showNotes) {
+                                TextButton(
+                                    onClick = { notesShown = true },
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.Notes, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Notes", style = MaterialTheme.typography.bodyLarge)
+                                }
+                            }
+                            Spacer(Modifier.weight(1f))
+                            when {
+                                state.hasDraft -> IconButton(onClick = ::clearDraft) {
+                                    Icon(Icons.Outlined.Close, contentDescription = "Clear the draft")
+                                }
+                                state.canUndoClear -> TextButton(
+                                    onClick = ::undoClearDraft,
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                ) { Text("Undo") }
+                            }
+                            FilledTonalIconButton(onClick = ::expand) {
+                                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Show all details")
+                            }
+                            FilledIconButton(onClick = save, enabled = canSave) {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Save task")
+                            }
+                        }
                     }
 
                     // The notes' formatting toolbar sits on the keyboard while the notes are edited.
