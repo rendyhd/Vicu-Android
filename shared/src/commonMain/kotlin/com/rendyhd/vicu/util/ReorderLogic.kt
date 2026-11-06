@@ -101,6 +101,10 @@ fun computeDropPosition(prev: Double?, next: Double?): Double = when {
  * New position for [taskId] given its neighbors in [tasks] (the already-reordered,
  * as-displayed list). Neighbors that are not manually ordered in [order] are ignored (dated ones
  * in the default order): their positions are meaningless for the manual ordering.
+ *
+ * The project screen's drop. It is not [planDrop] because that screen does not read its list view's
+ * positions (no refreshListPositions), so its rows are usually at 0: [planDrop] would read that as no
+ * room and send a fresh position for every task, replacing an order this device never read.
  */
 fun dropPositionFor(tasks: List<Task>, taskId: Long, order: TaskOrder = TaskOrder.DEFAULT): Double? {
     val idx = tasks.indexOfFirst { it.id == taskId }

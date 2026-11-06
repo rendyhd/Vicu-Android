@@ -1,9 +1,10 @@
 package com.rendyhd.vicu.ui.components.picker
 
 import com.rendyhd.vicu.domain.model.Project
+import com.rendyhd.vicu.ui.navigation.buildProjectTree
+import com.rendyhd.vicu.ui.navigation.visibleProjectRows
 import com.rendyhd.vicu.util.ProjectCategory
 import com.rendyhd.vicu.util.ProjectCategoryState
-import com.rendyhd.vicu.util.buildProjectTree
 
 /**
  * One row of the project picker. [parentTitle] is set only for a match in a search. [categoryHeader]
@@ -20,7 +21,8 @@ internal data class PickerProjectRow(
  * The rows of the project picker. With no [query] they are the project tree (the Inbox first).
  * With one they are the projects whose title contains it, flat, each with the project it sits in,
  * so two projects of the same name can be told apart. Archived projects are never offered; the
- * non-archived children of an archived one surface at the root so they stay selectable.
+ * non-archived children of an archived one surface at the root, after the other top-level projects,
+ * so they stay selectable.
  *
  * With [categories] the tree is grouped as the drawer groups it (section 13): the Inbox first, the
  * projects without a category, then each category's projects under its header. Empty categories
@@ -32,10 +34,9 @@ internal fun projectPickerRows(
     query: String,
     categories: ProjectCategoryState = ProjectCategoryState.EMPTY,
 ): List<PickerProjectRow> {
-    val visible = projects
-        .filter { !it.isArchived }
-        .sortedWith(compareBy({ it.id != inboxProjectId }, { it.position }, { it.title }))
-    val tree = buildProjectTree(visible)
+    val visible = projects.filter { !it.isArchived }
+    val order = compareBy<Project>({ it.id != inboxProjectId }, { it.parentProjectId != 0L }, { it.position }, { it.title })
+    val tree = visibleProjectRows(buildProjectTree(visible, order), collapsed = emptySet()).map { it.project to it.depth }
     val needle = query.trim()
     if (needle.isEmpty() && categories.categories.isEmpty()) return tree.map { (project, depth) -> PickerProjectRow(project, depth) }
     if (needle.isEmpty()) {

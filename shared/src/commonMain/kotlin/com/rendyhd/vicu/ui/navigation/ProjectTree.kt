@@ -28,17 +28,20 @@ data class ProjectRow(
 private val SIBLING_ORDER = compareBy<Project>({ it.position }, { it.id })
 
 /**
- * The tree of [projects] (the ones to list: no archived project, no Inbox). Siblings come in
- * position order, ties by id so the order is stable. A project whose parent is not in [projects]
- * is a root. Projects caught in a loop of parents (A below B below A) are listed too, at the top,
- * rather than vanishing.
+ * The tree of [projects] (the ones to list; the drawer leaves out archived projects and the Inbox).
+ * Siblings come in [siblingOrder], by default position order, ties by id so the order is stable. A
+ * project whose parent is not in [projects] is a root. Projects caught in a loop of parents (A below
+ * B below A) are listed too, at the top, rather than vanishing.
  */
-fun buildProjectTree(projects: List<Project>): List<ProjectNode> {
+fun buildProjectTree(
+    projects: List<Project>,
+    siblingOrder: Comparator<Project> = SIBLING_ORDER,
+): List<ProjectNode> {
     val ids = projects.mapTo(HashSet()) { it.id }
     fun hasListedParent(p: Project) = p.parentProjectId != 0L && p.parentProjectId != p.id && p.parentProjectId in ids
 
     val childrenOf = projects.filter(::hasListedParent).groupBy { it.parentProjectId }
-        .mapValues { (_, children) -> children.sortedWith(SIBLING_ORDER) }
+        .mapValues { (_, children) -> children.sortedWith(siblingOrder) }
 
     val placed = HashSet<Long>()
     fun nodeOf(project: Project): ProjectNode {
@@ -49,11 +52,11 @@ fun buildProjectTree(projects: List<Project>): List<ProjectNode> {
     }
 
     val tree = ArrayList<ProjectNode>()
-    for (root in projects.filterNot(::hasListedParent).sortedWith(SIBLING_ORDER)) {
+    for (root in projects.filterNot(::hasListedParent).sortedWith(siblingOrder)) {
         if (root.id !in placed) tree += nodeOf(root)
     }
     // Whatever the roots did not reach hangs in a loop of parents: start at the first of each.
-    for (stray in projects.sortedWith(SIBLING_ORDER)) {
+    for (stray in projects.sortedWith(siblingOrder)) {
         if (stray.id !in placed) tree += nodeOf(stray)
     }
     return tree

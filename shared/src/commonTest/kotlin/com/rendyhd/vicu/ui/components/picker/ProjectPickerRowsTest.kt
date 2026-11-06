@@ -31,6 +31,22 @@ class ProjectPickerRowsTest {
     }
 
     @Test
+    fun `projects that share a position are listed by title`() {
+        val zoo = Project(id = 7, title = "Zoo", position = 1.0)
+        val apple = Project(id = 8, title = "Apple", position = 1.0)
+        assertEquals(listOf(1L, 8L, 7L), ids(projectPickerRows(listOf(inbox, zoo, apple), inboxProjectId = 1, query = "")))
+    }
+
+    @Test
+    fun `a project whose parent is archived comes after the top level ones - with its own children below it`() {
+        val surfaced = Project(id = 7, title = "Surfaced", parentProjectId = 6, position = 0.5)
+        val below = Project(id = 8, title = "Below", parentProjectId = 7, position = 0.1)
+        val rows = projectPickerRows(all + surfaced + below, inboxProjectId = 1, query = "")
+        assertEquals(listOf(1L, 2L, 3L, 4L, 5L, 7L, 8L), ids(rows))
+        assertEquals(listOf(0, 0, 1, 0, 1, 0, 1), rows.map { it.depth })
+    }
+
+    @Test
     fun `with categories the inbox comes first - then the projects without one - then each category under its heading`() {
         val categories = ProjectCategories.state(
             mapOf(
