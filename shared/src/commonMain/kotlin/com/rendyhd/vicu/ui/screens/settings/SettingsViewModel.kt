@@ -820,6 +820,10 @@ class SettingsViewModel(
     }
 
     /** Lists [view] in the drawer, or takes it out of it. */
+    fun setPlannerEnabled(enabled: Boolean) {
+        viewModelScope.launch { behaviorPrefsStore.setPlannerEnabled(enabled) }
+    }
+
     fun setDrawerViewShown(view: DrawerView, shown: Boolean) {
         viewModelScope.launch { behaviorPrefsStore.setDrawerViewHidden(view, hidden = !shown) }
     }

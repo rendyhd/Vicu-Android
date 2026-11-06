@@ -543,6 +543,7 @@ internal fun BottomBarSlotRow(
         ?: MaterialTheme.colorScheme.onSurfaceVariant
     val label = when (slot.type) {
         BottomBarSlotType.TODAY -> "Today"
+        BottomBarSlotType.PLAN -> "Plan"
         BottomBarSlotType.UPCOMING -> "Upcoming"
         BottomBarSlotType.ANYTIME -> "Anytime"
         BottomBarSlotType.PROJECT -> {
@@ -554,6 +555,7 @@ internal fun BottomBarSlotRow(
     }
     val typeLabel = when (slot.type) {
         BottomBarSlotType.TODAY -> "Smart List"
+        BottomBarSlotType.PLAN -> "Smart List"
         BottomBarSlotType.UPCOMING -> "Smart List"
         BottomBarSlotType.ANYTIME -> "Smart List"
         BottomBarSlotType.PROJECT -> "Project"

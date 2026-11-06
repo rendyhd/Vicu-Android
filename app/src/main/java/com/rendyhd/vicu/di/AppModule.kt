@@ -34,6 +34,7 @@ import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.notification.AlarmScheduler
 import com.rendyhd.vicu.util.TaskReminderNotifications
 import com.rendyhd.vicu.notification.DailySummaryScheduler
+import com.rendyhd.vicu.notification.PlannerNudgeScheduler
 import com.rendyhd.vicu.notification.NotificationChannelManager
 import com.rendyhd.vicu.notification.RoutineAlarmScheduler
 import com.rendyhd.vicu.util.CompletionSoundPlayer
@@ -61,6 +62,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import org.koin.androidx.workmanager.dsl.workerOf
 import com.rendyhd.vicu.worker.SyncWorker
 import com.rendyhd.vicu.worker.DailySummaryWorker
+import com.rendyhd.vicu.worker.PlannerNudgeWorker
 import com.rendyhd.vicu.worker.PeriodicSyncWorker
 import com.rendyhd.vicu.worker.TokenRefreshWorker
 import com.rendyhd.vicu.worker.RoutineMaintenanceWorker
@@ -83,6 +85,7 @@ val appModule = module {
             completionSoundPlayer = get(),
             appScope = get(),
             dailySummaryScheduler = get(),
+            plannerNudgeScheduler = get(),
         )
     }
     single<NetworkMonitor> { AndroidNetworkMonitor(androidContext()) }
@@ -116,6 +119,7 @@ val appModule = module {
     single<TaskReminderNotifications> { get<AlarmScheduler>() }
     single { RoutineAlarmScheduler(androidContext(), get(), get(), get()) }
     single { DailySummaryScheduler(androidContext(), get()) }
+    single { PlannerNudgeScheduler(androidContext(), get()) }
     single { CompletionSoundPlayer(androidContext(), get()) }
     single { NotificationChannelManager(androidContext()) }
 
@@ -173,6 +177,7 @@ val workerModule = module {
     workerOf(::SyncWorker)
     workerOf(::PeriodicSyncWorker)
     workerOf(::DailySummaryWorker)
+    workerOf(::PlannerNudgeWorker)
     workerOf(::TokenRefreshWorker)
     workerOf(::TaskWidgetWorker)
     workerOf(::RoutineMaintenanceWorker)

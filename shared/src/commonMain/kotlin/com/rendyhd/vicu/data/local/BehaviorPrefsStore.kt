@@ -36,7 +36,7 @@ enum class SubprojectDisplayMode { SECTIONS, PROJECT_ROWS }
  * A view the drawer lists above the projects, in the drawer's order. The user can hide each one
  * from the drawer (Settings, General, Drawer); a hidden view keeps working.
  */
-enum class DrawerView { TODAY, UPCOMING, ANYTIME, LOGBOOK, ROUTINES, REVIEW, ASK }
+enum class DrawerView { TODAY, PLAN, UPCOMING, ANYTIME, LOGBOOK, ROUTINES, REVIEW, ASK }
 
 data class BehaviorPrefs(
     val completionSoundEnabled: Boolean = false,
@@ -56,6 +56,16 @@ data class BehaviorPrefs(
     val showProjectTaskCount: Boolean = false,
     /** The views the user took out of the drawer. */
     val hiddenDrawerViews: Set<DrawerView> = emptySet(),
+    /** The Plan screen and Today's Day view (contract 16.9); off means nothing of them shows or is fetched. */
+    val plannerEnabled: Boolean = false,
+    /** Routines as small pills on the timeline. */
+    val plannerShowRoutines: Boolean = true,
+    /** Whether Today opens on its Day view, the view last chosen there. */
+    val plannerTodayDayView: Boolean = false,
+    /** The last list or project of the Plan screen's drawer, as `PlanSource.key`. */
+    val plannerSource: String = "",
+    /** "HH:mm" of the evening nudge to plan tomorrow (contract 14.10), per device; null is off. */
+    val plannerNudge: String? = null,
 )
 
 class BehaviorPrefsStore(
@@ -90,6 +100,11 @@ class BehaviorPrefsStore(
         private val KEY_SHOW_PROJECT_PROGRESS = booleanPreferencesKey("show_project_progress")
         private val KEY_SHOW_PROJECT_TASK_COUNT = booleanPreferencesKey("show_project_task_count")
         private val KEY_HIDDEN_DRAWER_VIEWS = stringSetPreferencesKey("hidden_drawer_views")
+        private val KEY_PLANNER_ENABLED = booleanPreferencesKey("planner_enabled")
+        private val KEY_PLANNER_SHOW_ROUTINES = booleanPreferencesKey("planner_show_routines")
+        private val KEY_PLANNER_TODAY_DAY_VIEW = booleanPreferencesKey("planner_today_day_view")
+        private val KEY_PLANNER_SOURCE = stringPreferencesKey("planner_source")
+        private val KEY_PLANNER_NUDGE = stringPreferencesKey("planner_nudge")
     }
 
     fun getPrefs(): Flow<BehaviorPrefs> =
@@ -115,6 +130,11 @@ class BehaviorPrefsStore(
                 // A name this version does not know (written by a newer one) is left out.
                 hiddenDrawerViews = prefs[KEY_HIDDEN_DRAWER_VIEWS].orEmpty()
                     .mapNotNullTo(HashSet()) { name -> DrawerView.entries.firstOrNull { it.name == name } },
+                plannerEnabled = prefs[KEY_PLANNER_ENABLED] ?: false,
+                plannerShowRoutines = prefs[KEY_PLANNER_SHOW_ROUTINES] ?: true,
+                plannerTodayDayView = prefs[KEY_PLANNER_TODAY_DAY_VIEW] ?: false,
+                plannerSource = prefs[KEY_PLANNER_SOURCE].orEmpty(),
+                plannerNudge = prefs[KEY_PLANNER_NUDGE],
             )
         }
 
@@ -175,6 +195,26 @@ class BehaviorPrefsStore(
 
     suspend fun setShowProjectTaskCount(enabled: Boolean) {
         dataStore.edit { it[KEY_SHOW_PROJECT_TASK_COUNT] = enabled }
+    }
+
+    suspend fun setPlannerEnabled(enabled: Boolean) {
+        dataStore.edit { it[KEY_PLANNER_ENABLED] = enabled }
+    }
+
+    suspend fun setPlannerShowRoutines(shown: Boolean) {
+        dataStore.edit { it[KEY_PLANNER_SHOW_ROUTINES] = shown }
+    }
+
+    suspend fun setPlannerTodayDayView(dayView: Boolean) {
+        dataStore.edit { it[KEY_PLANNER_TODAY_DAY_VIEW] = dayView }
+    }
+
+    suspend fun setPlannerSource(key: String) {
+        dataStore.edit { it[KEY_PLANNER_SOURCE] = key }
+    }
+
+    suspend fun setPlannerNudge(time: String?) {
+        dataStore.edit { if (time == null) it.remove(KEY_PLANNER_NUDGE) else it[KEY_PLANNER_NUDGE] = time }
     }
 
     /** Shows [view] in the drawer again, or takes it out. Names this version does not know are kept. */

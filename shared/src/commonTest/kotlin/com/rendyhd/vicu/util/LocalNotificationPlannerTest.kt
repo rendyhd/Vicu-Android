@@ -41,6 +41,35 @@ class LocalNotificationPlannerTest {
         summaryFor: suspend (ClockDay) -> DailySummaryContent = { nothingDue },
     ) = LocalNotificationPlanner.Input(now, zone, prefs, tasks, snoozes, routines, summaryFor)
 
+    @Test
+    fun plannerNudgeIsOneEachEveningAndTheFirstIsRequired() = runTest {
+        val base = input()
+        val plan = LocalNotificationPlanner.plan(
+            LocalNotificationPlanner.Input(base.now, base.zone, base.prefs, base.tasksWithReminders, base.snoozes, base.routineAlarms, base.summaryFor, plannerNudge = "21:30"),
+        )
+        val nudges = plan.filter { it.kind == LocalNotification.Kind.PLANNER_NUDGE }
+        assertEquals(LocalNotificationPlanner.SUMMARY_DAYS, nudges.size)
+        assertEquals(at("2026-10-12T21:30"), nudges.first().trigger.at)
+        assertEquals(NotificationBudget.Priority.REQUIRED, nudges.first().priority)
+        assertEquals(NotificationBudget.Priority.NORMAL, nudges[1].priority)
+        assertEquals(PlannerNudge.TITLE, nudges.first().title)
+    }
+
+    @Test
+    fun plannerNudgeThatHasPassedTodayStartsTomorrow() = runTest {
+        val late = at("2026-10-12T22:00")
+        val base = input()
+        val plan = LocalNotificationPlanner.plan(
+            LocalNotificationPlanner.Input(late, base.zone, base.prefs, base.tasksWithReminders, base.snoozes, base.routineAlarms, base.summaryFor, plannerNudge = "21:30"),
+        )
+        assertEquals(at("2026-10-13T21:30"), plan.first { it.kind == LocalNotification.Kind.PLANNER_NUDGE }.trigger.at)
+    }
+
+    @Test
+    fun noPlannerNudgeWithoutATime() = runTest {
+        assertTrue(LocalNotificationPlanner.plan(input()).none { it.kind == LocalNotification.Kind.PLANNER_NUDGE })
+    }
+
     private fun note(id: String, at: String, priority: NotificationBudget.Priority) = LocalNotification(
         id = id,
         kind = LocalNotification.Kind.REMINDER,

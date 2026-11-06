@@ -15,12 +15,14 @@ import androidx.lifecycle.lifecycleScope
 import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.AuthState
+import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.ThemeMode
 import com.rendyhd.vicu.data.local.ThemePrefsStore
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.SharedContent
 import com.rendyhd.vicu.notification.DailySummaryScheduler
+import com.rendyhd.vicu.notification.PlannerNudgeScheduler
 import com.rendyhd.vicu.location.AndroidLocationPermissionPlatform
 import com.rendyhd.vicu.permission.AndroidNotificationPermissionPlatform
 import com.rendyhd.vicu.ui.VicuApp
@@ -51,6 +53,8 @@ class MainActivity : ComponentActivity() {
     private val themePrefsStore: ThemePrefsStore by inject()
     private val notificationPrefsStore: NotificationPrefsStore by inject()
     private val dailySummaryScheduler: DailySummaryScheduler by inject()
+    private val plannerNudgeScheduler: PlannerNudgeScheduler by inject()
+    private val behaviorPrefsStore: BehaviorPrefsStore by inject()
     private val notificationPermissionPlatform: AndroidNotificationPermissionPlatform by inject()
     private val locationPermissionPlatform: AndroidLocationPermissionPlatform by inject()
     private val speechInput: AndroidSpeechInput by inject()
@@ -118,6 +122,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // The evening nudge follows its setting, wherever it was changed.
+        lifecycleScope.launch { plannerNudgeScheduler.follow(behaviorPrefsStore.getPrefs()) }
+
         // A sync that stopped because the session ended (401 after a failed token refresh) left
         // the queued changes pending; signing in again resumes it.
         lifecycleScope.launch {
@@ -140,6 +147,7 @@ class MainActivity : ComponentActivity() {
                     WidgetUpdateScheduler.schedulePeriodicRefresh(this@MainActivity)
                     PeriodicSyncScheduler.schedule(this@MainActivity)
                     dailySummaryScheduler.scheduleFromPrefs(notificationPrefsStore.getPrefs().first())
+                    plannerNudgeScheduler.ensureScheduled(behaviorPrefsStore.getPrefs().first())
                 }
                 neededReAuth = state == AuthState.NeedsReAuth
                 signedOut = state == AuthState.Unauthenticated

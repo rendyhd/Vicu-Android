@@ -50,6 +50,7 @@ fun BottomBarSlotEditor(
     slotIndex: Int,
     projects: List<Project>,
     customLists: List<CustomList>,
+    plannerEnabled: Boolean = false,
     onSave: (BottomBarSlot) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -59,8 +60,10 @@ fun BottomBarSlotEditor(
     var selectedColorHex by remember { mutableStateOf(currentSlot.colorHex) }
     var typeDropdownExpanded by remember { mutableStateOf(false) }
 
-    val typeOptions = listOf(
+    // Plan is offered while the planner is on (Settings, General, Plan); a slot that holds it stays readable.
+    val typeOptions = listOfNotNull(
         BottomBarSlotType.TODAY to "Today",
+        (BottomBarSlotType.PLAN to "Plan").takeIf { plannerEnabled || currentSlot.type == BottomBarSlotType.PLAN },
         BottomBarSlotType.UPCOMING to "Upcoming",
         BottomBarSlotType.ANYTIME to "Anytime",
         BottomBarSlotType.PROJECT to "Project",
@@ -68,7 +71,7 @@ fun BottomBarSlotEditor(
     )
 
     val isValid = when (selectedType) {
-        BottomBarSlotType.TODAY, BottomBarSlotType.UPCOMING, BottomBarSlotType.ANYTIME -> true
+        BottomBarSlotType.TODAY, BottomBarSlotType.PLAN, BottomBarSlotType.UPCOMING, BottomBarSlotType.ANYTIME -> true
         BottomBarSlotType.PROJECT -> selectedReferenceId.isNotEmpty() && projects.any { it.id.toString() == selectedReferenceId }
         BottomBarSlotType.CUSTOM_LIST -> selectedReferenceId.isNotEmpty() && customLists.any { it.id == selectedReferenceId }
     }
@@ -250,15 +253,15 @@ fun BottomBarSlotEditor(
                         BottomBarSlot(
                             type = selectedType,
                             referenceId = when (selectedType) {
-                                BottomBarSlotType.TODAY, BottomBarSlotType.UPCOMING, BottomBarSlotType.ANYTIME -> ""
+                                BottomBarSlotType.TODAY, BottomBarSlotType.PLAN, BottomBarSlotType.UPCOMING, BottomBarSlotType.ANYTIME -> ""
                                 else -> selectedReferenceId
                             },
                             iconKey = when (selectedType) {
-                                BottomBarSlotType.TODAY, BottomBarSlotType.UPCOMING, BottomBarSlotType.ANYTIME -> ""
+                                BottomBarSlotType.TODAY, BottomBarSlotType.PLAN, BottomBarSlotType.UPCOMING, BottomBarSlotType.ANYTIME -> ""
                                 else -> selectedIconKey
                             },
                             colorHex = when (selectedType) {
-                                BottomBarSlotType.TODAY, BottomBarSlotType.UPCOMING, BottomBarSlotType.ANYTIME -> ""
+                                BottomBarSlotType.TODAY, BottomBarSlotType.PLAN, BottomBarSlotType.UPCOMING, BottomBarSlotType.ANYTIME -> ""
                                 else -> selectedColorHex
                             },
                         ),

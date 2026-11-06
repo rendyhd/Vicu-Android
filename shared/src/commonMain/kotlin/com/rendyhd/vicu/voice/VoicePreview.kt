@@ -67,6 +67,9 @@ fun voicePreview(
         if (fields.dueSource != null && fields.dueDate.isNotBlank()) {
             add(VoicePill(TokenType.DATE, DateDisplay.formatDue(DateContext.CHIP, fields.dueDate, day.date, day.zone, format)))
         }
+        parsed?.block?.takeIf { fields.blockStart.isNotEmpty() }?.let { block ->
+            add(VoicePill(TokenType.LENGTH, DateDisplay.formatBlockRange(block.start, block.end, format)))
+        }
         // The project the words name, or the list's own; the Inbox, where tasks go anyway, needs no pill.
         val namedProject = fields.parsedProjectName != null && !fields.projectNotFound
         if (namedProject || fields.projectId != inboxId) {

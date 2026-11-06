@@ -4,6 +4,7 @@ import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.RecurrenceValue
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
 
 // One source of truth for the new-task sheet, the same rule as the desktop composer
 // (`src/renderer/lib/composer-fields.ts`, card 3.5): a field shows, and saves, what the parser read
@@ -30,6 +31,9 @@ data class EntryFields(
     val dueDate: String,
     /** Null when there is no due date. */
     val dueSource: FieldSource?,
+    /** The time block the text makes (`for 30m` with a time) as the instants the task stores, "" for none. */
+    val blockStart: String = "",
+    val blockEnd: String = "",
     /** 0 for none. */
     val priority: Int,
     val prioritySource: FieldSource?,
@@ -65,6 +69,8 @@ internal fun resolveEntryFields(state: TaskEntryUiState, zone: TimeZone): EntryF
         dueDate = state.dueDate
         dueSource = FieldSource.DEFAULT
     }
+    // A block belongs to the date the text read; a date picked by hand replaces both.
+    val block = parsed?.block.takeIf { !state.dueDateIsManual }
 
     // Priority: picked by hand (None included) > typed in the title.
     var priority = 0
@@ -107,6 +113,8 @@ internal fun resolveEntryFields(state: TaskEntryUiState, zone: TimeZone): EntryF
     return EntryFields(
         dueDate = dueDate,
         dueSource = dueSource,
+        blockStart = block?.start?.toInstant(zone)?.toString().orEmpty(),
+        blockEnd = block?.end?.toInstant(zone)?.toString().orEmpty(),
         priority = priority,
         prioritySource = prioritySource,
         projectId = projectId,

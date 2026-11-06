@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.datetime.LocalDate
 
 /**
  * The refresh a list screen runs, over the given fakes. It starts fresh (so a screen that opens
@@ -99,6 +100,18 @@ class FakeTaskRepository : TaskRepository {
     val upcomingTasks = MutableStateFlow<List<Task>?>(null)
 
     override fun getTodayTasks(): Flow<List<Task>> = todayTasks.filterNotNull()
+
+    /** Every task: a test's rows are the range the screen asked for. */
+    override fun getPlanTasks(firstDay: LocalDate, lastDay: LocalDate): Flow<List<Task>> = all
+
+    /** The days [refreshPlanDay] was asked for, in order. */
+    val planDays = mutableListOf<LocalDate>()
+
+    override suspend fun refreshPlanDay(day: LocalDate): NetworkResult<Unit> {
+        planDays += day
+        return NetworkResult.Success(Unit)
+    }
+
     override fun getUpcomingTasks(): Flow<List<Task>> = upcomingTasks.filterNotNull()
     override fun getAnytimeTasks(inboxProjectId: Long): Flow<List<Task>> =
         all.map { list -> list.filter { !it.done && it.projectId != inboxProjectId } }

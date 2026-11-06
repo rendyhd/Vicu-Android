@@ -46,6 +46,9 @@ object AiContract {
     /** The answer schema of a guided session's suggestions (section 9.2). */
     val organizeAnswerSchema: JsonObject get() = root.obj("organize").obj("answerSchema")
 
+    /** Plan my day's answer (section 10.2). */
+    val planDayAnswerSchema: JsonObject get() = root.obj("planDay").obj("answerSchema")
+
     /** Ask's starters by list kind (section 5.7): `today`, `upcoming`, `inbox`, `project`, `other`. */
     fun starters(kind: String): List<String> =
         (root.obj("ask").obj("starters")[kind] as? JsonArray)?.map { it.jsonPrimitive.content }.orEmpty()
@@ -133,6 +136,11 @@ class AiLimits(private val o: JsonObject) {
     val organizeNotesMaxChars get() = n("organize_notes_max_chars")
     val organizeReasonMaxChars get() = n("organize_reason_max_chars")
     val organizeMaxTokens get() = n("organize_max_tokens")
+    val planDayCandidatesMax get() = n("plan_day_candidates_max")
+    val planDayPicksMax get() = n("plan_day_picks_max")
+    val planDayMinutesMin get() = n("plan_day_minutes_min")
+    val planDayMinutesMax get() = n("plan_day_minutes_max")
+    val planDayMaxTokens get() = n("plan_day_max_tokens")
     val savedAddressesMax get() = n("saved_addresses_max")
 }
 

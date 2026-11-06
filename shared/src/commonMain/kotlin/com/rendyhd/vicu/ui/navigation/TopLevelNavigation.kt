@@ -84,6 +84,7 @@ internal fun NavController.navigateTopLevel(route: Any) {
 internal fun routeKey(route: Any): String? = when (route) {
     is InboxRoute -> "InboxRoute"
     is TodayRoute -> "TodayRoute"
+    is PlanRoute -> "PlanRoute"
     is UpcomingRoute -> "UpcomingRoute"
     is AnytimeRoute -> "AnytimeRoute"
     is LogbookRoute -> "LogbookRoute"
@@ -105,6 +106,7 @@ internal fun currentRouteKey(entry: NavBackStackEntry?): String? {
     return when {
         dest.hasRoute(InboxRoute::class) -> "InboxRoute"
         dest.hasRoute(TodayRoute::class) -> "TodayRoute"
+        dest.hasRoute(PlanRoute::class) -> "PlanRoute"
         dest.hasRoute(UpcomingRoute::class) -> "UpcomingRoute"
         dest.hasRoute(AnytimeRoute::class) -> "AnytimeRoute"
         dest.hasRoute(LogbookRoute::class) -> "LogbookRoute"

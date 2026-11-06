@@ -3,9 +3,15 @@ package com.rendyhd.vicu.util.parser
 import com.rendyhd.vicu.location.PlaceMatch
 import com.rendyhd.vicu.location.PlacePhrases
 import com.rendyhd.vicu.location.SavedPlace
+import com.rendyhd.vicu.util.DueDates
+import com.rendyhd.vicu.util.TimeBlocks
 import com.rendyhd.vicu.util.deviceLocaleTag
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
+import kotlinx.datetime.toLocalDateTime
 
 object TaskParser {
 
@@ -13,7 +19,8 @@ object TaskParser {
      * Parse free-form task input into structured fields. Implements shared-parser-spec.md and
      * section 5 of docs/cross-app-semantics-v1.md; `test-fixtures/nlp-corpus-v1.json` is the test.
      *
-     * Extraction order: Place -> Labels -> Projects -> Priority -> Recurrence -> Dates -> Title -> `!`
+     * Extraction order: Place -> Labels -> Projects -> Priority -> Recurrence -> Dates -> Length ->
+     * Title -> `!` (`for` phrases are found before Recurrence, so Dates does not read them; section 5.4)
      *
      * The `!` -> today shortcut (a standalone, leading or trailing `!`) is controlled by
      * `config.bangToday` and has one rule, [extractBangToday]: this function applies it whether the
@@ -94,6 +101,10 @@ object TaskParser {
             result.tokens.addAll(tokens)
         }
 
+        // `for 30m` and `for 3 months` do not split a date. A suppressed length still does not: its
+        // words simply stay in the title and the time stays the due time.
+        val forPhrases = findForPhrases(rawInput, consumed)
+
         // 4. Recurrence
         var weekday: IntRange? = null
         if (TokenType.RECURRENCE !in suppress) {
@@ -109,6 +120,7 @@ object TaskParser {
                 reference = now,
                 zone = zone,
                 dayFirst = isDayFirstLocale(config.locale ?: deviceLocaleTag()),
+                hidden = forPhrases.hidden,
             )
             var found: DateResult? = null
             if (weekday != null) {
@@ -134,10 +146,35 @@ object TaskParser {
             result.claimWeekdayForRecurrence(rawInput, weekday)
         }
 
-        // 6. Build title from non-consumed regions
+        // 6. Length: with a time of day it is a block, and the block holds the time. Otherwise the
+        // words stay in the title.
+        val length = forPhrases.length
+        val due = result.dueDate
+        if (length != null && TokenType.LENGTH !in suppress && due != null && result.dueDateHasTime) {
+            val start = LocalDateTime(due.date, LocalTime(due.hour, due.minute))
+            val startAt = start.toInstant(zone)
+            val endAt = startAt + length.minutes.minutes
+            if (TimeBlocks.isBlock(startAt, endAt, zone)) {
+                result.block = ParsedBlock(start, endAt.toLocalDateTime(zone))
+                result.dueDate = LocalDateTime(due.date, DueDates.DATE_ONLY_TIME)
+                result.dueDateHasTime = false
+                consumed.add(length.start until length.end)
+                result.tokens.add(
+                    ParsedToken(
+                        type = TokenType.LENGTH,
+                        start = length.start,
+                        end = length.end,
+                        value = length.minutes,
+                        raw = rawInput.substring(length.start, length.end),
+                    ),
+                )
+            }
+        }
+
+        // 7. Build title from non-consumed regions
         result.title = buildTitle(rawInput, consumed)
 
-        // 7. Leading/trailing/standalone ! -> today (when enabled and DATE is not suppressed; the
+        // 8. Leading/trailing/standalone ! -> today (when enabled and DATE is not suppressed; the
         // suppression gate makes dismissing the Today chip stick for bang-created dates). An
         // explicit date wins, but the "!" is still removed from the title.
         if (config.bangToday && TokenType.DATE !in suppress) {
@@ -190,6 +227,7 @@ private class MutableParseResult(
     var title: String = "",
     var dueDate: LocalDateTime? = null,
     var dueDateHasTime: Boolean = false,
+    var block: ParsedBlock? = null,
     var priority: Int? = null,
     var labels: List<String> = emptyList(),
     var project: String? = null,
@@ -212,6 +250,7 @@ private class MutableParseResult(
         title = title,
         dueDate = dueDate,
         dueDateHasTime = dueDateHasTime,
+        block = block,
         priority = priority,
         labels = labels,
         project = project,

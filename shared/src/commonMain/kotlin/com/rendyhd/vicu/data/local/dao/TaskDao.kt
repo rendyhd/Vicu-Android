@@ -14,18 +14,9 @@ interface TaskDao {
     @Query(INBOX_TASKS_SQL)
     fun getInboxTasks(inboxProjectId: Long, includeDated: Boolean): Flow<List<TaskEntity>>
 
-    @Query(
-        """
-        SELECT * FROM tasks
-        WHERE done = 0
-        AND isMetadata = 0
-        AND dueDate < :startOfTomorrow
-        AND dueDate != '0001-01-01T00:00:00Z'
-        AND dueDate != ''
-        ORDER BY dueDate ASC
-        """
-    )
-    fun getTodayTasks(startOfTomorrow: String): Flow<List<TaskEntity>>
+    /** What may be on the Today list; a superset (see [TODAY_TASKS_SQL]). */
+    @Query(TODAY_TASKS_SQL)
+    fun getTodayTasks(startOfToday: String, startOfTomorrow: String): Flow<List<TaskEntity>>
 
     @Query(
         """
@@ -39,6 +30,15 @@ interface TaskDao {
         """
     )
     fun getUpcomingTasks(startOfTomorrow: String): Flow<List<TaskEntity>>
+
+    /** The tasks of a stretch of days on the day planner (see [PLAN_TASKS_SQL]). */
+    @Query(PLAN_TASKS_SQL)
+    fun getPlanTasks(
+        fromInclusive: String,
+        toExclusive: String,
+        startOfToday: String,
+        withOverdue: Boolean,
+    ): Flow<List<TaskEntity>>
 
     @Query("SELECT * FROM tasks WHERE done = 0 AND isMetadata = 0 AND projectId != :inboxProjectId ORDER BY updated DESC")
     fun getAnytimeTasks(inboxProjectId: Long): Flow<List<TaskEntity>>
@@ -131,19 +131,13 @@ interface TaskDao {
     )
     suspend fun countDueTomorrow(startOfTomorrow: String, startOfDayAfterTomorrow: String): Int
 
-    @Query(
-        """
-        SELECT * FROM tasks
-        WHERE done = 0
-        AND isMetadata = 0
-        AND dueDate < :startOfTomorrow
-        AND dueDate != '0001-01-01T00:00:00Z'
-        AND dueDate != ''
-        ORDER BY dueDate ASC
-        LIMIT :limit
-        """
-    )
-    suspend fun getTodayTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity>
+    /** [getTodayTasks] once. No limit: the caller decides which rows are on the list before it cuts them. */
+    @Query(TODAY_TASKS_SQL)
+    suspend fun getTodayTasksSync(startOfToday: String, startOfTomorrow: String): List<TaskEntity>
+
+    /** What the daily summary adds to the tasks due today (see [STARTING_TODAY_WITHOUT_DUE_TODAY_SQL]). */
+    @Query(STARTING_TODAY_WITHOUT_DUE_TODAY_SQL)
+    suspend fun getStartingTodayWithoutDueToday(startOfToday: String, startOfTomorrow: String): List<TaskEntity>
 
     /** Tasks due strictly within today's window (excludes overdue) — for the daily summary list. */
     @Query(

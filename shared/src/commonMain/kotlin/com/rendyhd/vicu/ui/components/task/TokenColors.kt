@@ -38,7 +38,7 @@ private val RECURRENCE_BG_DARK = Color(0x33A855F7)
 private val PLACE_BG_DARK = Color(0x3314B8A6)
 
 fun tokenTextColor(type: TokenType, isDark: Boolean): Color = when (type) {
-    TokenType.DATE -> if (isDark) DATE_TEXT_DARK else DATE_TEXT_LIGHT
+    TokenType.DATE, TokenType.LENGTH -> if (isDark) DATE_TEXT_DARK else DATE_TEXT_LIGHT
     TokenType.PRIORITY -> if (isDark) PRIORITY_TEXT_DARK else PRIORITY_TEXT_LIGHT
     TokenType.LABEL -> if (isDark) LABEL_TEXT_DARK else LABEL_TEXT_LIGHT
     TokenType.PROJECT -> if (isDark) PROJECT_TEXT_DARK else PROJECT_TEXT_LIGHT
@@ -47,7 +47,7 @@ fun tokenTextColor(type: TokenType, isDark: Boolean): Color = when (type) {
 }
 
 fun tokenBgColor(type: TokenType, isDark: Boolean): Color = when (type) {
-    TokenType.DATE -> if (isDark) DATE_BG_DARK else DATE_BG_LIGHT
+    TokenType.DATE, TokenType.LENGTH -> if (isDark) DATE_BG_DARK else DATE_BG_LIGHT
     TokenType.PRIORITY -> if (isDark) PRIORITY_BG_DARK else PRIORITY_BG_LIGHT
     TokenType.LABEL -> if (isDark) LABEL_BG_DARK else LABEL_BG_LIGHT
     TokenType.PROJECT -> if (isDark) PROJECT_BG_DARK else PROJECT_BG_LIGHT

@@ -163,6 +163,25 @@ class TodayViewModelOverdueTest {
     }
 
     @Test
+    fun `a block starting today is in the Today section and one due earlier stays in Overdue`() = runTest {
+        val zone = TimeZone.of("Europe/Amsterdam")
+        val rig = rig("2026-10-06T10:00:00", zone)
+        val start = local("2026-10-06T15:00:00", zone).toString()
+        val end = local("2026-10-06T15:30:00", zone).toString()
+        rig.tasks.todayTasks.value = listOf(
+            Task(id = 31, title = "No due date", projectId = 10, startDate = start, endDate = end),
+            Task(id = 32, title = "Due later", projectId = 10, dueDate = local("2026-10-09T23:59:59", zone).toString(), startDate = start, endDate = end),
+            Task(id = 33, title = "Due earlier", projectId = 10, dueDate = local("2026-10-01T23:59:59", zone).toString(), startDate = start, endDate = end),
+            Task(id = 34, title = "Start date alone", projectId = 10, startDate = start),
+        )
+        runCurrent()
+
+        assertEquals(listOf(31L, 32L), rig.vm.uiState.value.todayIds())
+        assertEquals(listOf(33L), rig.vm.uiState.value.overdueIds())
+        rig.authScope.cancel()
+    }
+
+    @Test
     fun `the next upcoming task is the first of the nearest day and follows the day`() = runTest {
         val zone = TimeZone.of("Europe/Amsterdam")
         val rig = rig("2026-10-06T10:00:00", zone)

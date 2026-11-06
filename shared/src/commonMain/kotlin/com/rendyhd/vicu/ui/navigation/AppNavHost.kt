@@ -20,6 +20,7 @@ import com.rendyhd.vicu.ui.screens.customlist.CustomListScreen
 import com.rendyhd.vicu.ui.screens.guided.GuidedReviewScreen
 import com.rendyhd.vicu.ui.screens.guided.GuidedSortScreen
 import com.rendyhd.vicu.ui.screens.guided.WeeklyReviewScreen
+import com.rendyhd.vicu.ui.screens.plan.PlanMyDayScreen
 import com.rendyhd.vicu.util.Guided
 import com.rendyhd.vicu.util.GuidedQueue
 import com.rendyhd.vicu.ui.screens.inbox.InboxScreen
@@ -33,6 +34,7 @@ import com.rendyhd.vicu.ui.screens.ask.AskEntry
 import com.rendyhd.vicu.ui.screens.ask.AskScreen
 import com.rendyhd.vicu.ui.screens.setup.SetupScreen
 import com.rendyhd.vicu.ui.screens.tag.TagScreen
+import com.rendyhd.vicu.ui.screens.plan.PlanScreen
 import com.rendyhd.vicu.ui.screens.today.TodayScreen
 import com.rendyhd.vicu.ui.screens.upcoming.UpcomingScreen
 import com.rendyhd.vicu.permission.NotificationPermissionCoordinator
@@ -100,6 +102,21 @@ fun AppNavHost(
                 onShowTaskEntry = onShowTaskEntry,
                 onOpenRoutines = { navController.navigate(RoutinesRoute) { launchSingleTop = true } },
                 onOpenUpcoming = { navController.navigateTopLevel(UpcomingRoute) },
+                onOpenPlan = { navController.navigateTopLevel(PlanRoute) },
+            )
+        }
+        screen<PlanRoute>(reveal) {
+            PlanScreen(
+                onTaskClick = onTaskClick,
+                onOpenDrawer = onOpenDrawer,
+                onPlannerOff = { navController.navigateTopLevel(TodayRoute) },
+                onPlanMyDay = { navController.navigate(PlanMyDayRoute) { launchSingleTop = true } },
+            )
+        }
+        screen<PlanMyDayRoute>(reveal) {
+            PlanMyDayScreen(
+                onClose = { navController.popBackStack() },
+                onTaskClick = onTaskClick,
             )
         }
         screen<UpcomingRoute>(reveal) {

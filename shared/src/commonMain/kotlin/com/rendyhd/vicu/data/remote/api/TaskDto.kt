@@ -47,6 +47,8 @@ data class CreateTaskDto(
     val done: Boolean = false,
     @SerialName("due_date") val dueDate: String? = null,
     @SerialName("start_date") val startDate: String? = null,
+    /** With [startDate], a time block (contract section 16). */
+    @SerialName("end_date") val endDate: String? = null,
     val priority: Int = 0,
     @SerialName("repeat_after") val repeatAfter: Long = 0,
     @SerialName("repeat_mode") val repeatMode: Int = 0,

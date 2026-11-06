@@ -18,6 +18,7 @@ import com.rendyhd.vicu.ui.screens.taskdetail.withoutLineBreaks
 import com.rendyhd.vicu.ui.screens.taskentry.TaskEntryUiState
 import com.rendyhd.vicu.ui.screens.taskentry.resolveEntryFields
 import com.rendyhd.vicu.ui.screens.taskentry.resolveParsedLabels
+import com.rendyhd.vicu.util.parser.ParsedBlock
 import com.rendyhd.vicu.util.parser.TaskParser
 import com.rendyhd.vicu.util.parser.TokenType
 import com.rendyhd.vicu.util.parser.extractBangToday
@@ -117,6 +118,8 @@ class TextTaskCreator(
             id = 0,
             title = title,
             dueDate = dueDate,
+            startDate = fields.blockStart,
+            endDate = fields.blockEnd,
             priority = fields.priority,
             projectId = fields.projectId,
             repeatAfter = fields.recurrence.repeatAfter,
@@ -126,6 +129,8 @@ class TextTaskCreator(
                     dueDate = dueDate,
                     offsetSeconds = prefs.defaultReminderOffset,
                     relativeTo = prefs.defaultReminderRelativeTo,
+                    blockStart = fields.blockStart,
+                    blockEnd = fields.blockEnd,
                 ),
             ),
         )
@@ -138,7 +143,8 @@ class TextTaskCreator(
                 }
                 val projectName = projects.find { it.id == created.projectId }
                     ?.takeIf { it.id != inboxId }?.title
-                var reply = confirmation(created.title, dueDate, projectName, day, format, placePhrase)
+                val block = parsed?.block.takeIf { fields.blockStart.isNotEmpty() }
+                var reply = confirmation(created.title, dueDate, projectName, day, format, placePhrase, block)
                 if (placePhrase != null && placePhrase.place.position == null) {
                     reply += ". ${notLocated(placePhrase.place.name)}"
                 } else if (placePhrase != null && !hasAlwaysLocation()) {
@@ -172,11 +178,17 @@ class TextTaskCreator(
             day: ClockDay,
             format: DateDisplayFormat,
             place: PlacePhrase? = null,
+            block: ParsedBlock? = null,
         ): String = buildString {
             append("Added “").append(title).append("”")
             if (projectName != null) append(" to ").append(projectName)
-            // The row's phrase reads well aloud ("tomorrow, 15:00", "Friday"), in sentence case.
-            val due = if (dueDate.isBlank()) "" else DateDisplay.formatDue(DateContext.ROW, dueDate, day.date, day.zone, format)
+            // The row's phrase reads well aloud ("tomorrow, 15:00", "Friday"), in sentence case. A
+            // time block says its times, because its due date has none.
+            val due = when {
+                block != null -> DateDisplay.formatBlockRow(block.start, block.end, day.date, format)
+                dueDate.isBlank() -> ""
+                else -> DateDisplay.formatDue(DateContext.ROW, dueDate, day.date, day.zone, format)
+            }
             if (due.isNotBlank()) {
                 append(", ")
                 append(if (due.startsWith("Today") || due.startsWith("Tomorrow")) due.replaceFirstChar { it.lowercase() } else due)

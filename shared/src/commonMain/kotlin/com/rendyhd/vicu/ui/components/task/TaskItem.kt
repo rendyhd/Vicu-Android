@@ -88,11 +88,14 @@ import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.isRecurring
 import com.rendyhd.vicu.util.TaskLinkParser
+import com.rendyhd.vicu.util.TimeBlock
+import com.rendyhd.vicu.util.TimeBlocks
 import com.rendyhd.vicu.util.parseHexArgb
 import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.util.subtaskProgress
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.datetime.toLocalDateTime
 import com.rendyhd.vicu.util.unfinishedDescendants
 
 
@@ -392,9 +395,14 @@ fun TaskItem(
                     )
                 }
                 TaskLinkIcons(description = task.description)
-                if (!DateUtils.isNullDate(task.dueDate) && task.dueDate.isNotBlank()) {
+                val clockDay = LocalClockDay.current
+                val block = remember(task.startDate, task.endDate, clockDay.zone) { TimeBlocks.blockOf(task, clockDay.zone) }
+                // A date-only due date on the block's own day would repeat its day phrase (contract 16.4).
+                val dueRepeatsBlock = block != null && TimeBlocks.dueRepeatsBlockDay(task.dueDate, block, clockDay.date, clockDay.zone)
+                if (!DateUtils.isNullDate(task.dueDate) && task.dueDate.isNotBlank() && !dueRepeatsBlock) {
                     TaskDueBadge(dueDate = task.dueDate, context = view.dateContext)
                 }
+                if (block != null) TaskBlockBadge(block)
                 if (task.reminders.isNotEmpty()) {
                     Icon(
                         imageVector = Icons.Outlined.Notifications,
@@ -502,9 +510,13 @@ private fun InlineSubtaskTree(
                         )
                     }
                 }
-                if (!DateUtils.isNullDate(child.dueDate) && child.dueDate.isNotBlank()) {
+                val clockDay = LocalClockDay.current
+                val block = remember(child.startDate, child.endDate, clockDay.zone) { TimeBlocks.blockOf(child, clockDay.zone) }
+                val dueRepeatsBlock = block != null && TimeBlocks.dueRepeatsBlockDay(child.dueDate, block, clockDay.date, clockDay.zone)
+                if (!DateUtils.isNullDate(child.dueDate) && child.dueDate.isNotBlank() && !dueRepeatsBlock) {
                     TaskDueBadge(dueDate = child.dueDate, context = DateContext.ROW)
                 }
+                if (block != null) TaskBlockBadge(block)
                 PriorityMark(priority = child.priority)
                 if (total > 0) {
                     Row(
@@ -732,6 +744,28 @@ fun TaskDueBadge(
             .background(bgColor, RoundedCornerShape(4.dp))
             .padding(horizontal = 4.dp, vertical = 1.dp),
         color = textColor,
+        fontSize = 11.sp,
+        maxLines = 1,
+    )
+}
+
+/** A task's time block on a row (`row.block`, contract section 8.3): "15:00–15:30", "Fri, 15:00–15:30". */
+@Composable
+fun TaskBlockBadge(block: TimeBlock, modifier: Modifier = Modifier) {
+    val day = LocalClockDay.current
+    val dateFormat = LocalDateFormat.current
+    val label = remember(block, day, dateFormat) {
+        DateDisplay.formatBlockRow(
+            block.start.toLocalDateTime(day.zone),
+            block.end.toLocalDateTime(day.zone),
+            day.date,
+            dateFormat,
+        )
+    }
+    Text(
+        text = label,
+        modifier = modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+        color = MaterialTheme.colorScheme.primary,
         fontSize = 11.sp,
         maxLines = 1,
     )

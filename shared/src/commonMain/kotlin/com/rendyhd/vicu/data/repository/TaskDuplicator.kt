@@ -79,6 +79,7 @@ class TaskDuplicator(
             description = task.description,
             dueDate = task.dueDate,
             startDate = task.startDate,
+            endDate = task.endDate,
             priority = task.priority,
             projectId = task.projectId,
             repeatAfter = task.repeatAfter,

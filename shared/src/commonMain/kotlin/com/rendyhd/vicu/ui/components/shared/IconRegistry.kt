@@ -72,6 +72,7 @@ object IconRegistry {
     /** The smart list a slot type shows, or null for a project or custom list slot. */
     fun smartListIdentity(type: BottomBarSlotType): SmartListIdentity? = when (type) {
         BottomBarSlotType.TODAY -> SmartListIdentity.TODAY
+        BottomBarSlotType.PLAN -> SmartListIdentity.PLAN
         BottomBarSlotType.UPCOMING -> SmartListIdentity.UPCOMING
         BottomBarSlotType.ANYTIME -> SmartListIdentity.ANYTIME
         BottomBarSlotType.PROJECT, BottomBarSlotType.CUSTOM_LIST -> null
@@ -79,6 +80,7 @@ object IconRegistry {
 
     private val SMART_LIST_ICONS: Map<BottomBarSlotType, ImageVector> = mapOf(
         BottomBarSlotType.TODAY to SmartListIdentity.TODAY.icon,
+        BottomBarSlotType.PLAN to SmartListIdentity.PLAN.icon,
         BottomBarSlotType.UPCOMING to SmartListIdentity.UPCOMING.icon,
         BottomBarSlotType.ANYTIME to SmartListIdentity.ANYTIME.icon,
     )

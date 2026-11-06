@@ -106,6 +106,20 @@ class DailySummaryReaderTest {
     }
 
     @Test
+    fun `a block starting today counts once and a start date alone does not count`() = runTest {
+        val content = reader(
+            task(1, "", title = "Block").copy(startDate = "2026-10-25T09:00:00Z", endDate = "2026-10-25T09:30:00Z"),
+            task(2, dateOnly("2026-10-25"), title = "Due and blocked").copy(startDate = "2026-10-25T10:00:00Z", endDate = "2026-10-25T10:30:00Z"),
+            task(3, dateOnly("2026-10-28"), title = "Due later").copy(startDate = "2026-10-25T11:00:00Z", endDate = "2026-10-25T11:30:00Z"),
+            task(4, "", title = "Start only").copy(startDate = "2026-10-25T12:00:00Z"),
+            task(5, "", title = "Several days").copy(startDate = "2026-10-25T12:00:00Z", endDate = "2026-10-27T12:00:00Z"),
+        ).all()
+
+        assertEquals(3, content.counts.dueToday)
+        assertEquals(listOf("Due and blocked", "Block", "Due later"), content.dueTodayTitles)
+    }
+
+    @Test
     fun `nothing to report gives zero counts and no titles`() = runTest {
         val content = reader().all()
 

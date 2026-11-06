@@ -3,6 +3,7 @@ package com.rendyhd.vicu.data.local
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.util.ClockDay
 import com.rendyhd.vicu.util.DailySummary
+import com.rendyhd.vicu.util.TimeBlocks
 
 /** What a daily summary notification contains. */
 data class DailySummaryContent(
@@ -33,13 +34,21 @@ class DailySummaryReader(private val taskDao: TaskDao) {
         includeTomorrow: Boolean,
     ): DailySummaryContent {
         val b = DailySummary.boundaries(day.date, day.zone)
+        // A block starting today is on the Today list whatever its due date (contract section 2).
+        val blocksToday = if (includeDueToday) {
+            taskDao.getStartingTodayWithoutDueToday(b.startOfToday, b.startOfTomorrow)
+                .filter { TimeBlocks.isBlock(it.startDate, it.endDate, day.zone) }
+        } else {
+            emptyList()
+        }
         val counts = DailySummary.Counts(
             overdue = if (includeOverdue) taskDao.countOverdue(b.startOfToday) else 0,
-            dueToday = if (includeDueToday) taskDao.countDueToday(b.startOfToday, b.startOfTomorrow) else 0,
+            dueToday = if (includeDueToday) taskDao.countDueToday(b.startOfToday, b.startOfTomorrow) + blocksToday.size else 0,
             dueTomorrow = if (includeTomorrow) taskDao.countDueTomorrow(b.startOfTomorrow, b.startOfDayAfterTomorrow) else 0,
         )
         val titles = if (counts.dueToday > 0) {
-            taskDao.getDueTodaySync(b.startOfToday, b.startOfTomorrow, TITLE_LIMIT).map { it.title }
+            val due = taskDao.getDueTodaySync(b.startOfToday, b.startOfTomorrow, TITLE_LIMIT)
+            (due.map { it.title } + blocksToday.map { it.title }).take(TITLE_LIMIT)
         } else {
             emptyList()
         }

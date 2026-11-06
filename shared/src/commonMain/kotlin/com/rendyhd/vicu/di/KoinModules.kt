@@ -228,6 +228,7 @@ val repositoryModule = module {
     single { ProjectCategoryPreferences(synced = get<SyncedPreferences>()) }
     single { ProjectIconPreferences(synced = get<SyncedPreferences>()) }
     single { WeeklyReviewPreferences(synced = get<SyncedPreferences>()) }
+    single { PlannerPreferences(synced = get<SyncedPreferences>()) }
     single<CollaborationRepository> {
         CollaborationRepositoryImpl(
             collaborationDao = get(),

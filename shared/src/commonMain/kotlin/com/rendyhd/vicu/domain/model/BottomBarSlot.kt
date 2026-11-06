@@ -5,6 +5,9 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class BottomBarSlotType {
     TODAY,
+
+    /** The day planner; the bar leaves it out while the planner is off. */
+    PLAN,
     UPCOMING,
     ANYTIME,
     PROJECT,

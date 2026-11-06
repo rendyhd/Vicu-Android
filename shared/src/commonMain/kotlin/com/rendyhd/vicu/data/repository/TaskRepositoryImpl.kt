@@ -29,7 +29,9 @@ import com.rendyhd.vicu.util.mayHaveReachedServer
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.RelationKind
 import com.rendyhd.vicu.util.RoutineEnvelope
+import com.rendyhd.vicu.util.PlannerTimeline
 import com.rendyhd.vicu.util.SqlLike
+import com.rendyhd.vicu.util.TimeBlocks
 import com.rendyhd.vicu.util.withoutNestedSubtasks
 import com.rendyhd.vicu.worker.MissingResourceCheck
 import kotlinx.coroutines.CancellationException
@@ -47,6 +49,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.LocalDate
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Instant
@@ -325,14 +328,35 @@ class TaskRepositoryImpl(
         dayClock.day.map { DueDates.startOfTomorrow(it.date, it.zone).toString() }
 
     override fun getTodayTasks(): Flow<List<Task>> =
-        startOfTomorrowFlow()
-            .distinctUntilChanged()
-            .flatMapLatest { startOfTomorrow ->
-                taskDao.getTodayTasks(startOfTomorrow).distinctUntilChanged().map { entities ->
-                    entities.toTopLevelTasks()
+        dayClock.day
+            .flatMapLatest { day ->
+                val startOfToday = DueDates.startOfDay(day.date, day.zone).toString()
+                val startOfTomorrow = DueDates.startOfTomorrow(day.date, day.zone).toString()
+                taskDao.getTodayTasks(startOfToday, startOfTomorrow).distinctUntilChanged().map { entities ->
+                    // The query is a superset: a start date alone is no block (contract 16.1).
+                    entities
+                        .filter { TimeBlocks.isOnToday(it.dueDate, it.startDate, it.endDate, day.date, day.zone) }
+                        .toTopLevelTasks()
                 }
             }
             .flowOn(mappingDispatcher)
+
+    override fun getPlanTasks(firstDay: LocalDate, lastDay: LocalDate): Flow<List<Task>> =
+        dayClock.day
+            .flatMapLatest { day ->
+                taskDao.getPlanTasks(
+                    fromInclusive = DueDates.startOfDay(firstDay, day.zone).toString(),
+                    toExclusive = DueDates.startOfTomorrow(lastDay, day.zone).toString(),
+                    startOfToday = DueDates.startOfDay(day.date, day.zone).toString(),
+                    withOverdue = day.date in firstDay..lastDay,
+                ).distinctUntilChanged().map { entities -> entities.toTasks() }
+            }
+            .flowOn(mappingDispatcher)
+
+    override suspend fun refreshPlanDay(day: LocalDate): NetworkResult<Unit> {
+        val clock = dayClock.day.value
+        return refreshAll(mapOf("filter" to PlannerTimeline.planRangeFilter(listOf(day), clock.date, clock.zone)))
+    }
 
     override fun getUpcomingTasks(): Flow<List<Task>> =
         startOfTomorrowFlow()
@@ -440,6 +464,16 @@ class TaskRepositoryImpl(
         return localTask
     }
 
+    /**
+     * [edited] as it is written: a new due date also moves or removes a block on its day, in the same
+     * patch and on the local row (contract section 16.3). Every due date in the app comes through here.
+     */
+    private fun withDueRules(previous: Task?, edited: Task): Task {
+        if (previous == null) return edited
+        val day = dayClock.day.value
+        return TimeBlocks.withDueChangeRules(previous, edited, day.date, day.zone)
+    }
+
     override suspend fun update(task: Task): NetworkResult<Task> {
         if (task.id < 0L) {
             return when (val outcome = changeLocalTask(task.id) { updateLocalTask(task) }) {
@@ -449,6 +483,10 @@ class TaskRepositoryImpl(
         }
         val previous = taskDao.getByIdSync(task.id)
         val previousTask = previous?.let { with(taskMapper) { it.toDomain() } }
+        return writeUpdate(previous, previousTask, withDueRules(previousTask, task))
+    }
+
+    private suspend fun writeUpdate(previous: TaskEntity?, previousTask: Task?, task: Task): NetworkResult<Task> {
         val patch = MergePatches.task(previousTask, task)
         taskDao.upsert(optimisticEntity(previous, task))
         if (previous != null && previous.projectId != task.projectId) {
@@ -484,11 +522,12 @@ class TaskRepositoryImpl(
     }
 
     /** An edit of a task that only exists here: the local row changes and the queued create takes it. */
-    private suspend fun updateLocalTask(task: Task): NetworkResult<Task> {
+    private suspend fun updateLocalTask(edited: Task): NetworkResult<Task> {
         // Gone without having been created (deleted here, or its create was discarded): writing
         // it would bring back a task nobody can sync.
-        val previous = taskDao.getByIdSync(task.id)
+        val previous = taskDao.getByIdSync(edited.id)
             ?: return NetworkResult.Error("This task is no longer on this device")
+        val task = withDueRules(with(taskMapper) { previous.toDomain() }, edited)
         taskDao.upsert(optimisticEntity(previous, task))
         if (previous.projectId != task.projectId) {
             positioner.invalidate(previous.projectId)

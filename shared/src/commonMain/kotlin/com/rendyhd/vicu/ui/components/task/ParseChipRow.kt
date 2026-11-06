@@ -77,6 +77,9 @@ private fun buildChipList(result: ParseResult, today: LocalDate, dateFormat: Dat
     if (result.dueDate != null) {
         chips.add(ChipInfo(TokenType.DATE, formatDateChip(result.dueDate, result.dueDateHasTime, today, dateFormat)))
     }
+    result.block?.let { block ->
+        chips.add(ChipInfo(TokenType.LENGTH, DateDisplay.formatBlockRange(block.start, block.end, dateFormat)))
+    }
     if (result.priority != null) {
         chips.add(ChipInfo(TokenType.PRIORITY, formatPriorityChip(result.priority)))
     }
@@ -95,6 +98,7 @@ private fun buildChipList(result: ParseResult, today: LocalDate, dateFormat: Dat
 /** What a screen reader says for the close icon of a chip: it names what is removed. */
 internal fun chipDismissDescription(type: TokenType, label: String): String = when (type) {
     TokenType.DATE -> "Remove due date"
+    TokenType.LENGTH -> "Remove time block"
     TokenType.PRIORITY -> "Remove priority"
     TokenType.LABEL -> "Remove label $label"
     TokenType.PROJECT -> "Remove project $label"

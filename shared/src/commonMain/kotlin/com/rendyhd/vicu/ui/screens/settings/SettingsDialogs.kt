@@ -382,6 +382,7 @@ internal fun SettingsDialogHost(
                 // The bar already starts with the Inbox, so a slot for it would only be left out.
                 projects = state.projects.filter { it.id != state.inboxProjectId },
                 customLists = state.customLists,
+                plannerEnabled = state.behaviorPrefs.plannerEnabled,
                 onSave = { slot ->
                     viewModel.updateBottomBarSlot(dialog.index, slot)
                     dismiss()
@@ -413,7 +414,7 @@ internal fun SettingsDialogHost(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SummaryTimeDialog(
+internal fun SummaryTimeDialog(
     title: String,
     initialHour: Int,
     initialMinute: Int,

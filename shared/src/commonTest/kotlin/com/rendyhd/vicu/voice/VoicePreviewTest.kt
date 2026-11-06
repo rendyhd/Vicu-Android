@@ -35,6 +35,14 @@ class VoicePreviewTest {
     }
 
     @Test
+    fun aTimeBlockHasItsOwnPill() {
+        val result = preview("call mom tomorrow at 3pm for 30 minutes")
+        assertEquals(listOf(TokenType.DATE, TokenType.LENGTH), result.pills.map { it.type })
+        assertEquals(setOf(TokenType.DATE, TokenType.LENGTH), result.tokens.map { it.type }.toSet())
+        assertTrue(result.pills[1].label.contains('–'), result.pills[1].label)
+    }
+
+    @Test
     fun aProjectThatDoesNotExistIsNotHighlighted() {
         val result = preview("call mom #Garden")
         assertTrue(result.pills.none { it.type == TokenType.PROJECT })

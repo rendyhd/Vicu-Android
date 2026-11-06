@@ -31,6 +31,55 @@ internal const val INBOX_TASKS_SQL = """
 """
 
 /**
+ * What may be on the Today list (docs/cross-app-semantics-v1.md section 2): due before the end of
+ * today, or a start date today. A superset: a start date alone is no block, and
+ * `TimeBlocks.isOnToday` decides on the device.
+ */
+internal const val TODAY_TASKS_SQL = """
+    SELECT * FROM tasks
+    WHERE done = 0
+    AND isMetadata = 0
+    AND (
+        (dueDate != '' AND dueDate != '0001-01-01T00:00:00Z' AND dueDate < :startOfTomorrow)
+        OR (startDate >= :startOfToday AND startDate < :startOfTomorrow)
+    )
+    ORDER BY dueDate ASC
+"""
+
+/**
+ * Open tasks that start today and are not due today or earlier: the part of the Today section the
+ * due-date counts of the daily summary do not hold. A superset of the blocks, as above.
+ */
+internal const val STARTING_TODAY_WITHOUT_DUE_TODAY_SQL = """
+    SELECT * FROM tasks
+    WHERE done = 0
+    AND isMetadata = 0
+    AND startDate >= :startOfToday AND startDate < :startOfTomorrow
+    AND (dueDate = '' OR dueDate = '0001-01-01T00:00:00Z' OR dueDate >= :startOfTomorrow)
+    ORDER BY startDate ASC
+"""
+
+/**
+ * The tasks of a stretch of days on the day planner (section 16), as `PlannerTimeline.planRangeFilter`
+ * asks the server for them: a start date in the range (done ones too, they stay on the timeline), an
+ * open task due in it, and overdue tasks when today is shown (`withOverdue`).
+ */
+internal const val PLAN_TASKS_SQL = """
+    SELECT * FROM tasks
+    WHERE isMetadata = 0
+    AND (
+        (startDate >= :fromInclusive AND startDate < :toExclusive)
+        OR (
+            done = 0 AND dueDate != '' AND dueDate != '0001-01-01T00:00:00Z' AND (
+                (dueDate >= :fromInclusive AND dueDate < :toExclusive)
+                OR (:withOverdue = 1 AND dueDate < :startOfToday)
+            )
+        )
+    )
+    ORDER BY dueDate ASC, id ASC
+"""
+
+/**
  * Per project: the open tasks and the done tasks the phone holds, hidden carrier and archive
  * tasks left out (the drawer's progress rings). A project with no task here has no row.
  */

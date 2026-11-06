@@ -11,6 +11,9 @@ import com.rendyhd.vicu.ai.organize.OrganizeChecks
 import com.rendyhd.vicu.ai.organize.OrganizeResult
 import com.rendyhd.vicu.ai.organize.OrganizeSession
 import com.rendyhd.vicu.ai.organize.OrganizeTask
+import com.rendyhd.vicu.ai.organize.PlanDayCheckInput
+import com.rendyhd.vicu.ai.organize.PlanDayChecks
+import com.rendyhd.vicu.ai.organize.PlanDayResult
 import com.rendyhd.vicu.ai.talk.SpokenConfirmation
 import com.rendyhd.vicu.speech.HintProject
 import com.rendyhd.vicu.speech.VocabularyHint
@@ -24,15 +27,18 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -144,6 +150,63 @@ class AiToolsFixtureTest {
         }
     }
 
+    @Test
+    fun planDayCheckVectors() {
+        for (vector in fixture.getValue("planDay").jsonObject.getValue("checks").jsonArray.map { it.jsonObject }) {
+            val name = vector.getValue("name").jsonPrimitive.content
+            val input = PlanDayCheckInput(
+                free = vector.getValue("free").jsonArray.map { range ->
+                    val r = range.jsonArray
+                    r[0].jsonPrimitive.content to r[1].jsonPrimitive.content
+                },
+                defaultLength = vector.getValue("defaultLength").jsonPrimitive.int,
+                leftovers = vector.getValue("leftovers").jsonArray.map { it.jsonPrimitive.long },
+                candidates = vector.getValue("candidates").jsonArray.map { it.jsonPrimitive.long },
+            )
+            val actual = planDayJson(PlanDayChecks.check(vector.getValue("answer").jsonObject, input))
+            assertEquals(vector.getValue("expect").jsonObject, actual, name)
+        }
+    }
+
+    private fun planDayJson(result: PlanDayResult): JsonObject = buildJsonObject {
+        putJsonArray("leftovers") {
+            for (item in result.leftovers) {
+                addJsonObject {
+                    put("task_id", item.taskId)
+                    put("action", item.action.id)
+                    put("reason", item.reason)
+                }
+            }
+        }
+        putJsonArray("picks") {
+            for (item in result.picks) {
+                addJsonObject {
+                    put("task_id", item.taskId)
+                    put("minutes", item.minutes)
+                    put("start", item.start)
+                    put("reason", item.reason)
+                }
+            }
+        }
+        putJsonArray("can_wait") {
+            for (item in result.canWait) {
+                addJsonObject {
+                    put("task_id", item.taskId)
+                    put("reason", item.reason)
+                }
+            }
+        }
+        putJsonArray("dropped") {
+            for (item in result.dropped) {
+                addJsonObject {
+                    put("task_id", item.taskId)
+                    put("field", item.field)
+                    put("value", item.value)
+                }
+            }
+        }
+    }
+
     private fun organizeJson(result: OrganizeResult): JsonObject = buildJsonObject {
         put(
             "suggestions",
@@ -215,6 +278,7 @@ class AiToolsFixtureTest {
             "dictation.answerSchema" to AiContract.dictationAnswerSchema,
             "brainDump.answerSchema" to AiContract.brainDumpAnswerSchema,
             "organize.answerSchema" to AiContract.organizeAnswerSchema,
+            "planDay.answerSchema" to AiContract.planDayAnswerSchema,
         )
         for (tool in AiContract.askTools) schemas["tool ${tool.name}"] = tool.parameters
         val probe = fixture.getValue("probe").jsonObject

@@ -37,6 +37,7 @@ internal fun GeneralTab(
         accountSection(state, openDialog)
         appearanceSection(state, useDeviceColors, pureBlack, viewModel)
         bottomBarSection(state, viewModel, openDialog)
+        plannerSection(state, viewModel)
         drawerSection(state, askReady = aiSettings.askReady, viewModel)
         widgetSection(state, viewModel)
         routinesSection(state, viewModel)

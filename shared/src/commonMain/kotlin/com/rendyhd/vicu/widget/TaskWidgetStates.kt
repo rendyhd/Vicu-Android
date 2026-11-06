@@ -16,6 +16,7 @@ import com.rendyhd.vicu.domain.repository.customListTasks
 import com.rendyhd.vicu.util.ClockDay
 import com.rendyhd.vicu.util.CustomListContext
 import com.rendyhd.vicu.util.DueDates
+import com.rendyhd.vicu.util.TimeBlocks
 import com.rendyhd.vicu.util.TimeSource
 import com.rendyhd.vicu.util.sortProjectTasks
 import kotlinx.coroutines.flow.first
@@ -118,7 +119,11 @@ class TaskWidgetStates(
             // The same boundary as the Today and Upcoming screens: the start of the local tomorrow.
             val startOfTomorrow = DueDates.startOfTomorrow(day.date, day.zone).toString()
             return when (config.viewType) {
-                WidgetViewType.TODAY -> taskDao.getTodayTasksSync(startOfTomorrow, MAX_WIDGET_TASKS).map { it.toRow() }
+                // The same list as the Today screen, the exact rule included (contract section 2).
+                WidgetViewType.TODAY -> taskDao
+                    .getTodayTasksSync(DueDates.startOfDay(day.date, day.zone).toString(), startOfTomorrow)
+                    .filter { TimeBlocks.isOnToday(it.dueDate, it.startDate, it.endDate, day.date, day.zone) }
+                    .map { it.toRow() }
                 WidgetViewType.INBOX -> inProjectOrder(
                     taskDao.getInboxTasksSync(inboxId, NO_LIMIT, includeDated = !behaviorPrefsStore.getPrefs().first().inboxExcludeDated),
                     inboxId,

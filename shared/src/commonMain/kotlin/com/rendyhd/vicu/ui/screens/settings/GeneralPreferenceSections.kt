@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.data.local.DrawerView
 import com.rendyhd.vicu.ui.components.shared.SmartListIdentity
 import com.rendyhd.vicu.ui.navigation.drawerViewChoices
+import com.rendyhd.vicu.ui.screens.plan.PlannerOptions
 import com.rendyhd.vicu.ui.theme.LocalVicuColors
 import com.rendyhd.vicu.util.parser.SyntaxMode
 import androidx.compose.foundation.layout.heightIn
@@ -146,6 +147,7 @@ internal fun LazyListScope.drawerSection(
         routinesEnabled = state.routineVisibility.enabled,
         reviewEnabled = state.reviewPrefs.enabled,
         askReady = askReady,
+        plannerEnabled = state.behaviorPrefs.plannerEnabled,
     )
     choices.forEach { view ->
         item(key = "drawer_view_${view.name}") {
@@ -162,6 +164,38 @@ internal fun LazyListScope.drawerSection(
     }
 }
 
+/** The day planner, off by default and per device (contract 16.9), the same as the desktop's Settings, General, Plan. */
+internal fun LazyListScope.plannerSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+    item(key = "planner_header") {
+        Text(
+            text = "Plan",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+        )
+    }
+
+    item(key = "planner_enabled") {
+        SwitchRow(
+            label = "Show Plan in the drawer",
+            description = "A screen to give tasks a time on a timeline, and a Day view on Today. A time you set shows on every device, whether this is on or not.",
+            checked = state.behaviorPrefs.plannerEnabled,
+            onCheckedChange = viewModel::setPlannerEnabled,
+        )
+    }
+
+    if (state.behaviorPrefs.plannerEnabled) {
+        item(key = "planner_options") {
+            PlannerOptions(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        }
+    }
+
+    item(key = "planner_divider") {
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+    }
+}
+
 /** A view of the drawer with its icon, as the drawer draws it, and a switch that lists it there. */
 @Composable
 private fun DrawerViewRow(
@@ -171,6 +205,7 @@ private fun DrawerViewRow(
 ) {
     val identity = when (view) {
         DrawerView.TODAY -> SmartListIdentity.TODAY
+        DrawerView.PLAN -> SmartListIdentity.PLAN
         DrawerView.UPCOMING -> SmartListIdentity.UPCOMING
         DrawerView.ANYTIME -> SmartListIdentity.ANYTIME
         DrawerView.LOGBOOK -> SmartListIdentity.LOGBOOK
@@ -180,6 +215,7 @@ private fun DrawerViewRow(
     }
     val label = when (view) {
         DrawerView.TODAY -> "Today"
+        DrawerView.PLAN -> "Plan"
         DrawerView.UPCOMING -> "Upcoming"
         DrawerView.ANYTIME -> "Anytime"
         DrawerView.LOGBOOK -> "Logbook"

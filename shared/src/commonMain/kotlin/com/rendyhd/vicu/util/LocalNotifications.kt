@@ -30,7 +30,7 @@ data class LocalNotification(
     /** What a tap or an action on it needs (see the KEY_ constants). */
     val data: Map<String, String>,
 ) {
-    enum class Kind { REMINDER, SNOOZE, ROUTINE, SUMMARY }
+    enum class Kind { REMINDER, SNOOZE, ROUTINE, SUMMARY, PLANNER_NUDGE }
 
     sealed interface Trigger {
         val at: Instant
@@ -116,11 +116,13 @@ object LocalNotificationPlanner {
         val routineAlarms: List<RoutineAlarmSpec>,
         /** The summary of one local day, read with the categories the preferences include. */
         val summaryFor: suspend (ClockDay) -> DailySummaryContent,
+        /** "HH:mm" of Plan my day's evening nudge ([PlannerNudge.timeOf]); null while there is none. */
+        val plannerNudge: String? = null,
     )
 
     suspend fun plan(input: Input, capacity: Int = NotificationBudget.IOS_CAPACITY): List<LocalNotification> =
         NotificationBudget.select(
-            taskReminders(input) + snoozes(input) + routines(input) + summaries(input),
+            taskReminders(input) + snoozes(input) + routines(input) + summaries(input) + plannerNudges(input),
             capacity,
         )
 
@@ -131,6 +133,8 @@ object LocalNotificationPlanner {
     fun routineId(occurrenceKey: String, followUp: Boolean) = "routine:$occurrenceKey:${if (followUp) 1 else 0}"
 
     fun summaryId(slot: String, date: kotlinx.datetime.LocalDate) = "summary:$slot:$date"
+
+    fun plannerNudgeId(date: kotlinx.datetime.LocalDate) = "plan-nudge:$date"
 
     private fun taskReminders(input: Input): List<LocalNotification> {
         if (!input.prefs.taskRemindersEnabled) return emptyList()
@@ -237,6 +241,31 @@ object LocalNotificationPlanner {
             }
         }
         return result
+    }
+
+    /** One each evening for a week, so it keeps coming when the app has not run for a while. */
+    private fun plannerNudges(input: Input): List<LocalNotification> {
+        val clock = input.plannerNudge ?: return emptyList()
+        val minutes = TimeBlocks.clockMinutes(clock)
+        val time = LocalTime(minutes / 60, minutes % 60)
+        val today = input.now.toLocalDateTime(input.zone).date
+        var first = true
+        return (0 until SUMMARY_DAYS).mapNotNull { offset ->
+            val date = today.plus(offset, DateTimeUnit.DAY)
+            val local = LocalDateTime(date, time)
+            val at = local.toInstant(input.zone)
+            if (at <= input.now) return@mapNotNull null
+            LocalNotification(
+                id = plannerNudgeId(date),
+                kind = LocalNotification.Kind.PLANNER_NUDGE,
+                title = PlannerNudge.TITLE,
+                body = PlannerNudge.BODY,
+                trigger = LocalNotification.Trigger.Local(local, at),
+                sound = input.prefs.soundEnabled,
+                priority = if (first) NotificationBudget.Priority.REQUIRED else NotificationBudget.Priority.NORMAL,
+                data = mapOf(LocalNotification.KEY_KIND to LocalNotification.Kind.PLANNER_NUDGE.name),
+            ).also { first = false }
+        }
     }
 
     private fun taskData(kind: LocalNotification.Kind, taskId: Long, title: String) = mapOf(

@@ -1,8 +1,8 @@
 // adb driver for the Vicu Android UI harness.
 //
-// Device safety: every adb call goes through adb() below, which always passes `-s emulator-5554`.
-// Nothing here ever talks to another device (a wireless phone may be connected). Importing this
-// module aborts unless `adb -s emulator-5554 get-state` prints `device`.
+// Device safety: every adb call goes through adb() below, which always passes `-s` with the one
+// emulator (`emulator-5554`, or VICU_EMULATOR). Nothing here ever talks to another device (a wireless
+// phone may be connected). Importing this module aborts unless that emulator answers `device`.
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -11,7 +11,9 @@ import { PNG } from 'pngjs'
 
 export const HERE = dirname(fileURLToPath(import.meta.url))
 export const REPO = resolve(HERE, '..', '..')
-export const SERIAL = 'emulator-5554'
+// VICU_EMULATOR picks another emulator (a second session's own); it can never name a phone.
+export const SERIAL = process.env.VICU_EMULATOR ?? 'emulator-5554'
+if (!/^emulator-\d+$/.test(SERIAL)) throw new Error(`VICU_EMULATOR must be emulator-<port>, not ${SERIAL}`)
 export const APP_ID = 'com.rendyhd.vicu.debug'
 export const MAIN_ACTIVITY = `${APP_ID}/com.rendyhd.vicu.MainActivity`
 

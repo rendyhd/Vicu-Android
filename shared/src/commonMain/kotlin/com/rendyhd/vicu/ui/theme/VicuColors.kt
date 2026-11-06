@@ -37,6 +37,7 @@ class VicuIdentityColors(
     val routines: Color,
     val review: Color,
     val logbook: Color,
+    val plan: Color,
 )
 
 @Immutable
@@ -115,6 +116,7 @@ val VicuLightColors = VicuColors(
         routines = Color(0xFFE5487A),
         review = Color(0xFF8E55E8),
         logbook = Color(0xFF2E9D58),
+        plan = Color(0xFF2F6FED),
     ),
 )
 
@@ -155,6 +157,7 @@ val VicuDarkColors = VicuColors(
         routines = Color(0xFFE5487A),
         review = Color(0xFF8E55E8),
         logbook = Color(0xFF2E9D58),
+        plan = Color(0xFF2F6FED),
     ),
 )
 

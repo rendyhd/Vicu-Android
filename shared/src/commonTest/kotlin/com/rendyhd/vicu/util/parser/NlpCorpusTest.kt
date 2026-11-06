@@ -39,6 +39,9 @@ object NlpCorpusFixture {
         val parserEnabled: Boolean = true,
         val title: String,
         val due: String? = null,
+        /** The time block `for 30m` makes (section 5.4). */
+        val start: String? = null,
+        val end: String? = null,
         val priority: Int? = null,
         val labels: List<String> = emptyList(),
         val project: String? = null,
@@ -85,6 +88,11 @@ class NlpCorpusTest {
             ?.let { DueDates.fromParsed(it, result.dueDateHasTime, zone) }
             ?.let { CrossAppFixture.wall(it, zone) }
         if (stored != case.due) problems += "due (stored in $zone) $stored, expected ${case.due}"
+
+        val start = result.block?.start?.let(::wallOf)
+        if (start != case.start) problems += "start $start, expected ${case.start}"
+        val end = result.block?.end?.let(::wallOf)
+        if (end != case.end) problems += "end $end, expected ${case.end}"
 
         if (result.priority != case.priority) problems += "priority ${result.priority}, expected ${case.priority}"
         if (result.labels != case.labels) problems += "labels ${result.labels}, expected ${case.labels}"

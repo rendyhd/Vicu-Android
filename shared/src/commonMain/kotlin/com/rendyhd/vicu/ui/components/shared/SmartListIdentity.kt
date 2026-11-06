@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Autorenew
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.EventNote
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.MonitorHeart
@@ -21,6 +22,10 @@ import com.rendyhd.vicu.ui.theme.VicuIdentityColors
 enum class SmartListIdentity(val key: String, val icon: ImageVector) {
     INBOX("inbox", Icons.Outlined.Inbox),
     TODAY("today", Icons.Outlined.WbSunny),
+
+    // The fixture names the plain icon, whose name the drift test compares; its mirrored form differs.
+    @Suppress("DEPRECATION")
+    PLAN("plan", Icons.Outlined.EventNote),
     UPCOMING("upcoming", Icons.Outlined.CalendarMonth),
     ANYTIME("anytime", Icons.Outlined.Layers),
     ROUTINES("routines", Icons.Outlined.MonitorHeart),
@@ -32,6 +37,7 @@ enum class SmartListIdentity(val key: String, val icon: ImageVector) {
     fun color(identity: VicuIdentityColors): Color = when (this) {
         INBOX -> identity.inbox
         TODAY -> identity.today
+        PLAN -> identity.plan
         UPCOMING -> identity.upcoming
         ANYTIME -> identity.anytime
         ROUTINES -> identity.routines
