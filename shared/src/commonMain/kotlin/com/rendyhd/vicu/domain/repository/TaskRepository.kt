@@ -4,6 +4,8 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.PositionUpdate
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.datetime.LocalDate
 
 interface TaskRepository {
     fun getInboxTasks(inboxProjectId: Long): Flow<List<Task>>
@@ -13,6 +15,20 @@ interface TaskRepository {
     fun getLogbookTasks(): Flow<List<Task>>
     fun getByProjectId(projectId: Long): Flow<List<Task>>
     fun getById(id: Long): Flow<Task?>
+
+    /**
+     * The day planner's tasks of [firstDay] to [lastDay] from the cache (contract section 16): a block
+     * starting in them, done ones included, an open task due in them, and overdue tasks while today is
+     * among them. Every task is a row, because a subtask can have a block of its own.
+     */
+    fun getPlanTasks(firstDay: LocalDate, lastDay: LocalDate): Flow<List<Task>> = flowOf(emptyList())
+
+    /**
+     * Asks the server for [day]'s tasks and merges them into the cache: one request, the only way the
+     * done blocks of a day reach the phone (completed history is otherwise loaded in pages).
+     */
+    suspend fun refreshPlanDay(day: LocalDate): NetworkResult<Unit> = NetworkResult.Success(Unit)
+
     suspend fun getByIds(ids: Set<Long>): List<Task>
 
     /**

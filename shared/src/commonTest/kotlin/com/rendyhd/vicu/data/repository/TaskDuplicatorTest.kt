@@ -46,6 +46,7 @@ class TaskDuplicatorTest {
         doneAt = "2026-10-30T10:00:00Z",
         dueDate = "2026-11-02T22:59:59Z",
         startDate = "2026-11-01T08:00:00Z",
+        endDate = "2026-11-01T08:30:00Z",
         priority = 3,
         projectId = 5,
         repeatAfter = 86_400,
@@ -65,6 +66,7 @@ class TaskDuplicatorTest {
         assertEquals("<p>Passport</p>", sent.description)
         assertEquals(original.dueDate, sent.dueDate)
         assertEquals(original.startDate, sent.startDate)
+        assertEquals(original.endDate, sent.endDate)
         assertEquals(3, sent.priority)
         assertEquals(5, sent.projectId)
         assertEquals(86_400, sent.repeatAfter)

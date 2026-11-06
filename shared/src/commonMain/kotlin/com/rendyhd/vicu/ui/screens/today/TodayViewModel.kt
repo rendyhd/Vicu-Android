@@ -20,8 +20,8 @@ import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.ui.screens.shared.TaskProjectGroup
 import com.rendyhd.vicu.ui.screens.shared.buildTaskProjectGroups
 import com.rendyhd.vicu.util.DayClock
-import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.NetworkResult
+import com.rendyhd.vicu.util.TimeBlocks
 import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,7 +40,7 @@ import kotlinx.coroutines.launch
 data class TodayUiState(
     /** Open tasks whose local due date is before today, grouped by project; shown above Today. */
     val overdueGroups: List<TaskProjectGroup> = emptyList(),
-    /** Open tasks whose local due date is today, whatever the time of day. */
+    /** Open tasks whose local due date is today, whatever the time of day, or with a block starting today. */
     val projectGroups: List<TaskProjectGroup> = emptyList(),
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
@@ -126,10 +126,9 @@ class TodayViewModel(
                     // The sections follow the day: a task due today is overdue once it is tomorrow.
                     dayClock.day,
                 ) { tasks, projects, _, day ->
-                    val overdue = tasks.filter { DueDates.bucket(it.dueDate, day.date, day.zone) == DueDates.Bucket.OVERDUE }
-                    val today = tasks.filter { DueDates.bucket(it.dueDate, day.date, day.zone) == DueDates.Bucket.TODAY }
-                    buildTaskProjectGroups(completions.merge(overdue, OVERDUE_SCOPE), projects, inboxId) to
-                        buildTaskProjectGroups(completions.merge(today, TODAY_SCOPE), projects, inboxId)
+                    val split = TimeBlocks.splitToday(tasks, day.date, day.zone)
+                    buildTaskProjectGroups(completions.merge(split.overdue, OVERDUE_SCOPE), projects, inboxId) to
+                        buildTaskProjectGroups(completions.merge(split.today, TODAY_SCOPE), projects, inboxId)
                 }.collect { (overdueGroups, todayGroups) ->
                     _uiState.update { it.copy(overdueGroups = overdueGroups, projectGroups = todayGroups, isLoading = false) }
                 }

@@ -417,19 +417,28 @@ class TaskDetailViewModel(
      */
     fun moveDue(choice: WhenQuickChoice) {
         val task = _uiState.value.task ?: return
-        val previous = task.dueDate
-        setDueDate(movedDue(previous, choice.date, dayClock.day.value.zone))
-        appMessages.post(quickMoveMessage(choice), "Undo") { restoreDue(task.id, previous) }
+        setDueDate(movedDue(task.dueDate, choice.date, dayClock.day.value.zone))
+        appMessages.post(quickMoveMessage(choice), "Undo") { restoreDue(task) }
     }
 
-    private fun restoreDue(taskId: Long, previous: String) {
-        if (_uiState.value.task?.id == taskId) {
-            setDueDate(previous)
+    /** Back to [before]: its due date and the block, which followed the due date (contract 16.3). */
+    private fun restoreDue(before: Task) {
+        fun Task.restored() = copy(
+            dueDate = before.dueDate,
+            startDate = before.startDate,
+            endDate = before.endDate,
+            reminders = before.reminders,
+        )
+        if (_uiState.value.task?.id == before.id) {
+            _uiState.update {
+                it.copy(task = it.task?.restored(), manuallyEditedTypes = it.manuallyEditedTypes + TokenType.DATE)
+            }
+            scheduleAutosave()
             return
         }
         viewModelScope.launch {
-            val stored = taskRepository.getById(taskId).first() ?: return@launch
-            appMessages.postIfRefused(taskRepository.update(stored.copy(dueDate = previous)), "undo the move")
+            val stored = taskRepository.getById(before.id).first() ?: return@launch
+            appMessages.postIfRefused(taskRepository.update(stored.restored()), "undo the move")
         }
     }
 

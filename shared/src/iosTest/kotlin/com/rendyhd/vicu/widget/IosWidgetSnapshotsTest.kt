@@ -62,7 +62,7 @@ class IosWidgetSnapshotsTest {
         TaskEntity(id = 2, title = "Pay rent", projectId = 1, dueDate = "2026-10-11T21:59:59Z"),
     )
     private val taskDao = object : TaskDao by FakeTaskDao() {
-        override suspend fun getTodayTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity> = today
+        override suspend fun getTodayTasksSync(startOfToday: String, startOfTomorrow: String): List<TaskEntity> = today
         override suspend fun getByProjectIdSync(projectId: Long, limit: Int): List<TaskEntity> =
             today.filter { it.projectId == projectId }
     }

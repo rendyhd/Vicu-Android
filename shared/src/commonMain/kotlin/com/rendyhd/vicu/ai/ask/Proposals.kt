@@ -267,6 +267,10 @@ class Proposals(
                                 title = before.title,
                                 description = before.description,
                                 dueDate = before.dueDate,
+                                // A due date moves or removes a block on its day (contract 16.3).
+                                startDate = before.startDate,
+                                endDate = before.endDate,
+                                reminders = before.reminders,
                                 priority = before.priority,
                             ),
                         )

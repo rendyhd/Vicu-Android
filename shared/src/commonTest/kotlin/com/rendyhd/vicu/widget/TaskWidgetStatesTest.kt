@@ -33,7 +33,7 @@ class TaskWidgetStatesTest {
     private val today = (1L..25L).map { TaskEntity(id = it, title = "Task $it", projectId = if (it == 25L) 9 else 1, dueDate = "2026-10-12T10:00:00Z") }
 
     private val taskDao = object : TaskDao by FakeTaskDao() {
-        override suspend fun getTodayTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity> {
+        override suspend fun getTodayTasksSync(startOfToday: String, startOfTomorrow: String): List<TaskEntity> {
             todayBoundaries += startOfTomorrow
             return today
         }
@@ -60,6 +60,33 @@ class TaskWidgetStatesTest {
         time = FixedTimeSource(Instant.parse("2026-10-12T08:00:00Z"), zone),
         collaborationContext = { CustomListContext.NONE },
     )
+
+    @Test
+    fun aBlockStartingTodayIsOnTheTodayWidgetAndAStartDateAloneIsNot() = runTest {
+        val rows = listOf(
+            TaskEntity(id = 1, title = "Block", projectId = 1, startDate = "2026-10-12T09:00:00Z", endDate = "2026-10-12T09:30:00Z"),
+            TaskEntity(id = 2, title = "Start only", projectId = 1, startDate = "2026-10-12T09:00:00Z"),
+            TaskEntity(id = 3, title = "Several days", projectId = 1, startDate = "2026-10-12T09:00:00Z", endDate = "2026-10-14T09:00:00Z"),
+        )
+        val dao = object : TaskDao by FakeTaskDao() {
+            override suspend fun getTodayTasksSync(startOfToday: String, startOfTomorrow: String): List<TaskEntity> = rows
+        }
+        val widget = TaskWidgetStates(
+            taskDao = dao,
+            projectDao = projects,
+            taskRepository = FakeTaskRepository(),
+            tokenStorage = storage,
+            customListStore = CustomListStore(InMemoryPreferencesDataStore()),
+            widgetPrefsStore = WidgetPrefsStore(InMemoryPreferencesDataStore()),
+            behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
+            time = FixedTimeSource(Instant.parse("2026-10-12T08:00:00Z"), zone),
+            collaborationContext = { CustomListContext.NONE },
+        )
+
+        val state = widget.prepare(day).build(WidgetConfig(WidgetViewType.TODAY, "", "Today"))
+
+        assertEquals(listOf(1L), state.tasks.map { it.id })
+    }
 
     @Test
     fun aWidgetShowsTwentyRowsAndCountsAllWithoutArchivedProjects() = runTest {

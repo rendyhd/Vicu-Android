@@ -42,6 +42,9 @@ class InMemoryPreferencesDataStore : DataStore<Preferences> {
  * implemented; the list queries return empty flows. Every call to a method that binds an id
  * list records the list size, so tests can check the SQLite variable limit is respected.
  */
+/** One call of [TaskDao.getPlanTasks]. */
+data class PlanQuery(val from: String, val to: String, val startOfToday: String, val withOverdue: Boolean)
+
 class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     private val rows = LinkedHashMap<Long, TaskEntity>().apply { initial.forEach { put(it.id, it) } }
     private val lock = Mutex()
@@ -63,8 +66,24 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     val todayBoundaries = mutableListOf<String>()
     val upcomingBoundaries = mutableListOf<String>()
 
-    override fun getTodayTasks(startOfTomorrow: String): Flow<List<TaskEntity>> {
+    /** What the Today query answers: the SQL's superset, which the repository narrows down. */
+    var todayRows: List<TaskEntity> = emptyList()
+
+    override fun getTodayTasks(startOfToday: String, startOfTomorrow: String): Flow<List<TaskEntity>> {
         todayBoundaries += startOfTomorrow
+        return flowOf(todayRows)
+    }
+
+    /** The arguments of every Plan query, in order. */
+    val planQueries = mutableListOf<PlanQuery>()
+
+    override fun getPlanTasks(
+        fromInclusive: String,
+        toExclusive: String,
+        startOfToday: String,
+        withOverdue: Boolean,
+    ): Flow<List<TaskEntity>> {
+        planQueries += PlanQuery(fromInclusive, toExclusive, startOfToday, withOverdue)
         return flowOf(emptyList())
     }
 
@@ -136,7 +155,14 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
     override suspend fun countDueTomorrow(startOfTomorrow: String, startOfDayAfterTomorrow: String): Int =
         lock.withLock { openDated().count { it.dueDate >= startOfTomorrow && it.dueDate < startOfDayAfterTomorrow } }
 
-    override suspend fun getTodayTasksSync(startOfTomorrow: String, limit: Int): List<TaskEntity> = emptyList()
+    override suspend fun getTodayTasksSync(startOfToday: String, startOfTomorrow: String): List<TaskEntity> = emptyList()
+    override suspend fun getStartingTodayWithoutDueToday(startOfToday: String, startOfTomorrow: String): List<TaskEntity> =
+        lock.withLock {
+            rows.values.filter {
+                !it.done && !it.isMetadata && it.startDate >= startOfToday && it.startDate < startOfTomorrow &&
+                    (it.dueDate.isEmpty() || it.dueDate == "0001-01-01T00:00:00Z" || it.dueDate >= startOfTomorrow)
+            }
+        }
     override suspend fun getDueTodaySync(startOfToday: String, startOfTomorrow: String, limit: Int): List<TaskEntity> =
         lock.withLock {
             openDated()

@@ -19,6 +19,7 @@ import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.HiddenTasks
 import com.rendyhd.vicu.util.ReviewMetadata
 import com.rendyhd.vicu.util.ReviewState
+import com.rendyhd.vicu.util.TimeBlocks
 import com.rendyhd.vicu.util.isRecurring
 import com.rendyhd.vicu.util.sortProjectTasks
 import kotlin.time.Instant
@@ -155,7 +156,8 @@ class AskSnapshot(
     fun overview(): JsonObject {
         val open = tasks.filter { !it.done && it.projectId in activeProjectIds }
         val overdue = open.count { DueDates.isOverdue(it.dueDate, today, zone) }
-        val dueToday = open.count { DueDates.isDueToday(it.dueDate, today, zone) }
+        // The Today list's own rule (contract section 2): a block starting today counts too.
+        val dueToday = TimeBlocks.splitToday(open, today, zone).today.size
         val upcoming = open.count { DueDates.isUpcoming(it.dueDate, today, zone) }
         val inbox = inboxId?.let { id -> open.count { it.projectId == id } } ?: 0
         val anytime = open.count { it.projectId != inboxId }
@@ -270,9 +272,8 @@ class AskSnapshot(
                 sortProjectTasks(open.filter { it.projectId == id }, order.orderFor(id, projects))
             }
             "today" -> {
-                val active = open.filter { it.projectId in activeProjectIds }
-                active.filter { DueDates.isOverdue(it.dueDate, today, zone) }.sortedBy { it.dueDate } +
-                    sortProjectTasks(active.filter { DueDates.isDueToday(it.dueDate, today, zone) })
+                val split = TimeBlocks.splitToday(open.filter { it.projectId in activeProjectIds }, today, zone)
+                split.overdue.sortedBy { it.dueDate } + sortProjectTasks(split.today)
             }
             "upcoming" -> open.filter { it.projectId in activeProjectIds && DueDates.isUpcoming(it.dueDate, today, zone) }
                 .sortedWith(compareBy({ Instant.parse(it.dueDate) }, { it.position }, { it.id }))

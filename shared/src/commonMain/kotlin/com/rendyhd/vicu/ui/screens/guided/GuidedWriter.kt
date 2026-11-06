@@ -48,7 +48,18 @@ class GuidedWriter(
             val now = tasks.getById(before.id).first() ?: continue
             if (now.projectId != before.projectId) tasks.moveToProject(now.id, before.projectId)
             val sameDue = DateUtils.parseIsoDate(now.dueDate) == DateUtils.parseIsoDate(before.dueDate)
-            if (now.title != before.title || !sameDue) tasks.update(now.copy(title = before.title, dueDate = before.dueDate))
+            if (now.title != before.title || !sameDue) {
+                // A due date moves or removes a block on its day (contract 16.3): the old block goes back with it.
+                tasks.update(
+                    now.copy(
+                        title = before.title,
+                        dueDate = before.dueDate,
+                        startDate = before.startDate,
+                        endDate = before.endDate,
+                        reminders = before.reminders,
+                    ),
+                )
+            }
         }
     }
 
