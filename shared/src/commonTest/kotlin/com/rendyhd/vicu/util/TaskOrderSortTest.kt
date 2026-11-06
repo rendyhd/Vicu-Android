@@ -96,7 +96,6 @@ class TaskOrderSortTest {
         val moved = assertNotNull(moveTaskInList(shown, 4L, 2L, TaskOrder.MANUAL))
         assertEquals(listOf(4L, 2L, 3L, 1L), moved.map { it.id })
         // The dated neighbour's position counts in the manual order.
-        assertEquals(5.0, dropPositionFor(moved, 4L, TaskOrder.MANUAL))
         val plan = assertNotNull(planDrop(moved, 4L, TaskOrder.MANUAL))
         assertEquals(4L, plan.moved.id)
         assertEquals(5.0, plan.moved.position)

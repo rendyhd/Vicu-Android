@@ -61,6 +61,37 @@ class ReorderPlanTest {
     }
 
     @Test
+    fun `a dated row below does not anchor a drop`() {
+        val dated = task(9, 5.0, due = "2026-10-08T21:59:59Z")
+        val plan = planDrop(listOf(task(1, 400.0), task(2, 0.0), dated), taskId = 2)!!
+
+        assertEquals(400.0 + step, plan.moved.position, "the end of the undated rows, not the middle of 400 and 5")
+    }
+
+    @Test
+    fun `the positions a list view listed replace the stored ones`() {
+        val stored = listOf(task(1, 0.0), task(2, 0.0), task(3, 7.0))
+
+        val read = withListedPositions(stored, mapOf(1L to 100.0, 2L to 200.0, 3L to 300.0))
+
+        assertEquals(listOf(100.0, 200.0, 300.0), read.map { it.position })
+    }
+
+    @Test
+    fun `a task the list view did not list gives no position to plan from`() {
+        val read = withListedPositions(listOf(task(1, 0.0), task(2, 0.0), task(3, 0.0)), mapOf(1L to 100.0, 3L to 300.0))
+
+        assertEquals(listOf(1L to 100.0, 3L to 300.0), read.map { it.id to it.position })
+    }
+
+    @Test
+    fun `a task that only exists on this device keeps its place in the list`() {
+        val read = withListedPositions(listOf(task(-4, 12.0), task(1, 0.0)), mapOf(1L to 100.0))
+
+        assertEquals(listOf(-4L to 12.0, 1L to 100.0), read.map { it.id to it.position })
+    }
+
+    @Test
     fun `tasks that share a position are spread apart in their new order`() {
         // Every task moved into a project has position 0: the middle of two zeros tells them apart not at all.
         val reordered = listOf(task(1, 0.0), task(2, 0.0), task(3, 0.0))

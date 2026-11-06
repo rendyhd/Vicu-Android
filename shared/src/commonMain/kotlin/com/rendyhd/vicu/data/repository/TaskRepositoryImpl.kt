@@ -13,6 +13,7 @@ import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.sync.TaskRefresher
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.model.TaskOrder
 import com.rendyhd.vicu.domain.repository.LogbookPage
 import com.rendyhd.vicu.domain.repository.QuickDue
 import com.rendyhd.vicu.domain.repository.TaskRepository
@@ -32,6 +33,8 @@ import com.rendyhd.vicu.util.RoutineEnvelope
 import com.rendyhd.vicu.util.PlannerTimeline
 import com.rendyhd.vicu.util.SqlLike
 import com.rendyhd.vicu.util.TimeBlocks
+import com.rendyhd.vicu.util.planDrop
+import com.rendyhd.vicu.util.withListedPositions
 import com.rendyhd.vicu.util.withoutNestedSubtasks
 import com.rendyhd.vicu.worker.MissingResourceCheck
 import kotlinx.coroutines.CancellationException
@@ -83,6 +86,10 @@ class TaskRepositoryImpl(
 
     companion object {
         private const val TAG = "TaskRepoImpl"
+
+        private const val ORDER_NOT_SAVED = "Could not save the new order"
+        private const val DROP_NOT_READ = "Could not read the order of this list, so the task stayed where it was"
+        private const val DROP_OFFLINE = "Can't reach the server, so the task stayed where it was"
 
         /** Completed tasks fetched per Logbook page. */
         const val LOGBOOK_PAGE_SIZE = 50
@@ -158,6 +165,9 @@ class TaskRepositoryImpl(
 
     private val completionBatchesMutex = Mutex()
     private val parentReferenceMutex = Mutex()
+
+    /** Drops run one at a time: each is planned from a read made after the one before it was sent. */
+    private val dropMutex = Mutex()
     private val completionBatches = mutableMapOf<Long, List<DescendantLink>>()
 
     private data class DescendantLink(
@@ -189,36 +199,65 @@ class TaskRepositoryImpl(
         return result
     }
 
-    override suspend fun updatePosition(taskId: Long, projectId: Long, newPosition: Double): NetworkResult<Unit> =
-        applyPositions(projectId, listOf(PositionUpdate(taskId, newPosition)))
+    override suspend fun dropInListView(
+        projectId: Long,
+        displayed: List<Task>,
+        taskId: Long,
+        order: TaskOrder,
+    ): NetworkResult<Unit> = dropMutex.withLock {
+        val listed = try {
+            readListPositions(projectId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Logger.w(TAG, "Could not read the order of list $projectId for a drop: ${e.message}")
+            val failure = refreshFailure(e, DROP_NOT_READ)
+            return@withLock failure.copy(message = if (failure.offline) DROP_OFFLINE else DROP_NOT_READ)
+        }
+        val read = if (listed == null) displayed else withListedPositions(displayed, listed)
+        val plan = planDrop(read, taskId, order) ?: return@withLock NetworkResult.Error(ORDER_NOT_SAVED)
+        val before = read.associate { it.id to it.position }
+        // One transaction, so the list is drawn once: in the order the user just gave it.
+        taskDao.updatePositions(before + plan.updates.associate { it.id to it.position })
+        if (sendPositions(projectId, plan.updates)) return@withLock NetworkResult.Success(Unit)
+        // Some of a renumbering may have arrived: what the server holds now is the order to show.
+        if (refreshListPositions(projectId) is NetworkResult.Error) taskDao.updatePositions(before)
+        NetworkResult.Error(ORDER_NOT_SAVED)
+    }
 
     override suspend fun applyPositions(projectId: Long, updates: List<PositionUpdate>): NetworkResult<Unit> {
         if (updates.isEmpty()) return NetworkResult.Success(Unit)
         // The list is drawn from the cached rows, so the new order shows at once.
         taskDao.updatePositions(updates.associate { it.id to it.position })
+        return if (sendPositions(projectId, updates)) NetworkResult.Success(Unit) else NetworkResult.Error(ORDER_NOT_SAVED)
+    }
+
+    /** Sends [updates] one after the other, stopping at the first the server refuses; false when one was. */
+    private suspend fun sendPositions(projectId: Long, updates: List<PositionUpdate>): Boolean {
         for (update in updates) {
             // A task that only exists here has no position on the server yet; the sync gives it one.
             if (update.id < 0L) continue
-            if (!positioner.setPosition(projectId, update.id, update.position)) {
-                return NetworkResult.Error("Could not save the new order")
-            }
+            if (!positioner.setPosition(projectId, update.id, update.position)) return false
         }
-        return NetworkResult.Success(Unit)
+        return true
+    }
+
+    /** Task id to position in [projectId]'s list view, or null when it has no list view. Throws when the read fails. */
+    private suspend fun readListPositions(projectId: Long): Map<Long, Double>? {
+        val viewId = positioner.listViewIdOrNull(projectId) ?: return null
+        return api.getAllViewTasks(
+            projectId,
+            viewId,
+            mapOf("filter" to "done = false", "sort_by" to "position", "order_by" to "asc"),
+            expandSubtasks = false,
+        ).associate { it.id to it.position }
     }
 
     override suspend fun refreshListPositions(projectId: Long): NetworkResult<Unit> {
         return try {
-            val viewId = positioner.listViewIdOrNull(projectId) ?: return NetworkResult.Success(Unit)
-            val listed = api.getAllViewTasks(
-                projectId,
-                viewId,
-                mapOf("filter" to "done = false", "sort_by" to "position", "order_by" to "asc"),
-                expandSubtasks = false,
-            )
-            val cached = taskDao.getByIds(listed.map { it.id }).associateBy { it.id }
-            val changed = listed
-                .filter { dto -> cached[dto.id]?.let { it.position != dto.position } == true }
-                .associate { it.id to it.position }
+            val listed = readListPositions(projectId) ?: return NetworkResult.Success(Unit)
+            val cached = taskDao.getByIds(listed.keys.toList()).associateBy { it.id }
+            val changed = listed.filter { (id, position) -> cached[id]?.let { it.position != position } == true }
             if (changed.isNotEmpty()) taskDao.updatePositions(changed)
             NetworkResult.Success(Unit)
         } catch (e: CancellationException) {
