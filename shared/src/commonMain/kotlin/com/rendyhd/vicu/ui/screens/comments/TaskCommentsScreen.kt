@@ -27,6 +27,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldDecorator
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -55,15 +59,24 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
@@ -71,14 +84,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.rendyhd.vicu.domain.model.TaskComment
 import com.rendyhd.vicu.domain.model.User
 import com.rendyhd.vicu.domain.model.toCollabUser
@@ -87,6 +102,9 @@ import com.rendyhd.vicu.ui.components.collab.LocalCollab
 import com.rendyhd.vicu.ui.components.collab.PersonAvatar
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
+import com.rendyhd.vicu.ui.components.task.ImageViewerDialog
+import com.rendyhd.vicu.ui.imagePasteReceiver
+import com.rendyhd.vicu.ui.rememberClipboardImage
 import com.rendyhd.vicu.ui.screens.taskdetail.EditorBackHandler
 import com.rendyhd.vicu.ui.screens.taskdetail.EditorBackState
 import com.rendyhd.vicu.util.ClockDay
@@ -97,8 +115,19 @@ import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.DueDates
+import com.rendyhd.vicu.util.ImageTokens
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+
+/** How often the composer looks whether the clipboard holds an image. Asking shows no paste notice. */
+private const val CLIPBOARD_CHECK_MS = 1_000L
+
+/** The composer's text and caret, all a restored draft needs, in types iOS's `UiStateCodec` keeps. */
+private val ComposerFieldSaver = listSaver<TextFieldState, Any>(
+    save = { listOf(it.text.toString(), it.selection.start, it.selection.end) },
+    restore = { TextFieldState(it[0] as String, TextRange(it[1] as Int, it[2] as Int)) },
+)
 
 /** What the thread lists, in reading order (oldest first). */
 private sealed interface ThreadEntry {
@@ -174,6 +203,27 @@ fun TaskCommentsScreen(
     val me = collab.state.me
     val members = access.members
     val collabMembers = remember(members) { members.map { it.toCollabUser() } }
+    val files = remember(taskId, state.attachments, state.attachmentsRead, state.downloading) {
+        CommentFiles(
+            taskId = taskId,
+            known = state.attachments.associateBy { it.id },
+            read = state.attachmentsRead,
+            downloading = state.downloading,
+            onOpen = viewModel::openAttachment,
+            onSave = viewModel::saveAttachment,
+            onShare = viewModel::shareAttachment,
+        )
+    }
+
+    // The draft's files by id, so a draft that survives the app being ended keeps them too.
+    var savedStaged by rememberSaveable(taskId) { mutableStateOf("") }
+    LaunchedEffect(taskId) {
+        viewModel.restoreStaged(taskId, savedStaged.split(',').mapNotNull { it.toLongOrNull() })
+    }
+    val stagedIds = state.staged.mapNotNull { it.attachment?.id }.joinToString(",")
+    LaunchedEffect(stagedIds, state.taskId) {
+        if (state.taskId == taskId) savedStaged = stagedIds
+    }
 
     EditorBackHandler(enabled = backEnabled, backState = backState, onBack = onClose)
 
@@ -277,15 +327,10 @@ fun TaskCommentsScreen(
                                 members = members,
                                 me = me,
                                 shared = access.shared,
-                                onSend = { text ->
-                                    val html = Collaboration.encodeCommentHtml(text, collabMembers)
-                                    if (html.isEmpty()) {
-                                        false
-                                    } else {
-                                        viewModel.post(html)
-                                        true
-                                    }
-                                },
+                                staged = state.staged,
+                                onAttach = viewModel::attach,
+                                onRemoveStaged = viewModel::removeStaged,
+                                onSend = { text -> viewModel.post(text, collabMembers) },
                             )
                         }
                     }
@@ -320,6 +365,7 @@ fun TaskCommentsScreen(
                             members = members,
                             me = me,
                             canWrite = access.canWrite,
+                            files = files,
                             selected = selectedId == entry.comment.id,
                             editing = editingId == entry.comment.id,
                             onSelect = { selectedId = if (selectedId == entry.comment.id) null else entry.comment.id },
@@ -333,7 +379,8 @@ fun TaskCommentsScreen(
                             },
                             onCancelEdit = { editingId = null },
                             onSaveEdit = { text ->
-                                val html = Collaboration.encodeCommentHtml(text, collabMembers)
+                                val kept = Collaboration.decodeCommentHtml(entry.comment.comment, collabMembers, taskId).attachments
+                                val html = Collaboration.encodeCommentHtml(text, collabMembers, kept)
                                 if (html.isNotEmpty() && html != entry.comment.comment) viewModel.edit(entry.comment.id, html)
                                 editingId = null
                             },
@@ -345,10 +392,16 @@ fun TaskCommentsScreen(
     }
 
     if (pendingDelete != 0L) {
+        val withFiles = remember(pendingDelete, state.comments) {
+            state.comments.firstOrNull { it.id == pendingDelete }
+                ?.let { Collaboration.decodeCommentHtml(it.comment, emptyList(), taskId).attachments.isNotEmpty() } == true
+        }
         AlertDialog(
             onDismissRequest = { pendingDelete = 0L },
             title = { Text("Delete comment?") },
-            text = { Text("This cannot be undone.") },
+            text = {
+                Text(if (withFiles) "This cannot be undone. Its files stay in the task's attachments." else "This cannot be undone.")
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -396,24 +449,40 @@ private fun DayDivider(label: String) {
     }
 }
 
-/** A comment's text with each mention as "@Name" in `primary`, semibold. */
-private fun commentText(segments: List<CommentSegment>, mentionColor: androidx.compose.ui.graphics.Color): AnnotatedString =
-    buildAnnotatedString {
+/** A comment in reading order: runs of text, and the attachments between them. */
+private sealed interface CommentBlock {
+    data class Body(val text: AnnotatedString) : CommentBlock
+    data class File(val attachment: CommentSegment.Attachment) : CommentBlock
+}
+
+/** Text runs with each mention as "@Name" in `primary`, semibold; each attachment a block of its own. */
+private fun commentBlocks(segments: List<CommentSegment>, mentionColor: androidx.compose.ui.graphics.Color): List<CommentBlock> =
+    buildList {
+        var body = AnnotatedString.Builder()
+        fun endBody() {
+            if (body.length > 0) add(CommentBlock.Body(body.toAnnotatedString()))
+            body = AnnotatedString.Builder()
+        }
         for (segment in segments) {
             when (segment) {
-                is CommentSegment.Text -> append(segment.text)
-                is CommentSegment.Mention -> withStyle(SpanStyle(color = mentionColor, fontWeight = FontWeight.SemiBold)) {
+                is CommentSegment.Text -> body.append(segment.text)
+                is CommentSegment.Mention -> body.withStyle(SpanStyle(color = mentionColor, fontWeight = FontWeight.SemiBold)) {
                     append("@")
                     append(segment.label)
                 }
+                is CommentSegment.Attachment -> {
+                    endBody()
+                    add(CommentBlock.File(segment))
+                }
             }
         }
+        endBody()
     }
 
 /**
- * One comment: avatar, name and time, the text. A long press on your own comment highlights it and
- * offers Edit and Delete (also as screen-reader actions). A comment waiting to sync shows that in
- * place of its time and cannot be changed until it has been sent.
+ * One comment: avatar, name and time, the text and its attachments. A long press on your own comment
+ * highlights it and offers Edit and Delete (also as screen-reader actions). A comment waiting to sync
+ * shows that in place of its time and cannot be changed until it has been sent.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -423,6 +492,7 @@ private fun CommentRow(
     members: List<User>,
     me: Long?,
     canWrite: Boolean,
+    files: CommentFiles,
     selected: Boolean,
     editing: Boolean,
     onSelect: () -> Unit,
@@ -432,7 +502,9 @@ private fun CommentRow(
     onSaveEdit: (String) -> Unit,
 ) {
     val collabMembers = remember(members) { members.map { it.toCollabUser() } }
-    val decoded = remember(comment.comment, collabMembers) { Collaboration.decodeCommentHtml(comment.comment, collabMembers) }
+    val decoded = remember(comment.comment, collabMembers, files.taskId) {
+        Collaboration.decodeCommentHtml(comment.comment, collabMembers, files.taskId)
+    }
     val author = comment.author
     val mine = author != null && me != null && author.id == me
     val name = when {
@@ -449,7 +521,37 @@ private fun CommentRow(
     val canEdit = mine && canWrite && decoded.plain && !comment.pending
     val canDelete = mine && canWrite && !comment.pending
     val primary = MaterialTheme.colorScheme.primary
-    val body = remember(decoded, primary) { commentText(decoded.segments, primary) }
+    val blocks = remember(decoded, primary) { commentBlocks(decoded.segments, primary) }
+    val onLongPress = if (canEdit || canDelete) onSelect else null
+
+    // The comment's images full screen, by their place among its images; -1 while closed.
+    val images = remember(decoded) { decoded.attachments.filter { it.image } }
+    var viewerIndex by rememberSaveable(comment.id) { mutableIntStateOf(-1) }
+    if (viewerIndex >= 0) {
+        ImageViewerDialog(
+            taskId = files.taskId,
+            images = images.map { ImageTokens.ImageRef.Image(it.attachmentId) },
+            initialIndex = viewerIndex,
+            onDismiss = { viewerIndex = -1 },
+            onSave = { id, report -> images.firstOrNull { it.attachmentId == id }?.let { files.onSave(it, report) } },
+            onShare = { id, report -> images.firstOrNull { it.attachmentId == id }?.let { files.onShare(it, report) } },
+            busyIds = files.downloading,
+        )
+    }
+
+    @Composable
+    fun AttachmentBlock(segment: CommentSegment.Attachment) {
+        if (segment.image) {
+            CommentImage(
+                segment = segment,
+                files = files,
+                onOpen = { viewerIndex = images.indexOf(segment) },
+                onLongPress = onLongPress,
+            )
+        } else {
+            CommentFile(segment = segment, files = files, onLongPress = onLongPress)
+        }
+    }
 
     Row(
         modifier = Modifier
@@ -506,20 +608,32 @@ private fun CommentRow(
                     label = { Text("Edit comment") },
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 )
+                // An edit changes the text; the files stay as they are.
+                decoded.attachments.forEach { AttachmentBlock(it) }
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
                     TextButton(onClick = onCancelEdit) { Text("Cancel") }
-                    Button(onClick = { onSaveEdit(draft.text) }, enabled = draft.text.isNotBlank()) { Text("Save") }
+                    Button(
+                        onClick = { onSaveEdit(draft.text) },
+                        enabled = draft.text.isNotBlank() || decoded.attachments.isNotEmpty(),
+                    ) {
+                        Text("Save")
+                    }
                 }
             } else {
-                Text(
-                    text = body,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (comment.pending) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
+                blocks.forEach { block ->
+                    when (block) {
+                        is CommentBlock.Body -> Text(
+                            text = block.text,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (comment.pending) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                        is CommentBlock.File -> AttachmentBlock(block.attachment)
+                    }
+                }
             }
             if (selected && !editing) {
                 Row(
@@ -552,9 +666,10 @@ private fun CommentRow(
 }
 
 /**
- * The composer: a pill text field (Enter is a new line; the send button sends) and, while "@" and
- * a few letters stand before the caret, the matching members as chips above it. The draft is kept
- * per task across configuration changes and process death.
+ * The composer: the paperclip, a pill text field (Enter is a new line; the send button sends) and,
+ * while "@" and a few letters stand before the caret, the matching members as chips above it; the
+ * files added so far are chips above that. The draft is kept per task across configuration changes
+ * and process death. A comment can be files alone; nothing is sent while a file is still uploading.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -563,18 +678,51 @@ private fun Composer(
     members: List<User>,
     me: Long?,
     shared: Boolean,
+    staged: List<StagedAttachment>,
+    onAttach: (String) -> Unit,
+    onRemoveStaged: (Long) -> Unit,
     onSend: (String) -> Boolean,
 ) {
-    var value by rememberSaveable(taskId, stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
-    val mention = remember(value.text, value.selection) {
-        if (value.selection.collapsed) Collaboration.mentionQueryAt(value.text, value.selection.start) else null
+    // A TextFieldState because only that kind of field takes an image: a long press's Paste or the
+    // keyboard's clipboard hands it to imagePasteReceiver below.
+    val field = rememberSaveable(taskId, saver = ComposerFieldSaver) { TextFieldState() }
+    val text = field.text.toString()
+    val selection = field.selection
+    val mention = remember(text, selection) {
+        if (selection.collapsed) Collaboration.mentionQueryAt(text, selection.start) else null
     }
     val suggestions = remember(mention, members, me) {
         mention?.let { m -> Collaboration.mentionSuggestions(m.query, members, me) { it.toCollabUser() } }.orEmpty()
     }
     val scheme = MaterialTheme.colorScheme
 
+    // The clipboard's image is offered until it has been pasted, however it was pasted.
+    val clipboard = rememberClipboardImage()
+    var offeredImage by remember { mutableStateOf<Long?>(null) }
+    var pastedImage by remember(taskId) { mutableStateOf<Long?>(null) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(clipboard, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                offeredImage = clipboard.stamp()
+                delay(CLIPBOARD_CHECK_MS)
+            }
+        }
+    }
+    val pasteImage = {
+        val stamp = clipboard.stamp()
+        clipboard.read()?.let { address ->
+            pastedImage = stamp
+            onAttach(address)
+        }
+        Unit
+    }
+    val offerPaste = offeredImage != null && offeredImage != pastedImage
+
     Column(modifier = Modifier.fillMaxWidth()) {
+        if (staged.isNotEmpty() || offerPaste) {
+            StagedAttachments(staged, onRemoveStaged, trailing = { if (offerPaste) PasteImageChip(pasteImage) })
+        }
         if (mention != null && suggestions.isNotEmpty()) {
             Row(
                 modifier = Modifier
@@ -587,8 +735,11 @@ private fun Composer(
                     InputChip(
                         selected = false,
                         onClick = {
-                            val edit = Collaboration.applyMention(value.text, value.selection.start, mention, person.username)
-                            value = TextFieldValue(edit.text, TextRange(edit.caret))
+                            val edit = Collaboration.applyMention(text, selection.start, mention, person.username)
+                            field.edit {
+                                replace(0, length, edit.text)
+                                this.selection = TextRange(edit.caret)
+                            }
                         },
                         label = { Text(Collaboration.displayName(person.toCollabUser())) },
                         avatar = { PersonAvatar(person, 24.dp) },
@@ -598,19 +749,34 @@ private fun Composer(
             }
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            AttachButton(onPicked = onAttach)
             BasicTextField(
-                value = value,
-                onValueChange = { value = it },
-                modifier = Modifier.weight(1f),
+                state = field,
+                modifier = Modifier
+                    .weight(1f)
+                    .imagePasteReceiver { address ->
+                        pastedImage = clipboard.stamp()
+                        onAttach(address)
+                    }
+                    .onPreviewKeyEvent { event ->
+                        val pasteKeys = event.type == KeyEventType.KeyDown && event.key == Key.V &&
+                            (event.isCtrlPressed || event.isMetaPressed)
+                        if (pasteKeys && clipboard.stamp() != null) {
+                            pasteImage()
+                            true
+                        } else {
+                            false
+                        }
+                    },
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
                 cursorBrush = SolidColor(scheme.primary),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                maxLines = 6,
-                decorationBox = { inner ->
+                lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 6),
+                decorator = TextFieldDecorator { inner ->
                     Box(
                         modifier = Modifier
                             .heightIn(min = 48.dp)
@@ -619,7 +785,7 @@ private fun Composer(
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
-                        if (value.text.isEmpty()) {
+                        if (text.isEmpty()) {
                             Text(
                                 text = if (shared) "Comment. Type @ to mention" else "Comment",
                                 style = MaterialTheme.typography.bodyLarge,
@@ -630,9 +796,9 @@ private fun Composer(
                     }
                 },
             )
-            val canSend = value.text.isNotBlank()
+            val canSend = (text.isNotBlank() || staged.isNotEmpty()) && staged.none { it.attachment == null }
             FilledIconButton(
-                onClick = { if (onSend(value.text)) value = TextFieldValue() },
+                onClick = { if (onSend(text)) field.clearText() },
                 enabled = canSend,
                 modifier = Modifier.size(48.dp),
                 colors = IconButtonDefaults.filledIconButtonColors(

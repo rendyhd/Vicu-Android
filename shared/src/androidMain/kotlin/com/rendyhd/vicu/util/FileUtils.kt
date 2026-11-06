@@ -119,7 +119,7 @@ object FileUtils {
     fun openFile(context: Context, path: String, mimeType: String?): String? {
         val uri = uriFor(context, path) ?: return "The file is no longer available"
         val intent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, mimeType?.takeIf { it.isNotBlank() } ?: "*/*")
+            .setDataAndType(uri, plainType(mimeType) ?: "*/*")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
             context.startActivity(intent)
@@ -133,7 +133,7 @@ object FileUtils {
     fun shareFile(context: Context, path: String, mimeType: String?): String? {
         val uri = uriFor(context, path) ?: return "The file is no longer available"
         val send = Intent(Intent.ACTION_SEND)
-            .setType(mimeType?.takeIf { it.isNotBlank() } ?: "*/*")
+            .setType(plainType(mimeType) ?: "*/*")
             .putExtra(Intent.EXTRA_STREAM, uri)
             .apply { clipData = ClipData.newRawUri(null, uri) }
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -156,7 +156,7 @@ object FileUtils {
     fun saveToDownloads(context: Context, path: String, fileName: String, mimeType: String?): String {
         val source = File(path)
         if (!source.isFile) return "The file is no longer available"
-        val type = mimeType?.takeIf { it.isNotBlank() }
+        val type = plainType(mimeType)
             ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(source.extension.lowercase())
             ?: "application/octet-stream"
         val resolver = context.contentResolver
@@ -179,6 +179,14 @@ object FileUtils {
             "Could not save \"$fileName\": ${e.message}"
         }
     }
+
+    /**
+     * The type without parameters, or null when there is none. The server reports text files as
+     * `text/plain; charset=utf-8`; Android matches apps on the exact type, so with the parameter no
+     * app could open one, and the media store no longer knows the file's extension when it renames.
+     */
+    private fun plainType(mimeType: String?): String? =
+        Intent.normalizeMimeType(mimeType)?.takeIf { it.isNotBlank() }
 
     private fun uriFor(context: Context, path: String): Uri? {
         val file = File(path)

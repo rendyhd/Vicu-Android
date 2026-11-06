@@ -36,15 +36,31 @@ data class ShareGraph(
 sealed interface CommentSegment {
     data class Text(val text: String) : CommentSegment
     data class Mention(val mention: String, val label: String) : CommentSegment
+
+    /** A task attachment the comment points at (section 9.5). */
+    data class Attachment(
+        val attachmentId: Long,
+        /** The `alt` or `title` of an image, the text of a link, trimmed; it can be empty. */
+        val name: String,
+        /** An `img`, shown inline; otherwise a link, shown as a file. */
+        val image: Boolean,
+        /** The address as written, so saving an edit changes nothing about it. */
+        val url: String,
+    ) : CommentSegment
 }
 
 data class DecodedComment(
     val segments: List<CommentSegment>,
-    /** Only `p`, `br` and `mention-user` elements: Vicu can edit it without losing anything. */
+    /**
+     * Only `p`, `br`, `mention-user` and attachments, with nothing after the first attachment but more
+     * of them: Vicu can edit it without losing anything.
+     */
     val plain: Boolean,
     /** The text the editor starts from (mentions as `@username`); null when the comment is not plain. */
     val editText: String?,
-)
+) {
+    val attachments: List<CommentSegment.Attachment> get() = segments.filterIsInstance<CommentSegment.Attachment>()
+}
 
 data class MentionQuery(
     /** What follows the `@`, as typed. */
@@ -191,10 +207,42 @@ object Collaboration {
 
     /**
      * The HTML a comment is sent as (section 9.5): one paragraph, `<br>` for line breaks, escaped
-     * text, and each `@username` of a member as a `mention-user` element so the server notifies
-     * them. Empty when there is nothing to send.
+     * text, each `@username` of a member as a `mention-user` element so the server notifies them,
+     * and then the [attachments]. Empty when there is nothing to send.
      */
-    fun encodeCommentHtml(text: String, members: List<CollabUser>): String {
+    fun encodeCommentHtml(
+        text: String,
+        members: List<CollabUser>,
+        attachments: List<CommentSegment.Attachment> = emptyList(),
+    ): String = encodeCommentText(text, members) + attachments.joinToString("", transform = ::attachmentHtml)
+
+    private fun attachmentHtml(attachment: CommentSegment.Attachment): String {
+        val url = escapeHtml(attachment.url)
+        val name = escapeHtml(attachment.name)
+        return if (attachment.image) "<img src=\"$url\" alt=\"$name\">" else "<p><a href=\"$url\">$name</a></p>"
+    }
+
+    /** Where a comment points at an attachment (section 9.5; `v1` is what the web app recognises). */
+    fun commentAttachmentAddress(server: String, taskId: Long, attachmentId: Long): String =
+        "${server.trimEnd('/')}/api/v1/tasks/$taskId/attachments/$attachmentId"
+
+    private val INLINE_IMAGE_TYPES = setOf("image/png", "image/jpeg", "image/gif", "image/webp")
+
+    /** Whether a file of this type goes into a comment as an image: the ones every browser can show. */
+    fun isInlineImageType(mimeType: String): Boolean =
+        mimeType.substringBefore(';').trim().lowercase() in INLINE_IMAGE_TYPES
+
+    private val ATTACHMENT_ADDRESS = Regex("""/tasks/(\d+)/attachments/(\d+)(?:[?#].*)?$""")
+
+    /** The attachment of [taskId] that [address] points at, or null when it points at anything else. */
+    private fun attachmentIdIn(address: String?, taskId: Long?): Long? {
+        if (address == null || taskId == null) return null
+        val match = ATTACHMENT_ADDRESS.find(address) ?: return null
+        if (match.groupValues[1].toLongOrNull() != taskId) return null
+        return match.groupValues[2].toLongOrNull()
+    }
+
+    private fun encodeCommentText(text: String, members: List<CollabUser>): String {
         val normalized = trimBoth(text.replace("\r\n", "\n").replace('\r', '\n'))
         if (normalized.isEmpty()) return ""
         // Longest username first; equal lengths keep the members' order (sortedByDescending is stable).
@@ -330,16 +378,23 @@ object Collaboration {
         val text = StringBuilder()
     }
 
+    private class OpenFileLink(val attachmentId: Long, val url: String) {
+        val text = StringBuilder()
+    }
+
     /**
      * What a comment shows (section 9.5): text and mentions, line breaks for `<br>` and block ends,
      * everything else as its text. Mentions take the member's display name when the member is known.
+     * With [taskId], the task the comment belongs to, what points at one of its attachments is an
+     * attachment; nothing else in a comment is ever fetched.
      */
-    fun decodeCommentHtml(html: String, members: List<CollabUser>): DecodedComment {
+    fun decodeCommentHtml(html: String, members: List<CollabUser>, taskId: Long? = null): DecodedComment {
         val segments = mutableListOf<CommentSegment>()
         var plain = true
         var pendingBreak = false
         var wroteAny = false
         var mention: OpenMention? = null
+        var fileLink: OpenFileLink? = null
 
         fun pushText(text: String) {
             if (text.isEmpty()) return
@@ -353,10 +408,22 @@ object Collaboration {
             pendingBreak = false
         }
 
+        fun addAttachment(attachment: CommentSegment.Attachment) {
+            // The line breaks around an attachment are its own place in the comment.
+            pendingBreak = false
+            segments += attachment
+            wroteAny = true
+        }
+
         fun appendText(raw: String) {
             val open = mention
             if (open != null) {
                 open.text.append(raw)
+                return
+            }
+            val link = fileLink
+            if (link != null) {
+                link.text.append(raw)
                 return
             }
             val text = raw.replace("\r\n", " ").replace('\r', ' ').replace('\n', ' ')
@@ -381,6 +448,12 @@ object Collaboration {
             flush()
             segments += CommentSegment.Mention(id, label)
             wroteAny = true
+        }
+
+        fun finishFileLink() {
+            val link = fileLink ?: return
+            fileLink = null
+            addAttachment(CommentSegment.Attachment(link.attachmentId, trimBoth(link.text.toString()), image = false, url = link.url))
         }
 
         var i = 0
@@ -408,6 +481,34 @@ object Collaboration {
                     val tag = parseTag(html.substring(i + 1, end))
                     i = end + 1
                     if (tag.name.isEmpty()) continue
+                    if (fileLink != null) {
+                        if (tag.name == "a" && tag.closing) {
+                            finishFileLink()
+                        } else if (tag.name !in PLAIN_TAGS) {
+                            plain = false
+                        }
+                        continue
+                    }
+                    if (mention == null && !tag.closing) {
+                        if (tag.name == "img") {
+                            val url = tag.attrs["data-src"]?.takeIf { it.isNotEmpty() } ?: tag.attrs["src"]
+                            val id = attachmentIdIn(url, taskId)
+                            if (id != null && url != null) {
+                                val name = trimBoth(tag.attrs["alt"].orEmpty()).ifEmpty { trimBoth(tag.attrs["title"].orEmpty()) }
+                                addAttachment(CommentSegment.Attachment(id, name, image = true, url = url))
+                                continue
+                            }
+                        }
+                        if (tag.name == "a") {
+                            val url = tag.attrs["href"]
+                            val id = attachmentIdIn(url, taskId)
+                            if (id != null && url != null) {
+                                fileLink = OpenFileLink(id, url)
+                                if (tag.selfClosing) finishFileLink()
+                                continue
+                            }
+                        }
+                    }
                     if (tag.name !in PLAIN_TAGS) plain = false
                     if (!tag.closing && tag.name in SKIPPED_CONTENT) {
                         val close = html.lowercase().indexOf("</${tag.name}", i)
@@ -448,7 +549,16 @@ object Collaboration {
             i = j
         }
         finishMention()
+        finishFileLink()
 
+        // Text next to an attachment loses its spaces and line breaks on that side.
+        for (index in segments.indices.reversed()) {
+            val segment = segments[index] as? CommentSegment.Text ?: continue
+            var text = segment.text
+            if (segments.getOrNull(index - 1) is CommentSegment.Attachment) text = trimStart(text)
+            if (segments.getOrNull(index + 1) is CommentSegment.Attachment) text = trimEnd(text)
+            if (text.isEmpty()) segments.removeAt(index) else segments[index] = CommentSegment.Text(text)
+        }
         // Trim the ends across segments: a text segment at either end loses its spaces and line breaks.
         val first = segments.firstOrNull()
         if (first is CommentSegment.Text) {
@@ -461,11 +571,16 @@ object Collaboration {
             if (trimmed.isEmpty()) segments.removeAt(segments.lastIndex) else segments[segments.lastIndex] = CommentSegment.Text(trimmed)
         }
 
+        // An edit puts the attachments back after the text, so only that order can be edited.
+        val firstAttachment = segments.indexOfFirst { it is CommentSegment.Attachment }
+        if (firstAttachment != -1 && segments.drop(firstAttachment).any { it !is CommentSegment.Attachment }) plain = false
+
         val editText = if (plain) {
             segments.joinToString("") { s ->
                 when (s) {
                     is CommentSegment.Text -> s.text
                     is CommentSegment.Mention -> "@${s.mention}"
+                    is CommentSegment.Attachment -> ""
                 }
             }
         } else {
@@ -480,6 +595,7 @@ object Collaboration {
             when (s) {
                 is CommentSegment.Text -> s.text
                 is CommentSegment.Mention -> "@${s.label}"
+                is CommentSegment.Attachment -> ""
             }
         }
 

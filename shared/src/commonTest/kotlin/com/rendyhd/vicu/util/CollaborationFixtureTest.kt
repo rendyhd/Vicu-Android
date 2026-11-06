@@ -3,8 +3,10 @@ package com.rendyhd.vicu.util
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -84,6 +86,25 @@ class CollaborationFixtureTest {
     private data class EditedVector(val name: String, val created: String, val updated: String, val expect: Boolean)
 
     @Serializable
+    private data class AddressVector(val name: String, val server: String, val task: Long, val attachment: Long, val expect: String)
+
+    @Serializable
+    private data class TypeVector(val type: String, val expect: Boolean)
+
+    @Serializable
+    private data class AttachmentEncodeVector(val name: String, val text: String, val attachments: List<JsonObject>, val expect: String)
+
+    @Serializable
+    private data class Attachments(
+        val task: Long,
+        val members: List<Person>,
+        val address: List<AddressVector>,
+        val inlineTypes: List<TypeVector>,
+        val encode: List<AttachmentEncodeVector>,
+        val decode: List<DecodeVector>,
+    )
+
+    @Serializable
     private data class Block(
         val shared: List<SharedVector>,
         val memberPermission: MemberPermission,
@@ -91,6 +112,7 @@ class CollaborationFixtureTest {
         val countLabel: List<CountVector>,
         val encode: Encode,
         val decode: Decode,
+        val attachments: Attachments,
         val mention: Mention,
         val edited: List<EditedVector>,
     )
@@ -154,13 +176,68 @@ class CollaborationFixtureTest {
         for (v in c.encode.vectors) assertEquals(v.expect, Collaboration.encodeCommentHtml(v.text, members), v.name)
     }
 
+    private fun attachmentOf(obj: JsonObject) = CommentSegment.Attachment(
+        attachmentId = obj["attachment"]!!.jsonPrimitive.long,
+        name = obj["name"]!!.jsonPrimitive.content,
+        image = obj["image"]!!.jsonPrimitive.boolean,
+        url = obj["url"]!!.jsonPrimitive.content,
+    )
+
     private fun segmentOf(obj: JsonObject): CommentSegment {
         val text = obj["text"]
-        return if (text != null) {
-            CommentSegment.Text(text.jsonPrimitive.content)
-        } else {
-            CommentSegment.Mention(obj["mention"]!!.jsonPrimitive.content, obj["label"]!!.jsonPrimitive.content)
+        return when {
+            text != null -> CommentSegment.Text(text.jsonPrimitive.content)
+            "attachment" in obj -> attachmentOf(obj)
+            else -> CommentSegment.Mention(obj["mention"]!!.jsonPrimitive.content, obj["label"]!!.jsonPrimitive.content)
         }
+    }
+
+    @Test
+    fun `attachment addresses and types`() {
+        val a = c.attachments
+        for (v in a.address) assertEquals(v.expect, Collaboration.commentAttachmentAddress(v.server, v.task, v.attachment), v.name)
+        for (v in a.inlineTypes) assertEquals(v.expect, Collaboration.isInlineImageType(v.type), v.type)
+    }
+
+    @Test
+    fun `comment HTML with attachments`() {
+        val a = c.attachments
+        val members = a.members.map { it.user() }
+        for (v in a.encode) {
+            assertEquals(v.expect, Collaboration.encodeCommentHtml(v.text, members, v.attachments.map(::attachmentOf)), v.name)
+        }
+    }
+
+    @Test
+    fun `attachments from comment HTML`() {
+        val a = c.attachments
+        val members = a.members.map { it.user() }
+        for (v in a.decode) {
+            val decoded = Collaboration.decodeCommentHtml(v.html, members, a.task)
+            assertEquals(v.segments.map(::segmentOf), decoded.segments, v.name)
+            assertEquals(v.plain, decoded.plain, v.name)
+            assertEquals(v.editText, decoded.editText, v.name)
+        }
+    }
+
+    @Test
+    fun `an edit keeps the attachments as they were`() {
+        val a = c.attachments
+        val members = a.members.map { it.user() }
+        for (v in a.decode.filter { it.plain }) {
+            val decoded = Collaboration.decodeCommentHtml(v.html, members, a.task)
+            val again = Collaboration.encodeCommentHtml(decoded.editText ?: "", members, decoded.attachments)
+            val reread = Collaboration.decodeCommentHtml(again, members, a.task)
+            assertEquals(decoded.segments, reread.segments, v.name)
+            assertTrue(reread.plain, v.name)
+        }
+    }
+
+    @Test
+    fun `without the task nothing is an attachment`() {
+        val decoded = Collaboration.decodeCommentHtml("<p>a</p><img src=\"/api/v1/tasks/7/attachments/3\">", emptyList())
+        assertEquals(listOf<CommentSegment>(CommentSegment.Text("a")), decoded.segments)
+        assertFalse(decoded.plain)
     }
 
     @Test

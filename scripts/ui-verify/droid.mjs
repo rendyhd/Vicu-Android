@@ -149,10 +149,11 @@ export function dump() {
 export function parseDump(xml) {
   const nodes = []
   const stack = []
-  for (const m of xml.matchAll(/<node\s+((?:[^>"]|"[^"]*")*?)\s*(\/?)>|<\/node>/g)) {
+  // A value with a double quote in it comes in single quotes (text='Saved "a.txt" to Downloads').
+  for (const m of xml.matchAll(/<node\s+((?:[^>"']|"[^"]*"|'[^']*')*?)\s*(\/?)>|<\/node>/g)) {
     if (m[0] === '</node>') { stack.pop(); continue }
     const a = {}
-    for (const p of m[1].matchAll(/([\w-]+)="([^"]*)"/g)) a[p[1]] = decode(p[2])
+    for (const p of m[1].matchAll(/([\w-]+)=(?:"([^"]*)"|'([^']*)')/g)) a[p[1]] = decode(p[2] ?? p[3])
     for (const k of BOOL_ATTRS) a[k] = a[k] === 'true'
     const b = a.bounds?.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/)
     if (b) {
