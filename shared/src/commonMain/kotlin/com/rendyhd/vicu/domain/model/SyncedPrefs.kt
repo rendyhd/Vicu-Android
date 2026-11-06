@@ -48,6 +48,12 @@ object SyncedPrefKeys {
 
     /** The local date the last weekly review was finished, `"YYYY-MM-DD"` (section 14.7). */
     const val WEEKLY_REVIEW_LAST = "weekly_review.last"
+
+    /** The length of a new block in minutes (section 16.2). */
+    const val PLANNER_DEFAULT_LENGTH = "planner.default_length"
+
+    /** The work hours, `["HH:mm", "HH:mm"]` (section 16.6). */
+    const val PLANNER_HOURS = "planner.hours"
     private const val TASK_ORDER_PROJECT_PREFIX = "task_order.project."
 
     fun taskOrderOf(projectId: Long): String = "$TASK_ORDER_PROJECT_PREFIX$projectId"
