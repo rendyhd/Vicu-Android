@@ -1,6 +1,8 @@
 package com.rendyhd.vicu.ui
 
 import com.rendyhd.vicu.ui.components.category.LocalProjectCategories
+import com.rendyhd.vicu.ui.components.shared.VicuSnackbar
+import com.rendyhd.vicu.ui.components.shared.snackbarColors
 import com.rendyhd.vicu.util.Logger
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Box
@@ -21,13 +23,13 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarData
-import androidx.compose.material3.SnackbarDefaults
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -196,21 +198,26 @@ private class AppSnackbarVisuals(
 /** The standard snackbar has room for one action; this one has Open and the message's own. */
 @Composable
 private fun SnackbarWithOpen(data: SnackbarData, onOpen: () -> Unit) {
-    val colors = ButtonDefaults.textButtonColors(contentColor = SnackbarDefaults.actionColor)
+    val colors = MaterialTheme.colorScheme.snackbarColors()
+    val buttons = ButtonDefaults.textButtonColors(contentColor = colors.action)
     Snackbar(
         modifier = Modifier.padding(12.dp),
-        actionOnNewLine = true,
+        // Beside the text, unless large text leaves it a word per line there.
+        actionOnNewLine = LocalDensity.current.fontScale > 1.3f,
+        containerColor = colors.container,
+        contentColor = colors.content,
+        actionContentColor = colors.action,
         action = {
             Row {
                 TextButton(
-                    colors = colors,
+                    colors = buttons,
                     onClick = {
                         data.dismiss()
                         onOpen()
                     },
                 ) { Text("Open") }
                 data.visuals.actionLabel?.let { label ->
-                    TextButton(colors = colors, onClick = data::performAction) { Text(label) }
+                    TextButton(colors = buttons, onClick = data::performAction) { Text(label) }
                 }
             }
         },
@@ -1040,7 +1047,7 @@ fun VicuApp(
             ) { data ->
                 val openTaskId = (data.visuals as? AppSnackbarVisuals)?.openTaskId
                 if (openTaskId == null) {
-                    Snackbar(data)
+                    VicuSnackbar(data)
                 } else {
                     SnackbarWithOpen(
                         data = data,

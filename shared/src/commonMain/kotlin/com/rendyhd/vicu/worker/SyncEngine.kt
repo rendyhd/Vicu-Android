@@ -591,8 +591,9 @@ class SyncEngine(
                 // to the real one, which was scheduled just above.
                 if (action.entityId != created.id) platformHooks.cancelAlarm(action.entityId)
                 // The server prepends new tasks. A create that was answered by an earlier attempt
-                // was positioned by it; metadata carriers and completed tasks are in no list.
-                if (adopted == null && !task.done && !HiddenTasks.isHidden(task.description)) {
+                // was positioned by it, but one found by looking for it (the attempt timed out) was
+                // not; metadata carriers and completed tasks are in no list.
+                if (knownId == null && !task.done && !HiddenTasks.isHidden(task.description)) {
                     positioner?.anchorAtEndInBackground(task.projectId, created.id)
                 }
                 linkToQueuedParents(task, created.id, tempIdMap)
@@ -639,8 +640,10 @@ class SyncEngine(
     private suspend fun adoptCreated(tempId: Long, created: TaskEntity, tempIdMap: MutableMap<Long, Long>) {
         suspend fun swap() {
             if (tempId != created.id) tempIds?.rememberRealId(tempId, created.id)
+            // The row stays where it is drawn: the server's answer states no position.
+            val localPosition = taskDao.getByIdSync(tempId)?.position ?: 0.0
             taskDao.deleteById(tempId)
-            taskDao.upsert(created)
+            taskDao.upsert(if (localPosition != 0.0) created.copy(position = localPosition) else created)
             if (tempId != created.id) {
                 tempIdMap[tempId] = created.id
                 remapPendingDependents(tempId, created.id)

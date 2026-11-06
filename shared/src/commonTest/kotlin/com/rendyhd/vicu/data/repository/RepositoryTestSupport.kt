@@ -178,6 +178,10 @@ class FakeTaskDao(initial: List<TaskEntity> = emptyList()) : TaskDao {
         rows.values.filter { it.remindersJson != "[]" && !it.done }
     }
 
+    override suspend fun getLastPosition(projectId: Long): Double? = lock.withLock {
+        rows.values.filter { !it.isMetadata && it.projectId == projectId }.maxOfOrNull { it.position }
+    }
+
     // upsert and upsertAll are the interface's own, so the position rule runs here as it does in Room.
     override suspend fun upsertRows(tasks: List<TaskEntity>) {
         lock.withLock {

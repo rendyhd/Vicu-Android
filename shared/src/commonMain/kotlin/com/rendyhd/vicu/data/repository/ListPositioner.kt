@@ -33,7 +33,8 @@ import kotlin.time.Duration.Companion.minutes
  * Positioning is best effort: a failure is logged and never reaches the background caller, the
  * task is where the server put it. One request chain at a time, so quick creates get increasing
  * positions. [storePosition] writes a position the server accepted onto the cached row, so the
- * list that is drawn from the cache agrees with the server without waiting for a refresh.
+ * list that is drawn from the cache agrees with the server without waiting for a refresh. Until then
+ * the row is drawn at the end by the position the repository gave it when it was created.
  */
 class ListPositioner(
     private val api: VikunjaApiService,

@@ -9,6 +9,7 @@ import com.rendyhd.vicu.worker.SyncEngineHarness.Companion.emptyPage
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -25,13 +26,18 @@ class SyncEngineAnchorTest {
     private fun lastTaskPage() =
         """{"items":[{"id":1,"title":"Last","project_id":7,"position":1000.0}],"total":1,"page":1,"per_page":1,"total_pages":1}"""
 
-    private fun harness(createdBody: String = """{"id":501,"title":"Call mum","project_id":7}""") =
+    private fun harness(
+        createdBody: String = """{"id":501,"title":"Call mum","project_id":7}""",
+        viewsGate: CompletableDeferred<Unit>? = null,
+    ) =
         SyncEngineHarness(anchorCreates = true) { request ->
             val path = request.url.encodedPath
             when {
                 request.method == HttpMethod.Post && path == "/projects/7/tasks" -> created(createdBody)
-                request.method == HttpMethod.Get && path == "/projects/7/views" ->
+                request.method == HttpMethod.Get && path == "/projects/7/views" -> {
+                    viewsGate?.await()
                     respond(viewsPage(), HttpStatusCode.OK, authTestJsonHeaders)
+                }
                 request.method == HttpMethod.Get && path == "/projects/7/views/70/tasks" ->
                     respond(lastTaskPage(), HttpStatusCode.OK, authTestJsonHeaders)
                 request.method == HttpMethod.Put && path.endsWith("/position") ->
@@ -64,6 +70,38 @@ class SyncEngineAnchorTest {
             h.taskDao.entity(501)!!.position,
             "the cached row says so too, and the reconcile that follows does not erase it",
         )
+    }
+
+    @Test
+    fun `the row keeps its place at the end while the replayed create is moved`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val h = harness(viewsGate = gate)
+        h.taskDao.upsert(TaskEntity(id = -1, title = "Call mum", projectId = 7, position = 70_000.0))
+        h.pendingActionDao.insert(queuedCreate(tempId = -1, title = "Call mum"))
+
+        h.engine.performSync()
+
+        assertEquals(70_000.0, h.taskDao.entity(501)!!.position, "the created task is where the local row was")
+
+        gate.complete(Unit)
+        h.positioner.awaitIdle()
+
+        assertEquals(1_000.0 + 65_536.0, h.taskDao.entity(501)!!.position)
+    }
+
+    @Test
+    fun `a create found on the server after a timeout is put at the end too`() = runTest {
+        val h = harness(createdBody = """{"id":501,"title":"Call mum","project_id":7,"created":"2026-10-06T10:00:00Z"}""")
+        h.taskDao.upsert(TaskEntity(id = -1, title = "Call mum", projectId = 7))
+        h.pendingActionDao.insert(queuedCreate(tempId = -1, title = "Call mum"))
+        // That attempt timed out, so nothing moved the task it made.
+        h.tempIds.markCreateMaybeSent(-1)
+
+        h.engine.performSync()
+        h.positioner.awaitIdle()
+
+        assertEquals(0, h.count(HttpMethod.Post, "/projects/7/tasks"), "the task that is already there is adopted")
+        assertEquals(1, h.count(HttpMethod.Put, "/tasks/501/position"))
     }
 
     @Test
