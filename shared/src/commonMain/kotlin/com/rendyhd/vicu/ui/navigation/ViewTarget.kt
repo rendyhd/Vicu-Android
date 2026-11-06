@@ -14,6 +14,7 @@ sealed interface ViewTarget {
     data object Upcoming : ViewTarget
     data object Anytime : ViewTarget
     data object Routines : ViewTarget
+    data object Plan : ViewTarget
     data class Project(val projectId: Long) : ViewTarget
     data class CustomList(val listId: String) : ViewTarget
 
@@ -25,6 +26,7 @@ sealed interface ViewTarget {
             Upcoming -> "UPCOMING"
             Anytime -> "ANYTIME"
             Routines -> "ROUTINES"
+            Plan -> "PLAN"
             is Project -> "PROJECT"
             is CustomList -> "CUSTOM_LIST"
         }
@@ -48,6 +50,7 @@ sealed interface ViewTarget {
             "UPCOMING" -> Upcoming
             "ANYTIME" -> Anytime
             "ROUTINES" -> Routines
+            "PLAN" -> Plan
             "PROJECT" -> id?.toLongOrNull()?.let { Project(it) }
             "CUSTOM_LIST" -> id?.takeIf { it.isNotBlank() }?.let { CustomList(it) }
             else -> null
@@ -62,6 +65,7 @@ internal fun ViewTarget.toRoute(): Any = when (this) {
     ViewTarget.Upcoming -> UpcomingRoute
     ViewTarget.Anytime -> AnytimeRoute
     ViewTarget.Routines -> RoutinesRoute
+    ViewTarget.Plan -> PlanRoute
     is ViewTarget.Project -> ProjectRoute(projectId)
     is ViewTarget.CustomList -> CustomListRoute(listId)
 }

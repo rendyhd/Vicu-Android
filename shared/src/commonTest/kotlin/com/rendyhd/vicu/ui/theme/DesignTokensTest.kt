@@ -198,12 +198,13 @@ class DesignTokensTest {
     @Test
     fun `identity colours match the fixture lists`() {
         val lists = DesignTokensFixture.root.getValue("identity").jsonObject.getValue("lists").jsonObject
-        assertEquals(setOf("inbox", "today", "upcoming", "anytime", "routines", "review", "logbook"), lists.keys)
+        assertEquals(setOf("inbox", "today", "plan", "upcoming", "anytime", "routines", "review", "logbook"), lists.keys)
         for ((_, colors) in customThemes) {
             val identity = colors.identity
             val actual = mapOf(
                 "inbox" to identity.inbox,
                 "today" to identity.today,
+                "plan" to identity.plan,
                 "upcoming" to identity.upcoming,
                 "anytime" to identity.anytime,
                 "routines" to identity.routines,

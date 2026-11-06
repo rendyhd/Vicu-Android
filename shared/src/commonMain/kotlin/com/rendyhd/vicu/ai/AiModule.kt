@@ -14,6 +14,8 @@ import com.rendyhd.vicu.ai.dictation.KeptTranscriptStore
 import com.rendyhd.vicu.ai.dictation.PlanWriter
 import com.rendyhd.vicu.ai.organize.OrganizeService
 import com.rendyhd.vicu.ai.organize.OrganizeSuggester
+import com.rendyhd.vicu.ai.organize.PlanDayService
+import com.rendyhd.vicu.ai.organize.PlanDaySuggester
 import com.rendyhd.vicu.ai.provider.LlmClient
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
@@ -104,6 +106,7 @@ val aiModule = module {
     single { PlanWriter(projects = get(), drafts = get()) }
     single { Proposals(tasks = get(), labels = get(), drafts = get()) }
     single<OrganizeSuggester> { OrganizeService(providers = get(), settings = get(), backend = get(), dictation = get()) }
+    single<PlanDaySuggester> { PlanDayService(providers = get(), settings = get(), backend = get(), dictation = get()) }
     single {
         DictationController(
             service = get(),

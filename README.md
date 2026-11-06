@@ -77,6 +77,7 @@ Prefer Vikunja's syntax? Switch to `*label` and `+project` in **Settings, Genera
 - **Labels** with colours, created inline from the picker, and a page each.
 - **Routines**: habits next to your tasks, up to five times a day, with reminders, history and CSV export. Never overdue.
 - **Project review**: step through your projects on a cadence to keep them current.
+- **Plan**: an optional timeline for the day. Tap or drag a task onto a time, drag its handle to change the length, or type `tomorrow at 3pm for 30m`. Plan my day takes you from leftovers to a finished day in four steps, with the assistant's suggestions if you want them ([how it works](docs/planner.md)). A block is the task's own start and end date, so the web app and other clients see it too.
 - **Task order** per project: due date, priority, title, newest, oldest or manual. Subprojects follow their parent, and widgets follow the order too.
 - **Search** titles, notes and finished tasks.
 

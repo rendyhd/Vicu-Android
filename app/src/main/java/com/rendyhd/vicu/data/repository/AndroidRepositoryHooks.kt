@@ -5,6 +5,7 @@ import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.notification.AlarmScheduler
 import com.rendyhd.vicu.notification.DailySummaryScheduler
+import com.rendyhd.vicu.notification.PlannerNudgeScheduler
 import com.rendyhd.vicu.notification.RoutineAlarmScheduler
 import com.rendyhd.vicu.util.CompletionSoundPlayer
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
@@ -25,6 +26,7 @@ class AndroidRepositoryHooks(
     private val completionSoundPlayer: CompletionSoundPlayer,
     private val appScope: CoroutineScope,
     private val dailySummaryScheduler: DailySummaryScheduler,
+    private val plannerNudgeScheduler: PlannerNudgeScheduler,
 ) : PlatformRepositoryHooks {
 
     override fun triggerSync() {
@@ -69,6 +71,7 @@ class AndroidRepositoryHooks(
     override suspend fun cancelAccountBackgroundWork() {
         dailySummaryScheduler.cancel(DailySummaryScheduler.SLOT_MORNING)
         dailySummaryScheduler.cancel(DailySummaryScheduler.SLOT_AFTERNOON)
+        plannerNudgeScheduler.cancel()
         RoutineMaintenanceScheduler.cancel(context)
         PeriodicSyncScheduler.cancel(context)
     }

@@ -126,6 +126,7 @@ import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.navigation.ProjectRoute
 import com.rendyhd.vicu.ui.navigation.GuidedReviewRoute
 import com.rendyhd.vicu.ui.navigation.GuidedSortRoute
+import com.rendyhd.vicu.ui.navigation.PlanMyDayRoute
 import com.rendyhd.vicu.ui.navigation.ReviewRoute
 import com.rendyhd.vicu.ui.navigation.WeeklyReviewRoute
 import com.rendyhd.vicu.ui.navigation.openGuided
@@ -136,6 +137,7 @@ import com.rendyhd.vicu.ui.navigation.SetupRoute
 import com.rendyhd.vicu.ui.navigation.TagRoute
 import com.rendyhd.vicu.ui.navigation.SharedContentSaver
 import com.rendyhd.vicu.ui.navigation.TodayRoute
+import com.rendyhd.vicu.ui.navigation.PlanRoute
 import com.rendyhd.vicu.ui.navigation.UpcomingRoute
 import com.rendyhd.vicu.ui.navigation.ViewTarget
 import com.rendyhd.vicu.ui.navigation.awaitGraph
@@ -246,6 +248,7 @@ internal fun resolveBottomBarItems(
     customLists: List<CustomList>,
     inboxProjectId: Long,
     smartListColors: Boolean = true,
+    plannerEnabled: Boolean = false,
 ): List<BottomNavItem> {
     fun identity(of: SmartListIdentity) = of.takeIf { smartListColors }
     val items = mutableListOf(
@@ -257,6 +260,14 @@ internal fun resolveBottomBarItems(
                 "Today", IconRegistry.resolveIcon(slot), TodayRoute, "TodayRoute",
                 identity = identity(SmartListIdentity.TODAY),
             )
+            BottomBarSlotType.PLAN -> {
+                // Off means no Plan entry (contract 16.9); the slot comes back when it is turned on.
+                if (!plannerEnabled) continue
+                BottomNavItem(
+                    "Plan", IconRegistry.resolveIcon(slot), PlanRoute, "PlanRoute",
+                    identity = identity(SmartListIdentity.PLAN),
+                )
+            }
             BottomBarSlotType.UPCOMING -> BottomNavItem(
                 "Upcoming", IconRegistry.resolveIcon(slot), UpcomingRoute, "UpcomingRoute",
                 identity = identity(SmartListIdentity.UPCOMING),
@@ -616,8 +627,10 @@ fun VicuApp(
     val currentRoute = currentRouteKey(navBackStackEntry)
 
     // A guided session or the weekly review is one thing at a time: no drawer, no bottom bar.
+    val inPlanSession = currentDestination?.hasRoute(PlanMyDayRoute::class) == true
     val inGuided = currentDestination?.let { dest ->
-        dest.hasRoute(GuidedSortRoute::class) || dest.hasRoute(GuidedReviewRoute::class) || dest.hasRoute(WeeklyReviewRoute::class)
+        dest.hasRoute(GuidedSortRoute::class) || dest.hasRoute(GuidedReviewRoute::class) || dest.hasRoute(WeeklyReviewRoute::class) ||
+            dest.hasRoute(PlanMyDayRoute::class)
     } ?: false
 
     // Disable drawer on Setup, Search screens
@@ -729,6 +742,7 @@ fun VicuApp(
         drawerUiState.allProjects,
         drawerUiState.customLists,
         drawerUiState.inboxProjectId,
+        drawerUiState.plannerEnabled,
     ) {
         resolveBottomBarItems(
             drawerUiState.bottomBarSlots,
@@ -736,6 +750,7 @@ fun VicuApp(
             drawerUiState.customLists,
             drawerUiState.inboxProjectId,
             smartListColors = drawerUiState.bottomBarSmartListColors,
+            plannerEnabled = drawerUiState.plannerEnabled,
         )
     }
 
@@ -1020,7 +1035,8 @@ fun VicuApp(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(bottom = if (showBottomBar && !taskDetailVisible && commentsTaskId == 0L) 80.dp else 0.dp),
+                    // Plan my day has its buttons where the bar would be: a message must not cover them.
+                    .padding(bottom = if ((showBottomBar || inPlanSession) && !taskDetailVisible && commentsTaskId == 0L) 80.dp else 0.dp),
             ) { data ->
                 val openTaskId = (data.visuals as? AppSnackbarVisuals)?.openTaskId
                 if (openTaskId == null) {

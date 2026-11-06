@@ -146,6 +146,7 @@ val iosModule = module {
             routineRepository = get(),
             routinePrefs = get(),
             notificationPrefs = get(),
+            behaviorPrefs = get(),
             summaryReader = get(),
             authManager = get(),
             time = get(),

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.location.LocationReminderCoordinator
 import com.rendyhd.vicu.widget.WidgetUpdateScheduler
@@ -27,6 +28,8 @@ class BootReceiver : BroadcastReceiver(), KoinComponent {
 
     private val alarmScheduler: AlarmScheduler by inject()
     private val dailySummaryScheduler: DailySummaryScheduler by inject()
+    private val plannerNudgeScheduler: PlannerNudgeScheduler by inject()
+    private val behaviorPrefsStore: BehaviorPrefsStore by inject()
     private val routineAlarmScheduler: RoutineAlarmScheduler by inject()
     private val prefsStore: NotificationPrefsStore by inject()
     private val authManager: AuthManager by inject()
@@ -62,6 +65,7 @@ class BootReceiver : BroadcastReceiver(), KoinComponent {
                     prefs.afternoonSummaryHour,
                     prefs.afternoonSummaryMinute,
                 )
+                plannerNudgeScheduler.ensureScheduled(behaviorPrefsStore.getPrefs().first())
                 SyncScheduler.enqueueWhenOnline(context)
                 // WorkManager keeps the schedule across a reboot; this only makes sure it exists.
                 PeriodicSyncScheduler.schedule(context)

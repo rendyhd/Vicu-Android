@@ -216,6 +216,13 @@ fun DrawerContent(
                             selected = currentRoute == "TodayRoute",
                             onClick = { onNavigate(TodayRoute) },
                         )
+                        DrawerView.PLAN -> SmartListItem(
+                            label = "Plan",
+                            icon = SmartListIdentity.PLAN.icon,
+                            iconTint = SmartListIdentity.PLAN.color(identity),
+                            selected = currentRoute == "PlanRoute",
+                            onClick = { onNavigate(PlanRoute) },
+                        )
                         DrawerView.UPCOMING -> SmartListItem(
                             label = "Upcoming",
                             icon = SmartListIdentity.UPCOMING.icon,

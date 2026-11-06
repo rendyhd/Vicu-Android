@@ -49,6 +49,18 @@ class DailySummarySchedulerTest {
     }
 
     @Test
+    fun `the planner nudge is a one-time job for its evening`() {
+        val now = Instant.parse("2026-10-07T06:00:00Z")
+        val target = Instant.parse("2026-10-07T19:30:00Z")
+
+        val spec = PlannerNudgeScheduler.request(target, now).workSpec
+
+        assertEquals(13 * 60 * 60_000L + 30 * 60_000L, spec.initialDelay)
+        assertEquals(target.toEpochMilliseconds(), spec.input.getLong(PlannerNudgeScheduler.KEY_TARGET_MILLIS, 0L))
+        assertFalse(spec.isPeriodic)
+    }
+
+    @Test
     fun `a target that has passed runs at once`() {
         val now = Instant.parse("2026-10-07T09:00:00Z")
         val target = Instant.parse("2026-10-07T08:30:00Z")

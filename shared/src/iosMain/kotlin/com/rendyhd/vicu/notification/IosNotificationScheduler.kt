@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.notification
 
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.DailySummaryReader
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.RoutinePrefsStore
@@ -14,6 +15,7 @@ import com.rendyhd.vicu.location.IosLocationNotifier
 import com.rendyhd.vicu.util.LocalNotification
 import com.rendyhd.vicu.util.LocalNotificationPlanner
 import com.rendyhd.vicu.util.Logger
+import com.rendyhd.vicu.util.PlannerNudge
 import com.rendyhd.vicu.util.RoutineAlarmPlanner
 import com.rendyhd.vicu.util.SnoozeRules
 import com.rendyhd.vicu.util.TaskReminderNotifications
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -65,6 +68,7 @@ class IosNotificationScheduler(
     private val routineRepository: RoutineRepository,
     private val routinePrefs: RoutinePrefsStore,
     private val notificationPrefs: NotificationPrefsStore,
+    private val behaviorPrefs: BehaviorPrefsStore,
     private val summaryReader: DailySummaryReader,
     private val authManager: AuthManager,
     private val time: TimeSource,
@@ -89,8 +93,13 @@ class IosNotificationScheduler(
             }
         }
         appScope.launch {
-            combine(notificationPrefs.getPrefs(), routinePrefs.remindersEnabled, routinePrefs.enabled) { prefs, routineReminders, routines ->
-                Triple(prefs, routineReminders, routines)
+            combine(
+                notificationPrefs.getPrefs(),
+                routinePrefs.remindersEnabled,
+                routinePrefs.enabled,
+                behaviorPrefs.getPrefs().map { PlannerNudge.timeOf(it.plannerEnabled, it.plannerNudge) },
+            ) { prefs, routineReminders, routines, nudge ->
+                listOf(prefs, routineReminders, routines, nudge)
             }.distinctUntilChanged().drop(1).collect { requestReplan() }
         }
     }
@@ -155,6 +164,7 @@ class IosNotificationScheduler(
         val snoozes = snoozeStore.all()
         snoozes.filter { it.triggerAtMillis <= now.toEpochMilliseconds() }.forEach { snoozeStore.remove(it.taskId) }
         val routinesOn = routinePrefs.remindersEnabled.first() && routinePrefs.enabled.first()
+        val behavior = behaviorPrefs.getPrefs().first()
         val routineAlarms = if (routinesOn) {
             RoutineAlarmPlanner.plan(routineRepository.observeReminderRoutines().first(), now, zone, LocalNotificationPlanner.ROUTINE_HORIZON_DAYS)
         } else {
@@ -176,6 +186,7 @@ class IosNotificationScheduler(
                         includeTomorrow = prefs.notifyUpcomingEnabled,
                     )
                 },
+                plannerNudge = PlannerNudge.timeOf(behavior.plannerEnabled, behavior.plannerNudge),
             ),
         )
     }
@@ -230,6 +241,7 @@ class IosNotificationScheduler(
                     setThreadIdentifier("routines")
                 }
                 LocalNotification.Kind.SUMMARY -> setThreadIdentifier("summary")
+                LocalNotification.Kind.PLANNER_NUDGE -> setThreadIdentifier("planner")
             }
             setUserInfo(notification.data + (KEY_VERSION to version))
         }
@@ -289,6 +301,6 @@ class IosNotificationScheduler(
         const val KEY_VERSION = "v"
         const val TEST_ID = "test"
         val DEBOUNCE = 750.milliseconds
-        val OUR_PREFIXES = listOf("reminder:", "snooze:", "routine:", "summary:")
+        val OUR_PREFIXES = listOf("reminder:", "snooze:", "routine:", "summary:", "plan-nudge:")
     }
 }

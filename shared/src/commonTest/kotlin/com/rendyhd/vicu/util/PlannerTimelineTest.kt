@@ -131,6 +131,14 @@ class PlannerTimelineTest {
     }
 
     @Test
+    fun readyListsATaskByItsDueTimeOnlyOnThatDay() = eachZone { zone ->
+        assertEquals(LocalTime(9, 30), PlanDay.dueTimeOn(task(1, due = iso("2026-10-06T09:30:00", zone)), day, zone))
+        assertEquals(null, PlanDay.dueTimeOn(task(2, due = dateOnly("2026-10-06", zone)), day, zone))
+        assertEquals(null, PlanDay.dueTimeOn(task(3, due = iso("2026-10-05T09:30:00", zone)), day, zone))
+        assertEquals(null, PlanDay.dueTimeOn(task(4), day, zone))
+    }
+
+    @Test
     fun aDueTimeWithNoBlockIsAMarkerButADateOnlyOrDoneOneIsNot() = eachZone { zone ->
         val markers = PlannerTimeline.dayMarkers(
             listOf(

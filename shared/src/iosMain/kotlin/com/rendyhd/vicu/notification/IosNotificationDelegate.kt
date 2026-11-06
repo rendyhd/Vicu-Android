@@ -100,6 +100,7 @@ class IosNotificationDelegate(
                     LocalNotification.Kind.REMINDER.name, LocalNotification.Kind.SNOOZE.name, IosLocationNotifier.KIND ->
                         taskId?.let { inputs.open(AppLink.OpenTask(it)) }
                     LocalNotification.Kind.ROUTINE.name -> inputs.open(AppLink.OpenView(ViewTarget.Routines))
+                    LocalNotification.Kind.PLANNER_NUDGE.name -> inputs.open(AppLink.OpenView(ViewTarget.Plan))
                 }
                 withCompletionHandler()
             }

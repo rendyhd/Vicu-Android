@@ -11,6 +11,7 @@ class NotificationChannelManager(
         const val CHANNEL_TASK_REMINDERS = "task_reminders"
         const val CHANNEL_DAILY_SUMMARY = "daily_summary"
         const val CHANNEL_ROUTINES = "routine_reminders"
+        const val CHANNEL_PLANNER = "planner_nudge"
     }
 
     fun createChannels() {
@@ -40,6 +41,14 @@ class NotificationChannelManager(
             description = "Reminders for your routines"
         }
 
-        manager.createNotificationChannels(listOf(taskReminders, dailySummary, routines))
+        val planner = NotificationChannel(
+            CHANNEL_PLANNER,
+            "Plan tomorrow",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "The evening nudge to plan tomorrow"
+        }
+
+        manager.createNotificationChannels(listOf(taskReminders, dailySummary, routines, planner))
     }
 }

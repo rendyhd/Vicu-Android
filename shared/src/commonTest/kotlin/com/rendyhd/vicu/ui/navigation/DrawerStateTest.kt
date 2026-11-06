@@ -222,6 +222,22 @@ class DrawerStateTest {
     }
 
     @Test
+    fun `Plan is a choice only while the planner is on and not in the bar`() {
+        val slots = BottomBarSlot.DEFAULT_SLOTS
+        assertTrue(DrawerView.PLAN in drawerViewChoices(slots, routinesEnabled = false, reviewEnabled = false, askReady = false, plannerEnabled = true))
+        assertFalse(DrawerView.PLAN in drawerViewChoices(slots, routinesEnabled = false, reviewEnabled = false, askReady = false, plannerEnabled = false))
+        assertFalse(
+            DrawerView.PLAN in drawerViewChoices(
+                slots + BottomBarSlot(BottomBarSlotType.PLAN),
+                routinesEnabled = false,
+                reviewEnabled = false,
+                askReady = false,
+                plannerEnabled = true,
+            ),
+        )
+    }
+
+    @Test
     fun `routines and review that are turned off are no choice at all`() {
         assertEquals(
             listOf(DrawerView.LOGBOOK, DrawerView.ASK),

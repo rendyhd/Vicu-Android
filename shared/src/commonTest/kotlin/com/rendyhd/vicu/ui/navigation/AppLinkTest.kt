@@ -13,6 +13,7 @@ class AppLinkTest {
         AppLink.OpenView(ViewTarget.Upcoming),
         AppLink.OpenView(ViewTarget.Anytime),
         AppLink.OpenView(ViewTarget.Routines),
+        AppLink.OpenView(ViewTarget.Plan),
         AppLink.OpenView(ViewTarget.Project(7)),
         AppLink.OpenView(ViewTarget.CustomList("list a/b ü")),
         AppLink.AddTask(),

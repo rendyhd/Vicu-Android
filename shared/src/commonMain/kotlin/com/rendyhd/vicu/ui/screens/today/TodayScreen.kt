@@ -1,6 +1,8 @@
 package com.rendyhd.vicu.ui.screens.today
 
 import com.rendyhd.vicu.voice.TaskDefaults
+import com.rendyhd.vicu.data.local.BehaviorPrefs
+import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.domain.model.isFinished
 import com.rendyhd.vicu.ui.components.fab.FabDropTarget
 import com.rendyhd.vicu.ui.components.fab.fabDropTarget
@@ -43,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -54,6 +57,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.ui.components.shared.FabClearance
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.section.ProjectMeta
 import com.rendyhd.vicu.ui.components.section.SectionHeader
@@ -83,6 +87,7 @@ import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.TodayRoutines
 import com.rendyhd.vicu.util.parseHexColor
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,9 +98,15 @@ fun TodayScreen(
     onShowTaskEntry: (Long?, String?) -> Unit = { _, _ -> },
     onOpenRoutines: () -> Unit = {},
     onOpenUpcoming: () -> Unit = {},
+    onOpenPlan: () -> Unit = {},
     viewModel: TodayViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // The planner's List / Day switch (contract 16.9): off means the list and nothing else.
+    val behaviorStore = koinInject<BehaviorPrefsStore>()
+    val behavior by behaviorStore.getPrefs().collectAsStateWithLifecycle(initialValue = BehaviorPrefs())
+    val dayView = behavior.plannerEnabled && behavior.plannerTodayDayView
+    val switchScope = rememberCoroutineScope()
     // A screen navigated to fades in once this is true (ScreenReveal).
     ScreenReady(!state.isLoading)
 
@@ -195,6 +206,16 @@ fun TodayScreen(
                     onOpenDrawer = onOpenDrawer,
                     scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
+                    extraActions = if (behavior.plannerEnabled) {
+                        {
+                            TodayViewSwitch(
+                                dayView = dayView,
+                                onChange = { day -> switchScope.launch { behaviorStore.setPlannerTodayDayView(day) } },
+                            )
+                        }
+                    } else {
+                        null
+                    },
                 )
             }
         },
@@ -219,6 +240,10 @@ fun TodayScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            if (dayView) {
+                TodayDayView(onTaskClick = onTaskClick, onOpenPlan = onOpenPlan)
+                return@PullToRefreshBox
+            }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),

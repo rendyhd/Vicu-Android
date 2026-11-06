@@ -68,6 +68,27 @@ Contract section 14; `docs/ai-assistant-v1.md` section 9 for the suggestions.
   screen is open. The suggestions use Ask's provider, model and agreement; there is no setting of
   their own.
 
+## Changes with the day planner
+
+Contract section 16, and 11.3 for the two synced keys. Plan my day is section 14.10; the user guide is
+`docs/planner.md`.
+
+- **Default length and work hours** are synced preferences of the account: `planner.default_length`
+  (minutes, one of 15, 30, 45, 60, 75, 90) and `planner.hours` (`["HH:mm", "HH:mm"]`), written through
+  `PlannerPreferences`. `null` is the default (30 minutes, 08:00 to 18:00) on every device, and a
+  value that is not valid is refused.
+- **Per device**, in `BehaviorPrefsStore`: the planner on or off (`planner_enabled`, off by default;
+  off means no Plan entry, no Day switch on Today and nothing extra fetched), routines on the
+  timeline (`planner_show_routines`, on), whether Today opens on Day (`planner_today_day_view`, off)
+  and the drawer's last list (`planner_source`). The last list can name a project; it stays through a
+  sign-out, and a project the account does not have reads as the first list.
+- **The evening nudge** is per device too: `planner_nudge` in `BehaviorPrefsStore`, the time as `HH:mm`,
+  null while it is off. It is set in Settings, General, Plan, in the gear on Plan and on the last step of
+  Plan my day, and it keeps quiet while the planner is off. Plan my day has no setting of its own: its
+  suggestions use Ask's provider, model and agreement, and its choices last while the session is open.
+- A time block itself is the task's own `start_date` and `end_date`: it shows on every device,
+  whether the planner is on there or not.
+
 ## Summary
 
 | Where | What | Reaches the desktop and other devices | Survives sign-out | In a backup |
@@ -141,7 +162,7 @@ cloud backup and device transfer (section 8). The desktop column names the deskt
 | Store (file) | What it holds, and where it is set | Sign-out | Android backup | Desktop counterpart |
 |---|---|---|---|---|
 | `ThemePrefsStore` (`theme_prefs`) | `theme_mode` system, light or dark; `pure_black` (black surfaces in the dark theme, for OLED screens); `use_device_colors` (Android 12 and later). General, Appearance | Kept | Included | `theme` (none for `pure_black`) |
-| `BehaviorPrefsStore` (`behavior_prefs`) | Completion sound on and the chosen sound; confirm before delete; "Move dated tasks out of Inbox"; what a swipe right and a swipe left do (`swipe_right`, `swipe_left`, Gestures; `swipe_left` replaces the older `schedule_action`, read until it is written); keep the entry sheet open; left-handed + button; subtask display; task row density (`row_density`); subproject display; progress rings and open task counts in the drawer; the views hidden from the drawer (`hidden_drawer_views`). General, Gestures, and Projects, Display | Kept | Included | `task_completion_sound_enabled` / `_path`, `confirm_before_delete`, `subtask_display`, `row_density`, `show_project_progress`, `sidebar_hidden_lists` |
+| `BehaviorPrefsStore` (`behavior_prefs`) | Completion sound on and the chosen sound; confirm before delete; "Move dated tasks out of Inbox"; what a swipe right and a swipe left do (`swipe_right`, `swipe_left`, Gestures; `swipe_left` replaces the older `schedule_action`, read until it is written); keep the entry sheet open; left-handed + button; subtask display; task row density (`row_density`); subproject display; progress rings and open task counts in the drawer; the views hidden from the drawer (`hidden_drawer_views`); the planner on or off (`planner_enabled`), routines on its timeline (`planner_show_routines`), whether Today opens on Day (`planner_today_day_view`), the evening nudge (`planner_nudge`), the Plan drawer's last list (`planner_source`). General, Gestures, Plan, and Projects, Display | Kept | Included | `task_completion_sound_enabled` / `_path`, `confirm_before_delete`, `subtask_display`, `row_density`, `show_project_progress`, `sidebar_hidden_lists`, `planner_enabled`, `planner_show_routines`, `planner_view`, `planner_source` |
 | `NlpPrefsStore` (`nlp_prefs`) | Quick-add parsing on, Todoist or Vikunja syntax, "!" means today. General, Input parsing | Kept | Included | `nlp_enabled`, `nlp_syntax_mode`, `exclamation_today` |
 | `NotificationPrefsStore` (`notification_prefs`) | Task reminders; morning and afternoon summaries with their times; what the summary counts (overdue, due today, upcoming); sound; the default reminder (offset and what it is relative to). Notifications tab | Kept (the summaries are cancelled with the account's background work) | Included | `notifications_*` keys |
 | `ReviewPrefsStore` (`review_prefs`) | Review on; default cadence (14 days); leave the Inbox out. Projects, Review | Kept | Included | `review.enabled`, `.default_cadence_days`, `.exclude_inbox` |

@@ -25,6 +25,9 @@ import com.rendyhd.vicu.ui.screens.tag.TagViewModel
 import com.rendyhd.vicu.ui.components.location.PlacesViewModel
 import com.rendyhd.vicu.ui.screens.taskdetail.TaskDetailViewModel
 import com.rendyhd.vicu.ui.screens.taskentry.TaskEntryViewModel
+import com.rendyhd.vicu.ui.screens.plan.PlanMyDayViewModel
+import com.rendyhd.vicu.ui.screens.plan.PlanViewModel
+import com.rendyhd.vicu.ui.screens.today.TodayDayViewModel
 import com.rendyhd.vicu.ui.screens.today.TodayViewModel
 import com.rendyhd.vicu.ui.screens.upcoming.UpcomingViewModel
 import org.koin.core.module.dsl.viewModel
@@ -36,6 +39,9 @@ val viewModelModule = module {
     viewModelOf(::SyncStateViewModel)
     viewModelOf(::SelectionViewModel)
     viewModelOf(::DrawerViewModel)
+    viewModelOf(::PlanViewModel)
+    viewModelOf(::PlanMyDayViewModel)
+    viewModelOf(::TodayDayViewModel)
     viewModelOf(::AnytimeViewModel)
     viewModelOf(::CustomListViewModel)
     viewModelOf(::InboxViewModel)

@@ -5,6 +5,12 @@ import kotlinx.serialization.Serializable
 @Serializable object SetupRoute
 @Serializable object InboxRoute
 @Serializable object TodayRoute
+
+/** The day planner (docs/cross-app-semantics-v1.md, section 16); only while the planner is on. */
+@Serializable object PlanRoute
+
+/** A Plan my day session (contract 14.10), opened from the Plan screen. */
+@Serializable object PlanMyDayRoute
 @Serializable object UpcomingRoute
 @Serializable object AnytimeRoute
 @Serializable object LogbookRoute
