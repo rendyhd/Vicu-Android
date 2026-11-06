@@ -33,7 +33,8 @@ import kotlin.time.Duration.Companion.minutes
  * Positioning is best effort: a failure is logged and never reaches the background caller, the
  * task is where the server put it. One request chain at a time, so quick creates get increasing
  * positions. [storePosition] writes a position the server accepted onto the cached row, so the
- * list that is drawn from the cache agrees with the server without waiting for a refresh.
+ * list that is drawn from the cache agrees with the server without waiting for a refresh. Until then
+ * the row is drawn at the end by the position the repository gave it when it was created.
  */
 class ListPositioner(
     private val api: VikunjaApiService,
@@ -118,6 +119,13 @@ class ListPositioner(
             false
         }
     }
+
+    /**
+     * Runs [read] while no task is being moved. A read of a list view that overlaps a move can answer
+     * with the position from before it, and storing that afterwards would put the task back at the
+     * top, where it would stay until the next read.
+     */
+    suspend fun <T> whileNotMoving(read: suspend () -> T): T = mutex.withLock { read() }
 
     /**
      * The id of [projectId]'s list view (remembered), or null when it has none. Throws when the

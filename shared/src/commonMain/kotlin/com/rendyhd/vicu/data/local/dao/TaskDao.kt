@@ -188,6 +188,10 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE remindersJson != '[]' AND done = 0")
     suspend fun getAllWithReminders(): List<TaskEntity>
 
+    /** The highest position cached for [projectId]: where its list ends, as far as this device knows. */
+    @Query("SELECT MAX(position) FROM tasks WHERE isMetadata = 0 AND projectId = :projectId")
+    suspend fun getLastPosition(projectId: Long): Double?
+
     /** Writes the rows exactly as given. Callers use [upsert] and [upsertAll], which keep stored positions. */
     @Upsert
     suspend fun upsertRows(tasks: List<TaskEntity>)

@@ -209,17 +209,19 @@ class TaskRepositoryImpl(
     override suspend fun refreshListPositions(projectId: Long): NetworkResult<Unit> {
         return try {
             val viewId = positioner.listViewIdOrNull(projectId) ?: return NetworkResult.Success(Unit)
-            val listed = api.getAllViewTasks(
-                projectId,
-                viewId,
-                mapOf("filter" to "done = false", "sort_by" to "position", "order_by" to "asc"),
-                expandSubtasks = false,
-            )
-            val cached = taskDao.getByIds(listed.map { it.id }).associateBy { it.id }
-            val changed = listed
-                .filter { dto -> cached[dto.id]?.let { it.position != dto.position } == true }
-                .associate { it.id to it.position }
-            if (changed.isNotEmpty()) taskDao.updatePositions(changed)
+            positioner.whileNotMoving {
+                val listed = api.getAllViewTasks(
+                    projectId,
+                    viewId,
+                    mapOf("filter" to "done = false", "sort_by" to "position", "order_by" to "asc"),
+                    expandSubtasks = false,
+                )
+                val cached = taskDao.getByIds(listed.map { it.id }).associateBy { it.id }
+                val changed = listed
+                    .filter { dto -> cached[dto.id]?.let { it.position != dto.position } == true }
+                    .associate { it.id to it.position }
+                if (changed.isNotEmpty()) taskDao.updatePositions(changed)
+            }
             NetworkResult.Success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -414,11 +416,24 @@ class TaskRepositoryImpl(
             entities.toTasks()
         }.flowOn(mappingDispatcher)
 
+    /**
+     * Where a new task's row goes: behind every row of its list. The server puts a new task first and
+     * its answer states no position, and moving the task to the end ([ListPositioner]) takes a moment
+     * or waits for a connection. A row at 0 meanwhile would sort first and then jump. Hidden tasks are
+     * in no list.
+     */
+    private suspend fun positionOfNewTask(task: Task): Double =
+        if (HiddenTasks.isHidden(task.description)) {
+            0.0
+        } else {
+            (taskDao.getLastPosition(task.projectId) ?: 0.0) + ListPositioner.GAP
+        }
+
     override suspend fun create(task: Task): NetworkResult<Task> {
         return try {
             val createDto = with(taskMapper) { task.toCreateDto() }
             val responseDto = api.createTask(task.projectId, createDto)
-            val responseEntity = with(taskMapper) { responseDto.toEntity() }
+            val responseEntity = with(taskMapper) { responseDto.toEntity() }.copy(position = positionOfNewTask(task))
             taskDao.upsert(responseEntity)
             val created = with(taskMapper) { responseEntity.toDomain() }
             platformHooks.scheduleAlarm(created)
@@ -452,6 +467,7 @@ class TaskRepositoryImpl(
             id = tempId,
             created = DateUtils.nowIso(),
             updated = DateUtils.nowIso(),
+            position = positionOfNewTask(task),
         )
         val dto = with(taskMapper) { localTask.toDto() }
         val entity = with(taskMapper) { dto.toEntity() }
@@ -532,7 +548,8 @@ class TaskRepositoryImpl(
         if (previous.projectId != task.projectId) {
             positioner.invalidate(previous.projectId)
             positioner.invalidate(task.projectId)
-            taskDao.updatePosition(task.id, 0.0)
+            // Still a new task: the sync puts it at the end of the list it has moved to.
+            taskDao.updatePosition(task.id, positionOfNewTask(task))
         }
         queueTaskAction(task.id, "update", json.encodeToString(Task.serializer(), task))
         // A task that only exists here: its reminders may have changed with this edit.
@@ -694,7 +711,7 @@ class TaskRepositoryImpl(
                     relationKind = RelationKind.SUBTASK,
                 ),
             )
-            val createdEntity = with(taskMapper) { createdDto.toEntity() }
+            val createdEntity = with(taskMapper) { createdDto.toEntity() }.copy(position = positionOfNewTask(subtask))
             taskDao.upsert(createdEntity)
 
             val linkedChildEntity = taskDao.getByIdSync(parentTaskId)?.let { parent ->
@@ -755,6 +772,7 @@ class TaskRepositoryImpl(
             created = now,
             updated = now,
             relatedTasks = subtask.relatedTasks + (RelationKind.PARENTTASK to listOf(parentStub)),
+            position = positionOfNewTask(subtask),
         )
         val localDto = with(taskMapper) { localTask.toDto() }
         taskDao.upsert(with(taskMapper) { localDto.toEntity() })
