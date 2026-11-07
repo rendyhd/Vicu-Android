@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.today
 
+import com.rendyhd.vicu.ui.components.shared.listScrollbar
 import com.rendyhd.vicu.ui.components.shared.VicuSnackbarHost
 import com.rendyhd.vicu.voice.TaskDefaults
 import com.rendyhd.vicu.data.local.BehaviorPrefs
@@ -246,7 +247,7 @@ fun TodayScreen(
             }
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().listScrollbar(listState),
                 contentPadding = PaddingValues(bottom = FabClearance),
             ) {
                 // Finished routines (completed or skipped) are left out; the count still covers the day.

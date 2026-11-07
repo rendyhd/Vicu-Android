@@ -1,7 +1,9 @@
 package com.rendyhd.vicu.ui.components.task
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +25,8 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -69,6 +74,7 @@ import com.rendyhd.vicu.util.PRESET_COLORS
 import com.rendyhd.vicu.util.RecurrencePreset
 import com.rendyhd.vicu.util.RecurrenceValue
 import com.rendyhd.vicu.util.ReminderFormat
+import com.rendyhd.vicu.util.TaskTemplate
 import com.rendyhd.vicu.util.WhenLogic
 import com.rendyhd.vicu.util.WhenValue
 import com.rendyhd.vicu.util.detectRecurrencePreset
@@ -82,7 +88,75 @@ import kotlinx.datetime.LocalTime
 // pick applies at once: nothing is saved until Add.
 
 /** The chips of the compact sheet that open a tray, and the rows of the full-height sheet. */
-internal enum class EntryTray { WHEN, REMIND, PRIORITY, TAGS, PROJECT, REPEAT }
+internal enum class EntryTray { WHEN, REMIND, PRIORITY, TAGS, PROJECT, REPEAT, TEMPLATE }
+
+/**
+ * The account's templates (section 18.3): a tap makes the task, a long press offers Edit and Remove.
+ * [details] says what a template holds beyond its title.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun TemplateTrayContent(
+    templates: List<TaskTemplate>,
+    details: (TaskTemplate) -> String?,
+    onUse: (TaskTemplate) -> Unit,
+    onEdit: (TaskTemplate) -> Unit,
+    onRemove: (TaskTemplate) -> Unit,
+) {
+    Column {
+        templates.forEach { template ->
+            var menuOpen by remember { mutableStateOf(false) }
+            Box {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 52.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .combinedClickable(
+                            onClickLabel = "Make a task from this template",
+                            onLongClickLabel = "Edit or remove",
+                            onLongClick = { menuOpen = true },
+                            onClick = { onUse(template) },
+                        )
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        template.title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    details(template)?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Edit") }, onClick = {
+                        menuOpen = false
+                        onEdit(template)
+                    })
+                    DropdownMenuItem(text = { Text("Remove") }, onClick = {
+                        menuOpen = false
+                        onRemove(template)
+                    })
+                }
+            }
+        }
+        Text(
+            "Hold a template to edit or remove it.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+        )
+    }
+}
 
 /** A tray's small heading ("Time", "Place"). */
 @Composable
@@ -217,6 +291,8 @@ internal fun RemindTrayContent(
     onPickTime: () -> Unit,
     onPickPlace: (SavedPlace, LocationTrigger) -> Unit,
     onRemovePlace: () -> Unit,
+    /** Editing a template: only reminders that count from its due date can be kept (section 18.1). */
+    relativeOnly: Boolean = false,
 ) {
     val fmt = LocalDateFormat.current
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -238,6 +314,15 @@ internal fun RemindTrayContent(
                 }
             }
         }
+        if (relativeOnly && presets.isEmpty()) {
+            Text(
+                "Set a date to add a reminder.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            return@Column
+        }
         TrayHeading("Time")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // A preset is a toggle: picked, a second tap takes it off again.
@@ -249,8 +334,9 @@ internal fun RemindTrayContent(
                     onClick = { if (index >= 0) onRemove(index) else onAdd(preset.reminder) },
                 )
             }
-            PresetChip(label = "Pick a time…", icon = Icons.Outlined.Add, onClick = onPickTime)
+            if (!relativeOnly) PresetChip(label = "Pick a time…", icon = Icons.Outlined.Add, onClick = onPickTime)
         }
+        if (relativeOnly) return@Column
         TrayHeading("Place")
         if (places.isEmpty()) {
             Text(

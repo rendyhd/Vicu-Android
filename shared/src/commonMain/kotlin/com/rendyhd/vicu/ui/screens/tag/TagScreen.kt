@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.tag
 
+import com.rendyhd.vicu.ui.components.shared.listScrollbar
 import com.rendyhd.vicu.ui.components.shared.VicuSnackbarHost
 import com.rendyhd.vicu.ui.navigation.ScreenReady
 import androidx.navigationevent.NavigationEventInfo
@@ -125,7 +126,7 @@ fun TagScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().listScrollbar(listState), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.tasks.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(

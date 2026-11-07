@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.project
 
+import com.rendyhd.vicu.ui.components.shared.listScrollbar
 import com.rendyhd.vicu.ui.components.category.CategoryLabels
 import com.rendyhd.vicu.ui.components.category.CategoryNameDialog
 import com.rendyhd.vicu.ui.components.category.MoveToCategoryDialog
@@ -222,7 +223,7 @@ fun ProjectScreen(
                 state.childProjects.isEmpty() &&
                 !hasAnyTask(state.sections)
 
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().listScrollbar(listState), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (allEmpty && !state.isLoading) {
                     item {
                         EmptyState(

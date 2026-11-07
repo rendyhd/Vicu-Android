@@ -177,6 +177,17 @@ class AskSession(
         run(list, talk)
     }
 
+    /** The user changed a date on the open or lingering card: Apply reads the card as it is now. */
+    fun replaceCard(proposal: Proposal) {
+        _state.update { s ->
+            when (proposal.callId) {
+                s.pending?.proposal?.callId -> s.copy(pending = s.pending.copy(proposal = proposal))
+                s.lingering?.proposal?.callId -> s.copy(lingering = s.lingering.copy(proposal = proposal))
+                else -> s
+            }
+        }
+    }
+
     /** The user answered the open card. Undo is the caller's to offer. */
     fun decide(applied: Applied) {
         decision?.complete(applied)

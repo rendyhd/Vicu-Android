@@ -262,6 +262,11 @@ class AskViewModel(
         }
     }
 
+    /** The user changed a date on the card. */
+    fun editCard(proposal: Proposal) {
+        session.value?.replaceCard(proposal)
+    }
+
     fun decline() {
         val s = session.value ?: return
         val pending = s.state.value.pending

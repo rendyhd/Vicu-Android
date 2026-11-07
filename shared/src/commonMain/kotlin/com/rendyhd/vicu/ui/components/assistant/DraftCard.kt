@@ -22,9 +22,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,11 +34,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.ai.AiContract
@@ -102,6 +108,8 @@ fun DraftCard(
     modifier: Modifier = Modifier,
     newProjects: List<CheckedProject> = emptyList(),
     brainDump: Boolean = false,
+    /** A card that cannot change but whose date can (Ask's cards, section 5.4): opens the When sheet. */
+    onDueClick: (() -> Unit)? = null,
 ) {
     val outline = MaterialTheme.colorScheme.tertiary
     val highlight = MaterialTheme.colorScheme.secondaryContainer
@@ -137,18 +145,15 @@ fun DraftCard(
                     IconButton(onClick = onRemove) { Icon(Icons.Outlined.Close, contentDescription = "Remove “${draft.title}”") }
                 }
             }
-            if (draft.notes.isNotBlank()) {
-                Text(
-                    draft.notes,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 4.dp, end = 8.dp, bottom = 4.dp).dashedOutline(outline, "notes" in guessed),
-                )
-            }
+            DraftNotes(
+                notes = draft.notes,
+                editable = editable,
+                guessed = "notes" in guessed,
+                changed = "notes" in changed,
+                onChange = { onChange(draft.copy(notes = it)) },
+            )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                DueChip(draft, editable, "when" in guessed, "when" in changed, onChange)
+                DueChip(draft, editable, "when" in guessed, "when" in changed, onChange, onDueClick)
                 ProjectChip(draft, context, newProjects, editable, "project" in guessed, "project" in changed, onChange)
                 for (label in draft.labels) {
                     DraftChip(
@@ -205,6 +210,58 @@ fun DraftCard(
     }
 }
 
+/**
+ * A draft's notes: read-only on a card that cannot change. Otherwise a field without a border at
+ * rest, up to [NOTES_MAX_LINES] before it scrolls, or a quiet "Add notes" when there are none.
+ */
+@Composable
+private fun DraftNotes(notes: String, editable: Boolean, guessed: Boolean, changed: Boolean, onChange: (String) -> Unit) {
+    val outline = MaterialTheme.colorScheme.tertiary
+    if (!editable) {
+        if (notes.isNotBlank()) {
+            Text(
+                notes,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 4.dp, end = 8.dp, bottom = 4.dp).dashedOutline(outline, guessed),
+            )
+        }
+        return
+    }
+    var adding by remember { mutableStateOf(false) }
+    if (notes.isEmpty() && !adding) {
+        TextButton(onClick = { adding = true }) { Text("Add notes") }
+        return
+    }
+    val focus = remember { FocusRequester() }
+    val highlight = MaterialTheme.colorScheme.secondaryContainer
+    TextField(
+        value = notes,
+        onValueChange = onChange,
+        textStyle = MaterialTheme.typography.bodySmall,
+        placeholder = { Text("Add notes", style = MaterialTheme.typography.bodySmall) },
+        maxLines = NOTES_MAX_LINES,
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = if (changed) highlight else Color.Transparent,
+            unfocusedContainerColor = if (changed) highlight else Color.Transparent,
+            focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+            unfocusedIndicatorColor = Color.Transparent,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(end = 8.dp, bottom = 4.dp)
+            .dashedOutline(outline, guessed)
+            .focusRequester(focus)
+            .onFocusChanged { if (!it.isFocused && notes.isEmpty()) adding = false },
+    )
+    LaunchedEffect(adding) { if (adding) focus.requestFocus() }
+}
+
+private const val NOTES_MAX_LINES = 6
+
 private fun minutesText(minutes: Int): String = when {
     minutes % 1440 == 0 -> (minutes / 1440).let { if (it == 1) "1 day" else "$it days" }
     minutes % 60 == 0 -> (minutes / 60).let { if (it == 1) "1 hour" else "$it hours" }
@@ -212,7 +269,7 @@ private fun minutesText(minutes: Int): String = when {
 }
 
 @Composable
-private fun DraftChip(text: String, guessed: Boolean, changed: Boolean, onClick: (() -> Unit)?, trailingClose: Boolean = false) {
+internal fun DraftChip(text: String, guessed: Boolean, changed: Boolean, onClick: (() -> Unit)?, trailingClose: Boolean = false) {
     AssistChip(
         onClick = { onClick?.invoke() },
         enabled = true,
@@ -224,13 +281,20 @@ private fun DraftChip(text: String, guessed: Boolean, changed: Boolean, onClick:
 }
 
 @Composable
-private fun DueChip(draft: CheckedDraft, editable: Boolean, guessed: Boolean, changed: Boolean, onChange: (CheckedDraft) -> Unit) {
+private fun DueChip(
+    draft: CheckedDraft,
+    editable: Boolean,
+    guessed: Boolean,
+    changed: Boolean,
+    onChange: (CheckedDraft) -> Unit,
+    onDueClick: (() -> Unit)?,
+) {
     val day = LocalClockDay.current
     val format = LocalDateFormat.current
     var open by remember { mutableStateOf(false) }
     val text = draft.due?.let { DateDisplay.format(DateContext.CHIP, it, day.date, !draft.dueHasTime, format) } ?: "No date"
     Box {
-        DraftChip(text, guessed, changed, if (editable) ({ open = true }) else null)
+        DraftChip(text, guessed, changed, onDueClick ?: if (editable) ({ open = true }) else null)
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             fun pick(date: LocalDate?) {
                 open = false

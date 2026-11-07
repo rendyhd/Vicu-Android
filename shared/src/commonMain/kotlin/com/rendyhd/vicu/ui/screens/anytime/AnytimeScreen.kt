@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.anytime
 
+import com.rendyhd.vicu.ui.components.shared.listScrollbar
 import com.rendyhd.vicu.ui.components.fab.FabDropTarget
 import com.rendyhd.vicu.ui.components.fab.fabDropTarget
 import com.rendyhd.vicu.ui.components.shared.VicuSnackbarHost
@@ -127,7 +128,7 @@ fun AnytimeScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().listScrollbar(listState), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.rows.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(

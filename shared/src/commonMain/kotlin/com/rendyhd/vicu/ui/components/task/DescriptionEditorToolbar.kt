@@ -22,6 +22,8 @@ import androidx.compose.material.icons.automirrored.filled.FormatIndentIncrease
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FormatBold
@@ -57,6 +59,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import io.github.linreal.cascade.editor.action.ConvertBlockType
+import io.github.linreal.cascade.editor.action.MoveBlocks
 import io.github.linreal.cascade.editor.core.BlockType
 import io.github.linreal.cascade.editor.core.SpanStyle
 import io.github.linreal.cascade.editor.registry.BlockCallbacks
@@ -102,6 +105,8 @@ internal fun DescriptionEditorToolbar(
     controller: CascadeEditorToolbarController,
     editorState: EditorStateHolder,
     callbacks: BlockCallbacks,
+    /** Moves a line through the history, so the toolbar's Undo puts it back. */
+    onMoveBlock: (MoveBlocks) -> Unit,
     onHideKeyboard: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -176,6 +181,25 @@ internal fun DescriptionEditorToolbar(
                     enabled = indentation.canIndentForward,
                     onClick = controller.indentationActions::indentForward,
                 )
+
+                // Reordering is for lists: a plain line shows no extra buttons.
+                if (focusedType.isListLine() && !editorState.state.hasSelection) {
+                    val focusedId = editorState.state.focusedBlockId
+                    val blocks = editorState.state.blocks
+                    val focusedIndex = blocks.indexOfFirst { it.id == focusedId }
+                    ToolbarButton(
+                        icon = Icons.Default.ArrowUpward,
+                        label = "Move line up",
+                        enabled = focusedIndex > 0,
+                        onClick = { focusedId?.let { onMoveBlock(MoveBlocks(setOf(it), focusedIndex - 1)) } },
+                    )
+                    ToolbarButton(
+                        icon = Icons.Default.ArrowDownward,
+                        label = "Move line down",
+                        enabled = focusedIndex in 0 until blocks.lastIndex,
+                        onClick = { focusedId?.let { onMoveBlock(MoveBlocks(setOf(it), focusedIndex + 1)) } },
+                    )
+                }
 
                 ToolbarDivider()
 
@@ -313,6 +337,9 @@ private fun BlockType?.listStatus(requestedType: BlockType): StyleStatus =
     } else {
         StyleStatus.Absent
     }
+
+private fun BlockType?.isListLine(): Boolean =
+    this == BlockType.BulletList || this is BlockType.NumberedList || this is BlockType.Todo
 
 private fun BlockType.matchesToolbarType(other: BlockType): Boolean =
     (this == BlockType.BulletList && other == BlockType.BulletList) ||

@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.inbox
 
+import com.rendyhd.vicu.ui.components.shared.listScrollbar
 import com.rendyhd.vicu.ui.components.shared.VicuSnackbarHost
 import com.rendyhd.vicu.voice.TaskDefaults
 import com.rendyhd.vicu.ui.navigation.ScreenReady
@@ -164,7 +165,7 @@ fun InboxScreen(
         ) {
             // Which rows can move a place (for a screen reader, which cannot drag): one pass.
             val moves = remember(state.tasks, state.taskOrder) { moveOptions(state.tasks, state.taskOrder) }
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().listScrollbar(listState), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.tasks.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(

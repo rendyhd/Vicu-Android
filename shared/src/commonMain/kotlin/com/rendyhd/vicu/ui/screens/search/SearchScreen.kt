@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -37,6 +38,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.ui.components.shared.listScrollbar
 import com.rendyhd.vicu.ui.components.shared.FabClearance
 import com.rendyhd.vicu.ui.components.shared.VicuSnackbarHost
 import org.koin.compose.viewmodel.koinViewModel
@@ -55,6 +57,7 @@ fun SearchScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val projects by viewModel.projects.collectAsStateWithLifecycle()
+    val labels by viewModel.labels.collectAsStateWithLifecycle()
     val rowView = remember(projects) { RowView(projects = projectMetas(projects)) }
 
     // Rows kept on screen after completing them are let go when the screen is left.
@@ -102,6 +105,8 @@ fun SearchScreen(
             ),
         )
 
+        SearchFilterBar(filters = state.filters, labels = labels, onChange = viewModel::onFiltersChanged)
+
         VicuSnackbarHost(snackbarHostState)
 
         // The server is being asked in the background; the cached matches are already on screen.
@@ -109,14 +114,17 @@ fun SearchScreen(
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
 
+        val listState = rememberLazyListState()
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .imePadding()
+                .listScrollbar(listState)
                 .padding(top = 4.dp),
             contentPadding = PaddingValues(bottom = FabClearance),
         ) {
-            if (state.query.isBlank()) {
+            if (state.query.isBlank() && !state.filters.isActive) {
                 item {
                     EmptyState(
                         icon = Icons.Outlined.Search,
@@ -131,7 +139,7 @@ fun SearchScreen(
                     EmptyState(
                         icon = Icons.Outlined.SearchOff,
                         title = "No results",
-                        subtitle = "Try a different search term",
+                        subtitle = if (state.filters.isActive) "Try fewer filters" else "Try a different search term",
                     )
                 }
             } else {

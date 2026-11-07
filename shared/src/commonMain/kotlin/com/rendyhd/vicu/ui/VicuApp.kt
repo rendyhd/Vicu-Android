@@ -573,6 +573,7 @@ fun VicuApp(
     }
 
     var taskEntryDefaultDueDate by rememberSaveable { mutableStateOf<String?>(null) }
+    var templateToEdit by rememberSaveable { mutableStateOf<String?>(null) }
 
     val onShowTaskEntry: (Long?, String?) -> Unit = { projectId, dueDate ->
         taskEntryDefaultProjectId = projectId
@@ -950,12 +951,18 @@ fun VicuApp(
                     taskEntryDefaultDueDate = null
                     pendingSharedContent = null
                     taskEntryFromFab = false
+                    templateToEdit = null
                 },
                 onTaskCreated = {
                     pendingSharedContent = null
                     if (taskEntryFromFab) fabHint.onTaskAddedWithPlus()
                 },
                 sharedContent = pendingSharedContent,
+                onOpenMadeTask = { id ->
+                    taskDetailViewModel.selectTitleOnOpen(id)
+                    onTaskClick(id)
+                },
+                editTemplateId = templateToEdit,
             )
         }
 
@@ -992,6 +999,11 @@ fun VicuApp(
                 backState = editorBackState,
                 // While the comments are open over the editor, back closes them first.
                 backEnabled = backEnabled && commentsTaskId == 0L,
+                onEditTemplate = { id ->
+                    showTaskDetailSheet = false
+                    templateToEdit = id
+                    showTaskEntrySheet = true
+                },
             )
         }
 

@@ -43,7 +43,45 @@ data class TaskChange(
     val labelsAdd: List<String> = emptyList(),
     val labelsRemove: List<Label> = emptyList(),
     val priority: Int? = null,
+    /** The user changed the date on the card (section 5.4). */
+    val dueEdited: Boolean = false,
 )
+
+/** A date the user changed on a card, for the tool result: [taskId] on an update, [ref] on a new task. */
+data class EditedDue(val taskId: Long? = null, val ref: String? = null, val due: String?)
+
+/** The card with the date of [taskId] changed by the user; null [due] removes it. */
+fun Proposal.Update.withDue(taskId: Long, due: Pair<LocalDateTime, Boolean>?): Proposal.Update = copy(
+    changes = changes.map { change ->
+        if (change.before.id == taskId) change.copy(due = due, clearDue = due == null, dueEdited = true) else change
+    },
+)
+
+/** The card with the date of draft [ref] changed by the user; a reminder counted from it goes with it. */
+fun Proposal.Create.withDue(ref: String, due: Pair<LocalDateTime, Boolean>?): Proposal.Create = copy(
+    result = result.copy(
+        drafts = result.drafts.map { draft ->
+            if (draft.ref != ref) {
+                draft
+            } else {
+                draft.copy(
+                    due = due?.first,
+                    dueHasTime = due?.second ?: false,
+                    reminder = if (due == null && draft.reminder?.beforeDueMinutes != null) null else draft.reminder,
+                    guessed = draft.guessed - "when",
+                )
+            }
+        },
+    ),
+    editedRefs = editedRefs + ref,
+)
+
+/** A due date as a card's result writes it: local, always with seconds. */
+fun cardDueText(due: Pair<LocalDateTime, Boolean>?): String? = due?.let { (local, hasTime) ->
+    val time = if (hasTime) local else LocalDateTime(local.date, DictationChecks.DATE_ONLY)
+    fun two(n: Int) = n.toString().padStart(2, '0')
+    "${time.date}T${two(time.hour)}:${two(time.minute)}:${two(time.second)}"
+}
 
 /** A change the model proposed; the user applies or declines it on a card. */
 sealed interface Proposal {
@@ -58,6 +96,8 @@ sealed interface Proposal {
         val result: CheckResult,
         val context: DictationContext,
         override val skipped: List<SkippedTask> = emptyList(),
+        /** The drafts whose date the user changed on the card. */
+        val editedRefs: Set<String> = emptySet(),
     ) : Proposal {
         override val size: Int get() = result.drafts.size
     }
@@ -81,7 +121,13 @@ sealed interface Proposal {
 }
 
 /** What applying did, for the tool result and the Undo. */
-data class Applied(val status: String, val appliedIds: List<Long>, val skipped: List<SkippedTask>, val undo: (suspend () -> Unit)?) {
+data class Applied(
+    val status: String,
+    val appliedIds: List<Long>,
+    val skipped: List<SkippedTask>,
+    val undo: (suspend () -> Unit)?,
+    val edited: List<EditedDue> = emptyList(),
+) {
     fun toolResult(): String = buildJsonObject {
         put("status", status)
         put("applied", JsonArray(appliedIds.map { JsonPrimitive(it) }))
@@ -91,6 +137,22 @@ data class Applied(val status: String, val appliedIds: List<Long>, val skipped: 
                 skipped.forEach { s -> add(buildJsonObject { put("task_id", s.taskId); put("reason", s.reason) }) }
             },
         )
+        if (edited.isNotEmpty()) {
+            put(
+                "edited",
+                buildJsonArray {
+                    edited.forEach { e ->
+                        add(
+                            buildJsonObject {
+                                e.taskId?.let { put("task_id", it) }
+                                e.ref?.let { put("ref", it) }
+                                put("due", e.due)
+                            },
+                        )
+                    }
+                },
+            )
+        }
     }.toString()
 
     companion object {
@@ -209,7 +271,19 @@ class Proposals(
     suspend fun apply(proposal: Proposal, zone: kotlinx.datetime.TimeZone, parentTaskId: Long? = null): Applied = when (proposal) {
         is Proposal.Create -> {
             val added = drafts.add(proposal.result.drafts, zone, parentTaskId)
-            Applied(statusOf(added.taskIds.size, added.failed), added.taskIds, proposal.skipped, if (added.taskIds.isEmpty()) null else suspend { drafts.undo(added) })
+            Applied(
+                statusOf(added.taskIds.size, added.failed),
+                added.taskIds,
+                proposal.skipped,
+                if (added.taskIds.isEmpty()) null else suspend { drafts.undo(added) },
+                edited = if (added.taskIds.isEmpty()) {
+                    emptyList()
+                } else {
+                    proposal.result.drafts.filter { it.ref in proposal.editedRefs }.map { draft ->
+                        EditedDue(ref = draft.ref, due = cardDueText(draft.due?.let { it to draft.dueHasTime }))
+                    }
+                },
+            )
         }
         is Proposal.Update -> applyUpdates(proposal, zone)
         is Proposal.Complete -> {
@@ -282,7 +356,15 @@ class Proposals(
                 failed++
             }
         }
-        return Applied(statusOf(applied.size, failed), applied, proposal.skipped, if (applied.isEmpty()) null else suspend { undo.forEach { it() } })
+        return Applied(
+            statusOf(applied.size, failed),
+            applied,
+            proposal.skipped,
+            if (applied.isEmpty()) null else suspend { undo.forEach { it() } },
+            edited = proposal.changes.filter { it.dueEdited && it.before.id in applied }.map {
+                EditedDue(taskId = it.before.id, due = cardDueText(it.due))
+            },
+        )
     }
 
     private fun statusOf(applied: Int, failed: Int): String = when {

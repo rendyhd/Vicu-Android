@@ -38,12 +38,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.ui.components.task.MIN_TOUCH_TARGET
 import com.rendyhd.vicu.ui.theme.VicuMotion
@@ -141,6 +143,107 @@ internal fun PropertyRow(
             )
         }
     }
+}
+
+/**
+ * The Labels row: every label, never "+N". While they all fit on one line they sit in the row, on
+ * the right, like any other value. Otherwise they get lines of their own, starting under the name,
+ * rather than wrapping in the row's narrow right half.
+ */
+@Composable
+internal fun LabelsPropertyRow(
+    icon: ImageVector,
+    name: String,
+    description: String,
+    onClick: () -> Unit,
+    chips: @Composable () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Layout(
+        contents = listOf(
+            {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(icon, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(16.dp))
+                    Text(name, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurface, maxLines = 1)
+                }
+            },
+            {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = scheme.outline,
+                    modifier = Modifier.size(20.dp),
+                )
+            },
+            chips,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = description }
+            .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+    ) { (heads, arrows, chipMeasurables), constraints ->
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val head = heads.single().measure(loose)
+        val arrow = arrows.single().measure(loose)
+        val width = constraints.maxWidth
+        val gap = 6.dp.roundToPx()
+        val nameStart = 36.dp.roundToPx()
+        val placeables = chipMeasurables.map { it.measure(Constraints(maxWidth = (width - nameStart).coerceAtLeast(0))) }
+        val widths = placeables.map { it.width }
+        val inlineRoom = width - head.width - 12.dp.roundToPx() - 4.dp.roundToPx() - arrow.width
+        val inline = widthOfOneLine(widths, gap) <= inlineRoom
+        val lines = if (inline) emptyList() else wrapIntoLines(widths, gap, width - nameStart)
+        val chipHeight = placeables.maxOfOrNull { it.height } ?: 0
+        val topHeight = maxOf(head.height, arrow.height, if (inline) chipHeight else 0)
+        val linesHeight = if (lines.isEmpty()) 0 else gap + lines.size * chipHeight + (lines.size - 1) * gap
+        val height = maxOf(constraints.minHeight, topHeight + linesHeight)
+        layout(width, height) {
+            val top = if (lines.isEmpty()) (height - topHeight) / 2 else 0
+            head.placeRelative(0, top + (topHeight - head.height) / 2)
+            arrow.placeRelative(width - arrow.width, top + (topHeight - arrow.height) / 2)
+            if (inline) {
+                var x = width - arrow.width - 4.dp.roundToPx() - widthOfOneLine(widths, gap)
+                placeables.forEach { chip ->
+                    chip.placeRelative(x, top + (topHeight - chip.height) / 2)
+                    x += chip.width + gap
+                }
+            } else {
+                var y = topHeight + gap
+                lines.forEach { line ->
+                    var x = nameStart
+                    line.forEach { index ->
+                        placeables[index].placeRelative(x, y)
+                        x += placeables[index].width + gap
+                    }
+                    y += chipHeight + gap
+                }
+            }
+        }
+    }
+}
+
+/** The width of [widths] side by side with [gap] between them. */
+internal fun widthOfOneLine(widths: List<Int>, gap: Int): Int =
+    widths.sum() + gap * (widths.size - 1).coerceAtLeast(0)
+
+/** Splits [widths] into lines of at most [maxWidth], as indexes; an item wider than that has its own line. */
+internal fun wrapIntoLines(widths: List<Int>, gap: Int, maxWidth: Int): List<List<Int>> {
+    val lines = mutableListOf<MutableList<Int>>()
+    var used = 0
+    widths.forEachIndexed { index, width ->
+        val current = lines.lastOrNull()
+        if (current != null && used + gap + width <= maxWidth) {
+            current += index
+            used += gap + width
+        } else {
+            lines += mutableListOf(index)
+            used = width
+        }
+    }
+    return lines
 }
 
 /** The presets of an open [PropertyRow], under it and indented to its name. */
