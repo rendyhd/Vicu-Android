@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.taskdetail
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -31,9 +32,20 @@ import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material.icons.outlined.Weekend
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import com.rendyhd.vicu.ui.components.shared.DragClickGuard
+import com.rendyhd.vicu.ui.components.shared.dragClickGuardPresses
+import com.rendyhd.vicu.ui.components.shared.listScrollbar
 import com.rendyhd.vicu.location.LocationReminder
 import com.rendyhd.vicu.ui.components.location.LocationDisclosureSheet
 import com.rendyhd.vicu.ui.components.task.DeleteTaskDialog
@@ -50,7 +62,6 @@ import com.rendyhd.vicu.ui.rememberFilePicker
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -69,6 +80,7 @@ import androidx.compose.ui.semantics.semantics
 import com.rendyhd.vicu.ui.components.task.LabelChip
 import com.rendyhd.vicu.ui.components.task.subtaskProgressLabel
 import com.rendyhd.vicu.util.subtaskProgress
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -165,6 +177,12 @@ import com.rendyhd.vicu.ui.components.picker.ReminderPickerDialog
 import com.rendyhd.vicu.ui.components.picker.RecurrencePickerDialog
 import com.rendyhd.vicu.ui.components.picker.WhenSheet
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
+import com.rendyhd.vicu.ui.components.shared.copyPlainText
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.platform.LocalClipboard
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.components.task.AnimatedCheckbox
 import com.rendyhd.vicu.ui.components.task.DescriptionField
@@ -194,6 +212,8 @@ import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.ReminderFormat
 import com.rendyhd.vicu.util.parseHexColor
 import com.rendyhd.vicu.util.parser.getPrefixes
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -207,6 +227,8 @@ fun TaskDetailScreen(
     backState: EditorBackState? = null,
     /** False while this editor is on its way out, so a second back goes on to the screen below. */
     backEnabled: Boolean = true,
+    /** Edit in the answer to Save as template. */
+    onEditTemplate: (String) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showDatePicker by remember { mutableStateOf(false) }
@@ -227,19 +249,43 @@ fun TaskDetailScreen(
     var showRecurrencePicker by remember { mutableStateOf(false) }
     var subtaskInput by remember { mutableStateOf("") }
     var showSubtaskInput by remember { mutableStateOf(false) }
+    var subtaskFieldFocused by remember { mutableStateOf(false) }
     var showRelationPicker by remember { mutableStateOf(false) }
     // The property whose presets are open in place ("date", "priority", "reminder", "repeat").
     var openRow by rememberSaveable(taskId) { mutableStateOf<String?>(null) }
     var titleFocused by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val haptic = LocalHapticFeedback.current
+    val canMoveSubtasks = viewModel.canMoveSubtasks()
+    val subtaskReorder = rememberReorderableLazyListState(listState) { from, to ->
+        val fromId = (from.key as? String)?.removePrefix("subtask_")?.toLongOrNull() ?: return@rememberReorderableLazyListState
+        val toId = (to.key as? String)?.removePrefix("subtask_")?.toLongOrNull() ?: return@rememberReorderableLazyListState
+        viewModel.moveSubtask(fromId, toId)
+    }
+    var listHeightPx by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val relationSearchResults by viewModel.relationSearchResults.collectAsStateWithLifecycle()
     val isDarkTheme = isSystemInDarkTheme()
     var titleFieldValue by remember(taskId) {
         mutableStateOf(TextFieldValue(state.task?.title.orEmpty()))
     }
+    // A task a template just made opens with its title selected, ready to be typed over.
+    val titleFocus = remember { FocusRequester() }
+    val titleKeyboard = LocalSoftwareKeyboardController.current
+    val loadedTitle = state.task?.title
+    LaunchedEffect(taskId, loadedTitle != null) {
+        if (loadedTitle != null && viewModel.consumeSelectTitle(taskId)) {
+            titleFieldValue = TextFieldValue(loadedTitle, TextRange(0, loadedTitle.length))
+            // The title is an item of the list, composed after this runs; and the quick add sheet
+            // that made the task has just put its keyboard away.
+            delay(TITLE_KEYBOARD_DELAY_MS)
+            titleFocus.requestFocus()
+            titleKeyboard?.show()
+        }
+    }
     val descriptionEditorController = rememberDescriptionEditorController()
     val focusManager = LocalFocusManager.current
+    val clipboard = LocalClipboard.current
     val openSubtask: (Long) -> Unit = { subtaskId ->
         // The description is typed into the editor, not yet into the view model: hand it over so
         // opening the subtask saves it with the rest.
@@ -272,6 +318,14 @@ fun TaskDetailScreen(
         val title = state.task?.title ?: return@LaunchedEffect
         if (titleFieldValue.text != title) {
             titleFieldValue = titleFieldValue.copy(text = title)
+        }
+    }
+
+    // Adding several subtasks in a row: each new row pushes the field down, so it is brought back
+    // to just above the keyboard.
+    LaunchedEffect(state.subtasks.size) {
+        if (subtaskFieldFocused) {
+            listState.keepItemInView(ADD_SUBTASK_KEY, addSubtaskItemIndex(state.subtasks.size))
         }
     }
 
@@ -374,7 +428,22 @@ fun TaskDetailScreen(
                 },
                 onDelete = viewModel::requestDeleteTask,
                 onDuplicate = viewModel::duplicateTask,
+                onSaveAsTemplate = {
+                    // The answer offers Edit on the snackbar, which the keyboard would cover.
+                    focusManager.clearFocus()
+                    descriptionEditorController.flush()
+                    viewModel.saveAsTemplate(onEditTemplate)
+                },
                 menuEnabled = state.task != null,
+                // Each line of the notes is its own field, so a selection cannot cross lines.
+                onCopyNotes = state.task?.takeIf { AiText.hasNotes(it.description) }?.let {
+                    {
+                        descriptionEditorController.flush()
+                        val notes = viewModel.uiState.value.task?.description
+                        val text = AiText.htmlToPlain(ImageTokens.parseValue(notes.orEmpty()).first)
+                        if (text.isNotEmpty()) scope.launch { clipboard.copyPlainText("Task notes", text) }
+                    }
+                },
                 // Break into steps (docs/ai-assistant-v1.md, section 4): the model's tasks become subtasks.
                 onBreakIntoSteps = state.task?.takeIf { aiSettings.dictationReady && !it.done }?.let { task ->
                     {
@@ -433,6 +502,9 @@ fun TaskDetailScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    // The tallest it has been: the keyboard must not change where long notes fold.
+                    .onSizeChanged { listHeightPx = maxOf(listHeightPx, it.height) }
+                    .listScrollbar(listState)
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -441,13 +513,12 @@ fun TaskDetailScreen(
                 var fieldSize by remember { mutableStateOf(IntSize.Zero) }
                 Column {
                     Row(verticalAlignment = Alignment.Top) {
-                        // Completes or reopens the task itself (not only its subtasks); the 8 dp
-                        // centres the circle on the first line of the headline.
+                        // Completes or reopens the task itself (not only its subtasks). Its 48 dp box
+                        // and the title's first line share a centre 24 dp from the top.
                         AnimatedCheckbox(
                             done = task.done,
                             onToggle = viewModel::requestToggleDone,
                             contentDescription = "Complete task",
-                            modifier = Modifier.padding(top = 2.dp),
                         )
                         Box(modifier = Modifier.weight(1f)) {
                             BasicTextField(
@@ -470,7 +541,8 @@ fun TaskDetailScreen(
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                                    .padding(start = 8.dp, end = 8.dp, top = 10.dp, bottom = 6.dp)
+                                    .focusRequester(titleFocus)
                                     .onSizeChanged { fieldSize = it }
                                     .onFocusChanged { titleFocused = it.isFocused },
                                 textStyle = editorTitleStyle(),
@@ -544,6 +616,7 @@ fun TaskDetailScreen(
                     editorController = descriptionEditorController,
                     plain = true,
                     hostedToolbar = true,
+                    notesFoldHeight = with(density) { (listHeightPx / 2).toDp() }.coerceAtLeast(MIN_NOTES_FOLD),
                 )
                 if (state.descriptionConflict != null) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -695,25 +768,16 @@ fun TaskDetailScreen(
                         }
                     },
                     EditorEntry("label", set = task.labels.isNotEmpty(), addLabel = "Labels", addIcon = Icons.AutoMirrored.Outlined.Label, onAdd = { showLabelPicker = true }) {
-                        PropertyRow(
+                        LabelsPropertyRow(
                             icon = Icons.AutoMirrored.Outlined.Label,
                             name = "Labels",
-                            value = task.labels.joinToString(", ") { it.title }.ifEmpty { null },
                             description = "Labels: ${task.labels.joinToString(", ") { it.title }}",
                             onClick = { showLabelPicker = true },
-                            trailing = {
-                                task.labels.take(MAX_ROW_LABELS).forEach { label ->
-                                    LabelChip(title = label.title, hexColor = label.hexColor, modifier = Modifier.widthIn(max = 110.dp))
-                                }
-                                if (task.labels.size > MAX_ROW_LABELS) {
-                                    Text(
-                                        "+${task.labels.size - MAX_ROW_LABELS}",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            },
-                        )
+                        ) {
+                            task.labels.forEach { label ->
+                                LabelChip(title = label.title, hexColor = label.hexColor)
+                            }
+                        }
                     },
                     EditorEntry("subtasks", set = totalSubtasks > 0, addLabel = "Subtasks", addIcon = Icons.Outlined.Checklist, onAdd = openSubtasks) {
                         PropertyRow(
@@ -942,41 +1006,76 @@ fun TaskDetailScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                 }
 
-                // Subtasks
-                items(state.subtasks, key = { "subtask_${it.id}" }, contentType = { "subtask" }) { subtask ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClickLabel = "Open subtask") { openSubtask(subtask.id) }
-                            .padding(vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(
-                            checked = subtask.done,
-                            onCheckedChange = { viewModel.requestToggleSubtaskDone(subtask) },
-                            modifier = Modifier.semantics { contentDescription = subtask.title },
-                        )
-                        Text(
-                            text = subtask.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            textDecoration = if (subtask.done) TextDecoration.LineThrough else null,
-                            color = if (subtask.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                            maxLines = 2,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
+                // Subtasks: press and hold a row to move it (section 19).
+                itemsIndexed(state.subtasks, key = { _, it -> "subtask_${it.id}" }, contentType = { _, _ -> "subtask" }) { index, subtask ->
+                    ReorderableItem(subtaskReorder, key = "subtask_${subtask.id}", enabled = canMoveSubtasks) { isDragging ->
+                        val clickGuard = remember { DragClickGuard() }
+                        val elevation by animateDpAsState(if (isDragging) 4.dp else 0.dp, label = "subtaskDragElevation")
+                        Surface(
+                            modifier = Modifier.dragClickGuardPresses(clickGuard),
+                            shadowElevation = elevation,
+                            color = if (isDragging) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (canMoveSubtasks) {
+                                            Modifier.longPressDraggableHandle(
+                                                onDragStarted = {
+                                                    clickGuard.dragStarted()
+                                                    viewModel.onSubtaskDragStarted()
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                },
+                                                onDragStopped = viewModel::onSubtaskDragStopped,
+                                            ).semantics {
+                                                customActions = buildList {
+                                                    if (index > 0) {
+                                                        add(CustomAccessibilityAction("Move up") { viewModel.moveSubtaskBy(subtask.id, -1); true })
+                                                    }
+                                                    if (index < state.subtasks.lastIndex) {
+                                                        add(CustomAccessibilityAction("Move down") { viewModel.moveSubtaskBy(subtask.id, 1); true })
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            Modifier
+                                        },
+                                    )
+                                    .clickable(onClickLabel = "Open subtask", onClick = clickGuard.guarded { openSubtask(subtask.id) })
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = subtask.done,
+                                    onCheckedChange = { viewModel.requestToggleSubtaskDone(subtask) },
+                                    modifier = Modifier.semantics { contentDescription = subtask.title },
+                                )
+                                Text(
+                                    text = subtask.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textDecoration = if (subtask.done) TextDecoration.LineThrough else null,
+                                    color = if (subtask.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
                     }
                 }
 
                 // Add subtask
-                item(key = "add_subtask") {
+                item(key = ADD_SUBTASK_KEY) {
                     if (showSubtaskInput) {
                         OutlinedTextField(
                             value = subtaskInput,
                             onValueChange = { subtaskInput = it },
                             placeholder = { Text("Subtask title") },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged { subtaskFieldFocused = it.isFocused },
                             keyboardOptions = KeyboardOptions(
                                 capitalization = KeyboardCapitalization.Sentences,
                                 imeAction = ImeAction.Done,
@@ -1177,7 +1276,7 @@ fun TaskDetailScreen(
                 descriptionEditorController.hostedToolbar?.invoke(
                     Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                 )
-            } else if (!titleFocused) {
+            } else if (!titleFocused && !subtaskFieldFocused) {
                 // Complete (or Reopen) in thumb reach; it steps aside while the keyboard types.
                 FilledTonalButton(
                     onClick = viewModel::requestToggleDone,
@@ -1376,10 +1475,32 @@ fun TaskDetailScreen(
 }
 
 /** Where the subtasks section starts in the editor's list: after the headline, the notes, the quick moves and the properties. */
+private const val TITLE_KEYBOARD_DELAY_MS = 300L
 private const val SUBTASKS_ITEM_INDEX = 4
 
-/** How many label chips a Labels row shows before "+N". */
-private const val MAX_ROW_LABELS = 2
+private const val ADD_SUBTASK_KEY = "add_subtask"
+
+/** The add-subtask field's place in the list: after the section's heading and its [subtasks] rows. */
+private fun addSubtaskItemIndex(subtasks: Int): Int = SUBTASKS_ITEM_INDEX + 1 + subtasks
+
+/**
+ * Scrolls by what it takes to show the whole item [key] at the bottom of the list. An item that is
+ * already in view stays put; one past the end is first brought into the viewport.
+ */
+private suspend fun LazyListState.keepItemInView(key: Any, index: Int) {
+    withFrameNanos { } // The new row is laid out by then.
+    val info = layoutInfo
+    val item = info.visibleItemsInfo.firstOrNull { it.key == key }
+    if (item == null) {
+        animateScrollToItem(index, scrollOffset = -info.viewportEndOffset / 2)
+        return
+    }
+    val overflow = item.offset + item.size - info.viewportEndOffset
+    if (overflow > 0) animateScrollBy(overflow.toFloat())
+}
+
+/** Long notes fold at about half of what is visible, never lower than this. */
+private val MIN_NOTES_FOLD = 200.dp
 
 /** How many saved places the Remind row offers as "Arrive: Home" presets. */
 private const val MAX_PLACE_PRESETS = 3
@@ -1424,9 +1545,11 @@ private fun EditorHeader(
     onAddRelation: () -> Unit,
     onDelete: () -> Unit,
     onDuplicate: () -> Unit,
+    onSaveAsTemplate: () -> Unit,
     menuEnabled: Boolean,
     modifier: Modifier = Modifier,
     onBreakIntoSteps: (() -> Unit)? = null,
+    onCopyNotes: (() -> Unit)? = null,
 ) {
     var showMore by remember { mutableStateOf(false) }
     Row(
@@ -1465,6 +1588,22 @@ private fun EditorHeader(
                     onClick = {
                         showMore = false
                         onDuplicate()
+                    },
+                )
+                if (onCopyNotes != null) {
+                    DropdownMenuItem(
+                        text = { Text("Copy notes") },
+                        onClick = {
+                            showMore = false
+                            onCopyNotes()
+                        },
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text("Save as template") },
+                    onClick = {
+                        showMore = false
+                        onSaveAsTemplate()
                     },
                 )
                 DropdownMenuItem(

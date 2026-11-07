@@ -227,6 +227,7 @@ val repositoryModule = module {
     single { RoutinePersonalPreferences(synced = get<SyncedPreferences>()) }
     single { ProjectCategoryPreferences(synced = get<SyncedPreferences>()) }
     single { ProjectIconPreferences(synced = get<SyncedPreferences>()) }
+    single { SubtaskOrderPreferences(synced = get<SyncedPreferences>()) }
     single { WeeklyReviewPreferences(synced = get<SyncedPreferences>()) }
     single { PlannerPreferences(synced = get<SyncedPreferences>()) }
     single<CollaborationRepository> {
@@ -246,6 +247,17 @@ val repositoryModule = module {
     }
     single { CollaborationSync(api = get(), collaborationDao = get(), pendingActionDao = get(), tokenStorage = get()) }
     single { TaskDuplicator(tasks = get(), labels = get(), collaboration = get()) }
+    single {
+        TaskTemplateStore(
+            synced = get<SyncedPreferences>(),
+            tasks = get(),
+            labels = get(),
+            projects = get(),
+            notificationPrefs = get(),
+            dayClock = get(),
+            time = get(),
+        )
+    }
     single {
         RoutineArchiveStore(
             api = get(),

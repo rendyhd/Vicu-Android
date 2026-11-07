@@ -47,6 +47,9 @@ Branch `feat/shared-routines` (design `docs/shared-routines.md`, contract sectio
 
 Contract section 13; design-system section 5 for the header.
 
+- **Task templates** (`template.<id>`, contract section 18, `TaskTemplateStore`) and **the order of a
+  task's subtasks** (`subtask_order.<taskId>`, section 19, `SubtaskOrderPreferences`) are synced
+  preferences of the account: on every device of that person, never shared with others.
 - **Project categories** are synced preferences of the account: `category.<id>` (name and order)
   and `category.project.<projectId>` (the category a top-level project is in), written by
   `ProjectActions` through `ProjectCategoryPreferences` (several keys as one change,

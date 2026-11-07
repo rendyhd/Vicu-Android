@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.customlist
 
+import com.rendyhd.vicu.ui.components.shared.listScrollbar
 import com.rendyhd.vicu.ui.components.shared.VicuSnackbarHost
 import com.rendyhd.vicu.voice.TaskDefaults
 import com.rendyhd.vicu.ui.navigation.ScreenReady
@@ -153,7 +154,7 @@ fun CustomListScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().listScrollbar(listState), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.tasks.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(

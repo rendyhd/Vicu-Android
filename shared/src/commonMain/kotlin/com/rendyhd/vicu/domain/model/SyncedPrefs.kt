@@ -74,6 +74,18 @@ object SyncedPrefKeys {
     /** The icon value of a project, and the icon key of a custom list, drawn without an icon. */
     const val ICON_NONE = "none"
 
+    /** The order a person dragged a task's subtasks into (section 19). */
+    fun subtaskOrderOf(taskId: Long): String = "subtask_order.$taskId"
+
+    private const val TEMPLATE_PREFIX = "template."
+
+    /** A task template (section 18), or null when it was removed. */
+    fun templateOf(id: String): String = "$TEMPLATE_PREFIX$id"
+
+    /** The template of a `template.<id>` key, or null for any other key. */
+    fun templateId(key: String): String? =
+        key.takeIf { it.startsWith(TEMPLATE_PREFIX) }?.removePrefix(TEMPLATE_PREFIX)?.takeIf { it.isNotEmpty() }
+
     private const val ROUTINE_REMINDERS_PREFIX = "routine_reminders."
     private const val ROUTINE_HIDDEN_PREFIX = "routine_hidden."
 

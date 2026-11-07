@@ -52,6 +52,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -148,6 +149,8 @@ import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.PlatformFiles
 import com.rendyhd.vicu.util.SystemTimeSource
+import com.rendyhd.vicu.util.TaskTemplate
+import com.rendyhd.vicu.util.TaskTemplates
 import com.rendyhd.vicu.util.WhenLogic
 import com.rendyhd.vicu.util.WhenValue
 import com.rendyhd.vicu.util.parser.TokenType
@@ -185,6 +188,10 @@ fun TaskEntrySheet(
     onDismiss: () -> Unit,
     onTaskCreated: (Long) -> Unit,
     sharedContent: SharedContent? = null,
+    /** Opens the task a template just made. */
+    onOpenMadeTask: (Long) -> Unit = {},
+    /** Opens the sheet on this template, to edit it, and closes it when that is done. */
+    editTemplateId: String? = null,
     viewModel: TaskEntryViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -224,11 +231,14 @@ fun TaskEntrySheet(
     // saved with the instance state; a new view model (process death) is initialised as usual.
     var initializedBeforeRecreation by rememberSaveable { mutableStateOf(false) }
     var firstRun by remember { mutableStateOf(true) }
-    LaunchedEffect(defaultProjectId, defaultDueDate, sharedContent) {
+    LaunchedEffect(defaultProjectId, defaultDueDate, sharedContent, editTemplateId) {
         val recreated = firstRun && initializedBeforeRecreation && viewModel.isInitialized
         firstRun = false
         if (!recreated) {
-            if (sharedContent != null) {
+            if (editTemplateId != null) {
+                expanded = true
+                viewModel.startEditingTemplate(editTemplateId)
+            } else if (sharedContent != null) {
                 viewModel.initWithSharedContent(defaultProjectId, sharedContent)
             } else {
                 viewModel.initWithDefaults(defaultProjectId, defaultDueDate)
@@ -326,11 +336,34 @@ fun TaskEntrySheet(
     // and a pick without one would otherwise stop the next title from being read.
     fun dismiss() {
         if (closing) return
-        if (state.title.isBlank()) viewModel.reset()
+        viewModel.endTemplateEdit()
+        if (viewModel.uiState.value.title.isBlank()) viewModel.reset()
         focusManager.clearFocus()
         softKeyboard?.hide()
         closing = true
         visibility.targetState = false
+    }
+
+    // The edit of a template is over: back to the draft under it, or away when it is what opened
+    // the sheet.
+    fun endTemplateEdit() {
+        if (editTemplateId != null) {
+            dismiss()
+            return
+        }
+        viewModel.endTemplateEdit()
+        notesShown = false
+        val title = viewModel.uiState.value.title
+        textFieldValue = TextFieldValue(title, TextRange(title.length))
+        collapse()
+    }
+
+    fun editTemplate(template: TaskTemplate) {
+        trayName = null
+        expanded = true
+        focusManager.clearFocus()
+        softKeyboard?.hide()
+        viewModel.startEditingTemplate(template.id)
     }
 
     // The draft stays when the sheet closes, so it can also be cleared by hand: everything goes, as
@@ -354,6 +387,7 @@ fun TaskEntrySheet(
         when {
             tray != null && !expanded -> toggleTray(tray)
             tray != null -> trayName = null
+            state.editingTemplate != null -> endTemplateEdit()
             expanded -> collapse()
             else -> dismiss()
         }
@@ -364,6 +398,21 @@ fun TaskEntrySheet(
         if (descriptionEditorController.isEditorFocused && !expanded && trayName != null) {
             expectKeyboard()
             trayName = null
+        }
+    }
+
+    // The last template was removed: its chip is gone, so the tray cannot stay. The keyboard stays
+    // down, because it would cover the Undo on the snackbar.
+    LaunchedEffect(state.templates.isEmpty(), tray) {
+        if (state.templates.isEmpty() && tray == EntryTray.TEMPLATE) trayName = null
+    }
+
+    LaunchedEffect(state.madeFromTemplateId) {
+        state.madeFromTemplateId?.let { id ->
+            viewModel.onMadeFromTemplateHandled()
+            trayName = null
+            dismiss()
+            onOpenMadeTask(id)
         }
     }
 
@@ -409,9 +458,15 @@ fun TaskEntrySheet(
     // Gate on the effective (parsed) title so NLP-only input like "#work !1" doesn't look enabled
     // and then silently no-op in save().
     val canSave = viewModel.effectiveTitle().isNotBlank() && !state.isSaving
+    val editingTemplate = state.editingTemplate != null
     val save = {
         descriptionEditorController.flush()
-        viewModel.save(dateFormat)
+        if (editingTemplate) {
+            viewModel.saveTemplateEdit()
+            endTemplateEdit()
+        } else {
+            viewModel.save(dateFormat)
+        }
     }
 
     // The words of each property, shared by the chips and the rows.
@@ -453,8 +508,9 @@ fun TaskEntrySheet(
             }
             EntryTray.REMIND -> {
                 // The times are read when the tray opens, so "In 1 hour" means from now.
-                val presets = remember(which, fields.dueDate, dateFormat) {
+                val presets = remember(which, fields.dueDate, dateFormat, editingTemplate) {
                     reminderPresets(fields.dueDate, SystemTimeSource.now(), day.zone, dateFormat)
+                        .filter { !editingTemplate || it.reminder.relativeTo == "due_date" }
                 }
                 RemindTrayContent(
                     reminders = state.reminders,
@@ -473,6 +529,7 @@ fun TaskEntrySheet(
                         notificationPermission.onFeatureEnabled()
                     },
                     onRemovePlace = viewModel::clearPlaceReminder,
+                    relativeOnly = editingTemplate,
                 )
             }
             EntryTray.PRIORITY -> PriorityTrayContent(current = fields.priority, onPick = viewModel::setPriority)
@@ -493,6 +550,19 @@ fun TaskEntrySheet(
                 current = fields.recurrence,
                 onPick = viewModel::setRecurrence,
                 onOther = { showRecurrencePicker = true },
+            )
+            EntryTray.TEMPLATE -> TemplateTrayContent(
+                templates = state.templates,
+                details = { template ->
+                    val due = template.due?.let {
+                        DateDisplay.formatDue(DateContext.CHIP, TaskTemplates.dueDateOf(it, day.date, day.zone), day.date, day.zone, dateFormat)
+                    }
+                    val subtasks = template.subtasks.size.takeIf { it > 0 }?.let { if (it == 1) "1 subtask" else "$it subtasks" }
+                    listOfNotNull(due, subtasks).joinToString(", ").ifEmpty { null }
+                },
+                onUse = viewModel::useTemplate,
+                onEdit = ::editTemplate,
+                onRemove = viewModel::removeTemplate,
             )
         }
     }
@@ -556,9 +626,11 @@ fun TaskEntrySheet(
                     if (expanded) {
                         ExpandedHeader(
                             canSave = canSave,
-                            onCollapse = ::collapse,
+                            onCollapse = { if (editingTemplate) endTemplateEdit() else collapse() },
                             onAdd = save,
+                            editingTemplate = editingTemplate,
                             clear = when {
+                                editingTemplate -> null
                                 state.hasDraft -> "Clear" to ::clearDraft
                                 state.canUndoClear -> "Undo" to ::undoClearDraft
                                 else -> null
@@ -672,13 +744,15 @@ fun TaskEntrySheet(
                                     focusManager.clearFocus()
                                     trayName = if (tray == which) null else which.name
                                 }
-                                val rows = listOf(
+                                val rows = listOfNotNull(
                                     Triple(EntryTray.WHEN, Icons.Outlined.CalendarMonth, "When" to dateWords),
                                     Triple(EntryTray.REMIND, Icons.Outlined.Notifications, "Remind" to remindWords),
                                     Triple(EntryTray.PRIORITY, Icons.Outlined.Flag, "Priority" to priorityWords),
                                     Triple(EntryTray.TAGS, Icons.AutoMirrored.Outlined.Label, "Labels" to labelWords),
                                     Triple(EntryTray.REPEAT, Icons.Outlined.Repeat, "Repeat" to repeatWords),
                                     Triple(EntryTray.PROJECT, Icons.Outlined.Folder, "Project" to projectWords),
+                                    Triple(EntryTray.TEMPLATE, Icons.Outlined.Description, "Template" to null)
+                                        .takeIf { state.templates.isNotEmpty() && !editingTemplate },
                                 )
                                 rows.forEachIndexed { index, (which, icon, words) ->
                                     if (index > 0) PropertyDivider()
@@ -760,6 +834,16 @@ fun TaskEntrySheet(
                                         selected = tray == EntryTray.REPEAT,
                                         tint = tint(fields.recurrenceSource, TokenType.RECURRENCE),
                                         tokenRect = { tokenRectOf(TokenType.RECURRENCE) },
+                                    )
+                                }
+                                // Last, and only once there is a template to choose (section 18.3).
+                                if (state.templates.isNotEmpty()) {
+                                    TaskEntryChip(
+                                        label = "Template",
+                                        icon = Icons.Outlined.Description,
+                                        onClick = { toggleTray(EntryTray.TEMPLATE) },
+                                        selected = tray == EntryTray.TEMPLATE,
+                                        tokenRect = { null },
                                     )
                                 }
                             }
@@ -931,6 +1015,7 @@ private fun ExpandedHeader(
     canSave: Boolean,
     onCollapse: () -> Unit,
     onAdd: () -> Unit,
+    editingTemplate: Boolean,
     clear: Pair<String, () -> Unit>?,
 ) {
     val threshold = with(LocalDensity.current) { GROW_DRAG_DP.dp.toPx() }
@@ -953,10 +1038,13 @@ private fun ExpandedHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onCollapse) {
-            Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Show fewer details")
+            Icon(
+                if (editingTemplate) Icons.Outlined.Close else Icons.Outlined.KeyboardArrowDown,
+                contentDescription = if (editingTemplate) "Close without saving" else "Show fewer details",
+            )
         }
         Text(
-            "New task",
+            if (editingTemplate) "Edit template" else "New task",
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f).padding(start = 4.dp).semantics { heading() },
         )
@@ -964,7 +1052,7 @@ private fun ExpandedHeader(
             TextButton(onClick = action) { Text(label) }
             Spacer(Modifier.width(4.dp))
         }
-        Button(onClick = onAdd, enabled = canSave) { Text("Add") }
+        Button(onClick = onAdd, enabled = canSave) { Text(if (editingTemplate) "Save" else "Add") }
     }
 }
 

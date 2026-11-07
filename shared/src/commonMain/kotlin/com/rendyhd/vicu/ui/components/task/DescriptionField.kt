@@ -48,7 +48,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
@@ -101,6 +106,8 @@ internal fun DescriptionField(
     plain: Boolean = false,
     /** The toolbar is drawn by the host ([DescriptionEditorController.hostedToolbar]), not under the field. */
     hostedToolbar: Boolean = false,
+    /** With [plain]: longer notes stop here, with a fade and Show all. */
+    notesFoldHeight: Dp? = null,
 ) {
     val (externalHtml, allImageRefs) = remember(value) { ImageTokens.parseValue(value) }
     val latestOnValueChange = rememberUpdatedState(onValueChange)
@@ -142,7 +149,9 @@ internal fun DescriptionField(
     val editorConfig = remember {
         CascadeEditorConfig(
             blockSelectionEnabled = false,
-            blockDraggingEnabled = true,
+            // A long press selects text, like any text field. Lines move with the toolbar's Move
+            // buttons, on list and checklist lines only.
+            blockDraggingEnabled = false,
             emptyDocumentPlaceholderEnabled = true,
             onInternalError = { error ->
                 Logger.e(
@@ -186,6 +195,9 @@ internal fun DescriptionField(
                 controller = toolbarController,
                 editorState = session.stateHolder,
                 callbacks = callbacks,
+                onMoveBlock = { action ->
+                    session.stateHolder.dispatchStructuralAction(action, session.textStates, session.spanStates)
+                },
                 onHideKeyboard = clearEditorFocus,
                 modifier = toolbarModifier.onGloballyPositioned {
                     editorController.updateToolbarBounds(it.boundsInRoot())
@@ -219,9 +231,26 @@ internal fun DescriptionField(
             emptyDocumentPlaceholder = "Add notes",
         )
     }
-    val editorRegistry = remember { createVikunjaDescriptionEditorRegistry() }
+    val notesMeasure = remember(session) { NotesContentMeasure() }
+    val editorRegistry = remember(session, plain) {
+        createVikunjaDescriptionEditorRegistry().let { registry ->
+            if (plain) {
+                registry.measuredBy(notesMeasure, listOf(VikunjaDescriptionHtmlProfile.PRESERVED_HTML_TYPE_ID))
+            } else {
+                registry
+            }
+        }
+    }
 
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
+
+    // Every task starts folded; a tap in the text opens the note, so editing works straight away.
+    var notesOpen by remember(taskId) { mutableStateOf(false) }
+    var notesFolded by remember(taskId) { mutableStateOf(false) }
+    val foldPx = notesFoldHeight?.let { with(LocalDensity.current) { it.roundToPx() } }
+    LaunchedEffect(session, focused) {
+        if (focused) notesOpen = true
+    }
     val imageRefs = allImageRefs.filterIsInstance<ImageTokens.ImageRef.Image>()
 
     Column(
@@ -271,12 +300,29 @@ internal fun DescriptionField(
                 }
             }
         } else {
+            Box {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(
                         if (plain) {
-                            Modifier.height(plainNotesHeight(externalHtml))
+                            // The editor is a scrolling list that fills what it is given: given far
+                            // more than it needs it shows every line and never scrolls inside, so
+                            // the page is one scroll. What shows is the text's own height, and long
+                            // notes stop at the fold until they are opened.
+                            Modifier
+                                .clipToBounds()
+                                .layout { measurable, constraints ->
+                                    val inner = measurable.measure(constraints.copy(maxHeight = MAX_PLAIN_NOTES.roundToPx()))
+                                    val min = MIN_PLAIN_NOTES.roundToPx()
+                                    // Before the blocks have reported, one frame at the fold.
+                                    val text = (notesMeasure.contentHeight?.plus(NOTES_END_GAP.roundToPx()) ?: foldPx ?: min)
+                                        .coerceAtLeast(min)
+                                    val shown = shownNotesHeight(text, foldPx, FOLD_SLACK.roundToPx(), notesOpen)
+                                    notesFolded = shown < text
+                                    layout(inner.width, shown) { inner.placeRelative(0, 0) }
+                                }
+                                .onPlaced { notesMeasure.editor = it }
                         } else {
                             Modifier.heightIn(min = 144.dp, max = 210.dp)
                         },
@@ -320,6 +366,20 @@ internal fun DescriptionField(
                             latestOnImagePasted.value(uri)
                         },
                 )
+            }
+            if (notesFolded) {
+                val page = MaterialTheme.colorScheme.surface
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(FOLD_FADE)
+                        .background(Brush.verticalGradient(listOf(page.copy(alpha = 0f), page))),
+                )
+            }
+            }
+            if (notesFolded) {
+                TextButton(onClick = { notesOpen = true }) { Text("Show all") }
             }
         }
 
@@ -548,22 +608,19 @@ private fun BoxScope.RemoveBadge(onClick: () -> Unit) {
     }
 }
 
-/**
- * The height of the notes on the editor's own screen: about the text they hold (the editor is a
- * scrolling list and would otherwise fill the space it is given), at least one empty line and at
- * most [MAX_PLAIN_NOTES_DP] before it scrolls inside.
- */
-internal fun plainNotesHeight(html: String): Dp = plainNotesHeightDp(html).dp
+private val MIN_PLAIN_NOTES = 72.dp
 
-internal const val MIN_PLAIN_NOTES_DP = 72
-internal const val MAX_PLAIN_NOTES_DP = 320
+/** Far past any note the editor accepts: a limit the editor's list can measure against, not a size. */
+private val MAX_PLAIN_NOTES = 20_000.dp
 
-internal fun plainNotesHeightDp(html: String): Int {
-    val lines = html
-        .replace(Regex("(?i)<br\\s*/?>|</(p|li|h[1-6]|div|blockquote|pre)>"), "\n")
-        .replace(Regex("<[^>]*>"), "")
-        .split('\n')
-        .filter { it.isNotBlank() }
-        .sumOf { (it.length + 39) / 40 }
-    return (lines * 28 + 28).coerceIn(MIN_PLAIN_NOTES_DP, MAX_PLAIN_NOTES_DP)
-}
+/** Notes this little past the fold are shown whole: folding them would save less than Show all takes. */
+private val FOLD_SLACK = 56.dp
+
+private val FOLD_FADE = 56.dp
+
+/** Room under the last line, for the text field's own descenders and a tap below it. */
+private val NOTES_END_GAP = 8.dp
+
+/** How much of notes [full] tall to show, in pixels: all of them, or up to [fold] when they are well past it. */
+internal fun shownNotesHeight(full: Int, fold: Int?, slack: Int, open: Boolean): Int =
+    if (fold != null && !open && full > fold + slack) fold else full

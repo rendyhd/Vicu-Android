@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.screens.upcoming
 
+import com.rendyhd.vicu.ui.components.shared.listScrollbar
 import com.rendyhd.vicu.ui.components.fab.FabDropTarget
 import com.rendyhd.vicu.ui.components.fab.fabDropTarget
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
@@ -144,7 +145,7 @@ fun UpcomingScreen(
         ) {
             val today = LocalToday.current
             val dateFormat = LocalDateFormat.current
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = FabClearance)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().listScrollbar(listState), contentPadding = PaddingValues(bottom = FabClearance)) {
                 if (state.days.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(

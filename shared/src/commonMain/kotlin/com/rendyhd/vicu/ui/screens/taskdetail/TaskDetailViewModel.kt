@@ -8,6 +8,8 @@ import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.data.local.TempIdGenerator
 import com.rendyhd.vicu.data.repository.TaskDuplicator
+import com.rendyhd.vicu.data.repository.SubtaskOrderPreferences
+import com.rendyhd.vicu.data.repository.TaskTemplateStore
 import com.rendyhd.vicu.domain.model.Attachment
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
@@ -25,6 +27,7 @@ import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DescriptionHtml
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.ImageTokens
+import com.rendyhd.vicu.util.SubtaskOrder
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.unfinishedDescendants
 import com.rendyhd.vicu.util.RecurrenceValue
@@ -99,6 +102,8 @@ class TaskDetailViewModel(
     private val dayClock: DayClock,
     private val tempIds: TempIdGenerator? = null,
     private val taskDuplicator: TaskDuplicator? = null,
+    private val templateStore: TaskTemplateStore? = null,
+    private val subtaskOrders: SubtaskOrderPreferences? = null,
 ) : ViewModel() {
 
     companion object {
@@ -249,7 +254,10 @@ class TaskDetailViewModel(
                     // Those emissions are echoes of the save, not news: the baseline stays put
                     // until the save finishes, so a failed save leaves the edits marked as unsaved.
                     val ownSaveRunning = (savesInFlight[taskId] ?: 0) > 0
-                    val subtasks = task.relatedTasks["subtask"] ?: emptyList()
+                    val subtasks = SubtaskOrder.sorted(
+                        task.relatedTasks["subtask"] ?: emptyList(),
+                        subtaskOrders?.orderOf(task.id).orEmpty(),
+                    ) { it.id }
                     val relations = task.relatedTasks
                         .filterKeys { it in com.rendyhd.vicu.util.RelationKind.DISPLAYABLE }
                         .filterValues { it.isNotEmpty() }
@@ -276,7 +284,8 @@ class TaskDetailViewModel(
                         state.copy(
                             task = merged,
                             originalTask = if (ownSaveRunning) state.originalTask ?: incoming else incoming,
-                            subtasks = subtasks,
+                            // A row being dragged stays where the finger put it.
+                            subtasks = if (subtaskDragging) state.subtasks else subtasks,
                             relations = relations,
                             isLoading = false,
                             descriptionConflict = descriptionConflict ?: state.descriptionConflict,
@@ -841,6 +850,82 @@ class TaskDetailViewModel(
                 is NetworkResult.Loading -> Unit
             }
         }
+    }
+
+    /**
+     * Save as template (section 18.1): the edits are saved first, then the saved task is taken as
+     * it is, at once. [onEdit] is the Edit action of the answer.
+     */
+    fun saveAsTemplate(onEdit: (String) -> Unit) {
+        val store = templateStore ?: return
+        val id = _uiState.value.task?.id ?: return
+        saveIfChanged()
+        viewModelScope.launch {
+            saveMutex.withLock { }
+            val source = taskRepository.getByIds(setOf(id)).firstOrNull() ?: _uiState.value.task ?: return@launch
+            val template = store.saveFrom(source)
+            if (template == null) {
+                appMessages.post("This task is too long to save as a template")
+            } else {
+                appMessages.post("Saved as a template", actionLabel = "Edit") { onEdit(template.id) }
+            }
+        }
+    }
+
+    private var subtaskDragging = false
+
+    /** Section 19: only ids the server has can be written, so a task made offline waits. */
+    fun canMoveSubtasks(): Boolean {
+        val state = _uiState.value
+        return subtaskOrders != null && (state.task?.id ?: 0L) > 0L && state.subtasks.size > 1 && state.subtasks.all { it.id > 0L }
+    }
+
+    fun onSubtaskDragStarted() {
+        subtaskDragging = true
+    }
+
+    /** A dragged row passed [toId]; nothing is written before the finger comes up. */
+    fun moveSubtask(fromId: Long, toId: Long) {
+        _uiState.update { state ->
+            val from = state.subtasks.indexOfFirst { it.id == fromId }
+            val to = state.subtasks.indexOfFirst { it.id == toId }
+            if (from < 0 || to < 0) return@update state
+            state.copy(subtasks = state.subtasks.toMutableList().apply { add(to, removeAt(from)) })
+        }
+    }
+
+    fun onSubtaskDragStopped() {
+        subtaskDragging = false
+        writeSubtaskOrder()
+    }
+
+    /** Move up or Move down, for those who cannot drag. */
+    fun moveSubtaskBy(id: Long, delta: Int) {
+        val subtasks = _uiState.value.subtasks
+        val target = subtasks.getOrNull(subtasks.indexOfFirst { it.id == id } + delta) ?: return
+        moveSubtask(id, target.id)
+        writeSubtaskOrder()
+    }
+
+    private fun writeSubtaskOrder() {
+        val store = subtaskOrders ?: return
+        val state = _uiState.value
+        val taskId = state.task?.id ?: return
+        val ids = state.subtasks.map { it.id }
+        viewModelScope.launch { store.set(taskId, ids) }
+    }
+
+    /** The task a template just made: its title is selected when it opens, once. */
+    private var selectTitleOf: Long? = null
+
+    fun selectTitleOnOpen(taskId: Long) {
+        selectTitleOf = taskId
+    }
+
+    fun consumeSelectTitle(taskId: Long): Boolean {
+        if (selectTitleOf != taskId) return false
+        selectTitleOf = null
+        return true
     }
 
     fun dismissDeleteConfirmation() {

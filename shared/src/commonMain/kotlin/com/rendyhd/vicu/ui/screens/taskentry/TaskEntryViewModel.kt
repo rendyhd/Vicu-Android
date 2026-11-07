@@ -22,6 +22,7 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.location.LocationAccess
 import com.rendyhd.vicu.location.LocationPermissionPlatform
 import com.rendyhd.vicu.location.LocationRepository
+import com.rendyhd.vicu.data.repository.TaskTemplateStore
 import com.rendyhd.vicu.location.LocationTrigger
 import com.rendyhd.vicu.location.PlaceMatch
 import com.rendyhd.vicu.location.SavedPlace
@@ -34,6 +35,8 @@ import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.RecurrenceValue
+import com.rendyhd.vicu.util.TaskTemplate
+import com.rendyhd.vicu.util.TaskTemplates
 import com.rendyhd.vicu.util.TextTaskCreator
 import com.rendyhd.vicu.util.postIfRefused
 import com.rendyhd.vicu.util.parser.ParseResult
@@ -97,6 +100,12 @@ data class TaskEntryUiState(
     val subtasks: List<String> = emptyList(),
     /** The draft was just cleared: Undo can put it back until the user types or the sheet closes. */
     val canUndoClear: Boolean = false,
+    /** The account's templates; quick add offers them only when there are any. */
+    val templates: List<TaskTemplate> = emptyList(),
+    /** The template this sheet is editing (section 18.3): it then holds that template, not a draft. */
+    val editingTemplate: TaskTemplate? = null,
+    /** A task was just made from a template: the sheet closes and opens it. */
+    val madeFromTemplateId: Long? = null,
 ) {
     /** Anything the user wrote or picked that Clear would take away. */
     val hasDraft: Boolean
@@ -134,6 +143,7 @@ class TaskEntryViewModel(
     private val dayClock: DayClock,
     private val locations: LocationRepository,
     private val locationPermission: LocationPermissionPlatform,
+    private val templateStore: TaskTemplateStore? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TaskEntryUiState())
@@ -155,6 +165,9 @@ class TaskEntryViewModel(
     /** What Clear took away, while Undo can still put it back. */
     private var clearedDraft: ClearedDraft? = null
 
+    /** The draft a template edit stands in for, put back when the edit ends. */
+    private var draftBeforeEdit: ClearedDraft? = null
+
     private class ClearedDraft(
         val state: TaskEntryUiState,
         val suppressedRawTexts: Map<TokenType, List<String>>,
@@ -172,6 +185,11 @@ class TaskEntryViewModel(
 
 
     init {
+        templateStore?.let { store ->
+            viewModelScope.launch {
+                store.templates.collect { templates -> _uiState.update { it.copy(templates = templates) } }
+            }
+        }
         viewModelScope.launch {
             projectRepository.getAll().collect { projects ->
                 _uiState.update { state ->
@@ -293,6 +311,10 @@ class TaskEntryViewModel(
 
     /** Stage a pasted image: append `[[image-pending:uuid]]` to description and remember the URI. */
     fun stagePendingImage(uri: String) {
+        if (_uiState.value.editingTemplate != null) {
+            appMessages.post("A template can't hold images")
+            return
+        }
         val uuid = randomUuid().take(8)
         _uiState.update { state ->
             val (text, refs) = ImageTokens.parseValue(state.description)
@@ -322,7 +344,8 @@ class TaskEntryViewModel(
             }
 
             val config = state.parserConfig.copy(suppressTypes = activeSuppressed)
-            val parseResult = if (title.isNotBlank()) {
+            // A template's title is taken as typed (section 18.3).
+            val parseResult = if (title.isNotBlank() && state.editingTemplate == null) {
                 parse(title, config, state.places)
             } else {
                 null
@@ -492,6 +515,137 @@ class TaskEntryViewModel(
     fun editReminder(index: Int, reminder: TaskReminder) {
         _uiState.update {
             it.copy(reminders = it.reminders.toMutableList().apply { set(index, reminder) })
+        }
+    }
+
+    /** Makes a task from [template] (section 18.2); the sheet then closes and opens it. */
+    fun useTemplate(template: TaskTemplate) {
+        val store = templateStore ?: return
+        if (_uiState.value.isSaving) return
+        _uiState.update { it.copy(isSaving = true, error = null) }
+        viewModelScope.launch {
+            val fallback = _uiState.value.projectId.takeIf { it != 0L } ?: resolveActiveProjectId(null)
+            when (val made = store.make(template, fallback)) {
+                is NetworkResult.Success -> {
+                    if (!made.data.complete) appMessages.post("Made the task, but some labels or subtasks could not be added")
+                    _uiState.update { it.copy(isSaving = false, madeFromTemplateId = made.data.task.id) }
+                }
+                is NetworkResult.Error -> _uiState.update { it.copy(isSaving = false, error = made.message) }
+                is NetworkResult.Loading -> _uiState.update { it.copy(isSaving = false) }
+            }
+        }
+    }
+
+    fun onMadeFromTemplateHandled() {
+        _uiState.update { it.copy(madeFromTemplateId = null) }
+    }
+
+    /** Removes [template], with Undo. */
+    fun removeTemplate(template: TaskTemplate) {
+        val store = templateStore ?: return
+        viewModelScope.launch {
+            store.remove(template)
+            appMessages.post("Removed \"${template.title}\"", actionLabel = "Undo") {
+                viewModelScope.launch { store.put(template) }
+            }
+        }
+    }
+
+    /** Fills the sheet with the template [id], keeping the draft for when the edit ends. */
+    fun startEditingTemplate(id: String) {
+        isInitialized = true
+        val store = templateStore ?: return
+        viewModelScope.launch {
+            val template = store.templates.first().firstOrNull { it.id == id } ?: return@launch
+            val before = _uiState.value
+            if (before.editingTemplate != null) return@launch
+            draftBeforeEdit = ClearedDraft(before, suppressedRawTexts, pinnedTypes)
+            clearedDraft = null
+            suppressedRawTexts = emptyMap()
+            pinnedTypes = emptySet()
+            val day = dayClock.day.value
+            val fallback = before.projectId.takeIf { it != 0L } ?: resolveActiveProjectId(null)
+            _uiState.update {
+                it.copy(
+                    editingTemplate = template,
+                    canUndoClear = false,
+                    title = template.title,
+                    parseResult = null,
+                    description = template.notes,
+                    dueDate = TaskTemplates.dueDateOf(template.due, day.date, day.zone),
+                    dueDateIsManual = true,
+                    priority = template.priority,
+                    priorityIsManual = true,
+                    projectId = template.projectId ?: fallback,
+                    projectIsManual = true,
+                    selectedLabelIds = template.labels.toSet(),
+                    reminders = template.reminders.map { r -> TaskReminder(relativePeriod = r.relativePeriod, relativeTo = r.relativeTo) },
+                    manualRecurrence = RecurrenceValue(template.repeatAfter, template.repeatMode),
+                    placeTrigger = null,
+                    pickedPlace = null,
+                    subtasks = template.subtasks.map { s -> s.title },
+                    pendingAttachmentUris = emptyList(),
+                    pendingAttachmentMimeType = null,
+                    pendingImages = emptyMap(),
+                    isSaving = false,
+                    error = null,
+                )
+            }
+        }
+    }
+
+    /** Writes what the sheet holds to the template being edited. */
+    fun saveTemplateEdit() {
+        val store = templateStore ?: return
+        val state = _uiState.value
+        val template = state.editingTemplate ?: return
+        val title = state.title.trim()
+        if (title.isBlank()) return
+        val day = dayClock.day.value
+        val due = TaskTemplates.dueOf(state.dueDate, day.date, day.zone)
+        val recurrence = state.manualRecurrence
+        val edited = template.copy(
+            title = title,
+            notes = state.description,
+            labels = state.selectedLabelIds.toList(),
+            priority = state.priority,
+            due = due,
+            projectId = state.projectId,
+            repeatAfter = recurrence?.repeatAfter ?: 0,
+            repeatMode = recurrence?.repeatMode ?: 0,
+            reminders = if (due == null) emptyList() else TaskTemplates.relativeReminders(state.reminders),
+            subtasks = TaskTemplates.withSubtaskTitles(template.subtasks, state.subtasks),
+        )
+        viewModelScope.launch {
+            if (!store.put(edited)) appMessages.post("This template is too long to save")
+        }
+    }
+
+    /** The edit is over, saved or not: the draft from before it comes back. */
+    fun endTemplateEdit() {
+        if (_uiState.value.editingTemplate == null) return
+        val before = draftBeforeEdit
+        draftBeforeEdit = null
+        reset()
+        if (before != null) {
+            suppressedRawTexts = before.suppressedRawTexts
+            pinnedTypes = before.pinnedTypes
+            _uiState.update { now ->
+                before.state.copy(
+                    allProjects = now.allProjects,
+                    allLabels = now.allLabels,
+                    places = now.places,
+                    templates = now.templates,
+                    parserConfig = now.parserConfig.copy(suppressTypes = before.state.parserConfig.suppressTypes),
+                    inboxProjectId = now.inboxProjectId,
+                    keepEntryOpen = now.keepEntryOpen,
+                    isSaving = false,
+                    savedTaskId = null,
+                    error = null,
+                    editingTemplate = null,
+                    madeFromTemplateId = null,
+                )
+            }
         }
     }
 
@@ -720,6 +874,7 @@ class TaskEntryViewModel(
                 allProjects = now.allProjects,
                 allLabels = now.allLabels,
                 places = now.places,
+                templates = now.templates,
                 parserConfig = now.parserConfig.copy(suppressTypes = cleared.state.parserConfig.suppressTypes),
                 inboxProjectId = now.inboxProjectId,
                 keepEntryOpen = now.keepEntryOpen,
@@ -743,6 +898,8 @@ class TaskEntryViewModel(
         pinnedTypes = emptySet()
         _uiState.update {
             it.copy(
+                editingTemplate = null,
+                madeFromTemplateId = null,
                 canUndoClear = false,
                 title = "",
                 description = "",

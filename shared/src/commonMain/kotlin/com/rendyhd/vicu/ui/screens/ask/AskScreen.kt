@@ -76,6 +76,12 @@ import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import com.rendyhd.vicu.util.DateContext
 import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DueDates
+import com.rendyhd.vicu.ai.ask.withDue
+import com.rendyhd.vicu.ui.components.assistant.DraftChip
+import com.rendyhd.vicu.ui.components.picker.WhenSheet
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Instant
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -221,6 +227,7 @@ internal fun Conversation(state: AskUiState, viewModel: AskViewModel, onTaskClic
                     pending = pending,
                     onApply = { if (pending.proposal.size > AiContract.limits.proposalConfirmTwiceAbove) confirmBig = true else viewModel.apply() },
                     onDecline = viewModel::decline,
+                    onEdit = viewModel::editCard,
                 )
             }
         }
@@ -343,11 +350,14 @@ private fun OutcomeLine(outcome: ProposalOutcome) {
 
 /** A proposal: every task and its new value, before anything changes (section 5.4). */
 @Composable
-private fun ProposalCard(pending: PendingProposal, onApply: () -> Unit, onDecline: () -> Unit) {
+private fun ProposalCard(pending: PendingProposal, onApply: () -> Unit, onDecline: () -> Unit, onEdit: (Proposal) -> Unit) {
     val proposal = pending.proposal
     val snapshot = pending.snapshot
     val day = LocalClockDay.current
     val format = LocalDateFormat.current
+    // The date being changed: the task's id on an update card, the draft's ref on an add card.
+    var editingTask by remember(proposal.callId) { mutableStateOf<Long?>(null) }
+    var editingDraft by remember(proposal.callId) { mutableStateOf<String?>(null) }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
@@ -360,20 +370,38 @@ private fun ProposalCard(pending: PendingProposal, onApply: () -> Unit, onDeclin
             )
             when (proposal) {
                 is Proposal.Create -> for (draft in proposal.result.drafts) {
-                    DraftCard(draft, proposal.context, proposal.result.dropped.filter { it.ref == draft.ref }, emptySet(), editable = false, onChange = {}, onRemove = null)
+                    DraftCard(
+                        draft,
+                        proposal.context,
+                        proposal.result.dropped.filter { it.ref == draft.ref },
+                        emptySet(),
+                        editable = false,
+                        onChange = {},
+                        onRemove = null,
+                        onDueClick = { editingDraft = draft.ref },
+                    )
                 }
                 is Proposal.Update -> for (change in proposal.changes) {
                     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)).padding(8.dp)) {
                         Text(change.before.title, style = MaterialTheme.typography.bodyMedium)
                         val lines = buildList {
                             change.title?.let { add("Title: $it") }
-                            change.due?.let { (local, hasTime) -> add("Due: " + DateDisplay.format(DateContext.CHIP, local, day.date, !hasTime, format)) }
-                            if (change.clearDue) add("Due: no date")
                             change.projectId?.let { add("Project: " + snapshot.path(it)) }
                             if (change.labelsAdd.isNotEmpty()) add("Add labels: " + change.labelsAdd.joinToString(", "))
                             if (change.labelsRemove.isNotEmpty()) add("Remove labels: " + change.labelsRemove.joinToString(", ") { it.title })
                             change.priority?.let { add("Priority: " + listOf("none", "low", "medium", "high", "urgent")[it]) }
                             change.appendNotes?.let { add("Add to notes: $it") }
+                        }
+                        if (change.due != null || change.clearDue) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Due", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                DraftChip(
+                                    text = change.due?.let { (local, hasTime) -> DateDisplay.format(DateContext.CHIP, local, day.date, !hasTime, format) } ?: "No date",
+                                    guessed = false,
+                                    changed = change.dueEdited,
+                                    onClick = { editingTask = change.before.id },
+                                )
+                            }
                         }
                         for (line in lines) Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -399,6 +427,33 @@ private fun ProposalCard(pending: PendingProposal, onApply: () -> Unit, onDeclin
                 Button(onClick = onApply) { Text("Apply") }
             }
         }
+    }
+
+    val update = proposal as? Proposal.Update
+    val create = proposal as? Proposal.Create
+    val editedChange = editingTask?.let { id -> update?.changes?.firstOrNull { it.before.id == id } }
+    val editedDraft = editingDraft?.let { ref -> create?.result?.drafts?.firstOrNull { it.ref == ref } }
+    if (editedChange != null || editedDraft != null) {
+        val zone = day.zone
+        val current = editedChange?.due ?: editedDraft?.due?.let { it to editedDraft.dueHasTime }
+        val write: (Pair<LocalDateTime, Boolean>?) -> Unit = { due ->
+            when {
+                editedChange != null && update != null -> onEdit(update.withDue(editedChange.before.id, due))
+                editedDraft != null && create != null -> onEdit(create.withDue(editedDraft.ref, due))
+            }
+        }
+        WhenSheet(
+            currentDate = current?.let { (local, hasTime) -> DueDates.fromParsed(local, hasTime, zone).toString() },
+            onDateSelected = { picked ->
+                val instant = Instant.parse(picked)
+                write(instant.toLocalDateTime(zone) to !DueDates.isDateOnly(instant, zone))
+            },
+            onClearDate = { write(null) },
+            onDismiss = {
+                editingTask = null
+                editingDraft = null
+            },
+        )
     }
 }
 
