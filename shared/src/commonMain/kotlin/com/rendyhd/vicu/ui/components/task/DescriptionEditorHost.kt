@@ -44,6 +44,24 @@ internal class DescriptionEditorController {
         private set
 
     /**
+     * Set by [requestFocus] and taken by the field once it is composed, so a host can open the
+     * notes and put the cursor in them in one tap.
+     */
+    var isFocusRequested by mutableStateOf(false)
+        private set
+
+    /** Focuses the notes, at the end of their text, as soon as the field is there. */
+    fun requestFocus() {
+        isFocusRequested = true
+    }
+
+    fun takeFocusRequest(): Boolean {
+        if (!isFocusRequested) return false
+        isFocusRequested = false
+        return true
+    }
+
+    /**
      * The editor's toolbar, for a host that draws it itself (on top of the keyboard) instead of
      * under the editor; null while no field hands it over.
      */

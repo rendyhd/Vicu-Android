@@ -221,6 +221,9 @@ internal fun DescriptionField(
         if (hostedToolbar) editorController.hostToolbar(session, toolbar)
         if (session.isImportBlocked) editorController.updateEditorBounds(null)
     }
+    LaunchedEffect(session, editorController.isFocusRequested) {
+        if (editorController.takeFocusRequest()) session.focusEnd()
+    }
     DisposableEffect(session, editorController) {
         onDispose {
             // Lazy containers may dispose this field while it is off-screen

@@ -6,7 +6,9 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import io.github.linreal.cascade.editor.action.FocusBlock
 import io.github.linreal.cascade.editor.core.Block
+import io.github.linreal.cascade.editor.core.BlockContent
 import io.github.linreal.cascade.editor.core.BlockId
 import io.github.linreal.cascade.editor.htmlserialization.ExperimentalCascadeHtmlApi
 import io.github.linreal.cascade.editor.htmlserialization.HtmlDecodeWarning
@@ -116,6 +118,16 @@ internal class DescriptionEditorSession(
 
     fun resolveBlocks(): List<Block> =
         stateHolder.resolveDocumentBlocks(textStates, spanStates)
+
+    /** Focuses the last line that holds text, with the cursor at its end. */
+    fun focusEnd() {
+        if (isImportBlocked) return
+        val last = stateHolder.state.blocks.lastOrNull { it.type.supportsText } ?: return
+        val text = textStates.getVisibleText(last.id) ?: (last.content as? BlockContent.Text)?.text.orEmpty()
+        textStates.getOrCreate(last.id, text, text.length)
+        textStates.setCursorPosition(last.id, text.length)
+        stateHolder.dispatch(FocusBlock(last.id))
+    }
 
     /**
      * Publishes [blocks] only when their semantic editor content changed.

@@ -888,7 +888,12 @@ fun TaskEntrySheet(
                         ) {
                             if (!showNotes) {
                                 TextButton(
-                                    onClick = { notesShown = true },
+                                    onClick = {
+                                        // Straight into the notes, with the cursor in them; a
+                                        // tray gives way to the keyboard as the notes take focus.
+                                        notesShown = true
+                                        descriptionEditorController.requestFocus()
+                                    },
                                     modifier = Modifier.heightIn(min = 48.dp),
                                     contentPadding = PaddingValues(horizontal = 16.dp),
                                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),

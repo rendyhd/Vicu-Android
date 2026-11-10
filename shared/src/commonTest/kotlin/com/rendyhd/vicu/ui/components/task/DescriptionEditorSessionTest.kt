@@ -179,6 +179,43 @@ class DescriptionEditorSessionTest {
         assertTrue(replacementSession.syncExternalHtml(preservedBlock))
         assertFalse(replacementSession.flush {})
     }
+
+    @Test
+    fun focusEndPutsTheCursorAtTheEndOfTheLastLine() {
+        val session = session("<p>First</p><p>Second</p>")
+        val last = session.stateHolder.state.blocks.last()
+
+        session.focusEnd()
+
+        assertEquals(last.id, session.stateHolder.state.focusedBlockId)
+        assertEquals("Second", session.textStates.getVisibleText(last.id))
+        // The raw text starts with Cascade's hidden sentinel; the cursor is after the last letter.
+        val state = session.textStates.getOrCreate(last.id, "Second", 0)
+        assertEquals(state.text.length, state.selection.start)
+        assertEquals(state.text.length, state.selection.end)
+    }
+
+    @Test
+    fun focusEndOnEmptyNotesFocusesTheEmptyLine() {
+        val session = session("")
+
+        session.focusEnd()
+
+        assertEquals(session.stateHolder.state.blocks.single().id, session.stateHolder.state.focusedBlockId)
+    }
+
+    @Test
+    fun focusRequestIsTakenOnce() {
+        val controller = DescriptionEditorController()
+        assertFalse(controller.takeFocusRequest())
+
+        controller.requestFocus()
+
+        assertTrue(controller.isFocusRequested)
+        assertTrue(controller.takeFocusRequest())
+        assertFalse(controller.isFocusRequested)
+        assertFalse(controller.takeFocusRequest())
+    }
 }
 
 private fun session(html: String): DescriptionEditorSession =
