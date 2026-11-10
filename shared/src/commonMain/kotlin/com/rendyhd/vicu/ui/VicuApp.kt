@@ -483,7 +483,13 @@ fun VicuApp(
                     )
                 } ?: SnackbarResult.Dismissed
             }
-            if (result == SnackbarResult.ActionPerformed) message.onAction?.invoke()
+            if (result == SnackbarResult.ActionPerformed) {
+                message.onAction?.invoke()
+                message.openCustomListId?.let { id ->
+                    navController.awaitGraph()
+                    navController.navigateTopLevel(ViewTarget.CustomList(id).toRoute())
+                }
+            }
         }
     }
 

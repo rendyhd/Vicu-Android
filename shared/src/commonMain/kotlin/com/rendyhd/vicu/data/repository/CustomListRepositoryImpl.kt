@@ -74,6 +74,7 @@ class CustomListRepositoryImpl(
     private val _syncStatus = MutableStateFlow<CustomListSyncStatus>(CustomListSyncStatus.Idle)
     override val syncStatus: StateFlow<CustomListSyncStatus> = _syncStatus
     override val hasUnsyncedChanges = store.hasUnsyncedChanges
+    override val importedSavedFilters = store.importedSavedFilters
 
     private val engine = SyncedDocumentSync(
         codec = CustomListCodec(json),
@@ -156,6 +157,32 @@ class CustomListRepositoryImpl(
             ))
         }
         saveMutation(state.copy(document = CustomListEnvelope.normalize(document)))
+    }
+
+    override suspend fun importLists(lists: List<CustomList>, filterIds: Collection<Long>) = engine.mutate {
+        val state = ensureState()
+        var document = CustomListEnvelope.normalize(state.document)
+        for (list in lists) {
+            val value = list.toWire()
+            document = document.copy(
+                lists = document.lists + (value.id to CustomListSyncRecord(value, CustomListEnvelope.nextRevision(document, state.deviceId, now()))),
+            )
+            document = document.copy(order = document.order.copy(
+                ids = document.order.ids.filterNot { it == value.id } + value.id,
+                revision = CustomListEnvelope.nextRevision(document, state.deviceId, now()),
+            ))
+        }
+        document = document.copy(
+            importedSavedFilters = CustomListEnvelope.unionImported(document.importedSavedFilters, filterIds.toList()),
+        )
+        saveMutation(state.copy(document = CustomListEnvelope.normalize(document)))
+    }
+
+    override suspend fun dropDuplicateImports() = engine.mutate {
+        val state = ensureState()
+        val document = CustomListEnvelope.normalize(state.document)
+        val cleaned = CustomListEnvelope.dropDuplicateImports(document, state.deviceId, now())
+        if (cleaned !== document) saveMutation(state.copy(document = CustomListEnvelope.normalize(cleaned)))
     }
 
     override suspend fun delete(id: String) = engine.mutate {

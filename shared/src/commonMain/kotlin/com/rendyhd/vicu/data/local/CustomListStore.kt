@@ -57,6 +57,14 @@ class CustomListStore(
         }
     }
 
+    /** The saved filters any device imported (cross-app semantics 3.7). */
+    val importedSavedFilters: Flow<Set<Long>> = dataStore.data.map { prefs ->
+        prefs[KEY_SYNC_STATE]?.let { raw ->
+            runCatching { json.decodeFromString<CustomListSyncLocalState>(raw).document.importedSavedFilters.orEmpty().toSet() }
+                .getOrNull()
+        }.orEmpty()
+    }
+
     fun getById(id: String): Flow<CustomList?> =
         getAll().map { lists -> lists.find { it.id == id } }
 

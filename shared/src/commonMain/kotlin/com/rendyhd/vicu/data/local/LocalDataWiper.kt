@@ -58,6 +58,8 @@ class LocalDataWiper(
      */
     private val assistantConversations: ConversationStore? = null,
     private val keptTranscript: KeptTranscriptStore? = null,
+    /** What this device knows of the account's saved filters (cross-app semantics 3.7). */
+    private val savedFilters: SavedFilterStore? = null,
 ) {
     /**
      * Entries of routine history that have not been uploaded to the server yet (the phone-only
@@ -122,6 +124,7 @@ class LocalDataWiper(
             locationReminders?.clear()
             assistantConversations?.clear()
             keptTranscript?.clear()
+            savedFilters?.clear()
         }
         // The old account's reminders must not keep firing for a signed-out (or switched) account.
         platformHooks.cancelAllAlarms()

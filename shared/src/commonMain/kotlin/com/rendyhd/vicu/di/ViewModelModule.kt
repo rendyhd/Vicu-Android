@@ -20,6 +20,7 @@ import com.rendyhd.vicu.ui.screens.routines.RoutinesViewModel
 import com.rendyhd.vicu.ui.screens.search.SearchViewModel
 import com.rendyhd.vicu.ui.screens.settings.HiddenRoutinesViewModel
 import com.rendyhd.vicu.ui.screens.settings.SettingsViewModel
+import com.rendyhd.vicu.ui.screens.settings.SavedFilterImportViewModel
 import com.rendyhd.vicu.ui.screens.setup.SetupViewModel
 import com.rendyhd.vicu.ui.screens.tag.TagViewModel
 import com.rendyhd.vicu.ui.components.location.PlacesViewModel
@@ -89,6 +90,7 @@ val viewModelModule = module {
     viewModelOf(::TaskCommentsViewModel)
     viewModelOf(::PlacesViewModel)
     viewModelOf(::AssistantSettingsViewModel)
+    viewModelOf(::SavedFilterImportViewModel)
     viewModelOf(::AskViewModel)
     viewModelOf(::GuidedSortViewModel)
     viewModelOf(::GuidedReviewViewModel)

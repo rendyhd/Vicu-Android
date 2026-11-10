@@ -7,7 +7,15 @@ import com.rendyhd.vicu.ui.navigation.ScreenReady
 import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.Surface
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -54,6 +62,44 @@ import com.rendyhd.vicu.ui.components.shared.rememberVicuTopBarScroll
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.ui.components.task.RowView
 import com.rendyhd.vicu.ui.components.task.projectMetas
+
+/**
+ * The notice an imported list shows the first time it is opened on a device (cross-app semantics
+ * 3.7): the list is a copy, and changing it does not change the saved filter on the server.
+ */
+@Composable
+private fun ImportedListNotice(filterName: String, onClose: () -> Unit) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Column(modifier = Modifier.padding(start = 16.dp, top = 14.dp, end = 8.dp, bottom = 4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(end = 8.dp)) {
+                Icon(
+                    Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Imported from your server", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "This list is a copy of the saved filter \"$filterName\". Changes you make here stay in Vicu " +
+                            "and won't update the filter on your server.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onClose) { Text("Got it") }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -155,6 +201,14 @@ fun CustomListScreen(
                 .padding(padding),
         ) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().listScrollbar(listState), contentPadding = PaddingValues(bottom = FabClearance)) {
+                if (state.showImportNotice) {
+                    item(key = "import-notice", contentType = "notice") {
+                        ImportedListNotice(
+                            filterName = state.customList?.name.orEmpty(),
+                            onClose = viewModel::closeImportNotice,
+                        )
+                    }
+                }
                 if (state.tasks.isEmpty() && !state.isLoading) {
                     item {
                         EmptyState(

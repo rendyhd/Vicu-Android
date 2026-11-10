@@ -39,6 +39,8 @@ import com.rendyhd.vicu.util.RoutineReminderCheck
 import com.rendyhd.vicu.data.sync.CarrierFinder
 import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.data.sync.ProjectRefresher
+import com.rendyhd.vicu.data.local.SavedFilterStore
+import com.rendyhd.vicu.data.sync.SavedFilterImporter
 import com.rendyhd.vicu.data.sync.ProjectTaskCounts
 import com.rendyhd.vicu.data.sync.ScreenRefresher
 import com.rendyhd.vicu.data.sync.SyncStaleness
@@ -76,6 +78,7 @@ val databaseModule = module {
     single { BottomBarPrefsStore(createDataStore(get(), "bottom_bar_prefs")) }
     single { CarrierIdStore(createDataStore(get(), "carrier_ids")) }
     single { CustomListStore(createDataStore(get(), "custom_lists")) }
+    single { SavedFilterStore(createDataStore(get(), "saved_filters")) }
     single { LabelOrderPrefsStore(createDataStore(get(), "label_order_prefs")) }
     single { LogbookPrefsStore(createDataStore(get(), "logbook_prefs")) }
     single { NlpPrefsStore(createDataStore(get(), "nlp_prefs")) }
@@ -134,7 +137,8 @@ val repositoryModule = module {
             taskMapper = get(),
         )
     }
-    single { ProjectRefresher(projectDao = get(), pendingActionDao = get(), api = get(), projectMapper = get()) }
+    single { ProjectRefresher(projectDao = get(), pendingActionDao = get(), api = get(), projectMapper = get(), savedFilters = get()) }
+    single { SavedFilterImporter(api = get(), store = get(), customLists = get(), messages = get()) }
 
     single {
         val taskDao = get<TaskDao>()
@@ -412,6 +416,7 @@ val commonModule = module {
             locationReminders = get(),
             assistantConversations = get(),
             keptTranscript = get(),
+            savedFilters = get(),
         )
     }
     single {
@@ -510,6 +515,7 @@ val commonModule = module {
             collaboration = get(),
             syncedPreferences = get(),
             locations = get(),
+            savedFilters = get(),
         )
     }
 }

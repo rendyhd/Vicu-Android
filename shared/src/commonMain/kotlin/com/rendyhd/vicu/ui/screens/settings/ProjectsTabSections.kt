@@ -321,6 +321,7 @@ internal fun LazyListScope.customListsSection(
     state: SettingsUiState,
     viewModel: SettingsViewModel,
     openDialog: (SettingsDialog) -> Unit,
+    savedFilters: SavedFilterImportViewModel? = null,
 ) {
     fun deleteCustomList(list: CustomList) {
         if (state.behaviorPrefs.confirmBeforeDelete) {
@@ -376,6 +377,10 @@ internal fun LazyListScope.customListsSection(
         }
     }
 
+    savedFilters?.let { importer ->
+        item(key = "lists_saved_filter_offer") { SavedFilterOffer(importer) }
+    }
+
     if (state.customLists.isEmpty()) {
         item(key = "lists_empty") {
             Text(
@@ -393,6 +398,10 @@ internal fun LazyListScope.customListsSection(
                 onDelete = { deleteCustomList(list) },
             )
         }
+    }
+
+    savedFilters?.let { importer ->
+        item(key = "lists_import_saved_filters") { ImportSavedFiltersRow(importer) }
     }
 
     item(key = "lists_divider") {

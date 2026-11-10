@@ -60,13 +60,19 @@ class CustomListEditorTest {
                 created = "2026-05-0${n}T10:00:00Z",
                 updated = "2026-04-0${n}T10:00:00Z",
                 doneAt = "2026-03-0${n}T10:00:00Z",
+                startDate = "2026-02-0${n}T10:00:00Z",
+                endDate = "2026-02-0${n}T11:00:00Z",
+                percentDone = n / 10.0,
                 priority = n.toInt(),
                 position = n.toDouble(),
             )
         }
-        for ((key, _) in SORT_BY_OPTIONS) {
+        // Done has two values; it is checked on its own below.
+        for ((key, _) in SORT_BY_OPTIONS.filter { it.first != "done" }) {
             assertEquals(listOf(1L, 2L, 3L), CustomListFilterBuilder.sortTasks(tasks, key, "asc").map { it.id }, key)
         }
+        val oneDone = tasks.map { if (it.id == 3L) it else it.copy(done = true) }
+        assertEquals(listOf(3L, 2L, 1L), CustomListFilterBuilder.sortTasks(oneDone, "done", "asc").map { it.id }, "open first")
     }
 
     @Test

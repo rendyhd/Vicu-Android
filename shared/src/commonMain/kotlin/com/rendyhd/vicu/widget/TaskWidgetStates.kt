@@ -140,7 +140,7 @@ class TaskWidgetStates(
                     // the list includes them), not a capped sample, filtered and sorted the same.
                     // The collaboration conditions read the members and signals stored on the device.
                     val context = if (customList.filter.hasCollaborationCondition) collaborationContext() else CustomListContext.NONE
-                    taskRepository.customListTasks(customList.filter, day.date, day.zone, activeProjectIds, context)
+                    taskRepository.customListTasks(customList.filter, day.date, day.zone, activeProjectIds, context, time.now())
                         .map { it.toRow() }
                 }
             }

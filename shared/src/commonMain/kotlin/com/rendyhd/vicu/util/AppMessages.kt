@@ -18,6 +18,8 @@ class AppMessage(
     val onAction: (() -> Unit)? = null,
     val durationMillis: Long? = null,
     val openTaskId: Long? = null,
+    /** With [actionLabel], the action opens this custom list. */
+    val openCustomListId: String? = null,
 )
 
 /**
@@ -51,6 +53,11 @@ class AppMessages {
         onAction: () -> Unit,
     ) {
         if (message.isNotBlank()) channel.trySend(AppMessage(message, actionLabel, onAction, durationMillis, openTaskId))
+    }
+
+    /** Posts [message] with Open, which opens the custom list [listId]. */
+    fun postOpeningList(message: String, listId: String) {
+        if (message.isNotBlank()) channel.trySend(AppMessage(message, actionLabel = "Open", openCustomListId = listId))
     }
 
     private companion object {

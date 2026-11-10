@@ -68,8 +68,45 @@ object CustomListEnvelope {
                 compareRevision(left.revision, right.revision).takeIf { it != 0 }
                     ?: left.value!!.id.compareTo(right.value!!.id)
             }.map { it.value!! }
-        return ordered + missing
+        return withoutDuplicateImports(ordered + missing)
     }
+
+    /**
+     * [lists] without the lists that repeat another list's saved filter: per `saved_filter_id`,
+     * the list whose id sorts first stays (section 3.7).
+     */
+    fun withoutDuplicateImports(lists: List<CustomListWire>): List<CustomListWire> {
+        val winners = lists.filter { it.savedFilterId != null }
+            .groupBy { it.savedFilterId }
+            .mapValues { (_, same) -> same.minOf { it.id } }
+        return lists.filter { list -> list.savedFilterId == null || winners[list.savedFilterId] == list.id }
+    }
+
+    /** The lists [activeLists] hides as duplicate imports, which the next write turns into tombstones. */
+    fun duplicateImports(document: CustomListSyncDocumentV1): List<String> {
+        val active = document.lists.values.mapNotNull { it.value }
+        val kept = withoutDuplicateImports(active).mapTo(HashSet()) { it.id }
+        return active.map { it.id }.filter { it !in kept }.sorted()
+    }
+
+    /**
+     * [document] with every hidden duplicate import deleted (a tombstone stamped [deviceId] at
+     * [now]); the same document when there is none.
+     */
+    fun dropDuplicateImports(document: CustomListSyncDocumentV1, deviceId: String, now: Long): CustomListSyncDocumentV1 {
+        val duplicates = duplicateImports(document)
+        if (duplicates.isEmpty()) return document
+        var doc = document
+        for (id in duplicates) {
+            val revision = nextRevision(doc, deviceId, now)
+            doc = doc.copy(lists = doc.lists + (id to CustomListSyncRecord(null, revision)))
+        }
+        return doc
+    }
+
+    /** The union of two `imported_saved_filters`, ascending; null when empty. */
+    fun unionImported(left: List<Long>?, right: List<Long>?): List<Long>? =
+        (left.orEmpty() + right.orEmpty()).distinct().sorted().takeIf { it.isNotEmpty() }
 
     fun normalize(document: CustomListSyncDocumentV1): CustomListSyncDocumentV1 {
         require(document.version == CURRENT_VERSION) { "Custom-list payload version mismatch" }
@@ -102,6 +139,7 @@ object CustomListEnvelope {
             CustomListSyncDocumentV1(
                 lists = records,
                 order = order.copy(ids = order.ids.toList()),
+                importedSavedFilters = unionImported(left.importedSavedFilters, right.importedSavedFilters),
                 unknown = JsonObject(left.unknown + right.unknown),
             ),
         )
