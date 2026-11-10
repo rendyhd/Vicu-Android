@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.rendyhd.vicu.ui.imagePasteReceiver
+import com.rendyhd.vicu.ui.markdownPasteReceiver
 import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.Logger
 import io.github.linreal.cascade.editor.action.ClearFocus
@@ -168,6 +169,8 @@ internal fun DescriptionField(
         spanStates = session.spanStates,
         config = editorConfig,
     )
+    val markdownEditing = remember(session) { MarkdownEditing(session) }
+    MarkdownTypingEffect(session, markdownEditing)
     val callbacks = remember(session) {
         DefaultBlockCallbacks(
             dispatchFn = session.stateHolder::dispatch,
@@ -364,6 +367,10 @@ internal fun DescriptionField(
                         .imagePasteReceiver { uri ->
                             editorController.flush()
                             latestOnImagePasted.value(uri)
+                        }
+                        .markdownPasteReceiver { text ->
+                            val converted = MarkdownInput.toDescriptionHtml(text)
+                            converted.markdown && markdownEditing.paste(converted.html)
                         },
                 )
             }
