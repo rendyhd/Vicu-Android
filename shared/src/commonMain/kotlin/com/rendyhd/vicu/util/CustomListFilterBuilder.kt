@@ -2,6 +2,7 @@ package com.rendyhd.vicu.util
 
 import com.rendyhd.vicu.domain.model.CollabState
 import com.rendyhd.vicu.domain.model.CustomListFilter
+import com.rendyhd.vicu.domain.model.ListSortKey
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.TaskSignal
 import kotlinx.datetime.DateTimeUnit
@@ -76,7 +77,8 @@ object CustomListFilterBuilder {
 
     /**
      * Whether [task] belongs on the list described by [filter] on the local date [today].
-     * [context] is read by the collaboration conditions only.
+     * [context] is read by the collaboration conditions only. [now] is the moment the rule's
+     * `now` means (section 3.5); without it, the start of [today].
      */
     fun matches(
         task: Task,
@@ -84,6 +86,20 @@ object CustomListFilterBuilder {
         today: LocalDate,
         zone: TimeZone,
         context: CustomListContext = CustomListContext.NONE,
+        now: Instant? = null,
+    ): Boolean = matchesForm(task, filter, today, zone, context) && ruleOf(filter, today, zone, now)(task)
+
+    /** The list's rule as a predicate at [now] (section 3.5): every task when there is none. */
+    private fun ruleOf(filter: CustomListFilter, today: LocalDate, zone: TimeZone, now: Instant?): (Task) -> Boolean =
+        CustomListRule.compile(filter.ruleText, filter.ruleIncludeNulls, now ?: DueDates.startOfDay(today, zone), zone)
+
+    /** The conditions of sections 3.1 to 3.3, without the rule. */
+    private fun matchesForm(
+        task: Task,
+        filter: CustomListFilter,
+        today: LocalDate,
+        zone: TimeZone,
+        context: CustomListContext,
     ): Boolean {
         if (!filter.includeDone && task.done) return false
 
@@ -152,7 +168,11 @@ object CustomListFilterBuilder {
         today: LocalDate,
         zone: TimeZone,
         context: CustomListContext = CustomListContext.NONE,
-    ): List<Task> = tasks.filter { matches(it, filter, today, zone, context) }
+        now: Instant? = null,
+    ): List<Task> {
+        val rule = ruleOf(filter, today, zone, now)
+        return tasks.filter { matchesForm(it, filter, today, zone, context) && rule(it) }
+    }
 
     /**
      * The rows a custom list shows, from the full task set [tasks]: the list's conditions first,
@@ -167,12 +187,14 @@ object CustomListFilterBuilder {
         zone: TimeZone,
         activeProjectIds: Set<Long>,
         context: CustomListContext = CustomListContext.NONE,
+        now: Instant? = null,
     ): List<Task> = sortTasks(
-        applyClientSideFilters(tasks, filter, today, zone, context)
+        applyClientSideFilters(tasks, filter, today, zone, context, now)
             .filter { it.projectId in activeProjectIds }
             .withoutNestedSubtasks(hideChildrenOfCompletedParents = false),
         filter.sortBy,
         filter.orderBy,
+        filter.thenBy,
     )
 
     // --- Server filter --------------------------------------------------------------------
@@ -236,7 +258,19 @@ object CustomListFilterBuilder {
             parts.add("updated >= '${DueDates.startOfDay(today.minus(days - 1, DateTimeUnit.DAY), zone)}'")
         }
 
-        return parts.joinToString(" && ")
+        val base = parts.joinToString(" && ")
+        val rule = serverRule(filter) ?: return base
+        return if (base.isEmpty()) "($rule)" else "($base) && ($rule)"
+    }
+
+    /**
+     * The rule when the server can be asked for it (section 3.5): valid, and without `like`, whose
+     * case rules depend on the server's database. Null otherwise.
+     */
+    private fun serverRule(filter: CustomListFilter): String? {
+        val rule = filter.ruleText ?: return null
+        if (CustomListRule.validate(rule) != null || CustomListRule.usesLike(rule)) return null
+        return rule
     }
 
     /**
@@ -256,14 +290,22 @@ object CustomListFilterBuilder {
         if (filterStr.isNotBlank()) {
             put("filter", filterStr)
         }
+        if (serverRule(filter) != null) {
+            // The rule's dates mean the device's zone (section 3.5).
+            put("filter_timezone", zone.id)
+            if (filter.ruleIncludeNulls) put("filter_include_nulls", "true")
+        }
         if (filter.sortBy in SERVER_SORT_KEYS) {
             put("sort_by", filter.sortBy)
             filter.orderBy.lowercase().takeIf { it == "asc" || it == "desc" }?.let { put("order_by", it) }
         }
     }
 
-    /** The sort keys [sortTasks] understands, in the order the editor offers them. */
-    val SORT_KEYS: List<String> = listOf("due_date", "created", "updated", "priority", "title", "done_at", "position")
+    /** The sort keys [sortTasks] understands (section 3.6), in the order the editor offers them. */
+    val SORT_KEYS: List<String> = listOf(
+        "due_date", "start_date", "end_date", "created", "updated", "done_at", "priority",
+        "percent_done", "title", "done", "id", "position",
+    )
 
     /**
      * Orders tasks by a date field as instants (not as strings: "...:00.500Z" sorts before
@@ -290,18 +332,32 @@ object CustomListFilterBuilder {
      * Tasks that tie keep their order, in both directions. For the date fields (due date,
      * created, updated, done at) tasks without the date come last in both directions.
      */
-    fun sortTasks(tasks: List<Task>, sortBy: String, orderBy: String): List<Task> {
+    fun sortTasks(tasks: List<Task>, sortBy: String, orderBy: String, thenBy: List<ListSortKey> = emptyList()): List<Task> {
+        var comparator = comparatorFor(sortBy, orderBy) ?: byDate(descending = true) { it.updated }
+        for (key in thenBy) {
+            // A key this version does not know is skipped (section 3.6).
+            comparatorFor(key.sortBy, key.orderBy)?.let { comparator = comparator.then(it) }
+        }
+        return tasks.sortedWith(comparator)
+    }
+
+    /** The order of one sort key, or null for a key this version does not know. */
+    private fun comparatorFor(sortBy: String, orderBy: String): Comparator<Task>? {
         val descending = orderBy.equals("desc", ignoreCase = true)
-        val comparator: Comparator<Task> = when (sortBy) {
+        return when (sortBy) {
             "due_date" -> byDate(descending) { it.dueDate }
+            "start_date" -> byDate(descending) { it.startDate }
+            "end_date" -> byDate(descending) { it.endDate }
             "created" -> byDate(descending) { it.created }
             "updated" -> byDate(descending) { it.updated }
             "priority" -> byKey(descending) { it.priority }
             "title" -> byKey(descending) { it.title.lowercase() }
             "done_at" -> byDate(descending) { it.doneAt }
+            "percent_done" -> byKey(descending) { it.percentDone }
+            "done" -> byKey(descending) { it.done }
+            "id" -> byKey(descending) { it.id }
             "position" -> byKey(descending) { it.position }
-            else -> byDate(descending = true) { it.updated }
+            else -> null
         }
-        return tasks.sortedWith(comparator)
     }
 }

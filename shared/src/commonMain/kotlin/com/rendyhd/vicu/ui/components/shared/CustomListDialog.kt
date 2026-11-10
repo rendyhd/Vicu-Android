@@ -15,7 +15,22 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.Icon
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
+import com.rendyhd.vicu.domain.model.ListSortKey
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -66,18 +81,39 @@ private val DUE_DATE_OPTIONS = listOf(
 /** The sorts the editor offers: every key [CustomListFilterBuilder.sortTasks] understands. */
 internal val SORT_BY_OPTIONS = listOf(
     "due_date" to "Due date",
+    "start_date" to "Start date",
+    "end_date" to "End date",
     "created" to "Created",
     "updated" to "Updated",
-    "priority" to "Priority",
-    "title" to "Title",
     "done_at" to "Completed",
+    "priority" to "Priority",
+    "percent_done" to "Progress",
+    "title" to "Title",
+    "done" to "Done",
+    "id" to "Order created",
     "position" to "Position",
 )
 
-private val ORDER_OPTIONS = listOf(
-    "asc" to "Ascending",
-    "desc" to "Descending",
-)
+/** The two orders of [sortBy], named for the field ("Soonest first", "A to Z"). */
+internal fun orderOptions(sortBy: String): List<Pair<String, String>> {
+    val (asc, desc) = when (sortBy) {
+        "due_date", "start_date", "end_date" -> "Soonest first" to "Latest first"
+        "created", "updated", "done_at", "id" -> "Oldest first" to "Newest first"
+        "priority" -> "Lowest first" to "Highest first"
+        "percent_done" -> "Least done first" to "Most done first"
+        "title" -> "A to Z" to "Z to A"
+        "done" -> "Open first" to "Done first"
+        else -> "Ascending" to "Descending"
+    }
+    return listOf("asc" to asc, "desc" to desc)
+}
+
+/** "Then by" choices: None and every key but the first. */
+internal fun thenByOptions(sortBy: String, current: String): List<Pair<String, String>> {
+    val others = SORT_BY_OPTIONS.filter { it.first != sortBy }
+    val kept = if (current.isEmpty() || others.any { it.first == current }) others else others + (current to "Set by a newer version")
+    return listOf("" to "None") + kept
+}
 
 /** "Changed" counts local days with today included (cross-app semantics 3.3); 0 is no condition. */
 private val CHANGED_OPTIONS = listOf(
@@ -146,6 +182,20 @@ fun CustomListDialog(
     }
     var sortBy by remember { mutableStateOf(customList?.filter?.sortBy ?: "due_date") }
     var orderBy by remember { mutableStateOf(customList?.filter?.orderBy ?: "asc") }
+    // The editor shows one "then by"; keys after it (an imported filter's) are kept.
+    var thenBy by remember { mutableStateOf(customList?.filter?.thenBy?.firstOrNull()?.sortBy.orEmpty()) }
+    var thenOrder by remember { mutableStateOf(customList?.filter?.thenBy?.firstOrNull()?.orderBy ?: "asc") }
+    val namedLabels = remember(labels) { labels.map { RuleEditing.Named(it.id, it.title) } }
+    val namedProjects = remember(projects) { projects.map { RuleEditing.Named(it.id, it.title) } }
+    var rule by remember {
+        val shown = RuleEditing.toDisplay(customList?.filter?.rule, namedLabels, namedProjects)
+        mutableStateOf(TextFieldValue(shown, TextRange(shown.length)))
+    }
+    var ruleIncludeNulls by remember { mutableStateOf(customList?.filter?.ruleIncludeNulls ?: false) }
+    val savedRule = remember(rule.text, namedLabels, namedProjects) {
+        RuleEditing.fromDisplay(rule.text, namedLabels, namedProjects)
+    }
+    var ruleFocused by remember { mutableStateOf(false) }
     var dueDateFilter by remember { mutableStateOf(customList?.filter?.dueDateFilter ?: "all") }
     var selectedLabelIds by remember {
         mutableStateOf(customList?.filter?.labelIds?.toSet() ?: emptySet())
@@ -179,6 +229,10 @@ fun CustomListDialog(
         title = { Text(if (isEdit) "Edit List" else "New List") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                if (customList?.savedFilterId != null) {
+                    ImportedListNote()
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -355,23 +409,118 @@ fun CustomListDialog(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Sort by
+                // The rule, in Vikunja's filter syntax (cross-app semantics 3.5).
+                Text(
+                    text = "Rule",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                val problem = (savedRule as? RuleEditing.Saved.Problem)?.message
+                OutlinedTextField(
+                    value = rule,
+                    onValueChange = { rule = it },
+                    placeholder = { Text("done = false && priority > 2", fontFamily = FontFamily.Monospace) },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    isError = problem != null,
+                    supportingText = {
+                        Text(
+                            problem
+                                ?: "Tasks must also match this. It is written as in Vikunja's saved filters.",
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
+                        keyboardType = KeyboardType.Ascii,
+                    ),
+                    minLines = 2,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { ruleFocused = it.isFocused }
+                        .semantics { contentDescription = "Rule" },
+                )
+                if (ruleFocused) {
+                    val suggestions = remember(rule, namedLabels, namedProjects) {
+                        RuleEditing.suggest(rule.text, rule.selection.end, namedLabels, namedProjects)
+                    }
+                    if (suggestions.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            suggestions.forEach { suggestion ->
+                                SuggestionChip(
+                                    onClick = {
+                                        val text = rule.text.replaceRange(suggestion.start, suggestion.end, suggestion.insert)
+                                        val cursor = suggestion.start + suggestion.insert.length
+                                        rule = TextFieldValue(text, TextRange(cursor))
+                                    },
+                                    label = { Text(suggestion.label) },
+                                )
+                            }
+                        }
+                    }
+                }
+                if (rule.text.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Include tasks without a value",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(checked = ruleIncludeNulls, onCheckedChange = { ruleIncludeNulls = it })
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Sort by, then by (cross-app semantics 3.6); each order is named for its field.
+                // One field per line: side by side, a phone left the order about 100 dp, and
+                // "Soonest first" broke inside the word.
                 DropdownSelector(
                     label = "Sort by",
-                    options = SORT_BY_OPTIONS,
+                    options = withKeptValue(SORT_BY_OPTIONS, sortBy),
                     selected = sortBy,
-                    onSelect = { sortBy = it },
+                    onSelect = {
+                        sortBy = it
+                        if (thenBy == it) thenBy = ""
+                    },
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                DropdownSelector(
+                    label = "Order",
+                    options = orderOptions(sortBy),
+                    selected = orderBy,
+                    onSelect = { orderBy = it },
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Order
                 DropdownSelector(
-                    label = "Order",
-                    options = ORDER_OPTIONS,
-                    selected = orderBy,
-                    onSelect = { orderBy = it },
+                    label = "Then by",
+                    options = thenByOptions(sortBy, thenBy),
+                    selected = thenBy,
+                    onSelect = { thenBy = it },
                 )
+                if (thenBy.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    DropdownSelector(
+                        label = "Then order",
+                        options = orderOptions(thenBy),
+                        selected = thenOrder,
+                        onSelect = { thenOrder = it },
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
                 HorizontalDivider()
@@ -513,12 +662,17 @@ fun CustomListDialog(
                                     comments = comments.ifEmpty { null },
                                     sharedOnly = sharedOnly,
                                     changedWithinDays = changedWithinDays.takeIf { it >= 1 },
+                                    rule = (savedRule as? RuleEditing.Saved.Rule)?.text,
+                                    ruleIncludeNulls = ruleIncludeNulls && rule.text.isNotBlank(),
+                                    thenBy = if (thenBy.isEmpty()) emptyList()
+                                    else listOf(ListSortKey(thenBy, thenOrder)) + customList?.filter?.thenBy.orEmpty().drop(1),
                                 ),
+                                savedFilterId = customList?.savedFilterId,
                             )
                         )
                     }
                 },
-                enabled = name.isNotBlank(),
+                enabled = name.isNotBlank() && savedRule is RuleEditing.Saved.Rule,
             ) {
                 Text(if (isEdit) "Save" else "Create")
             }
@@ -529,6 +683,30 @@ fun CustomListDialog(
             }
         },
     )
+}
+
+/** The note at the top of an imported list's editor (cross-app semantics 3.7). */
+@Composable
+private fun ImportedListNote() {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(
+                Icons.Outlined.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                "Imported from a Vikunja saved filter. Changes here stay in Vicu and won't update the saved filter on your server.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

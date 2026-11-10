@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlin.time.Instant
 
 /**
  * The one source a custom list reads, for the list screen and for the home screen widget: every
@@ -29,5 +30,6 @@ suspend fun TaskRepository.customListTasks(
     zone: TimeZone,
     activeProjectIds: Set<Long>,
     context: CustomListContext = CustomListContext.NONE,
+    now: Instant? = null,
 ): List<Task> =
-    CustomListFilterBuilder.visibleTasks(customListSource(filter).first(), filter, today, zone, activeProjectIds, context)
+    CustomListFilterBuilder.visibleTasks(customListSource(filter).first(), filter, today, zone, activeProjectIds, context, now)

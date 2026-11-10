@@ -24,7 +24,10 @@ import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.domain.repository.customListSource
 import com.rendyhd.vicu.util.CustomListContext
 import com.rendyhd.vicu.util.CustomListFilterBuilder
+import com.rendyhd.vicu.data.sync.SavedFilterImporter
 import com.rendyhd.vicu.util.DayClock
+import com.rendyhd.vicu.util.SystemTimeSource
+import com.rendyhd.vicu.util.TimeSource
 import com.rendyhd.vicu.util.NetworkResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +52,8 @@ data class CustomListUiState(
     val error: String? = null,
     val completedTaskIds: Set<Long> = emptySet(),
     val inboxProjectId: Long = 0L,
+    /** The first-open notice of a list imported from a saved filter (cross-app semantics 3.7). */
+    val showImportNotice: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -65,6 +70,10 @@ class CustomListViewModel(
     private val collaboration: CollaborationRepository? = null,
     navigationTicker: NavigationTicker = NavigationTicker(),
     completionToast: CompletionToast = NoCompletionToast,
+    /** The moment a rule's `now` means (section 3.5). */
+    private val time: TimeSource = SystemTimeSource,
+    /** Whether this device has closed an imported list's notice. */
+    private val savedFilters: SavedFilterImporter? = null,
 ) : ViewModel() {
 
     private val listId: String = savedStateHandle["listId"]!!
@@ -110,7 +119,9 @@ class CustomListViewModel(
                             val activeIds = projects.mapTo(mutableSetOf()) { it.id }
                             val listContext = readHere.contextFor(context, customList.filter.comments)
                             customList to completions.merge(
-                                CustomListFilterBuilder.visibleTasks(tasks, customList.filter, day.date, day.zone, activeIds, listContext),
+                                CustomListFilterBuilder.visibleTasks(
+                                    tasks, customList.filter, day.date, day.zone, activeIds, listContext, now = time.now(),
+                                ),
                             )
                         }
                     }
@@ -141,6 +152,19 @@ class CustomListViewModel(
                 _uiState.update { it.copy(inboxProjectId = inboxId ?: 0L) }
             }
         }
+        savedFilters?.let { importer ->
+            viewModelScope.launch {
+                combine(customListRepository.lists.map { lists -> lists.find { it.id == listId } }, importer.noticeClosed) { list, closed ->
+                    list?.savedFilterId != null && listId !in closed
+                }.distinctUntilChanged().collect { show -> _uiState.update { it.copy(showImportNotice = show) } }
+            }
+        }
+    }
+
+    /** Got it on the imported list's notice: it does not come back on this device. */
+    fun closeImportNotice() {
+        _uiState.update { it.copy(showImportNotice = false) }
+        viewModelScope.launch { savedFilters?.closeNotice(listId) }
     }
 
     fun refresh(showSpinner: Boolean = false) {

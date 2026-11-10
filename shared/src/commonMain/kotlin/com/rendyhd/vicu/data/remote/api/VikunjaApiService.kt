@@ -158,7 +158,23 @@ class VikunjaApiService(
         client.delete("tasks/$id").requireNoContent()
     }
 
+    /**
+     * The account's projects. Vikunja also lists its pseudo-projects with negative ids (saved
+     * filters and Favorites, cross-app semantics 3.7); they are left out here, so nothing treats
+     * them as projects. [getProjectsAndSavedFilters] has both.
+     */
     suspend fun getAllProjects(includeArchived: Boolean = false): List<ProjectDto> =
+        getProjectList(includeArchived).filter { it.id > 0 }
+
+    /** The real projects, and the saved filters Vikunja lists among them as pseudo-projects. */
+    suspend fun getProjectsAndSavedFilters(includeArchived: Boolean = false): Pair<List<ProjectDto>, List<ProjectDto>> =
+        getProjectList(includeArchived).partition { it.id > 0 }
+
+    /** A saved filter (cross-app semantics 3.7). */
+    suspend fun getSavedFilter(id: Long): SavedFilterDto =
+        client.get("filters/$id").bodyOrThrow()
+
+    private suspend fun getProjectList(includeArchived: Boolean): List<ProjectDto> =
         fetchAllPages(
             buildMap {
                 if (includeArchived) put("is_archived", "true")

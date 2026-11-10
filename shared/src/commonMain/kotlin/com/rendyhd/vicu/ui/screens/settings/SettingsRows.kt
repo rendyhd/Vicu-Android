@@ -57,6 +57,7 @@ import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.theme.LocalVicuColors
 import com.rendyhd.vicu.ui.theme.VicuChipShape
 import com.rendyhd.vicu.util.CustomListFilterBuilder
+import com.rendyhd.vicu.util.CustomListRule
 import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.parseHexColor
 import kotlinx.datetime.LocalTime
@@ -636,7 +637,11 @@ internal fun buildFilterSummary(list: CustomList): String {
         1 -> parts.add("changed today")
         else -> parts.add("changed in $days days")
     }
-    if (f.includeDone) {
+    val rule = f.rule?.takeIf { it.isNotBlank() }
+    if (rule != null) parts.add("rule")
+    // An imported list includes done tasks so that its rule decides (contract 3.7); when the rule
+    // says something about done itself, "incl. done" would be wrong.
+    if (f.includeDone && (rule == null || CustomListRule.terms(rule).none { it.field == "done" })) {
         parts.add("incl. done")
     }
     return parts.joinToString(" · ")

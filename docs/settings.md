@@ -191,6 +191,7 @@ Stores that hold app state, not settings:
 | `LocationReminderStore` (`location_reminders`) | The location reminders that stay on this phone: at a spot that is not a saved place, or of a task created offline until it has its server id. Reminders at saved places sync as `location_reminder.<taskId>` (`LocationRepository`) | Cleared | Excluded |
 | `NotificationPermissionStore` (`notification_permission`) | How often the app asked for the notification permission, and whether the after-setup prompt ran | Kept | Included |
 | `FabHintStore` (`fab_hint`) | The one-time "Hold + to say a task" hint: tasks added through the + button's quick add (counted up to 5), whether the hint was shown, whether a task was added by holding + | Kept | Included |
+| `SavedFilterStore` (`saved_filters`) | The account's Vikunja saved filters as the last project read found them (id and title), whether this device ran its first-connect import, the filters put off with Not now, and the imported lists whose first-open notice was closed (contract section 3.7). Which filters any device imported is in the custom-list carrier (`imported_saved_filters`) | Cleared | Excluded |
 | `ConversationStore` (`ai_conversations`) | The last 5 Ask and Talk conversations, each up to 100 messages, with the task ids their tools returned | Cleared (they name the old account's tasks) | Excluded |
 | `KeptTranscriptStore` (`ai_kept_transcript`) | A dictation the model could not turn into tasks, kept until it is added or discarded | Cleared | Excluded |
 | `AiKeyStore` (Android: Tink-encrypted DataStore `ai_keys`; iOS: the Keychain) | The provider's API key, per provider, and per address for a typed provider (Other, Ollama, Open WebUI). Never synced, never logged | Kept (a device setting); "Delete assistant data" removes it | Excluded |
@@ -306,7 +307,7 @@ merged in the main process.
 `data_extraction_rules.xml`:
 
 - Excluded: `auth_prefs`, `widget_configs`, `snooze_prefs`, `reminder_alarm_registry`,
-  `temp_ids`, `sync_cursor`, `carrier_ids`, `custom_lists`, `routine_prefs`, `saved_places`,
+  `temp_ids`, `sync_cursor`, `carrier_ids`, `custom_lists`, `saved_filters`, `routine_prefs`, `saved_places`,
   `location_reminders`, `auth_debug.log`, the `vicu_database` files, `vicu_keyset_prefs.xml`,
   `routine_alarm_ids.xml` and `location_regions.xml`. The Glance
   widget state is in the no-backup folder.

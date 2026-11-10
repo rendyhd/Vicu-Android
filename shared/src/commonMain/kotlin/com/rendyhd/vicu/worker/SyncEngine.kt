@@ -27,6 +27,7 @@ import com.rendyhd.vicu.data.repository.TaskWriteGate
 import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.data.sync.ProjectRefresher
+import com.rendyhd.vicu.data.sync.SavedFilterImporter
 import com.rendyhd.vicu.data.sync.ProjectTaskCounts
 import com.rendyhd.vicu.data.sync.TaskRefresher
 import com.rendyhd.vicu.domain.model.Label
@@ -103,6 +104,8 @@ class SyncEngine(
     private val syncedPreferences: SyncedPreferences? = null,
     /** Offers the places kept before they synced to the synced preferences, once (section 11.7). */
     private val locations: LocationRepository? = null,
+    /** Imports Vikunja saved filters as custom lists on first connect (cross-app semantics 3.7). */
+    private val savedFilters: SavedFilterImporter? = null,
 ) {
     private val missing = MissingResourceCheck(api)
     private val carrierWriter = RoutineCarrierWriter(api, json)
@@ -179,7 +182,8 @@ class SyncEngine(
                 return authManager.authState.value == AuthState.NeedsReAuth
             }
 
-            when (customListRepository.sync()) {
+            val listsSynced = customListRepository.sync()
+            when (listsSynced) {
                 CustomListSyncStatus.Pending,
                 is CustomListSyncStatus.Offline -> run.hasRetriableFailures = true
                 else -> Unit
@@ -193,6 +197,8 @@ class SyncEngine(
             }
             val outcome = refreshAllFromServer()
             uploadLocalRoutineHistory(carriersAuthoritative = outcome?.carriersAuthoritative == true)
+            // The project refresh has just listed the saved filters (section 3.7).
+            if (outcome != null) importSavedFilters(listsSynced)
 
             // Changes made while the refresh ran: a trigger during this run did not start another.
             replayQueue(run)
@@ -788,6 +794,21 @@ class SyncEngine(
             throw e
         } catch (e: Exception) {
             Logger.w(TAG, "Routine history upload failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Imports the saved filters on this device's first connect, then writes the new lists and the
+     * import record at once, so another device connecting next does not import them again.
+     */
+    private suspend fun importSavedFilters(listsSynced: CustomListSyncStatus) {
+        val importer = savedFilters ?: return
+        try {
+            if (importer.afterSync(listsSynced)) customListRepository.sync()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Logger.w(TAG, "Saved filter import failed: ${e.message}")
         }
     }
 

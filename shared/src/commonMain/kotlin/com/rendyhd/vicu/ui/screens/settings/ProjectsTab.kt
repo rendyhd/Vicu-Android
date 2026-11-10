@@ -27,6 +27,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Project
+import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.task.moveCustomActions
 import com.rendyhd.vicu.ui.components.category.CategoryHeader
 import com.rendyhd.vicu.ui.components.category.CategoryLabels
@@ -104,6 +105,9 @@ internal fun ProjectsTab(
         }
     }
 
+    val savedFilters: SavedFilterImportViewModel = koinViewModel()
+    SavedFilterSheetHost(savedFilters)
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         state = listState,
@@ -133,7 +137,7 @@ internal fun ProjectsTab(
         displaySection(state, viewModel, openDialog)
         reviewSection(state, viewModel, openDialog)
         labelsSection(state, viewModel, openDialog)
-        customListsSection(state, viewModel, openDialog)
+        customListsSection(state, viewModel, openDialog, savedFilters)
         item(key = "projects_tab_bottom_spacer") {
             Spacer(modifier = Modifier.height(32.dp))
         }

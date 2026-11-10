@@ -16,6 +16,17 @@ interface CustomListRepository {
      */
     val hasUnsyncedChanges: Flow<Boolean> get() = flowOf(false)
 
+    /** The ids of the saved filters any device imported (cross-app semantics 3.7). */
+    val importedSavedFilters: Flow<Set<Long>> get() = flowOf(emptySet())
+
+    /** Adds [lists] made from saved filters and records [filterIds] as imported, in one change. */
+    suspend fun importLists(lists: List<CustomList>, filterIds: Collection<Long>) {
+        lists.forEach { upsert(it) }
+    }
+
+    /** Deletes the lists hidden as duplicate imports (cross-app semantics 3.7), if any. */
+    suspend fun dropDuplicateImports() {}
+
     suspend fun upsert(customList: CustomList)
     suspend fun delete(id: String)
     suspend fun reorder(fromIndex: Int, toIndex: Int)

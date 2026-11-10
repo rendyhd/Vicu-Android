@@ -65,4 +65,14 @@ class CustomListFilterSummaryTest {
         assertEquals("changed today", buildFilterSummary(list.copy(filter = CustomListFilter(changedWithinDays = 1))))
         assertEquals("", buildFilterSummary(list.copy(filter = CustomListFilter(assigned = "team", changedWithinDays = 0))))
     }
+
+    @Test
+    fun `a rule is named, and one that decides done leaves out incl done`() {
+        assertEquals("rule", summary(CustomListFilter(includeDone = true, rule = "done = false && priority >= 3")))
+        assertEquals("rule · incl. done", summary(CustomListFilter(includeDone = true, rule = "priority >= 3")))
+        assertEquals("rule", summary(CustomListFilter(rule = "priority >= 3")))
+        // A rule that does not read says nothing about done.
+        assertEquals("rule · incl. done", summary(CustomListFilter(includeDone = true, rule = "done =")))
+        assertEquals("incl. done", summary(CustomListFilter(includeDone = true, rule = "  ")))
+    }
 }

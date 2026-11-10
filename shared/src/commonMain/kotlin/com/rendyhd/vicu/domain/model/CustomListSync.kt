@@ -42,7 +42,18 @@ data class CustomListWireFilter(
     @SerialName("comments") @EncodeDefault(EncodeDefault.Mode.NEVER) val comments: String? = null,
     @SerialName("shared_only") @EncodeDefault(EncodeDefault.Mode.NEVER) val sharedOnly: Boolean? = null,
     @SerialName("changed_within_days") @EncodeDefault(EncodeDefault.Mode.NEVER) val changedWithinDays: Int? = null,
+    // The rule and the further sort keys (sections 3.5 and 3.6), written only when set.
+    @SerialName("rule") @EncodeDefault(EncodeDefault.Mode.NEVER) val rule: String? = null,
+    @SerialName("rule_include_nulls") @EncodeDefault(EncodeDefault.Mode.NEVER) val ruleIncludeNulls: Boolean? = null,
+    @SerialName("then_by") @EncodeDefault(EncodeDefault.Mode.NEVER) val thenBy: List<CustomListWireSortKey>? = null,
     @SerialName(UNKNOWN_FIELDS_KEY) val unknown: JsonObject = NO_UNKNOWN_FIELDS,
+)
+
+/** A `then_by` entry (section 3.6). */
+@Serializable
+data class CustomListWireSortKey(
+    @SerialName("sort_by") val sortBy: String,
+    @SerialName("order_by") val orderBy: String = "asc",
 )
 
 /**
@@ -56,6 +67,9 @@ data class CustomListWire(
     val name: String,
     val icon: String = "",
     @Serializable(with = CustomListWireFilterSerializer::class) val filter: CustomListWireFilter,
+    /** The saved filter the list was imported from (section 3.7); written only when set. */
+    @OptIn(ExperimentalSerializationApi::class)
+    @SerialName("saved_filter_id") @EncodeDefault(EncodeDefault.Mode.NEVER) val savedFilterId: Long? = null,
     @SerialName(UNKNOWN_FIELDS_KEY) val unknown: JsonObject = NO_UNKNOWN_FIELDS,
 )
 
@@ -124,6 +138,9 @@ data class CustomListSyncDocumentV1(
     val version: Int = 1,
     val lists: Map<String, @Serializable(with = CustomListSyncRecordSerializer::class) CustomListSyncRecord> = emptyMap(),
     @Serializable(with = CustomListSyncOrderSerializer::class) val order: CustomListSyncOrder,
+    /** The saved filters any device imported (section 3.7), merged as a union; written only when set. */
+    @OptIn(ExperimentalSerializationApi::class)
+    @SerialName("imported_saved_filters") @EncodeDefault(EncodeDefault.Mode.NEVER) val importedSavedFilters: List<Long>? = null,
     @SerialName(UNKNOWN_FIELDS_KEY) val unknown: JsonObject = NO_UNKNOWN_FIELDS,
 )
 
@@ -176,8 +193,14 @@ fun CustomList.toWire(preserving: CustomListWire? = null): CustomListWire = Cust
         comments = filter.comments?.takeIf { it.isNotEmpty() },
         sharedOnly = if (filter.sharedOnly) true else null,
         changedWithinDays = filter.changedDays,
+        rule = filter.ruleText,
+        ruleIncludeNulls = if (filter.ruleIncludeNulls) true else null,
+        thenBy = filter.thenBy.takeIf { it.isNotEmpty() }?.map {
+            CustomListWireSortKey(it.sortBy, if (it.orderBy == "desc") "desc" else "asc")
+        },
         unknown = preserving?.filter?.unknown ?: NO_UNKNOWN_FIELDS,
     ),
+    savedFilterId = savedFilterId,
     unknown = preserving?.unknown ?: NO_UNKNOWN_FIELDS,
 )
 
@@ -201,5 +224,9 @@ fun CustomListWire.toDomain(): CustomList = CustomList(
         comments = filter.comments?.takeIf { it.isNotEmpty() },
         sharedOnly = filter.sharedOnly == true,
         changedWithinDays = filter.changedWithinDays,
+        rule = filter.rule?.takeIf { it.isNotBlank() },
+        ruleIncludeNulls = filter.ruleIncludeNulls == true,
+        thenBy = filter.thenBy.orEmpty().map { ListSortKey(it.sortBy, if (it.orderBy == "desc") "desc" else "asc") },
     ),
+    savedFilterId = savedFilterId,
 )

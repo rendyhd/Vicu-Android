@@ -8,7 +8,13 @@ data class CustomList(
     val name: String,
     val icon: String = "",
     val filter: CustomListFilter,
+    /** The Vikunja saved filter this list was imported from (cross-app semantics 3.7), or null. */
+    val savedFilterId: Long? = null,
 )
+
+/** One further sort key of a list (cross-app semantics 3.6). */
+@Serializable
+data class ListSortKey(val sortBy: String, val orderBy: String = "asc")
 
 @Serializable
 data class CustomListFilter(
@@ -39,7 +45,16 @@ data class CustomListFilter(
     val sharedOnly: Boolean = false,
     /** Only tasks changed on the last N local days, today included; null or below 1 is no condition. */
     val changedWithinDays: Int? = null,
+    /** A condition in Vikunja's filter language (cross-app semantics 3.5); null or blank is none. */
+    val rule: String? = null,
+    /** Whether the rule's terms also match a task without a value for their field. */
+    val ruleIncludeNulls: Boolean = false,
+    /** Sort keys after [sortBy] and [orderBy] (cross-app semantics 3.6). */
+    val thenBy: List<ListSortKey> = emptyList(),
 ) {
+    /** [rule] when it says something, else null. */
+    val ruleText: String? get() = rule?.takeIf { it.isNotBlank() }
+
     /** The effective value of [includeOverdue]: absent means true. */
     val includesOverdue: Boolean get() = includeOverdue != false
 
