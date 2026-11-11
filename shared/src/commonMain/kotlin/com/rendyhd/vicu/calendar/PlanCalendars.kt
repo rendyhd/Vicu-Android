@@ -17,6 +17,7 @@ import kotlin.time.Instant
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
@@ -77,7 +78,7 @@ data class PlanCalendarDays(
  * `event.<id>` preferences, and the phone's calendars, read only, through [DeviceCalendars].
  *
  * Phone calendars are read when the screen starts collecting, again when the device says they
- * changed and at most every five minutes while it is shown. A read that fails keeps the last good
+ * changed, on a manual refresh ([refreshNow]) and every five minutes while it is shown. A read that fails keeps the last good
  * copy and says why. Busy only (20.8) is applied here, before any screen, cache or log has the
  * title. Nothing about an event is written to a task, and nothing here is synced but your Events.
  */
@@ -89,6 +90,7 @@ class PlanCalendars(
     private val time: TimeSource = SystemTimeSource,
 ) {
     private val accessTick = MutableStateFlow(0)
+    private val refreshTick = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     /** Whether this platform can show phone calendars at all. */
     val supported: Boolean get() = device.supported
@@ -99,6 +101,11 @@ class PlanCalendars(
     }
 
     fun hasAccess(): Boolean = device.supported && device.hasAccess()
+
+    /** A manual refresh (contract 20.9): the shown calendars are read again at once. */
+    fun refreshNow() {
+        refreshTick.tryEmit(Unit)
+    }
 
     private val access: Flow<Boolean> = accessTick.map { hasAccess() }.distinctUntilChanged()
 
@@ -199,6 +206,12 @@ class PlanCalendars(
                         }
                         read()
                         launch { device.changes().collect { read() } }
+                        launch {
+                            refreshTick.collect {
+                                runCatching { device.refreshSources() }
+                                read()
+                            }
+                        }
                         while (true) {
                             delay(REREAD_EVERY)
                             read()

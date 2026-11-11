@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Event
+import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -72,9 +73,11 @@ import org.koin.compose.koinInject
  * Your own Events in the Plan gear, by title (contract 20.3), with New event; and the way to the
  * phone's calendars where this platform reads them.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun PlanEventsSection(
     onNewEvent: () -> Unit,
+    onImport: () -> Unit,
     onOpenEvent: (ListedEvent) -> Unit,
     onOpenCalendars: (() -> Unit)?,
     modifier: Modifier = Modifier,
@@ -117,9 +120,18 @@ internal fun PlanEventsSection(
                 }
             }
         }
-        OutlinedButton(onClick = onNewEvent, modifier = Modifier.padding(top = 4.dp)) {
-            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text("New event", modifier = Modifier.padding(start = 6.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(top = 4.dp),
+        ) {
+            OutlinedButton(onClick = onNewEvent) {
+                Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("New event", modifier = Modifier.padding(start = 6.dp))
+            }
+            OutlinedButton(onClick = onImport) {
+                Icon(Icons.Outlined.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("Import calendar file", modifier = Modifier.padding(start = 6.dp))
+            }
         }
         if (onOpenCalendars != null) {
             HorizontalDivider(Modifier.padding(vertical = 12.dp))

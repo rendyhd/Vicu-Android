@@ -8,6 +8,7 @@ import com.rendyhd.vicu.data.local.RoutinePrefsStore
 import com.rendyhd.vicu.data.repository.PlannerPreferences
 import com.rendyhd.vicu.data.repository.TaskOrderPreferences
 import com.rendyhd.vicu.data.sync.ScreenRefresher
+import com.rendyhd.vicu.data.sync.refreshErrorToShow
 import com.rendyhd.vicu.domain.model.CollabState
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.RoutineDay
@@ -34,6 +35,7 @@ import com.rendyhd.vicu.util.EventEdit
 import com.rendyhd.vicu.util.EventRepeat
 import com.rendyhd.vicu.util.EventScope
 import com.rendyhd.vicu.util.GestureRange
+import com.rendyhd.vicu.util.IcsImport
 import com.rendyhd.vicu.util.ListedEvent
 import com.rendyhd.vicu.util.PlanEvent
 import com.rendyhd.vicu.util.PlanEvents
@@ -320,7 +322,7 @@ class PlanViewModel(
             today = clock.date,
             zone = clock.zone,
             selectedDay = input.day,
-            strip = planStrip(input.start, tasks, prefs.hours, clock.zone),
+            strip = planStrip(input.start, tasks, prefs.hours, clock.zone, calendar.events, counting),
             stripMoved = input.weeks != 0,
             content = content,
             previous = dayContent(input.day.minus(1, DateTimeUnit.DAY)),
@@ -726,6 +728,19 @@ class PlanViewModel(
         }
     }
 
+    /**
+     * A calendar file's Events (contract 20.10): each under a new id, all in one change, with Undo,
+     * which removes them again. Afterwards they are ordinary Events.
+     */
+    fun importEvents(events: List<PlanEvent>) {
+        if (events.isEmpty()) return
+        viewModelScope.launch {
+            val writes = IcsImport.writes(events) { planCalendars.newId() }
+            val message = if (events.size == 1) "Imported 1 event" else "Imported ${events.size} events"
+            writeEvents(writes, planCalendars.storedEvents(), message)
+        }
+    }
+
     /** Writes [writes] and offers Undo, which puts back each entry as it was stored. */
     private suspend fun writeEvents(writes: Map<String, JsonElement?>, before: Map<String, JsonElement?>, message: String) {
         planCalendars.write(writes)
@@ -779,7 +794,32 @@ class PlanViewModel(
 
     fun minutesNow(): Int = dayClock.minutesNow()
 
-    /** Whether Plan settings offer the phone's calendars (Android; not iOS yet). */
+    private val _refreshing = MutableStateFlow(false)
+
+    /** A pull to refresh is running. */
+    val refreshing: StateFlow<Boolean> = _refreshing
+
+    /**
+     * Pull to refresh: the calendars are read again at once (contract 20.9), then tasks, projects and
+     * labels in full and the day's own request, which brings its done blocks.
+     */
+    fun refresh() {
+        if (_refreshing.value) return
+        viewModelScope.launch {
+            _refreshing.value = true
+            try {
+                planCalendars.refreshNow()
+                val day = selectedDay.first()
+                val result = refresher.refresh(manual = true)
+                taskRepository.refreshPlanDay(day)
+                result.refreshErrorToShow(manual = true)?.let { appMessages.post(it) }
+            } finally {
+                _refreshing.value = false
+            }
+        }
+    }
+
+    /** Whether Plan settings offer the phone's calendars (Android's provider, iOS EventKit). */
     val calendarsSupported: Boolean get() = planCalendars.supported
 
     /** How the screen phrases dates, for the messages written here. */

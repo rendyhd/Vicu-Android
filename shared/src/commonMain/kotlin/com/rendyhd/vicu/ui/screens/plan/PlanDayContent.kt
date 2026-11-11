@@ -3,6 +3,7 @@ package com.rendyhd.vicu.ui.screens.plan
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.model.RoutineDay
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.util.BusyRange
 import com.rendyhd.vicu.util.CalendarEvent
 import com.rendyhd.vicu.util.CalendarEvents
 import com.rendyhd.vicu.util.DateDisplay
@@ -41,8 +42,12 @@ data class PlanDayContent(
     val allDayEvents: List<CalendarEvent> = emptyList(),
 )
 
-/** One day of the 7-day strip. [load] is how full its work hours are, 0 to 1, for the bar under it. */
-data class PlanStripDay(val day: LocalDate, val plannedMinutes: Int, val load: Float)
+/**
+ * One day of the 7-day strip. [load] is how full its work hours are, 0 to 1, for the bar under it:
+ * planned blocks and the busy time of events (contract 20.2) that no block already covers, as
+ * [eventMinutes].
+ */
+data class PlanStripDay(val day: LocalDate, val plannedMinutes: Int, val load: Float, val eventMinutes: Int = 0)
 
 /**
  * A day from the tasks of its range: the same reading on Today's Day view and the Plan screen. Only
@@ -78,14 +83,42 @@ fun planDayContent(
     )
 }
 
-/** The seven days from [start] with their load: open blocks against the work hours. */
-fun planStrip(start: LocalDate, tasks: List<Task>, hours: PlannerHours, zone: TimeZone): List<PlanStripDay> {
+/**
+ * The seven days from [start] with their load: open blocks against the work hours, and the busy
+ * events of [counting] calendars and your own Events (contract 20.2), overlaps counted once. Only
+ * the Plan screen passes [events].
+ */
+fun planStrip(
+    start: LocalDate,
+    tasks: List<Task>,
+    hours: PlannerHours,
+    zone: TimeZone,
+    events: List<CalendarEvent> = emptyList(),
+    counting: Set<String> = emptySet(),
+): List<PlanStripDay> {
     val work = (TimeBlocks.clockMinutes(hours.end) - TimeBlocks.clockMinutes(hours.start)).coerceAtLeast(1)
+    val counts = CalendarEvents.calendarCounts(counting)
     return List(PLAN_STRIP_DAYS) { offset ->
         val day = start.plus(offset, DateTimeUnit.DAY)
         val planned = PlannerTimeline.plannedMinutes(tasks, day, zone)
-        PlanStripDay(day, planned, (planned.toFloat() / work).coerceIn(0f, 1f))
+        val blocks = TimeBlocks.busyOfDay(tasks, day, zone)
+        val eventBusy = CalendarEvents.eventBusyOfDay(events, day, zone, counts)
+        // Event time that no block covers: a block placed over a meeting is not counted twice.
+        val eventMinutes = if (eventBusy.isEmpty()) 0 else (busyLength(blocks + eventBusy) - busyLength(blocks)).coerceAtLeast(0)
+        PlanStripDay(day, planned, ((planned + eventMinutes).toFloat() / work).coerceIn(0f, 1f), eventMinutes)
     }
+}
+
+/** Minutes covered by [busy], overlaps counted once. */
+internal fun busyLength(busy: List<BusyRange>): Int {
+    var total = 0
+    var end = Int.MIN_VALUE
+    for (range in busy.filter { it.end > it.start }.sortedBy { it.start }) {
+        val from = maxOf(range.start, end)
+        if (range.end > from) total += range.end - from
+        end = maxOf(end, range.end)
+    }
+    return total
 }
 
 const val PLAN_STRIP_DAYS = 7

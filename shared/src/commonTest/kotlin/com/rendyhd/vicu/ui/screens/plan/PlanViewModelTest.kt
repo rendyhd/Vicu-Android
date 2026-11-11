@@ -615,6 +615,43 @@ class PlanViewModelTest {
     }
 
     @Test
+    fun `importing a file writes its Events in one change and Undo removes them all`() = runTest {
+        val rig = Rig(this)
+        rig.synced.set("event.mine", eventValue("""{"title":"Mine","start":"2026-10-01"}"""))
+        val said = mutableListOf<AppMessage>()
+        backgroundScope.launch { rig.messages.messages.collect { said += it } }
+        runCurrent()
+
+        val text = listOf(
+            "BEGIN:VCALENDAR", "VERSION:2.0",
+            "BEGIN:VEVENT", "UID:a", "SUMMARY:Standup", "DTSTART:20261005T091500", "DTEND:20261005T093000", "RRULE:FREQ=DAILY", "END:VEVENT",
+            "BEGIN:VEVENT", "UID:b", "SUMMARY:Dentist", "DTSTART:20261006T140000", "DTEND:20261006T150000", "END:VEVENT",
+            "END:VCALENDAR",
+        ).joinToString("\r\n")
+        rig.vm.importEvents(com.rendyhd.vicu.util.IcsImport.importText(text, today, zone, busyOnly = false))
+        runCurrent()
+
+        val entries = rig.synced.entries.first().filterValues { it != null }
+        assertEquals(3, entries.size)
+        assertEquals(
+            setOf(
+                eventValue("""{"title":"Standup","start":"2026-10-05","time":"09:15","minutes":15,"repeat":{"kind":"daily","every":1}}"""),
+                eventValue("""{"title":"Dentist","start":"2026-10-06","time":"14:00","minutes":60}"""),
+            ),
+            entries.filterKeys { it != "event.mine" }.values.toSet(),
+        )
+        assertEquals("Imported 2 events", said.last().text)
+        // Both are on today's timeline, and their busy time shows on the strip.
+        assertEquals(2, rig.vm.uiState.value.content?.events.orEmpty().size)
+        assertEquals(75, rig.vm.uiState.value.strip.first { it.day == today }.eventMinutes)
+
+        said.last().onAction?.invoke()
+        runCurrent()
+        assertEquals(setOf("event.mine"), rig.synced.entries.first().filterValues { it != null }.keys)
+        rig.authScope.cancel()
+    }
+
+    @Test
     fun `this time only skips the day and makes a single Event and Undo puts both back`() = runTest {
         val rig = Rig(this)
         val stored = eventValue("""{"title":"Standup","start":"2026-10-05","time":"09:00","minutes":15,"repeat":{"kind":"daily","every":1},"color":"kept"}""")

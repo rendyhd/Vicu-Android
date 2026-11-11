@@ -8,7 +8,12 @@ import com.rendyhd.vicu.util.IosPaths
 import com.rendyhd.vicu.util.IosPlatformFiles
 import com.rendyhd.vicu.util.Logger
 import platform.Foundation.NSFileManager
+import platform.Foundation.NSFileSize
+import platform.Foundation.NSNumber
+import platform.Foundation.NSString
 import platform.Foundation.NSURL
+import platform.Foundation.NSUTF8StringEncoding
+import platform.Foundation.stringWithContentsOfURL
 import platform.PhotosUI.PHPickerConfiguration
 import platform.PhotosUI.PHPickerConfigurationAssetRepresentationModeCompatible
 import platform.PhotosUI.PHPickerFilter
@@ -18,6 +23,7 @@ import platform.PhotosUI.PHPickerViewControllerDelegateProtocol
 import platform.UIKit.UIDocumentPickerDelegateProtocol
 import platform.UIKit.UIDocumentPickerViewController
 import platform.UniformTypeIdentifiers.UTTypeAudio
+import platform.UniformTypeIdentifiers.UTTypeCalendarEvent
 import platform.UniformTypeIdentifiers.UTTypeImage
 import platform.UniformTypeIdentifiers.UTTypeItem
 import platform.darwin.NSObject
@@ -62,6 +68,30 @@ actual fun rememberCompletionSoundPicker(onSoundPicked: (String) -> Unit): () ->
     return { presentDocumentPicker(listOf(UTTypeAudio), delegate) }
 }
 
+/** A calendar file (`.ics` is a calendar event type), read straight from the picker's copy. */
+@Composable
+actual fun rememberCalendarFilePicker(onPicked: (String?) -> Unit): () -> Unit {
+    val callback = rememberUpdatedState(onPicked)
+    val delegate = remember { CalendarFileDelegate(callback) }
+    return { presentCalendarPicker(delegate) }
+}
+
+private fun presentCalendarPicker(delegate: CalendarFileDelegate) {
+    val picker = UIDocumentPickerViewController(forOpeningContentTypes = listOf(UTTypeCalendarEvent), asCopy = true)
+    picker.allowsMultipleSelection = false
+    picker.delegate = delegate
+    topViewController()?.presentViewController(picker, animated = true, completion = null)
+}
+
+/** The text of the calendar file at [url], or null when it is too large or does not read. */
+@OptIn(kotlinx.cinterop.ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
+private fun readCalendarFile(url: NSURL): String? {
+    val path = url.path ?: return null
+    val size = (NSFileManager.defaultManager.attributesOfItemAtPath(path, null)?.get(NSFileSize) as? NSNumber)?.longLongValue ?: 0L
+    if (size > MAX_CALENDAR_FILE_BYTES) return null
+    return NSString.stringWithContentsOfURL(url, NSUTF8StringEncoding, null)
+}
+
 private fun presentDocumentPicker(types: List<*>, delegate: DocumentPickerDelegate) {
     val picker = UIDocumentPickerViewController(forOpeningContentTypes = types, asCopy = true)
     picker.allowsMultipleSelection = false
@@ -92,6 +122,19 @@ private class DocumentPickerDelegate(
         // The picker's copy lives in the app's tmp folder; it is not needed any more.
         NSFileManager.defaultManager.removeItemAtURL(url, null)
         if (path != null) callback.value(path) else Logger.w(TAG, "Could not keep the picked file")
+    }
+}
+
+private class CalendarFileDelegate(
+    private val callback: State<(String?) -> Unit>,
+) : NSObject(), UIDocumentPickerDelegateProtocol {
+
+    override fun documentPicker(controller: UIDocumentPickerViewController, didPickDocumentsAtURLs: List<*>) {
+        val url = didPickDocumentsAtURLs.firstOrNull() as? NSURL ?: return
+        val text = readCalendarFile(url)
+        // The picker's copy lives in the app's tmp folder; the import keeps nothing of the file.
+        NSFileManager.defaultManager.removeItemAtURL(url, null)
+        callback.value(text)
     }
 }
 

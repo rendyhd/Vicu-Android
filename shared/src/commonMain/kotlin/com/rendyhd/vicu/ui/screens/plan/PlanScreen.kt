@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -99,6 +100,8 @@ import com.rendyhd.vicu.util.GestureRange
 import com.rendyhd.vicu.util.PlanSource
 import com.rendyhd.vicu.util.PlannerTimeline
 import com.rendyhd.vicu.util.TimeBlocks
+import com.rendyhd.vicu.util.IcsImport
+import com.rendyhd.vicu.ui.rememberCalendarFilePicker
 import com.rendyhd.vicu.util.parseHexColor
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -144,6 +147,7 @@ fun PlanScreen(
     viewModel: PlanViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     ScreenReady(!state.isLoading)
     LaunchedEffect(viewModel) { viewModel.plannerOff.collect { off -> if (off) onPlannerOff() } }
 
@@ -164,6 +168,15 @@ fun PlanScreen(
     var newAtMinute by rememberSaveable { mutableStateOf<Int?>(null) }
     var newAsEvent by rememberSaveable { mutableStateOf(false) }
     var calendarsOpen by rememberSaveable { mutableStateOf(false) }
+    // A calendar file being previewed (contract 20.10); its text is not saved with the screen.
+    var importText by remember { mutableStateOf<String?>(null) }
+    val pickCalendarFile = rememberCalendarFilePicker { text ->
+        when {
+            text == null -> viewModel.postMessage("Could not read that file")
+            !IcsImport.isCalendar(text) -> viewModel.postMessage("That file is not a calendar file")
+            else -> importText = text
+        }
+    }
     var eventSheet by remember { mutableStateOf<CalendarEvent?>(null) }
     var pendingEventChange by remember { mutableStateOf<PendingEventChange?>(null) }
     var drag by remember { mutableStateOf<DrawerDrag?>(null) }
@@ -398,274 +411,281 @@ fun PlanScreen(
                 onSwipe = viewModel::moveStrip,
                 onDayPlaced = { day, coords -> stripDays[day] = coords },
             )
-            BoxWithConstraints(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .clipToBounds()
-                    .onGloballyPositioned { containerCoords = it },
+            // Pull to refresh: tasks and the calendars at once (contract 20.9).
+            PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = viewModel::refresh,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
             ) {
-                // The timeline stays in sight beside the drawer.
-                val drawerWidth = minOf(maxWidth * 0.62f, 280.dp)
-                val widthPx = constraints.maxWidth.toFloat()
-                val flingPx = with(density) { FLING_DP_PER_SECOND.dp.toPx() }
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .clipToBounds()
+                        .onGloballyPositioned { containerCoords = it },
+                ) {
+                    // The timeline stays in sight beside the drawer.
+                    val drawerWidth = minOf(maxWidth * 0.62f, 280.dp)
+                    val widthPx = constraints.maxWidth.toFloat()
+                    val flingPx = with(density) { FLING_DP_PER_SECOND.dp.toPx() }
 
-                fun settleSwipe(velocity: Float) {
-                    val travelled = swipeTravel
-                    swipeTravel = 0f
-                    val step = when {
-                        travelled < -widthPx / 3 || (travelled < 0 && velocity < -flingPx) -> 1
-                        travelled > widthPx / 3 || (travelled > 0 && velocity > flingPx) -> -1
-                        else -> 0
-                    }
-                    scope.launch {
-                        val from = latestState.selectedDay
-                        if (step == 0 || from == null) {
-                            swipe.animateTo(0f, VicuMotion.defaultSpatialSpec())
-                            return@launch
-                        }
-                        val target = from.plus(step, DateTimeUnit.DAY)
-                        if (reduceMotion) fade.animateTo(0f, tween(90)) else swipe.animateTo(-step * widthPx, VicuMotion.defaultSpatialSpec())
-                        keepScrollFor = target
-                        viewModel.stepDay(step)
-                        withTimeoutOrNull(1_000) { snapshotFlow { latestState.selectedDay }.first { it == target } }
-                        withFrameNanos { }
-                        swipe.snapTo(0f)
-                        if (reduceMotion) fade.animateTo(1f, tween(150))
-                    }
-                }
-
-                val swipeModifier = Modifier.daySwipe(
-                    enabled = !drawerOpen && !carrying && content != null,
-                    onStart = {
+                    fun settleSwipe(velocity: Float) {
+                        val travelled = swipeTravel
                         swipeTravel = 0f
-                        scope.launch { neighbourScroll.scrollTo(scrollState.value) }
-                    },
-                    onDelta = { delta ->
-                        swipeTravel += delta
-                        // To the running total: a late update can only repeat a position, never lose a step.
-                        val to = swipeTravel
-                        if (!reduceMotion) scope.launch { swipe.snapTo(to) }
-                    },
-                    onEnd = ::settleSwipe,
-                )
+                        val step = when {
+                            travelled < -widthPx / 3 || (travelled < 0 && velocity < -flingPx) -> 1
+                            travelled > widthPx / 3 || (travelled > 0 && velocity > flingPx) -> -1
+                            else -> 0
+                        }
+                        scope.launch {
+                            val from = latestState.selectedDay
+                            if (step == 0 || from == null) {
+                                swipe.animateTo(0f, VicuMotion.defaultSpatialSpec())
+                                return@launch
+                            }
+                            val target = from.plus(step, DateTimeUnit.DAY)
+                            if (reduceMotion) fade.animateTo(0f, tween(90)) else swipe.animateTo(-step * widthPx, VicuMotion.defaultSpatialSpec())
+                            keepScrollFor = target
+                            viewModel.stepDay(step)
+                            withTimeoutOrNull(1_000) { snapshotFlow { latestState.selectedDay }.first { it == target } }
+                            withFrameNanos { }
+                            swipe.snapTo(0f)
+                            if (reduceMotion) fade.animateTo(1f, tween(150))
+                        }
+                    }
 
-                // The day a swipe shows before it lands: it only draws.
-                val neighbour = when {
-                    swipe.value < 0f -> state.next
-                    swipe.value > 0f -> state.previous
-                    else -> null
-                }
-                if (neighbour != null) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { translationX = swipe.value + if (swipe.value < 0f) widthPx else -widthPx },
-                    ) {
-                        PlanTopRow(
-                            allDayEvents = neighbour.allDayEvents,
-                            eventColor = eventColor,
-                            tasks = neighbour.topRow,
-                            heldIds = emptySet(),
-                            target = null,
-                            targetHovered = false,
-                            colorOf = colorOf,
-                            canDrag = { false },
-                            onPick = {},
-                            onToggleDone = {},
-                            onDragStart = { _, _ -> },
-                            onDrag = {},
-                            onDragEnd = {},
-                            onDragCancel = {},
-                            interactive = false,
-                        )
-                        PlanTimeline(
-                            day = neighbour.day,
-                            blocks = neighbour.blocks,
-                            markers = neighbour.markers,
-                            routines = emptyList(),
-                            hours = state.hours,
-                            nowMinute = viewModel.minutesNow().takeIf { neighbour.day == today },
-                            scrollState = neighbourScroll,
-                            colorOf = colorOf,
-                            heldDone = emptySet(),
-                            onToggleDone = {},
-                            onBlockClick = {},
-                            onMarkerClick = {},
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
-                            events = neighbour.events,
-                            eventColor = eventColor,
+                    val swipeModifier = Modifier.daySwipe(
+                        enabled = !drawerOpen && !carrying && content != null,
+                        onStart = {
+                            swipeTravel = 0f
+                            scope.launch { neighbourScroll.scrollTo(scrollState.value) }
+                        },
+                        onDelta = { delta ->
+                            swipeTravel += delta
+                            // To the running total: a late update can only repeat a position, never lose a step.
+                            val to = swipeTravel
+                            if (!reduceMotion) scope.launch { swipe.snapTo(to) }
+                        },
+                        onEnd = ::settleSwipe,
+                    )
+
+                    // The day a swipe shows before it lands: it only draws.
+                    val neighbour = when {
+                        swipe.value < 0f -> state.next
+                        swipe.value > 0f -> state.previous
+                        else -> null
+                    }
+                    if (neighbour != null) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { translationX = swipe.value + if (swipe.value < 0f) widthPx else -widthPx },
+                        ) {
+                            PlanTopRow(
+                                allDayEvents = neighbour.allDayEvents,
+                                eventColor = eventColor,
+                                tasks = neighbour.topRow,
+                                heldIds = emptySet(),
+                                target = null,
+                                targetHovered = false,
+                                colorOf = colorOf,
+                                canDrag = { false },
+                                onPick = {},
+                                onToggleDone = {},
+                                onDragStart = { _, _ -> },
+                                onDrag = {},
+                                onDragEnd = {},
+                                onDragCancel = {},
+                                interactive = false,
+                            )
+                            PlanTimeline(
+                                day = neighbour.day,
+                                blocks = neighbour.blocks,
+                                markers = neighbour.markers,
+                                routines = emptyList(),
+                                hours = state.hours,
+                                nowMinute = viewModel.minutesNow().takeIf { neighbour.day == today },
+                                scrollState = neighbourScroll,
+                                colorOf = colorOf,
+                                heldDone = emptySet(),
+                                onToggleDone = {},
+                                onBlockClick = {},
+                                onMarkerClick = {},
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                events = neighbour.events,
+                                eventColor = eventColor,
+                            )
+                        }
+                    }
+
+                    if (content != null && selectedDay != null) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = swipe.value
+                                    alpha = fade.value
+                                }
+                                .then(swipeModifier),
+                        ) {
+                            PlanTopRow(
+                                allDayEvents = content.allDayEvents,
+                                eventColor = eventColor,
+                                onEventClick = { eventSheet = it },
+                                tasks = frozenTopRow ?: content.topRow,
+                                heldIds = state.heldIds,
+                                target = topRowTarget,
+                                targetHovered = topRowHovered,
+                                colorOf = colorOf,
+                                canDrag = { state.canChange(it) && state.canPlace },
+                                onPick = ::pick,
+                                onToggleDone = viewModel::toggleTopRow,
+                                onDragStart = { task, window -> startDrag(task, window, fromDrawer = false) },
+                                onDrag = { window -> drag = drag?.copy(window = window) },
+                                onDragEnd = ::endDrag,
+                                onDragCancel = ::cancelDrag,
+                                modifier = Modifier.onGloballyPositioned { topRowCoords = it },
+                            )
+                            PlanTimeline(
+                                day = selectedDay,
+                                blocks = content.blocks,
+                                markers = content.markers,
+                                routines = state.routines,
+                                hours = state.hours,
+                                nowMinute = nowMinute.takeIf { selectedDay == today },
+                                scrollState = scrollState,
+                                colorOf = colorOf,
+                                heldDone = emptySet(),
+                                onToggleDone = viewModel::toggleDone,
+                                onBlockClick = { sheetTaskId = it.id },
+                                onMarkerClick = { sheetTaskId = it.id },
+                                canEdit = { state.canChange(it) && state.canPlace },
+                                onMove = { task, minute ->
+                                    val day = latestState.selectedDay
+                                    if (day == null || TimeBlocks.blockOf(task, clock.zone)?.day == day) {
+                                        viewModel.move(task, minute)
+                                    } else {
+                                        viewModel.moveTo(task, day, minute)
+                                    }
+                                },
+                                onResize = viewModel::resize,
+                                onTapTime = activePick?.let { task ->
+                                    { minute: Int ->
+                                        viewModel.placeAt(task, minute)
+                                        pickedId = null
+                                    }
+                                },
+                                dropPreview = dropPreview,
+                                dropPreviewTitle = drag?.task?.title.orEmpty(),
+                                onGridPlaced = { gridCoords = it },
+                                onViewportPlaced = { viewportCoords = it },
+                                onBlockDrag = { task, window ->
+                                    blockCarry = if (window == null) null else BlockCarry(task, window)
+                                },
+                                onBlockDropOutside = { task ->
+                                    val at = blockCarry?.window
+                                    val day = at?.let(::stripDayAt)
+                                    when {
+                                        at == null -> false
+                                        day != null -> {
+                                            if (TimeBlocks.blockOf(task, clock.zone)?.day != day) viewModel.moveToDay(task, day)
+                                            true
+                                        }
+                                        overTopRow(at) -> {
+                                            latestState.selectedDay?.let { viewModel.planForDay(task, it) }
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                },
+                                scrollsUnder = { at -> stripDayAt(at) == null && !overTopRow(at) },
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                events = content.events,
+                                eventColor = eventColor,
+                                onEventClick = { eventSheet = it },
+                                canEditEvent = isOwnEvent,
+                                onEventChange = { occurrence, range -> changeEvent(occurrence, null, range) },
+                                onLongPressTime = if (activePick == null && drag == null) {
+                                    { minute: Int ->
+                                        newAsEvent = false
+                                        newAtMinute = minute
+                                    }
+                                } else {
+                                    null
+                                },
+                            )
+                        }
+                    }
+
+                    if (!drawerOpen && activePick == null && !carrying) {
+                        DrawerTab(
+                            count = content?.withoutTime?.size ?: 0,
+                            onOpen = { drawerOpen = true },
+                            modifier = Modifier.align(Alignment.CenterEnd),
                         )
                     }
-                }
 
-                if (content != null && selectedDay != null) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = swipe.value
-                                alpha = fade.value
-                            }
-                            .then(swipeModifier),
-                    ) {
-                        PlanTopRow(
-                            allDayEvents = content.allDayEvents,
-                            eventColor = eventColor,
-                            onEventClick = { eventSheet = it },
-                            tasks = frozenTopRow ?: content.topRow,
-                            heldIds = state.heldIds,
-                            target = topRowTarget,
-                            targetHovered = topRowHovered,
-                            colorOf = colorOf,
-                            canDrag = { state.canChange(it) && state.canPlace },
+                    if (activePick != null) {
+                        PlacingBanner(
+                            task = activePick,
+                            onNextFree = {
+                                if (viewModel.placeInNextFree(activePick)) pickedId = null
+                            },
+                            onCancel = { pickedId = null },
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                        )
+                    }
+
+                    // Always there while a drag runs: the finger's gesture lives on a row of the drawer,
+                    // so it steps aside instead of leaving the composition.
+                    val fromDrawer = drag?.fromDrawer == true
+                    val slide by animateFloatAsState(
+                        targetValue = if (drawerOpen && drag == null) 0f else 1f,
+                        animationSpec = if (reduceMotion) tween(0) else VicuMotion.defaultSpatialSpec(),
+                        label = "planDrawer",
+                    )
+                    if (slide < 1f || drawerOpen || fromDrawer) {
+                        PlanDrawer(
+                            state = state,
+                            listed = frozenListed ?: state.listed,
+                            sourceLabel = sourceLabel,
+                            dayLabel = dayPhrase,
+                            onClose = { drawerOpen = false },
+                            onSource = viewModel::setSource,
+                            onFilter = viewModel::setFilter,
                             onPick = ::pick,
-                            onToggleDone = viewModel::toggleTopRow,
-                            onDragStart = { task, window -> startDrag(task, window, fromDrawer = false) },
+                            onDragStart = { task, window -> startDrag(task, window, fromDrawer = true) },
                             onDrag = { window -> drag = drag?.copy(window = window) },
                             onDragEnd = ::endDrag,
                             onDragCancel = ::cancelDrag,
-                            modifier = Modifier.onGloballyPositioned { topRowCoords = it },
-                        )
-                        PlanTimeline(
-                            day = selectedDay,
-                            blocks = content.blocks,
-                            markers = content.markers,
-                            routines = state.routines,
-                            hours = state.hours,
-                            nowMinute = nowMinute.takeIf { selectedDay == today },
-                            scrollState = scrollState,
-                            colorOf = colorOf,
-                            heldDone = emptySet(),
-                            onToggleDone = viewModel::toggleDone,
-                            onBlockClick = { sheetTaskId = it.id },
-                            onMarkerClick = { sheetTaskId = it.id },
-                            canEdit = { state.canChange(it) && state.canPlace },
-                            onMove = { task, minute ->
-                                val day = latestState.selectedDay
-                                if (day == null || TimeBlocks.blockOf(task, clock.zone)?.day == day) {
-                                    viewModel.move(task, minute)
-                                } else {
-                                    viewModel.moveTo(task, day, minute)
-                                }
-                            },
-                            onResize = viewModel::resize,
-                            onTapTime = activePick?.let { task ->
-                                { minute: Int ->
-                                    viewModel.placeAt(task, minute)
-                                    pickedId = null
-                                }
-                            },
-                            dropPreview = dropPreview,
-                            dropPreviewTitle = drag?.task?.title.orEmpty(),
-                            onGridPlaced = { gridCoords = it },
-                            onViewportPlaced = { viewportCoords = it },
-                            onBlockDrag = { task, window ->
-                                blockCarry = if (window == null) null else BlockCarry(task, window)
-                            },
-                            onBlockDropOutside = { task ->
-                                val at = blockCarry?.window
-                                val day = at?.let(::stripDayAt)
-                                when {
-                                    at == null -> false
-                                    day != null -> {
-                                        if (TimeBlocks.blockOf(task, clock.zone)?.day != day) viewModel.moveToDay(task, day)
-                                        true
-                                    }
-                                    overTopRow(at) -> {
-                                        latestState.selectedDay?.let { viewModel.planForDay(task, it) }
-                                        true
-                                    }
-                                    else -> false
-                                }
-                            },
-                            scrollsUnder = { at -> stripDayAt(at) == null && !overTopRow(at) },
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
-                            events = content.events,
-                            eventColor = eventColor,
-                            onEventClick = { eventSheet = it },
-                            canEditEvent = isOwnEvent,
-                            onEventChange = { occurrence, range -> changeEvent(occurrence, null, range) },
-                            onLongPressTime = if (activePick == null && drag == null) {
-                                { minute: Int ->
-                                    newAsEvent = false
-                                    newAtMinute = minute
-                                }
-                            } else {
-                                null
-                            },
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .width(drawerWidth)
+                                .offset { IntOffset((slide * drawerWidth.toPx()).roundToInt(), 0) },
                         )
                     }
-                }
 
-                if (!drawerOpen && activePick == null && !carrying) {
-                    DrawerTab(
-                        count = content?.withoutTime?.size ?: 0,
-                        onOpen = { drawerOpen = true },
-                        modifier = Modifier.align(Alignment.CenterEnd),
-                    )
-                }
-
-                if (activePick != null) {
-                    PlacingBanner(
-                        task = activePick,
-                        onNextFree = {
-                            if (viewModel.placeInNextFree(activePick)) pickedId = null
-                        },
-                        onCancel = { pickedId = null },
-                        modifier = Modifier.align(Alignment.BottomCenter),
-                    )
-                }
-
-                // Always there while a drag runs: the finger's gesture lives on a row of the drawer,
-                // so it steps aside instead of leaving the composition.
-                val fromDrawer = drag?.fromDrawer == true
-                val slide by animateFloatAsState(
-                    targetValue = if (drawerOpen && drag == null) 0f else 1f,
-                    animationSpec = if (reduceMotion) tween(0) else VicuMotion.defaultSpatialSpec(),
-                    label = "planDrawer",
-                )
-                if (slide < 1f || drawerOpen || fromDrawer) {
-                    PlanDrawer(
-                        state = state,
-                        listed = frozenListed ?: state.listed,
-                        sourceLabel = sourceLabel,
-                        dayLabel = dayPhrase,
-                        onClose = { drawerOpen = false },
-                        onSource = viewModel::setSource,
-                        onFilter = viewModel::setFilter,
-                        onPick = ::pick,
-                        onDragStart = { task, window -> startDrag(task, window, fromDrawer = true) },
-                        onDrag = { window -> drag = drag?.copy(window = window) },
-                        onDragEnd = ::endDrag,
-                        onDragCancel = ::cancelDrag,
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .width(drawerWidth)
-                            .offset { IntOffset((slide * drawerWidth.toPx()).roundToInt(), 0) },
-                    )
-                }
-
-                // What the finger carries.
-                drag?.let { current ->
-                    val local = containerCoords?.windowToLocal(current.window)
-                    if (local != null) {
-                        Surface(
-                            modifier = Modifier
-                                .offset { IntOffset(local.x.roundToInt() - 120, local.y.roundToInt() - 90) }
-                                .widthIn(max = 220.dp),
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shadowElevation = 6.dp,
-                        ) {
-                            Text(
-                                text = current.task.title,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            )
+                    // What the finger carries.
+                    drag?.let { current ->
+                        val local = containerCoords?.windowToLocal(current.window)
+                        if (local != null) {
+                            Surface(
+                                modifier = Modifier
+                                    .offset { IntOffset(local.x.roundToInt() - 120, local.y.roundToInt() - 90) }
+                                    .widthIn(max = 220.dp),
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                shadowElevation = 6.dp,
+                            ) {
+                                Text(
+                                    text = current.task.title,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -737,6 +757,10 @@ fun PlanScreen(
                         newAsEvent = true
                         newAtMinute = newEventMinute(selectedDay == today, viewModel.minutesNow(), state.hours)
                     },
+                    onImport = {
+                        gearOpen = false
+                        pickCalendarFile()
+                    },
                     onOpenEvent = { listed ->
                         gearOpen = false
                         val day = today ?: selectedDay
@@ -757,6 +781,21 @@ fun PlanScreen(
 
     if (calendarsOpen) {
         CalendarsSheet(onDismiss = { calendarsOpen = false })
+    }
+
+    val importing = importText
+    val importDay = today
+    if (importing != null && importDay != null) {
+        ImportCalendarSheet(
+            text = importing,
+            importDay = importDay,
+            zone = clock.zone,
+            onImport = { events ->
+                importText = null
+                viewModel.importEvents(events)
+            },
+            onDismiss = { importText = null },
+        )
     }
 
     val newMinute = newAtMinute
@@ -890,7 +929,10 @@ private fun PlanDayStrip(
                         .selectable(selected = selected) { onSelect(strip.day) }
                         .semantics {
                             contentDescription = if (isToday) "Today, $full" else full
-                            stateDescription = "${PlannerTimeline.formatLength(strip.plannedMinutes)} planned"
+                            stateDescription = listOfNotNull(
+                                "${PlannerTimeline.formatLength(strip.plannedMinutes)} planned",
+                                strip.eventMinutes.takeIf { it > 0 }?.let { "${PlannerTimeline.formatLength(it)} in events" },
+                            ).joinToString(", ")
                         }
                         .padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,

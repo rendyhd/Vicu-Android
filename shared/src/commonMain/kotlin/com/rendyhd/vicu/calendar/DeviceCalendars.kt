@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.datetime.TimeZone
 
-/** A calendar the device keeps (Android's calendar provider; EventKit on iOS later). */
+/** A calendar the device keeps (Android's calendar provider; EventKit on iOS). */
 data class DeviceCalendar(
     /** Its id on this device: never the same on another one, so it never syncs (contract 20.9). */
     val id: String,
@@ -19,8 +19,8 @@ data class DeviceCalendar(
 
 /**
  * The device's own calendars, read only (contract 20.9): Vicu never adds, changes or deletes an
- * event and never asks for write access. Android reads `CalendarContract.Instances`, which expands
- * recurrence; iOS has no reader yet and answers [supported] false.
+ * event and never asks for write access. Android reads `CalendarContract.Instances` and iOS EventKit's
+ * `eventsMatchingPredicate`; both expand recurrence themselves.
  */
 interface DeviceCalendars {
     /** Whether this platform reads its calendars at all. */
@@ -42,9 +42,12 @@ interface DeviceCalendars {
 
     /** Says when the device's calendars changed. Collected only while the Plan screen is shown. */
     fun changes(): Flow<Unit>
+
+    /** A manual refresh: asks the platform to bring its calendars up to date where it can (EventKit). */
+    fun refreshSources() {}
 }
 
-/** A platform without a calendar reader (iOS for now, and tests). */
+/** A platform without a calendar reader (tests). */
 object NoDeviceCalendars : DeviceCalendars {
     override val supported: Boolean = false
     override fun hasAccess(): Boolean = false
