@@ -86,6 +86,15 @@ object SyncedPrefKeys {
     fun templateId(key: String): String? =
         key.takeIf { it.startsWith(TEMPLATE_PREFIX) }?.removePrefix(TEMPLATE_PREFIX)?.takeIf { it.isNotEmpty() }
 
+    private const val EVENT_PREFIX = "event."
+
+    /** One of your own Events on the Plan screen (section 20.3), or null when it was deleted. */
+    fun eventOf(id: String): String = "$EVENT_PREFIX$id"
+
+    /** The Event of an `event.<id>` key, or null for any other key. */
+    fun eventId(key: String): String? =
+        key.takeIf { it.startsWith(EVENT_PREFIX) }?.removePrefix(EVENT_PREFIX)?.takeIf { it.isNotEmpty() }
+
     private const val ROUTINE_REMINDERS_PREFIX = "routine_reminders."
     private const val ROUTINE_HIDDEN_PREFIX = "routine_hidden."
 

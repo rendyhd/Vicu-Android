@@ -153,8 +153,10 @@ object PlanDay {
         defaultLength: Int,
         zone: TimeZone,
         choices: DraftChoices = DraftChoices(),
+        /** Busy time of the day's events that count (contract 20.2). */
+        eventBusy: List<BusyRange> = emptyList(),
     ): PlanMeter {
-        val free = TimeBlocks.freeMinutes(now, day, hours, TimeBlocks.busyOfDay(dayTasks, day, zone), zone)
+        val free = TimeBlocks.freeMinutes(now, day, hours, TimeBlocks.busyOfDay(dayTasks, day, zone) + eventBusy, zone)
         val toPlace = tasksToPlace(ticked, day, zone, choices.keep).sumOf { task ->
             choices.pins[task.id]?.let { it.end - it.start } ?: choices.lengths[task.id] ?: defaultLength
         }
@@ -176,10 +178,12 @@ object PlanDay {
         defaultLength: Int,
         zone: TimeZone,
         choices: DraftChoices = DraftChoices(),
+        /** Busy time of the day's events that count (contract 20.2). */
+        eventBusy: List<BusyRange> = emptyList(),
     ): PlanDraft {
         val place = tasksToPlace(ticked, day, zone, choices.keep)
         val lengthOf = { task: Task -> choices.lengths[task.id] ?: defaultLength }
-        val busy = TimeBlocks.busyOfDay(dayTasks, day, zone).toMutableList()
+        val busy = (TimeBlocks.busyOfDay(dayTasks, day, zone) + eventBusy).toMutableList()
         val placed = mutableListOf<DraftBlock>()
         val settled = HashSet<Long>()
 

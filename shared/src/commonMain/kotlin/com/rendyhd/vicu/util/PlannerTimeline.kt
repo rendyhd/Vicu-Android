@@ -23,6 +23,19 @@ data class PlacedBlock(
     val columnCount: Int = 1,
 )
 
+/** A calendar event on a day's grid, clipped to that day (contract 20.7). */
+data class PlacedEvent(
+    val event: CalendarEvent,
+    val startMinute: Int,
+    val endMinute: Int,
+    val drawnMinutes: Int = endMinute - startMinute,
+    val column: Int = 0,
+    val columnCount: Int = 1,
+)
+
+/** A day's blocks and timed events in one overlap layout. */
+data class DayLayout(val blocks: List<PlacedBlock>, val events: List<PlacedEvent>)
+
 /** An open task with a time-of-day due date and no block (section 16.7). */
 data class TimelineMarker(val task: Task, val minute: Int)
 
@@ -88,6 +101,57 @@ object PlannerTimeline {
             val room = next - item.startMinute
             item.copy(drawnMinutes = maxOf(item.endMinute - item.startMinute, minOf(MIN_ITEM_MINUTES, room)))
         }
+    }
+
+    /**
+     * Blocks and calendar events share one overlap layout, so neither hides the other (contract
+     * 20.7). Events take the left columns where they tie: they were there first, a block is what you
+     * place around them. An event is drawn at least [MIN_ITEM_MINUTES] tall, so its title fits.
+     */
+    fun layoutWithEvents(blocks: List<PlacedBlock>, events: List<TimedEventOn>): DayLayout {
+        if (events.isEmpty()) return DayLayout(blocks, emptyList())
+        data class Item(val start: Int, val end: Int, val order: Int, val block: PlacedBlock?, val event: TimedEventOn?)
+        val items = events.mapIndexed { i, e -> Item(e.startMinute, e.endMinute, i, null, e) } +
+            blocks.mapIndexed { i, b -> Item(b.startMinute, b.endMinute, events.size + i, b, null) }
+        val sorted = items.sortedWith(compareBy<Item> { it.start }.thenByDescending { it.end }.thenBy { it.order })
+        val outBlocks = mutableListOf<PlacedBlock>()
+        val outEvents = mutableListOf<PlacedEvent>()
+        var group = mutableListOf<Pair<Item, Int>>()
+        var columnEnds = mutableListOf<Int>()
+        var groupEnd = -1
+        fun flush() {
+            for ((item, column) in group) {
+                if (item.block != null) {
+                    outBlocks += item.block.copy(column = column, columnCount = columnEnds.size)
+                } else if (item.event != null) {
+                    val length = item.end - item.start
+                    outEvents += PlacedEvent(
+                        event = item.event.event,
+                        startMinute = item.start,
+                        endMinute = item.end,
+                        drawnMinutes = maxOf(length, minOf(MIN_ITEM_MINUTES, DAY_MINUTES - item.start)),
+                        column = column,
+                        columnCount = columnEnds.size,
+                    )
+                }
+            }
+            group = mutableListOf()
+            columnEnds = mutableListOf()
+        }
+        for (item in sorted) {
+            if (item.start >= groupEnd) flush()
+            var column = columnEnds.indexOfFirst { it <= item.start }
+            if (column == -1) {
+                column = columnEnds.size
+                columnEnds += item.end
+            } else {
+                columnEnds[column] = item.end
+            }
+            group += item to column
+            groupEnd = columnEnds.max()
+        }
+        flush()
+        return DayLayout(outBlocks, outEvents)
     }
 
     /** An open task with a time-of-day due date on [day] and no block: a marker at that time (section 16.7). */
