@@ -158,8 +158,9 @@ fun ReminderPickerDialog(
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f, fill = false).heightIn(max = 224.dp)) {
                         itemsIndexed(reminders, contentType = { _, _ -> "reminder" }) { index, reminder ->
-                            // Tap to edit: only for absolute reminders
-                            val editable = reminder.reminder.isNotBlank() && !DateUtils.isNullDate(reminder.reminder)
+                            // Tap to edit: only for absolute reminders (a relative one also carries
+                            // the server's time in `reminder`).
+                            val editable = !reminder.isRelative && reminder.reminder.isNotBlank() && !DateUtils.isNullDate(reminder.reminder)
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

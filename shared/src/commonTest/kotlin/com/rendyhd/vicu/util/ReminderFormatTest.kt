@@ -26,6 +26,20 @@ class ReminderFormatTest {
     }
 
     @Test
+    fun `issue 99 - a relative reminder as the server returns it keeps its relative label`() {
+        // Vikunja fills in the time it worked out; the label must not turn into that fixed time.
+        val fromServer = TaskReminder(reminder = "2026-11-20T13:00:00Z", relativePeriod = 0, relativeTo = "due_date")
+        assertEquals("At due time", ReminderFormat.format(fromServer, dateFormat))
+        val before = TaskReminder(reminder = "2026-11-20T12:45:00Z", relativePeriod = -900, relativeTo = "due_date")
+        assertEquals("15 minutes before", ReminderFormat.format(before, dateFormat))
+        assertTrue(fromServer.isRelative)
+        // An absolute reminder is still its own time.
+        val absolute = TaskReminder(reminder = "2026-11-20T13:00:00Z")
+        assertTrue(!absolute.isRelative)
+        assertNotEquals("At due time", ReminderFormat.format(absolute, dateFormat))
+    }
+
+    @Test
     fun `a relative reminder without a date still means the due date`() {
         assertEquals("At due time", ReminderFormat.format(relative(0, ""), dateFormat))
         assertEquals("1 hour before", ReminderFormat.format(relative(-3600, ""), dateFormat))
@@ -61,11 +75,10 @@ class ReminderFormatTest {
     }
 
     @Test
-    fun `an absolute time wins over the relative fields the server keeps next to it`() {
+    fun `the relative fields win over the time the server keeps next to them - as on the desktop`() {
         val text = ReminderFormat.format(TaskReminder(reminder = "2030-01-01T09:00:00Z", relativePeriod = -300, relativeTo = "start_date"), dateFormat)
 
-        assertNotEquals("5 minutes before start", text)
-        assertTrue("2030" in text || "2029" in text, text)
+        assertEquals("5 minutes before start", text)
     }
 
     @Test

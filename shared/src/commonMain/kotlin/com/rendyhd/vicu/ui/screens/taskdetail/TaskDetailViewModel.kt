@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.data.local.TempIdGenerator
+import com.rendyhd.vicu.data.repository.Duplicated
 import com.rendyhd.vicu.data.repository.TaskDuplicator
 import com.rendyhd.vicu.data.repository.SubtaskOrderPreferences
 import com.rendyhd.vicu.data.repository.TaskTemplateStore
@@ -877,15 +878,27 @@ class TaskDetailViewModel(
             val source = taskRepository.getByIds(setOf(id)).firstOrNull() ?: _uiState.value.task ?: return@launch
             when (val result = duplicator.duplicate(source)) {
                 is NetworkResult.Success -> {
-                    loadTask(result.data.copy.id)
+                    val copy = result.data
+                    loadTask(copy.copy.id)
                     appMessages.post(
-                        if (result.data.complete) "Duplicated. This is the copy." else "Duplicated, but some labels, people or subtasks could not be copied",
-                    )
+                        if (copy.complete) "Duplicated. This is the copy." else "Duplicated, but some labels, people or subtasks could not be copied",
+                        "Undo",
+                    ) { undoDuplicate(copy, source.id) }
                 }
                 is NetworkResult.Error -> appMessages.post("Could not duplicate the task: ${result.message}")
                 is NetworkResult.Loading -> Unit
             }
         }
+    }
+
+    /**
+     * Undo of [duplicateTask] (issue 97): the copy and its copied subtasks are deleted, and when
+     * the editor still shows the copy it goes back to the original ([originalId]).
+     */
+    private fun undoDuplicate(copy: Duplicated, originalId: Long) {
+        val duplicator = taskDuplicator ?: return
+        if (_uiState.value.task?.id == copy.copy.id) loadTask(originalId)
+        viewModelScope.launch { appMessages.postIfRefused(duplicator.remove(listOf(copy)), "undo the duplicate") }
     }
 
     /**

@@ -860,6 +860,7 @@ private fun ArrangeStep(state: PlanMyDayUiState, viewModel: PlanMyDayViewModel, 
                 defaultLength = state.defaultLength,
                 onSetLength = { viewModel.setBlockLength(task, it) },
                 onNudge = { viewModel.nudgeBlock(task, it) },
+                onMoveToDay = null,
                 onRemoveTime = {
                     viewModel.removeTime(task)
                     sheetId = null

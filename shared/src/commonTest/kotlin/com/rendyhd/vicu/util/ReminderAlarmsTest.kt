@@ -88,10 +88,21 @@ class ReminderAlarmsTest {
     }
 
     @Test
-    fun `an absolute reminder time wins over the relative fields`() {
+    fun `a relative reminder counts from the date as it is now - not from the time the server filled in`() {
+        // Vikunja returns a relative reminder with the time it worked out; the date moved since.
         val both = TaskReminder(reminder = "2026-10-06T10:30:00Z", relativePeriod = -600, relativeTo = "start_date")
+        assertEquals(startMillis - 600_000, ReminderAlarms.resolveTriggerMillis(both, due, start, end))
+    }
 
-        assertEquals(absoluteMillis, ReminderAlarms.resolveTriggerMillis(both, due, start, end))
+    @Test
+    fun `issue 99 - an at due time reminder follows the due date when it moves`() {
+        // As the server sent it, at the old due time 12:00; then the due date moved to 13:05 here.
+        val atDue = TaskReminder(reminder = due, relativePeriod = 0, relativeTo = "due_date")
+        val moved = "2026-10-06T13:05:00Z"
+        assertEquals(Instant.parse(moved).toEpochMilliseconds(), ReminderAlarms.resolveTriggerMillis(atDue, moved))
+        // Without the date it counts from there is nothing to ring at, not the server's old time.
+        assertNull(ReminderAlarms.resolveTriggerMillis(atDue, ""))
+        assertNull(ReminderAlarms.resolveTriggerMillis(atDue, Constants.NULL_DATE_STRING))
     }
 
     @Test

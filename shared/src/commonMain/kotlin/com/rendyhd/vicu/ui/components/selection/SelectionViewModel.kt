@@ -15,6 +15,7 @@ import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.ui.screens.shared.CompletionToast
 import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.util.AppMessages
+import com.rendyhd.vicu.util.postIfRefused
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.NetworkResult
@@ -252,16 +253,21 @@ class SelectionViewModel(
             val inside = selected.flatMapTo(mutableSetOf()) { task -> task.descendantsDepthFirst().map { it.id } }
             val roots = selected.filter { it.id !in inside }.associateBy { it.id }
             val outcomes = runBulk(ids.filter { it in roots }) { id -> duplicator.duplicate(roots.getValue(id)) }
-            val made = outcomes.count { !it.failed }
-            val incomplete = outcomes.count { ((it.result as? NetworkResult.Success<*>)?.data as? Duplicated)?.complete == false }
-            if (made > 0) {
+            val copies = outcomes.mapNotNull { (it.result as? NetworkResult.Success<*>)?.data as? Duplicated }
+            if (copies.isNotEmpty()) {
+                // Issue 97: like a new task, Open for one copy and Undo for any number.
+                val single = copies.singleOrNull()
                 appMessages.post(
                     when {
-                        incomplete > 0 -> "Duplicated, but some labels, people or subtasks could not be copied"
-                        made == 1 -> "Task duplicated"
-                        else -> "$made tasks duplicated"
+                        copies.any { !it.complete } -> "Duplicated, but some labels, people or subtasks could not be copied"
+                        single != null -> "Duplicated “${single.copy.title}”"
+                        else -> "${copies.size} tasks duplicated"
                     },
-                )
+                    "Undo",
+                    openTaskId = single?.copy?.id,
+                ) {
+                    appScope.launch { appMessages.postIfRefused(duplicator.remove(copies), "undo the duplicate") }
+                }
             }
             finishBulk("duplicate", outcomes)
         }

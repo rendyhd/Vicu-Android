@@ -21,8 +21,12 @@ class WhenLogicTest {
     private val thursday = LocalDate(2026, 10, 8)
     private val nineAm = LocalTime(9, 0)
 
-    private fun parse(text: String, now: LocalDateTime = LocalDateTime(2026, 10, 8, 10, 0), zone: TimeZone = zones[0]) =
-        WhenLogic.parseText(text, now, zone, locale = "en-US")
+    private fun parse(
+        text: String,
+        now: LocalDateTime = LocalDateTime(2026, 10, 8, 10, 0),
+        zone: TimeZone = zones[0],
+        previous: LocalDate? = null,
+    ) = WhenLogic.parseText(text, now, zone, locale = "en-US", previous = previous)
 
     @Test
     fun `tomorrow 9am reads as tomorrow at 09 00`() {
@@ -58,6 +62,51 @@ class WhenLogicTest {
         assertNull(parse("no idea what this means"))
         assertNull(parse(""))
         assertNull(parse("   "))
+    }
+
+    @Test
+    fun `the sheet's own text reads back as its value - in both clocks`() {
+        val yesterday = LocalDate(2026, 10, 7)
+        val days = listOf(yesterday, thursday, LocalDate(2026, 10, 9), LocalDate(2026, 10, 10), LocalDate(2026, 11, 20))
+        for (fmt in listOf(us12, gb24, DateDisplayFormat("en-GB", hour12 = true))) {
+            for (date in days) {
+                for (time in listOf(LocalTime(13, 0), LocalTime(13, 5), null)) {
+                    val value = WhenValue(date, time)
+                    val text = WhenLogic.text(value, thursday, fmt)
+                    assertEquals(value, WhenLogic.parseText(text, LocalDateTime(2026, 10, 8, 10, 0), zones[0], fmt.localeTag, previous = date)?.value, text)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `issue 98 - editing the time of today's or tomorrow's text keeps the time`() {
+        // The sheet showed "Today, Oct 8, 1:00 PM"; the minutes were typed over.
+        assertEquals(WhenValue(thursday, LocalTime(13, 5)), parse("Today, Oct 8, 1:05 PM", previous = thursday)!!.value)
+        assertEquals(WhenValue(LocalDate(2026, 10, 9), LocalTime(13, 5)), parse("Tomorrow, Oct 9, 1:05 p.m.", previous = LocalDate(2026, 10, 9))!!.value)
+        assertEquals(WhenValue(thursday, LocalTime(13, 5)), parse("today, 8 oct, 13:05", previous = thursday)!!.value)
+        // Without a time after the date it is date-only, as the sheet writes it.
+        assertEquals(WhenValue(thursday, null), parse("Today, Oct 8", previous = thursday)!!.value)
+    }
+
+    @Test
+    fun `in the day word text the part that was changed decides the day`() {
+        // The date after the word was changed: it wins.
+        assertEquals(WhenValue(LocalDate(2026, 10, 12), LocalTime(13, 0)), parse("Tomorrow, Oct 12, 1:00 PM", previous = LocalDate(2026, 10, 9))!!.value)
+        // The word was changed: it wins, and the time stays.
+        assertEquals(WhenValue(LocalDate(2026, 10, 9), LocalTime(13, 0)), parse("Tomorrow, Oct 8, 1:00 PM", previous = thursday)!!.value)
+        // Nothing to compare with: the word leads, as in the parser.
+        assertEquals(WhenValue(thursday, LocalTime(13, 0)), parse("Today, Oct 12, 1:00 PM")!!.value)
+        // Yesterday's date stays in this year.
+        assertEquals(WhenValue(LocalDate(2026, 10, 7), LocalTime(9, 30)), parse("Yesterday, Oct 7, 9:30 AM", previous = LocalDate(2026, 10, 7))!!.value)
+    }
+
+    @Test
+    fun `dotted am and pm read as on the desktop`() {
+        assertEquals(WhenValue(thursday, LocalTime(13, 5)), parse("1:05 p.m.")!!.value)
+        assertEquals(WhenValue(LocalDate(2026, 10, 9), LocalTime(15, 0)), parse("tomorrow 3 p.m.")!!.value)
+        assertEquals(WhenValue(LocalDate(2026, 10, 9), LocalTime(9, 0)), parse("tomorrow at 9 a.m")!!.value)
+        assertEquals(WhenValue(LocalDate(2026, 10, 20), LocalTime(15, 0)), parse("oct 20 at 3 P.M.")!!.value)
     }
 
     @Test

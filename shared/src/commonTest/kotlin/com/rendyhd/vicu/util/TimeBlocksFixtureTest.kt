@@ -109,6 +109,41 @@ class TimeBlocksFixtureTest {
     }
 
     @Test
+    fun moveToDay() {
+        for (zone in zones) {
+            for (vector in list("moveToDay")) {
+                val name = "${vector.text("name")} in $zone"
+                val block = assertNotNull(TimeBlocks.blockOf(iso(vector.text("start"), zone), iso(vector.text("end"), zone), zone), name)
+                val changes = TimeBlocks.moveToDay(iso(vector.text("due"), zone).ifEmpty { null }, block, date(vector.text("day")!!), zone)
+                assertEquals(wallOf(vector.text("expectStart")), wall(changes.startDate, zone), "$name start")
+                assertEquals(wallOf(vector.text("expectEnd")), wall(changes.endDate, zone), "$name end")
+                assertEquals(wallOf(vector.text("expectDue")), wall(changes.dueDate, zone), "$name due")
+            }
+        }
+    }
+
+    @Test
+    fun topRow() {
+        val block = vectors.getValue("topRow").jsonObject
+        val day = date(block.text("day")!!)
+        val expected = block.getValue("expect").jsonArray.map { it.jsonPrimitive.long }
+        for (zone in zones) {
+            val tasks = block.getValue("tasks").jsonArray.map { item ->
+                val o = item.jsonObject
+                Task(
+                    id = o.getValue("id").jsonPrimitive.long,
+                    title = "x",
+                    done = o["done"]?.jsonPrimitive?.boolean ?: false,
+                    dueDate = iso(o.text("due"), zone),
+                    startDate = iso(o.text("start"), zone),
+                    endDate = iso(o.text("end"), zone),
+                )
+            }
+            assertEquals(expected, PlannerTimeline.dayTopRow(tasks, day, zone).map { it.id }, "top row in $zone")
+        }
+    }
+
+    @Test
     fun dueChange() {
         for (zone in zones) {
             for (vector in list("dueChange")) {

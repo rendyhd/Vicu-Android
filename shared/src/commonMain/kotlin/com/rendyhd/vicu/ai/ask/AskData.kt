@@ -17,6 +17,7 @@ import com.rendyhd.vicu.util.CustomListContext
 import com.rendyhd.vicu.util.CustomListFilterBuilder
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.HiddenTasks
+import com.rendyhd.vicu.util.ReminderAlarms
 import com.rendyhd.vicu.util.ReviewMetadata
 import com.rendyhd.vicu.util.ReviewState
 import com.rendyhd.vicu.util.TimeBlocks
@@ -321,7 +322,9 @@ class AskSnapshot(
             )
             putJsonArray("reminders") {
                 task.reminders.forEach { reminder ->
-                    val text = dueText(reminder.reminder) ?: return@forEach
+                    // A relative reminder counts from the task's dates as they are now.
+                    val at = ReminderAlarms.resolveTriggerMillis(reminder, task)?.let { Instant.fromEpochMilliseconds(it).toString() }
+                    val text = dueText(at) ?: return@forEach
                     add(JsonPrimitive(text))
                 }
             }

@@ -128,6 +128,22 @@ object PlannerTimeline {
         if (dueDay == day) DueDates.isDateOnly(task.dueDate, zone) else day == today && dueDay < today
     }
 
+    /**
+     * A day's tasks without a time, the row above its timeline (contract 16.4): due that day, date
+     * only, and no block on that day. Overdue tasks are not due that day and are left out. [isHeld]
+     * keeps a task the completion hold is still showing.
+     */
+    fun dayTopRow(
+        tasks: List<Task>,
+        day: LocalDate,
+        zone: TimeZone,
+        isHeld: (Task) -> Boolean = { false },
+    ): List<Task> = tasks.filter { task ->
+        if (task.done && !isHeld(task)) return@filter false
+        if (DueDates.localDateOf(task.dueDate, zone) != day) return@filter false
+        DueDates.isDateOnly(task.dueDate, zone) && TimeBlocks.blockOf(task, zone)?.day != day
+    }
+
     /** Minutes of open blocks that day, with overlaps counted once each (the header's "45m planned"). */
     fun plannedMinutes(tasks: List<Task>, day: LocalDate, zone: TimeZone): Int = tasks.sumOf { task ->
         if (task.done) 0 else TimeBlocks.blockOf(task, zone)?.takeIf { it.day == day }?.minutes ?: 0

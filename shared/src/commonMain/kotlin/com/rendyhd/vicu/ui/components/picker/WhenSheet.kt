@@ -129,7 +129,7 @@ fun WhenSheet(
                     onValueChange = { raw ->
                         text = raw
                         val now = SystemTimeSource.now().toLocalDateTime(zone)
-                        typed = WhenLogic.parseText(raw, now, zone)?.value
+                        typed = WhenLogic.parseText(raw, now, zone, previous = selected.date)?.value
                     },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Date and time") },

@@ -41,10 +41,9 @@ class PlanSourceTest {
 
     @Test
     fun theListsAreNamedTheFirstAfterTheSelectedDay() {
-        assertEquals("Today, no time", PlanSource.dayListLabel("Today"))
         assertEquals(
-            listOf("Today, no time", "Inbox", "Next 7 days", "No date"),
-            PlanSource.lists("Today, no time").map { it.second },
+            listOf("Today", "Inbox", "Next 7 days", "No date"),
+            PlanSource.lists("Today").map { it.second },
         )
     }
 

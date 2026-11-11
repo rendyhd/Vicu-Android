@@ -34,6 +34,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -360,8 +361,34 @@ class SelectionViewModelTest {
 
         assertEquals(listOf("Parent", "Other"), rig.tasks.created.map { it.title })
         assertEquals(listOf("Child"), rig.tasks.createdSubtasks.map { it.second.title })
-        assertEquals("2 tasks duplicated", rig.received.last().text)
+        val message = rig.received.last()
+        assertEquals("2 tasks duplicated", message.text)
+        // Several copies: Undo only, no single task to open (issue 97).
+        assertEquals("Undo", message.actionLabel)
+        assertNull(message.openTaskId)
         assertEquals(emptySet(), rig.vm.selectedIds.value)
+
+        message.onAction!!()
+        runCurrent()
+        assertEquals(listOf(102L, 101L, 100L), rig.tasks.deleted)
+    }
+
+    @Test
+    fun `issue 97 - one copy offers Open and Undo like a new task`() = runTest {
+        val rig = rig(1, duplicate = true)
+        rig.tasks.createHandler = { NetworkResult.Success(it.copy(id = 100)) }
+        rig.select(1)
+
+        rig.vm.bulkDuplicate()
+        runCurrent()
+
+        val message = rig.received.last()
+        assertEquals("Duplicated “Task 1”", message.text)
+        assertEquals("Undo", message.actionLabel)
+        assertEquals(100L, message.openTaskId)
+        message.onAction!!()
+        runCurrent()
+        assertEquals(listOf(100L), rig.tasks.deleted)
     }
 
     @Test

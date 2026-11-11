@@ -467,7 +467,7 @@ private fun datedFrom(month: Int, day: Int, year: Int?, today: LocalDate): Local
 
 private fun timeOf(hourValue: Int, minute: Int, meridiem: String): LocalTime? {
     if (minute !in 0..59) return null
-    val suffix = meridiem.lowercase()
+    val suffix = meridiem.lowercase().replace(".", "")
     val hour = when {
         suffix.isEmpty() -> hourValue.takeIf { it in 0..23 }
         hourValue !in 1..12 -> null
@@ -520,15 +520,17 @@ private val DAY_MONTH_RE =
     Regex("""${WB}(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?($MONTH_NAMES)\.?(?:,?\s+(\d{4}))?$WE""", IC)
 private val ISO_RE = Regex("""${WB}(\d{4})-(\d{1,2})-(\d{1,2})$WE""")
 private val SLASH_RE = Regex("""${WB}(\d{1,2})/(\d{1,2})(?:/(\d{4}|\d{2}))?$WE""")
-private val CLOCK_RE = Regex("""${WB}(?:at\s+)?(\d{1,2}):(\d{2})(?:\s*(am|pm))?$WE""", IC)
-private val HOUR_RE = Regex("""${WB}(?:at\s+)?(\d{1,2})\s*(am|pm)$WE""", IC)
+// "pm" or "p.m.", as chrono reads them on the desktop.
+private const val MERIDIEM = """am|pm|[ap]\.m\.?"""
+private val CLOCK_RE = Regex("""${WB}(?:at\s+)?(\d{1,2}):(\d{2})(?:\s*($MERIDIEM))?$WE""", IC)
+private val HOUR_RE = Regex("""${WB}(?:at\s+)?(\d{1,2})\s*($MERIDIEM)$WE""", IC)
 
 /** `on`/`by`/`due` right before a phrase, whatever it starts with. */
 private val CONNECTOR_BEFORE_RE = Regex("""(?:^|\s)((?:(?:on|by|due)\s+)+)$""", IC)
 
 private val ABBREVIATION_PREFIX_RE = Regex("""(?:^|\s)(?:on|next|this|by|due)\s+$""", IC)
 private val TIME_AFTER_RE =
-    Regex("""^\s*(?:at\s+)?(?:\d{1,2}:\d{2}|\d{1,2}(?::\d{2})?\s*[ap]m\b)""", IC)
+    Regex("""^\s*(?:at\s+)?(?:\d{1,2}:\d{2}|\d{1,2}(?::\d{2})?\s*[ap]\.?m\b)""", IC)
 
 private val GAP_DATE_THEN_TIME_RE = Regex("""[\s,]*""")
 private val WEEKDAY_GAP_RE = Regex("""[\s,]*""")
