@@ -47,6 +47,8 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Vicu shows the events of the calendars you choose on Plan, read only, and counts them as busy time. Nothing about them leaves this iPhone.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Vicu connects to your Vikunja server, which may be on your local network.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

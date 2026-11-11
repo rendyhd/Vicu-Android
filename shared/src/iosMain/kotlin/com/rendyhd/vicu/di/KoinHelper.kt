@@ -175,7 +175,7 @@ val iosModule = module {
     }
     single { IosNotificationPermissionPlatform() }
     single { IosLocationBridgeHolder() }
-    single<DeviceCalendars> { IosDeviceCalendars }
+    single<DeviceCalendars> { IosDeviceCalendars() }
     single { IosSpeechBridgeHolder() }
     single<SpeechInput> { IosSpeechInput(get()) }
     // Local speech (docs/ai-assistant-v1.md, section 3) and the AI provider keys (7.2). None of

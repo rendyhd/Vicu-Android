@@ -65,6 +65,8 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: Vicu connects to your Vikunja server, which may be on your local network.
+        # Plan's Calendars (contract 20.9): asked when Calendars opens, read only; Vicu never asks to write.
+        NSCalendarsFullAccessUsageDescription: Vicu shows the events of the calendars you choose on Plan, read only, and counts them as busy time. Nothing about them leaves this iPhone.
         # Location reminders. No location background mode: CLMonitor relaunches the app for an event.
         NSLocationWhenInUseUsageDescription: Vicu uses your location to remind you when you arrive at or leave a place you chose. It stays on this device.
         NSLocationAlwaysAndWhenInUseUsageDescription: Vicu uses your location to remind you when you arrive at or leave a place you chose, also when the app is closed. It stays on this device.
