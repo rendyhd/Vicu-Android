@@ -22,7 +22,7 @@ import kotlinx.serialization.json.jsonPrimitive
 /**
  * The `planEvents`, `eventBusy` and `eventChanges` vectors of cross-app-semantics-v1.json (contract
  * section 20) in the contract's zones. The desktop runs the same (`plan-events-suite.ts`); the
- * `icsImport` block is not read here.
+ * `icsImport` block is in [IcsImportFixtureTest].
  */
 class PlanEventsFixtureTest {
     private val fixture = Json.parseToJsonElement(CrossAppFixture.readTestFixture("cross-app-semantics-v1.json")).jsonObject
