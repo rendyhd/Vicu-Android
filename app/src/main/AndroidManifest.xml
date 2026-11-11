@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <!-- Holding + to say a task: asked on the first hold, never at start (docs/voice-input.md). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- The phone's calendars on the Plan screen: read only, asked when Calendars is opened; never WRITE_CALENDAR. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
     <!-- The permissions above would make Play require this hardware; without it the features stay off. -->
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />

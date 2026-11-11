@@ -1,5 +1,7 @@
 package com.rendyhd.vicu.di
 
+import com.rendyhd.vicu.calendar.DeviceCalendars
+import com.rendyhd.vicu.calendar.IosDeviceCalendars
 import com.rendyhd.vicu.voice.IosSpeechBridgeHolder
 import com.rendyhd.vicu.voice.IosSpeechInput
 import com.rendyhd.vicu.voice.SpeechInput
@@ -173,6 +175,7 @@ val iosModule = module {
     }
     single { IosNotificationPermissionPlatform() }
     single { IosLocationBridgeHolder() }
+    single<DeviceCalendars> { IosDeviceCalendars }
     single { IosSpeechBridgeHolder() }
     single<SpeechInput> { IosSpeechInput(get()) }
     // Local speech (docs/ai-assistant-v1.md, section 3) and the AI provider keys (7.2). None of

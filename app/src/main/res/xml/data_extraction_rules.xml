@@ -14,6 +14,7 @@
         <exclude domain="file" path="datastore/routine_prefs.preferences_pb" />
         <exclude domain="file" path="datastore/saved_places.preferences_pb" />
         <exclude domain="file" path="datastore/location_reminders.preferences_pb" />
+        <exclude domain="file" path="datastore/calendar_prefs.preferences_pb" />
         <exclude domain="file" path="datastore/ai_keys.preferences_pb" />
         <exclude domain="file" path="datastore/ai_settings.preferences_pb" />
         <exclude domain="file" path="datastore/ai_conversations.preferences_pb" />
@@ -42,6 +43,7 @@
         <exclude domain="file" path="datastore/routine_prefs.preferences_pb" />
         <exclude domain="file" path="datastore/saved_places.preferences_pb" />
         <exclude domain="file" path="datastore/location_reminders.preferences_pb" />
+        <exclude domain="file" path="datastore/calendar_prefs.preferences_pb" />
         <exclude domain="file" path="datastore/ai_keys.preferences_pb" />
         <exclude domain="file" path="datastore/ai_settings.preferences_pb" />
         <exclude domain="file" path="datastore/ai_conversations.preferences_pb" />

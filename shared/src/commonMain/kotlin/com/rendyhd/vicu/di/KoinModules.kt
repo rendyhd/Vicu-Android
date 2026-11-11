@@ -63,6 +63,8 @@ import com.rendyhd.vicu.worker.CollaborationSync
 import com.rendyhd.vicu.worker.AttachmentUploadSync
 import com.rendyhd.vicu.data.local.OfflineAttachmentFiles
 import com.rendyhd.vicu.util.PlatformFiles
+import com.rendyhd.vicu.calendar.CalendarPrefsStore
+import com.rendyhd.vicu.calendar.PlanCalendars
 
 val databaseModule = module {
     single {
@@ -101,6 +103,7 @@ val databaseModule = module {
     single { LocationRepository(synced = get<SyncedPreferences>(), positions = get(), local = get()) }
     single { WidgetPrefsStore(createDataStore(get(), "widget_prefs")) }
     single { FabHintStore(createDataStore(get(), "fab_hint")) }
+    single { CalendarPrefsStore(createDataStore(get(), "calendar_prefs")) }
 }
 
 val networkModule = module {
@@ -247,6 +250,8 @@ val repositoryModule = module {
     single { SubtaskOrderPreferences(synced = get<SyncedPreferences>()) }
     single { WeeklyReviewPreferences(synced = get<SyncedPreferences>()) }
     single { PlannerPreferences(synced = get<SyncedPreferences>()) }
+    // Your own Events (synced) and the phone's calendars (read only, choices on the device): contract 20.
+    single { PlanCalendars(synced = get<SyncedPreferences>(), device = get(), prefs = get(), time = get()) }
     single<CollaborationRepository> {
         CollaborationRepositoryImpl(
             collaborationDao = get(),

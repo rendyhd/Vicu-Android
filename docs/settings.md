@@ -85,6 +85,12 @@ Contract section 16, and 11.3 for the two synced keys. Plan my day is section 14
   timeline (`planner_show_routines`, on), whether Today opens on Day (`planner_today_day_view`, off)
   and the drawer's last list (`planner_source`). The last list can name a project; it stays through a
   sign-out, and a project the account does not have reads as the first list.
+- **Events and calendars** (contract section 20, `docs/planner.md`): your own Events are synced
+  preferences of the account (`event.<id>`, written through `PlanCalendars`). The phone's calendars
+  are per device: the permission (READ_CALENDAR, asked when Calendars is opened in the Plan gear) and
+  each calendar's choices (shown, colour, counts as busy, Busy only) in `CalendarPrefsStore`
+  (`calendar_prefs`), keyed by the provider's calendar id, which differs per device. No event is
+  stored: they are read from the calendar provider while Plan is shown.
 - **The evening nudge** is per device too: `planner_nudge` in `BehaviorPrefsStore`, the time as `HH:mm`,
   null while it is off. It is set in Settings, General, Plan, in the gear on Plan and on the last step of
   Plan my day, and it keeps quiet while the planner is off. Plan my day has no setting of its own: its
@@ -177,6 +183,7 @@ cloud backup and device transfer (section 8). The desktop column names the deskt
 | `ProjectSectionPrefsStore` (`project_section_prefs`) | Collapsed sections, per project. Collapsing a section in a project | Cleared | Included | `sidebar_collapsed_projects` (the sidebar, not sections) |
 | `SavedPlacesStore` (`saved_places`) | Where this phone found each saved place (position and address, by place id), and the one-time move flag. The places' ids and names sync (`place.<id>`, `LocationRepository`); positions never do. Notifications, Places, and "Save as place" in the location reminder | Kept | Excluded (privacy: positions stay on the device) | Reads the synced names, has no positions |
 | `CustomListStore` (`custom_lists`) | The local copy of the synced custom lists and their sync state (`custom_lists_sync_v1`: device id, document, dirty, carrier id, last sync), plus the older plain list kept for widgets and downgrades | Cleared (`clearLocal`) | Excluded | `custom_lists`, `custom_lists_sync` |
+| `CalendarPrefsStore` (`calendar_prefs`) | Each phone calendar's choices on the Plan screen (contract 20.9): shown, colour, counts as busy, Busy only, by the calendar provider's id. Plan settings, Calendars | Kept | Excluded (calendar ids differ per device) | The desktop's calendar links (`calendar-feeds.json`) |
 | `AiSettingsStore` (`ai_settings`) | The assistant (`docs/ai-assistant-v1.md`, section 7.2): provider, address, the dictation and Ask models, what Test connection found per model, the feature switches (smart dictation, Ask, Talk, read answers aloud), whether smart dictation opens as a brain dump, the providers agreed to, the speech model, its language, downloads on mobile data. Settings, Assistant. A device setting: an Ollama address is `localhost` on a computer and a network address on a phone, so nothing syncs (synced keys starting with `ai.` are reserved) | Kept | Excluded | The desktop's own assistant settings |
 
 Stores that hold app state, not settings:
@@ -308,7 +315,7 @@ merged in the main process.
 
 - Excluded: `auth_prefs`, `widget_configs`, `snooze_prefs`, `reminder_alarm_registry`,
   `temp_ids`, `sync_cursor`, `carrier_ids`, `custom_lists`, `saved_filters`, `routine_prefs`, `saved_places`,
-  `location_reminders`, `auth_debug.log`, the `vicu_database` files, `vicu_keyset_prefs.xml`,
+  `location_reminders`, `calendar_prefs`, `auth_debug.log`, the `vicu_database` files, `vicu_keyset_prefs.xml`,
   `routine_alarm_ids.xml` and `location_regions.xml`. The Glance
   widget state is in the no-backup folder.
 - Included: `theme_prefs`, `behavior_prefs`, `nlp_prefs`, `notification_prefs`, `review_prefs`,

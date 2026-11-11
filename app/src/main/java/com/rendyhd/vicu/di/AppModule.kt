@@ -1,5 +1,7 @@
 package com.rendyhd.vicu.di
 
+import com.rendyhd.vicu.calendar.AndroidDeviceCalendars
+import com.rendyhd.vicu.calendar.DeviceCalendars
 import com.rendyhd.vicu.voice.AndroidSpeechInput
 import com.rendyhd.vicu.voice.SpeechInput
 import com.rendyhd.vicu.ai.AiKeyStore
@@ -96,6 +98,7 @@ val appModule = module {
     single<NotificationPermissionPlatform> { get<AndroidNotificationPermissionPlatform>() }
     single { AndroidLocationPermissionPlatform(androidContext()) }
     single<LocationPermissionPlatform> { get<AndroidLocationPermissionPlatform>() }
+    single<DeviceCalendars> { AndroidDeviceCalendars(androidContext()) }
     single { AndroidSpeechInput(androidContext()) }
     single<SpeechInput> { get<AndroidSpeechInput>() }
     // Local speech (docs/ai-assistant-v1.md, section 3) and the AI provider keys (7.2). The
