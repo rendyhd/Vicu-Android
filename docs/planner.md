@@ -53,18 +53,27 @@ my day only, never on Today, in lists or in reminders.
   review, a month-end close. Pick how it repeats (the choices fit the day you pressed). Events have
   nothing to tick, sync to your other devices through your Vikunja server, and count as busy time
   unless you turn that off. The gear lists them and has New event.
+- **Import a calendar file.** The gear's Import calendar file opens an `.ics` file (a school timetable,
+  public holidays, an exported work schedule) and shows what it becomes: how many repeating and single
+  events, and each one. A series whose repeat Vicu has (daily, weekly, monthly on a date or a weekday,
+  yearly, with its end and skipped days) becomes one repeating event; anything else becomes single
+  events for the next 12 months. Times with a time zone become your local time. "Busy only" makes
+  every title Busy, or Free for a free event. Import adds them all at once, with Undo; afterwards they
+  are your own events, synced and changeable, and nothing stays linked to the file.
 - **Change an Event** by tapping it: title, all day, time and length, the day, how it repeats, when it
   ends and whether it counts as busy, then Save. Press and hold it to move it, or drag its handle to
   change its length, like a block. A repeating Event asks whether the change is for this time only,
   this and following, or all times. Skip this one and Delete are there too; each has Undo.
-- **The phone's calendars** (Android). The gear's Calendars asks to read your calendars and lists the
-  ones the phone syncs (Google, Exchange through Outlook, iCloud or other CalDAV through DAVx5,
-  subscribed links through ICSx5), grouped by account. Each can be shown or hidden, take its own colour
-  or one you pick, count as busy time or not, and show only Busy instead of titles. Vicu never changes
-  these calendars, and nothing about them leaves the phone; refusing access leaves your own Events
-  working. iPhone calendars come later.
-- **Busy time.** Timed, busy events of calendars that count are busy for free time, Next free and
-  Plan my day; all-day and free events are not. The assistant only gets your free time, never an
+- **The phone's calendars.** The gear's Calendars asks to read your calendars and lists the ones the
+  phone has, grouped by account: on Android what it syncs (Google, Exchange through Outlook, iCloud or
+  other CalDAV through DAVx5, subscribed links through ICSx5), on an iPhone the accounts in Settings,
+  Calendar (iCloud, Google, Exchange, CalDAV, subscriptions; full access, asked once). Each can be shown
+  or hidden, take its own colour or one you pick, count as busy time or not, and show only Busy instead
+  of titles. Vicu never changes these calendars and never asks to write to them, and nothing about them
+  leaves the phone; refusing access leaves your own Events working. Pulling down on the timeline reads
+  them again at once, with your tasks.
+- **Busy time.** Timed, busy events of calendars that count are busy for free time, Next free, the
+  load bars under the strip's days and Plan my day; all-day and free events are not. The assistant only gets your free time, never an
   event's title.
 
 ## Plan my day

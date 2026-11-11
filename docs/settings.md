@@ -86,11 +86,13 @@ Contract section 16, and 11.3 for the two synced keys. Plan my day is section 14
   and the drawer's last list (`planner_source`). The last list can name a project; it stays through a
   sign-out, and a project the account does not have reads as the first list.
 - **Events and calendars** (contract section 20, `docs/planner.md`): your own Events are synced
-  preferences of the account (`event.<id>`, written through `PlanCalendars`). The phone's calendars
-  are per device: the permission (READ_CALENDAR, asked when Calendars is opened in the Plan gear) and
-  each calendar's choices (shown, colour, counts as busy, Busy only) in `CalendarPrefsStore`
-  (`calendar_prefs`), keyed by the provider's calendar id, which differs per device. No event is
-  stored: they are read from the calendar provider while Plan is shown.
+  preferences of the account (`event.<id>`, written through `PlanCalendars`); an imported calendar
+  file (20.10, the gear's Import calendar file) only adds such Events, in one change, and keeps
+  nothing of the file. The phone's calendars are per device: the permission (Android READ_CALENDAR,
+  iOS EventKit full access; asked when Calendars is opened in the Plan gear) and each calendar's
+  choices (shown, colour, counts as busy, Busy only) in `CalendarPrefsStore` (`calendar_prefs`), keyed
+  by the provider's or EventKit's calendar id, which differs per device. No event is stored: they are
+  read from the calendar provider or EventKit while Plan is shown.
 - **The evening nudge** is per device too: `planner_nudge` in `BehaviorPrefsStore`, the time as `HH:mm`,
   null while it is off. It is set in Settings, General, Plan, in the gear on Plan and on the last step of
   Plan my day, and it keeps quiet while the planner is off. Plan my day has no setting of its own: its

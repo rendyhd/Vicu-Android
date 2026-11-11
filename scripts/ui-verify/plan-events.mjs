@@ -1,15 +1,21 @@
 // Events and calendars on the Plan screen (docs/cross-app-semantics-v1.md section 20): an Event made
 // by a press and hold on an empty time, its sheet, Skip this one with Undo, the gear's list, then a
-// phone calendar: a local calendar account with two events made through the calendar provider, the
-// permission asked when Calendars opens, the events on the timeline and the all-day row, and Busy
-// only. Every Event is asserted on the synced preferences carrier the server holds.
+// calendar file imported from Downloads (20.10: the system picker, the preview with Busy only, the
+// Events on the carrier and the timeline), then a phone calendar: a local calendar account with two
+// events made through the calendar provider, the permission asked when Calendars opens, the events
+// on the timeline and the all-day row, and Busy only. Every Event is asserted on the synced
+// preferences carrier the server holds.
 //
-//   node plan-events.mjs [tokenPath] [--out DIR] [--server http://127.0.0.1:3456]
+//   node plan-events.mjs [tokenPath] [--out DIR] [--server http://127.0.0.1:3456] [--only import-file,...]
 //
 // Run `node login.mjs` first and turn the planner on (plan.mjs --keep-on does). It makes only Events
-// titled `PEVT ...` and a local calendar account `vicu-test`, and removes them at the end (its own,
-// and what an earlier run left behind). It never seeds the server.
+// titled `PEVT ...` and `PIMP ...`, a file `Download/pimp-test.ics` and a local calendar account
+// `vicu-test`, and removes them at the end (its own, and what an earlier run left behind). It never
+// seeds the server. `--only` runs the named steps (new-event, event-sheet-skip, a11y-plan,
+// import-file, calendars, busy-only) and the clean-up.
 
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import * as d from './droid.mjs'
 import * as v from './nav.mjs'
 import { DEFAULT_TOKEN_PATH, resolveToken } from './login.mjs'
@@ -29,13 +35,17 @@ if (!TOKEN) {
 }
 
 const PREFIX = 'PEVT '
+const IMPORT_PREFIX = 'PIMP '
 const ACCOUNT = 'vicu-test'
+const IMPORT_FILE = 'pimp-test.ics'
+const ONLY = arg('--only')?.split(',').map((s) => s.trim()).filter(Boolean) ?? null
 let failures = 0
 function check(ok, what) {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${what}`)
   if (!ok) failures++
 }
 async function step(name, fn) {
+  if (ONLY && !ONLY.includes(name)) return
   try {
     await fn()
   } catch (e) {
@@ -87,6 +97,7 @@ async function waitServer(pred, what, ms = 45000) {
 }
 
 const ours = (events) => Object.entries(events).filter(([, value]) => value?.title?.startsWith(PREFIX))
+const imported = (events) => Object.entries(events).filter(([, value]) => value?.title?.startsWith(IMPORT_PREFIX))
 
 // ---- the phone's calendar provider (through adb's content command, as the shell user) -----------
 
@@ -244,18 +255,62 @@ async function setBusyOnly(on) {
   if ((toggle?.checked ?? false) !== on) await tapNode(row, 1200)
 }
 
+const isOurs = (text) => !!text && (text.startsWith(PREFIX) || text.startsWith(IMPORT_PREFIX))
+
 async function deleteOurEvents() {
   // Through the app: Events live in the synced preferences, which only the app writes.
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 10; i++) {
     await openGear()
-    const row = await inSheet((ns) => ns.find((n) => n.text?.startsWith(PREFIX)) ?? ns.find((n) => n.text === 'New event'), 'the list')
-    if (!row.text?.startsWith(PREFIX)) {
+    const row = await inSheet((ns) => ns.find((n) => isOurs(n.text)) ?? ns.find((n) => n.text === 'New event'), 'the list')
+    if (!isOurs(row.text)) {
       await d.back()
       return
     }
     await tapNode(row, 1800)
     await tapNode(await inSheet(byText('Delete'), 'Delete'), 1800)
   }
+}
+
+// ---- a calendar file in Downloads (contract 20.10) --------------------------------------------------
+
+const ymd = (day) => day.replaceAll('-', '')
+const addDays = (day, n) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10)
+
+/** Writes the file and pushes it to the emulator's Downloads: one weekly series and an RDATE pair. */
+function pushImportFile() {
+  const lines = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Vicu//Harness//EN',
+    // Fits the repeat rule: one repeating Event, on today's weekday.
+    'BEGIN:VEVENT', 'UID:pimp-weekly', `SUMMARY:${IMPORT_PREFIX}Weekly review`, `DTSTART:${ymd(today)}T160000`, `DTEND:${ymd(today)}T163000`,
+    'RRULE:FREQ=WEEKLY', 'END:VEVENT',
+    // An RDATE: copied as single Events, free time.
+    'BEGIN:VEVENT', 'UID:pimp-pair', `SUMMARY:${IMPORT_PREFIX}Workshop`, 'TRANSP:TRANSPARENT',
+    `DTSTART:${ymd(addDays(today, 1))}T110000`, `DTEND:${ymd(addDays(today, 1))}T120000`, `RDATE:${ymd(addDays(today, 8))}T110000`, 'END:VEVENT',
+    'END:VCALENDAR',
+  ]
+  mkdirSync(d.OUT, { recursive: true })
+  const local = join(d.OUT, IMPORT_FILE)
+  writeFileSync(local, lines.join('\r\n') + '\r\n')
+  d.adb('push', local, `/sdcard/Download/${IMPORT_FILE}`)
+  d.sh(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Download/${IMPORT_FILE}`)
+}
+
+function removeImportFile() {
+  try { d.sh(`rm -f /sdcard/Download/${IMPORT_FILE}`) } catch { /* ignore */ }
+}
+
+/** In the system's document picker: the file, from Recent or the Downloads root. */
+async function pickImportFile() {
+  const file = byText(IMPORT_FILE)
+  const first = await waitFor((ns) => file(ns) ?? ns.find((n) => n['content-desc'] === 'Show roots'), 'the document picker', 20000)
+  let hit = file(d.dump())
+  if (!hit) {
+    await tapNode(first, 1200)
+    await tapNode(await waitFor((ns) => ns.find((n) => n.text === 'Downloads' || n.text === 'Download'), 'Downloads'), 2000)
+    hit = await waitFor(file, 'the file in Downloads', 15000)
+  }
+  d.shot('import-picker')
+  await tapNode(hit, 2500)
 }
 
 // ---- the run -------------------------------------------------------------------------------------
@@ -312,6 +367,40 @@ try {
     check(found.filter((f) => f.rule === 'unnamed-clickable').length === 0, `no unnamed controls on Plan (${found.length} findings in all)`)
   })
 
+  await step('import-file', async () => {
+    pushImportFile()
+    await waitFor(byDesc('Plan settings'), 'Plan')
+    await openGear()
+    await tapNode(await inSheet(byText('Import calendar file'), 'Import calendar file'), 2500)
+    await pickImportFile()
+    await waitFor(byText('1 repeating event and 2 single events'), 'the preview')
+    check(true, 'the preview counts one repeating and two single Events')
+    await waitFor(byText(`${IMPORT_PREFIX}Weekly review`), 'the titles in the preview')
+    d.shot('import-preview')
+    // Busy only changes the preview's titles: Busy, and Free for the free ones.
+    await tapNode(await waitFor(byText('Busy only'), 'Busy only'), 1500)
+    await waitFor((ns) => ns.some((n) => n.text === 'Busy') && ns.some((n) => n.text === 'Free'), 'Busy and Free titles')
+    check(!d.dump().some((n) => n.text?.startsWith(IMPORT_PREFIX)), 'Busy only leaves no title in the preview')
+    d.shot('import-preview-busy-only')
+    await tapNode(await waitFor(byText('Busy only'), 'Busy only'), 1500)
+    await waitFor(byText(`${IMPORT_PREFIX}Weekly review`), 'the titles back')
+    await tapNode(await waitFor(byText('Import'), 'Import'), 2000)
+    await waitFor(byText('Imported 3 events'), 'the message', 10000)
+    const server = await waitServer((e) => imported(e).length === 3, 'the imported Events')
+    const values = imported(server).map(([, value]) => value)
+    const weekly = values.find((value) => value.title === `${IMPORT_PREFIX}Weekly review`)
+    const weekday = new Date(`${today}T12:00:00Z`).getUTCDay()
+    check(weekly?.time === '16:00' && weekly?.minutes === 30 && weekly?.repeat?.kind === 'weekly' && weekly.repeat.days?.[0] === weekday,
+      `the series is one weekly Event: ${JSON.stringify(weekly)}`)
+    const pair = values.filter((value) => value.title === `${IMPORT_PREFIX}Workshop`)
+    const starts = pair.map((value) => value.start).sort()
+    check(JSON.stringify(starts) === JSON.stringify([addDays(today, 1), addDays(today, 8)]), `the RDATE pair is two single Events: ${starts}`)
+    check(pair.every((value) => value.busy === false && !value.repeat), 'both free and not repeating')
+    await scrollGridTo(16)
+    await waitFor(descHas(`${IMPORT_PREFIX}Weekly review,`), 'the imported Event on the timeline')
+    d.shot('import-on-timeline')
+  })
+
   await step('calendars', async () => {
     const calendarId = addCalendar()
     check(!!calendarId, 'a local calendar account on the emulator')
@@ -364,12 +453,13 @@ try {
 } finally {
   try {
     await deleteOurEvents()
-    const left = await waitServer((e) => ours(e).length === 0, 'no PEVT Events', 45000).catch(() => null)
-    check(left !== null, 'every PEVT Event deleted on the server')
+    const left = await waitServer((e) => ours(e).length === 0 && imported(e).length === 0, 'no PEVT or PIMP Events', 45000).catch(() => null)
+    check(left !== null, 'every PEVT and PIMP Event deleted on the server')
   } catch (e) {
     console.log(`WARN cleanup: ${e.message}`)
   }
   removeCalendar()
+  removeImportFile()
 }
 console.log(failures ? `${failures} failed` : 'all passed')
 process.exit(failures ? 1 : 0)
