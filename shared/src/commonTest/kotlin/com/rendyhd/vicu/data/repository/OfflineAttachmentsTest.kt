@@ -121,7 +121,7 @@ class OfflineAttachmentsTest {
     // ---- adding a file -------------------------------------------------------------------------
 
     @Test
-    fun `offline, a picked file is copied onto the device and queued without asking the server`() = runTest {
+    fun `offline a picked file is copied onto the device and queued without asking the server`() = runTest {
         val rig = Rig(online = false)
 
         val result = rig.repository.attachPicked(5, "content://pick/photo", intoNotes = true)
@@ -250,7 +250,7 @@ class OfflineAttachmentsTest {
     }
 
     @Test
-    fun `the replay uploads the copy, deletes it and puts the image at the end of the notes`() = runTest {
+    fun `the replay uploads the copy and deletes it and puts the image at the end of the notes`() = runTest {
         val rig = Rig(handler = uploadServer())
         val file = storedPhoto()
         val action = queued(rig, QueuedUpload(file = file, name = "IMG_2031.jpg", size = 4, intoNotes = true))
@@ -279,7 +279,7 @@ class OfflineAttachmentsTest {
     }
 
     @Test
-    fun `while the task has queued edits, the image joins them instead of going straight to the server`() = runTest {
+    fun `while the task has queued edits the image joins them instead of going straight to the server`() = runTest {
         val rig = Rig(handler = uploadServer())
         rig.queue.insert(PendingActionEntity(entityType = "task", entityId = 5, actionType = "update", payload = """{"title":"Fix the porch light now"}""", createdAt = "2026-11-10T09:30:00Z"))
         val action = queued(rig, QueuedUpload(file = "1-0000000000000000.bin", name = "IMG_2031.jpg", size = 4, intoNotes = true, uploaded = true, attachmentId = 9))

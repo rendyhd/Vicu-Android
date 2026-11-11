@@ -273,7 +273,7 @@ class PlanViewModelTest {
     }
 
     @Test
-    fun `moving to a day keeps the times, follows the block there and undo puts everything back`() = runTest {
+    fun `moving to a day keeps the times and follows the block there and undo puts everything back`() = runTest {
         val rig = Rig(this)
         val messages = mutableListOf<AppMessage>()
         backgroundScope.launch { rig.messages.messages.collect { messages += it } }
@@ -314,7 +314,7 @@ class PlanViewModelTest {
     }
 
     @Test
-    fun `placing a task due earlier says the due date moved, with undo`() = runTest {
+    fun `placing a task due earlier says the due date moved with undo`() = runTest {
         val rig = Rig(this)
         val messages = mutableListOf<AppMessage>()
         backgroundScope.launch { rig.messages.messages.collect { messages += it } }
@@ -375,7 +375,7 @@ class PlanViewModelTest {
     }
 
     @Test
-    fun `the drawer chips count the inbox, the next seven days and no date`() = runTest {
+    fun `the drawer chips count the inbox and the next seven days and no date`() = runTest {
         val rig = Rig(this)
         rig.tasks.put(open(1, due = dateOnly(today)))
         rig.tasks.put(open(2, due = dateOnly(LocalDate(2026, 10, 9))))

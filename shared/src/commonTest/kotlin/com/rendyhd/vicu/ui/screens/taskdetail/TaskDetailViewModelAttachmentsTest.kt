@@ -243,7 +243,7 @@ class TaskDetailViewModelAttachmentsTest {
     }
 
     @Test
-    fun `offline, a picked file waits for the server, shows in the list and the snackbar says so`() = runTest {
+    fun `offline a picked file waits for the server and shows in the list and the snackbar says so`() = runTest {
         val rig = opened()
         rig.attachments.offline = true
 

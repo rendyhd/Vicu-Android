@@ -67,7 +67,7 @@ class CustomListFilterSummaryTest {
     }
 
     @Test
-    fun `a rule is named, and one that decides done leaves out incl done`() {
+    fun `a rule is named and one that decides done leaves out incl done`() {
         assertEquals("rule", summary(CustomListFilter(includeDone = true, rule = "done = false && priority >= 3")))
         assertEquals("rule · incl. done", summary(CustomListFilter(includeDone = true, rule = "priority >= 3")))
         assertEquals("rule", summary(CustomListFilter(rule = "priority >= 3")))

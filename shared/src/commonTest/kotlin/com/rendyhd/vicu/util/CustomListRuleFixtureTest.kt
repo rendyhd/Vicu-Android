@@ -184,7 +184,7 @@ class CustomListRuleFixtureTest {
     }
 
     @Test
-    fun `the server is asked for the rule, unless it uses like`() {
+    fun `the server is asked for the rule unless it uses like`() {
         val zone = zones.first()
         val today = CrossAppFixture.date("2026-10-06")
         val all = CustomListFilter(includeDone = true, rule = "priority > 2", ruleIncludeNulls = true)
