@@ -10,6 +10,7 @@ import com.rendyhd.vicu.data.repository.InMemoryPreferencesDataStore
 import com.rendyhd.vicu.domain.model.Attachment
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.domain.model.WaitingUpload
 import com.rendyhd.vicu.ui.FakeAttachmentRepository
 import com.rendyhd.vicu.ui.FakeLabelRepository
 import com.rendyhd.vicu.ui.FakeProjectRepository
@@ -238,6 +239,28 @@ class TaskDetailViewModelAttachmentsTest {
         assertEquals(listOf(42L to "content://pick/1"), rig.attachments.uploads)
         assertEquals(listOf("\"big.bin\" is 25 MB, but the server accepts files up to 20 MB"), rig.received)
         assertEquals(false, rig.viewModel.uiState.value.isUploadingAttachment)
+        rig.close()
+    }
+
+    @Test
+    fun `offline, a picked file waits for the server, shows in the list and the snackbar says so`() = runTest {
+        val rig = opened()
+        rig.attachments.offline = true
+
+        rig.viewModel.uploadAttachment("content://pick/IMG_2031.jpg")
+        runCurrent()
+
+        assertEquals(listOf(Triple(42L, "content://pick/IMG_2031.jpg", false)), rig.attachments.queued)
+        assertEquals(listOf("IMG_2031.jpg uploads when you're back online"), rig.received)
+
+        rig.attachments.waiting.value = listOf(WaitingUpload(id = 7, taskId = 42, fileName = "IMG_2031.jpg", fileSize = 4, intoNotes = false, localPath = null))
+        runCurrent()
+        assertEquals(listOf(7L), rig.viewModel.uiState.value.waitingUploads.map { it.id })
+
+        rig.viewModel.removeWaitingUpload(7)
+        runCurrent()
+        assertEquals(listOf(7L), rig.attachments.removedWaiting)
+        assertTrue(rig.viewModel.uiState.value.waitingUploads.isEmpty())
         rig.close()
     }
 }

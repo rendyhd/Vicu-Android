@@ -60,6 +60,8 @@ class LocalDataWiper(
     private val keptTranscript: KeptTranscriptStore? = null,
     /** What this device knows of the account's saved filters (cross-app semantics 3.7). */
     private val savedFilters: SavedFilterStore? = null,
+    /** Copies of files waiting to upload; they go with the queue that names them. */
+    private val offlineAttachments: OfflineAttachmentFiles? = null,
 ) {
     /**
      * Entries of routine history that have not been uploaded to the server yet (the phone-only
@@ -95,6 +97,7 @@ class LocalDataWiper(
     suspend fun discardUnsyncedAndClearCaches() {
         SyncEngine.exclusive {
             dao.discardUnsyncedAndClearCaches()
+            offlineAttachments?.sweep(keep = emptySet(), minAgeMillis = 0)
             // The custom lists and settings changed here and not yet synced go too; the next sync
             // reads them back from their carriers.
             customLists.clearLocal()
@@ -107,6 +110,7 @@ class LocalDataWiper(
     suspend fun wipeEverything() {
         SyncEngine.exclusive {
             dao.clearEverything()
+            offlineAttachments?.sweep(keep = emptySet(), minAgeMillis = 0)
             customLists.clearLocal()
             syncedPreferences?.clearLocal()
             bottomBarPrefs.clear()

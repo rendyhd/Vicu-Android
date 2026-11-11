@@ -9,6 +9,7 @@ import com.rendyhd.vicu.data.local.dao.ProjectDao
 import com.rendyhd.vicu.data.local.dao.normalizeQueuedPatchPayload
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.dao.CollabQueue
+import com.rendyhd.vicu.data.local.dao.AttachmentQueue
 import com.rendyhd.vicu.domain.repository.CollaborationRepository
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.mapper.LabelMapper
@@ -106,6 +107,8 @@ class SyncEngine(
     private val locations: LocationRepository? = null,
     /** Imports Vikunja saved filters as custom lists on first connect (cross-app semantics 3.7). */
     private val savedFilters: SavedFilterImporter? = null,
+    /** Uploads the files attached while the server could not be reached. */
+    private val attachmentSync: AttachmentUploadSync? = null,
 ) {
     private val missing = MissingResourceCheck(api)
     private val carrierWriter = RoutineCarrierWriter(api, json)
@@ -167,6 +170,8 @@ class SyncEngine(
         val expired = pendingActionDao.deleteFailedBefore(DateUtils.isoDaysAgo(FAILED_ACTION_RETENTION_DAYS))
         // The rows those actions protected may differ from the server now; a delta cannot show it.
         if (expired > 0) taskRefresher.requestFullReconcile()
+        // Copies of files whose upload went, was discarded or expired.
+        attachmentSync?.sweep()
 
         val run = RunState()
         // Creates replayed by earlier runs: a change queued with the temporary id after that run
@@ -334,7 +339,7 @@ class SyncEngine(
             }
             action.entityType == "label" && action.actionType in LABEL_DEPENDENT_ACTIONS ->
                 action.entityId.takeIf(::unresolved)?.let { TempRef("label", it) }
-            action.entityType in CollabQueue.ENTITY_TYPES ->
+            action.entityType in CollabQueue.ENTITY_TYPES || action.entityType == AttachmentQueue.ENTITY_TYPE ->
                 action.entityId.takeIf(::unresolved)?.let { TempRef("task", it) }
             else -> null
         }
@@ -393,6 +398,13 @@ class SyncEngine(
             in CollabQueue.ENTITY_TYPES -> {
                 if (collabSync?.resolveMissing(action, e, tempIdMap) == true) return true
                 // The task itself is gone: nothing to assign or comment on.
+                val taskId = tempIdMap[action.entityId] ?: action.entityId
+                if (!missing.taskGone(taskId, e)) return false
+                dropGoneTask(taskId, "${action.entityType}/${action.actionType}")
+                true
+            }
+            AttachmentQueue.ENTITY_TYPE -> {
+                // The task is gone: there is nothing to attach the file to.
                 val taskId = tempIdMap[action.entityId] ?: action.entityId
                 if (!missing.taskGone(taskId, e)) return false
                 dropGoneTask(taskId, "${action.entityType}/${action.actionType}")
@@ -493,6 +505,7 @@ class SyncEngine(
             action.entityType == "project" -> processProjectAction(action)
             collabSync?.handles(action) == true ->
                 return collabSync.process(action, tempIdMap) { tempId, realId -> tempIds?.rememberRealId(tempId, realId) }
+            attachmentSync?.handles(action) == true -> attachmentSync.process(action, tempIdMap)
             else -> Logger.w(TAG, "Unknown entity type: ${action.entityType}")
         }
         return true
@@ -757,6 +770,8 @@ class SyncEngine(
         }
         // Assignee and comment changes of a task created offline, and its comments and signals.
         collabSync?.remapTask(tempId, realId)
+        // Files attached to it while it waited.
+        attachmentSync?.remapTask(tempId, realId)
     }
 
     /** A queued subtask create that names [tempId] as its parent now names [realId]. */

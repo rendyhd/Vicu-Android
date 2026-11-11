@@ -12,7 +12,10 @@ import com.rendyhd.vicu.domain.model.TaskComment
 import com.rendyhd.vicu.domain.model.TaskOrder
 import com.rendyhd.vicu.domain.model.TaskSignal
 import com.rendyhd.vicu.domain.model.User
+import com.rendyhd.vicu.domain.repository.AttachResult
 import com.rendyhd.vicu.domain.repository.AttachmentRepository
+import com.rendyhd.vicu.domain.repository.RemovedUpload
+import com.rendyhd.vicu.domain.model.WaitingUpload
 import com.rendyhd.vicu.domain.repository.CollaborationRepository
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.LogbookPage
@@ -419,6 +422,46 @@ class FakeAttachmentRepository : AttachmentRepository {
     override suspend fun uploadPicked(taskId: Long, uriString: String): NetworkResult<Attachment> {
         uploads += taskId to uriString
         return uploadResult(taskId, uriString)
+    }
+
+    /** True: every attach is kept for later, as offline. */
+    var offline = false
+
+    /** (task id, picked uri, into notes) of every attach that was kept for later. */
+    val queued = mutableListOf<Triple<Long, String, Boolean>>()
+    val waiting = MutableStateFlow<List<WaitingUpload>>(emptyList())
+    val removedWaiting = mutableListOf<Long>()
+    val retriedWaiting = mutableListOf<Long>()
+
+    override suspend fun attachPicked(taskId: Long, uriString: String, intoNotes: Boolean): AttachResult {
+        if (waitsForServer(taskId)) {
+            queued += Triple(taskId, uriString, intoNotes)
+            return AttachResult.Queued(uriString.substringAfterLast('/'))
+        }
+        uploads += taskId to uriString
+        return when (val result = uploadResult(taskId, uriString)) {
+            is NetworkResult.Success -> AttachResult.Uploaded(result.data)
+            is NetworkResult.Error -> AttachResult.Refused(result.message)
+            NetworkResult.Loading -> AttachResult.Refused("loading")
+        }
+    }
+
+    override fun waitsForServer(taskId: Long): Boolean = offline || taskId < 0
+
+    override fun waitingUploads(taskId: Long): Flow<List<WaitingUpload>> =
+        waiting.map { list -> list.filter { it.taskId == taskId } }
+
+    override suspend fun removeWaiting(id: Long): RemovedUpload? {
+        val upload = waiting.value.firstOrNull { it.id == id } ?: return null
+        removedWaiting += id
+        waiting.value = waiting.value - upload
+        return RemovedUpload(upload.taskId, upload.fileName, "", "")
+    }
+
+    override suspend fun restoreWaiting(removed: RemovedUpload): Boolean = true
+
+    override suspend fun retryWaiting(id: Long) {
+        retriedWaiting += id
     }
 
     override suspend fun downloadToCache(attachment: Attachment): NetworkResult<String> {
