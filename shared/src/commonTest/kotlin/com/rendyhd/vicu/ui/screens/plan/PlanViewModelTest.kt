@@ -1,5 +1,9 @@
 package com.rendyhd.vicu.ui.screens.plan
 
+import com.rendyhd.vicu.calendar.CalendarPrefsStore
+import com.rendyhd.vicu.calendar.NoDeviceCalendars
+import com.rendyhd.vicu.calendar.PlanCalendars
+import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.FakeNetworkMonitor
 import com.rendyhd.vicu.auth.InMemoryTokenStorage
@@ -36,6 +40,8 @@ import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.Permission
 import com.rendyhd.vicu.util.PlanSource
 import com.rendyhd.vicu.util.TimeBlocks
+import com.rendyhd.vicu.util.EventRepeat
+import com.rendyhd.vicu.util.EventScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -116,6 +122,7 @@ class PlanViewModelTest {
         val messages = AppMessages()
         val behavior = BehaviorPrefsStore(InMemoryPreferencesDataStore())
         val synced = InMemorySyncedEntries()
+        val calendars = PlanCalendars(synced, NoDeviceCalendars, CalendarPrefsStore(InMemoryPreferencesDataStore()), FixedTimeSource(now, zone))
         val authScope = CoroutineScope(SupervisorJob())
         private val projects = FakeProjectRepository(
             listOf(Project(id = 1, title = "Home", position = 1.0), Project(id = 2, title = "Shared", position = 2.0)),
@@ -146,6 +153,8 @@ class PlanViewModelTest {
             refresher = fakeScreenRefresher(tasks, projects, FakeLabelRepository()),
             dayClock = DayClock(scope.backgroundScope, FixedTimeSource(now, zone), ticking = false),
             appMessages = messages,
+            planCalendars = calendars,
+            notificationPrefsStore = NotificationPrefsStore(InMemoryPreferencesDataStore()),
             time = FixedTimeSource(now, zone),
         )
 
@@ -572,6 +581,83 @@ class PlanViewModelTest {
         runCurrent()
 
         assertEquals(listOf(false, true), answers)
+        rig.authScope.cancel()
+    }
+
+    // --- Events (contract 20) ----------------------------------------------------------------------
+
+    private fun eventValue(json: String) = kotlinx.serialization.json.Json.parseToJsonElement(json)
+
+    @Test
+    fun `a new Event is one synced entry and its Undo deletes it`() = runTest {
+        val rig = Rig(this)
+        val said = mutableListOf<AppMessage>()
+        backgroundScope.launch { rig.messages.messages.collect { said += it } }
+        runCurrent()
+
+        rig.vm.createEvent("Manager call", today, 10 * 60, 30, EventRepeat.Weekly(1, listOf(2)))
+        runCurrent()
+
+        val entries = rig.synced.entries.first().filterValues { it != null }
+        val (key, value) = entries.entries.single()
+        assertTrue(key.startsWith("event."))
+        assertEquals(
+            eventValue("""{"title":"Manager call","start":"2026-10-06","time":"10:00","minutes":30,"repeat":{"kind":"weekly","every":1,"days":[2]}}"""),
+            value,
+        )
+        val shown = rig.vm.uiState.value.content?.events.orEmpty()
+        assertEquals(listOf(600 to 630), shown.map { it.startMinute to it.endMinute })
+
+        said.last().onAction?.invoke()
+        runCurrent()
+        assertTrue(rig.synced.entries.first().filterValues { it != null }.isEmpty())
+        rig.authScope.cancel()
+    }
+
+    @Test
+    fun `this time only skips the day and makes a single Event and Undo puts both back`() = runTest {
+        val rig = Rig(this)
+        val stored = eventValue("""{"title":"Standup","start":"2026-10-05","time":"09:00","minutes":15,"repeat":{"kind":"daily","every":1},"color":"kept"}""")
+        rig.synced.set("event.a", stored)
+        val said = mutableListOf<AppMessage>()
+        backgroundScope.launch { rig.messages.messages.collect { said += it } }
+        runCurrent()
+
+        val occurrence = rig.vm.uiState.value.content?.events.orEmpty().single().event
+        assertEquals("a", occurrence.planEventId)
+        assertTrue(rig.vm.repeats(occurrence))
+        rig.vm.moveEvent(occurrence, com.rendyhd.vicu.util.GestureRange(10 * 60, 10 * 60 + 30), EventScope.THIS)
+        runCurrent()
+
+        val entries = rig.synced.entries.first().filterValues { it != null }
+        assertEquals(2, entries.size)
+        assertEquals(
+            eventValue("""{"title":"Standup","start":"2026-10-05","time":"09:00","minutes":15,"repeat":{"kind":"daily","every":1},"skips":["2026-10-06"],"color":"kept"}"""),
+            entries["event.a"],
+        )
+        val single = entries.filterKeys { it != "event.a" }.values.single()
+        assertEquals(
+            eventValue("""{"title":"Standup","start":"2026-10-06","time":"10:00","minutes":30,"color":"kept"}"""),
+            single,
+        )
+
+        said.last().onAction?.invoke()
+        runCurrent()
+        assertEquals(mapOf("event.a" to stored), rig.synced.entries.first().filterValues { it != null })
+        rig.authScope.cancel()
+    }
+
+    @Test
+    fun `an Event is busy time for the next free slot`() = runTest {
+        val rig = Rig(this)
+        rig.synced.set("event.a", eventValue("""{"title":"Focus","start":"2026-10-06","time":"08:00","minutes":120}"""))
+        rig.tasks.put(open(1))
+        runCurrent()
+
+        assertTrue(rig.vm.placeInNextFree(rig.last(1)))
+        runCurrent()
+
+        assertEquals(at("2026-10-06T10:00:00"), rig.last(1).startDate)
         rig.authScope.cancel()
     }
 }

@@ -69,9 +69,11 @@ import com.rendyhd.vicu.ui.components.assistant.dashedOutline
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.theme.LocalVicuColors
+import com.rendyhd.vicu.util.CalendarEvent
 import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.GestureRange
 import com.rendyhd.vicu.util.PlacedBlock
+import com.rendyhd.vicu.util.PlacedEvent
 import com.rendyhd.vicu.util.PlannerHours
 import com.rendyhd.vicu.util.PlannerTimeline
 import com.rendyhd.vicu.util.TimeBlocks
@@ -181,6 +183,15 @@ private data class BlockGesture(
     val startDay: LocalDate,
 )
 
+/** What a gesture on one of your own Events is doing (contract 20.7): the block gestures, by event id. */
+private data class EventGesture(
+    val id: String,
+    val moving: Boolean,
+    val base: GestureRange,
+    val draggedPx: Float,
+    val scrollAtStart: Int,
+)
+
 /**
  * The timeline of one day. Read-only unless [canEdit] says otherwise (Today's Day view: it only opens
  * and ticks). A press and hold moves a block, its handle changes the length, both in 15-minute steps;
@@ -221,6 +232,18 @@ internal fun PlanTimeline(
     onBlockDrag: (Task, Offset?) -> Unit = { _, _ -> },
     onBlockDropOutside: (Task) -> Boolean = { false },
     scrollsUnder: (Offset) -> Boolean = { true },
+    /**
+     * Events beside the blocks (contract 20.7). Only the Plan screen passes them: never Today's Day
+     * view. A press opens one; [canEditEvent] (your own Events) adds the block gestures, and the
+     * stretch they end on goes to [onEventChange].
+     */
+    events: List<PlacedEvent> = emptyList(),
+    eventColor: (String) -> Color = { Color.Unspecified },
+    onEventClick: (CalendarEvent) -> Unit = {},
+    canEditEvent: (CalendarEvent) -> Boolean = { false },
+    onEventChange: (CalendarEvent, GestureRange) -> Unit = { _, _ -> },
+    /** A press and hold on an empty time: something new there (a task or an Event). */
+    onLongPressTime: ((Int) -> Unit)? = null,
 ) {
     val density = LocalDensity.current
     val zone = LocalClockDay.current.zone
@@ -236,6 +259,7 @@ internal fun PlanTimeline(
     val workEnd = TimeBlocks.clockMinutes(hours.end)
 
     var gesture by remember { mutableStateOf<BlockGesture?>(null) }
+    var eventGesture by remember { mutableStateOf<EventGesture?>(null) }
     // The block being moved, kept while another day is on screen: its gesture lives on it.
     var carried by remember { mutableStateOf<PlacedBlock?>(null) }
     val latestDay by rememberUpdatedState(day)
@@ -255,9 +279,19 @@ internal fun PlanTimeline(
         }
     }
 
-    // A block dragged near an edge scrolls the grid under it.
-    LaunchedEffect(gesture != null) {
-        if (gesture == null) return@LaunchedEffect
+    fun eventRangeOf(g: EventGesture, scroll: Int): GestureRange {
+        val delta = g.draggedPx + (scroll - g.scrollAtStart)
+        return if (g.moving) {
+            PlannerTimeline.movedRange(g.base, delta / minutePx.toDouble())
+        } else {
+            PlannerTimeline.endEdgeRange(g.base, g.base.endMinute + delta / minutePx.toDouble())
+        }
+    }
+
+    // A block or an Event dragged near an edge scrolls the grid under it.
+    val dragging = gesture != null || eventGesture != null
+    LaunchedEffect(dragging) {
+        if (!dragging) return@LaunchedEffect
         while (true) {
             withFrameNanos { }
             val port = viewport ?: continue
@@ -273,7 +307,7 @@ internal fun PlanTimeline(
                 viewport = it
                 onViewportPlaced(it)
             }
-            .verticalScroll(scrollState, enabled = gesture == null),
+            .verticalScroll(scrollState, enabled = !dragging),
     ) {
         BoxWithConstraints(
             modifier = Modifier
@@ -294,6 +328,24 @@ internal fun PlanTimeline(
                     drawLine(lineColor, Offset(left, y), Offset(size.width, y), strokeWidth = 1f)
                 }
                 drawLine(lineColor, Offset(left, 0f), Offset(left, size.height), strokeWidth = 1f)
+            }
+
+            // A press and hold on an empty time; anything drawn over it takes its own presses first.
+            if (onLongPressTime != null) {
+                val latestLongPress by rememberUpdatedState(onLongPressTime)
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onLongPress = { offset ->
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    val minute = PlannerTimeline.snapMinutes(offset.y / minutePx.toDouble() - TimeBlocks.STEP_MINUTES / 2.0)
+                                    latestLongPress(minute.coerceIn(0, PlannerTimeline.DAY_MINUTES - TimeBlocks.STEP_MINUTES))
+                                },
+                            )
+                        },
+                )
             }
 
             for (hour in 1..23) {
@@ -334,7 +386,8 @@ internal fun PlanTimeline(
             }
             for (marker in markers) {
                 key(marker.task.id) {
-                    val overBlock = PlannerTimeline.markerOverBlock(marker.minute, blocks)
+                    val overBlock = PlannerTimeline.markerOverBlock(marker.minute, blocks) ||
+                        events.any { marker.minute + 10 > it.startMinute && marker.minute - 10 < it.startMinute + it.drawnMinutes }
                     Row(
                         modifier = Modifier
                             .offset(y = minuteDp(marker.minute) - 10.dp)
@@ -352,6 +405,107 @@ internal fun PlanTimeline(
                             leadingClock = true,
                             modifier = Modifier.clickable { onMarkerClick(marker.task) },
                         )
+                    }
+                }
+            }
+
+            for (placed in events) {
+                key(placed.event.id) {
+                    val event = placed.event
+                    val editable = canEditEvent(event)
+                    val current = eventGesture?.takeIf { it.id == event.id }
+                    val range = current?.let { eventRangeOf(it, scrollState.value) }
+                        ?: GestureRange(placed.startMinute, placed.endMinute)
+                    val columnWidth = columnsWidth / placed.columnCount
+                    val x = gutterWidth + columnWidth * placed.column
+                    val y = minuteDp(range.startMinute)
+                    // At least as tall as the shortest block, so its title fits; busy time keeps its real length.
+                    val height = if (current != null) minuteDp(range.endMinute) - y else minuteDp(placed.drawnMinutes)
+                    val latestPlaced by rememberUpdatedState(placed)
+                    val latestChange by rememberUpdatedState(onEventChange)
+                    val timeText = if (current != null) {
+                        "${rangeText(day, range, zone, format)} · ${PlannerTimeline.formatLength(range.endMinute - range.startMinute)}"
+                    } else {
+                        eventTimeText(event, zone, format)
+                    }
+                    fun ownRange() = GestureRange(latestPlaced.startMinute, latestPlaced.endMinute)
+                    TimelineEventView(
+                        event = event,
+                        color = eventColor(event.calendarId),
+                        timeText = timeText,
+                        height = height,
+                        lifted = current != null,
+                        onClick = { onEventClick(event) },
+                        modifier = Modifier
+                            .offset(x = x, y = y)
+                            .zIndex(if (current != null) 4f else 1f)
+                            .size(columnWidth - 2.dp, height - 1.dp),
+                        gestures = if (editable) {
+                            Modifier.pointerInput(event.id) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        eventGesture = EventGesture(event.id, moving = true, ownRange(), 0f, scrollState.value)
+                                    },
+                                    onDrag = { change, amount ->
+                                        change.consume()
+                                        eventGesture = eventGesture?.let { it.copy(draggedPx = it.draggedPx + amount.y) }
+                                    },
+                                    onDragEnd = {
+                                        val finished = eventGesture
+                                        eventGesture = null
+                                        if (finished != null) {
+                                            val to = eventRangeOf(finished, scrollState.value)
+                                            if (to != finished.base) latestChange(latestPlaced.event, to)
+                                        }
+                                    },
+                                    onDragCancel = { eventGesture = null },
+                                )
+                            }
+                        } else {
+                            Modifier
+                        },
+                    )
+                    // Your own Event's length handle, on its bottom edge like a block's.
+                    if (editable) {
+                        Box(
+                            modifier = Modifier
+                                .offset(x = x + (columnWidth - 2.dp - LengthHandleWidth) / 2, y = y + height - ShortHandleInside)
+                                .zIndex(if (current != null) 5f else 3f)
+                                .size(LengthHandleWidth, TouchTarget - ShortHandleInside)
+                                .semantics { contentDescription = "Length of ${event.title}" }
+                                .pointerInput(event.id) {
+                                    detectVerticalDragGestures(
+                                        onDragStart = {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            eventGesture = EventGesture(event.id, moving = false, ownRange(), 0f, scrollState.value)
+                                        },
+                                        onVerticalDrag = { change, amount ->
+                                            change.consume()
+                                            val slop = if (eventGesture?.draggedPx == 0f) viewConfiguration.touchSlop * sign(amount) else 0f
+                                            eventGesture = eventGesture?.let { it.copy(draggedPx = it.draggedPx + amount + slop) }
+                                        },
+                                        onDragEnd = {
+                                            val finished = eventGesture
+                                            eventGesture = null
+                                            if (finished != null) {
+                                                val to = eventRangeOf(finished, scrollState.value)
+                                                if (to != finished.base) latestChange(latestPlaced.event, to)
+                                            }
+                                        },
+                                        onDragCancel = { eventGesture = null },
+                                    )
+                                },
+                            contentAlignment = Alignment.TopCenter,
+                        ) {
+                            Box(
+                                Modifier
+                                    .padding(top = ShortHandleInside - 2.dp)
+                                    .size(28.dp, 4.dp)
+                                    .clip(CircleShape)
+                                    .background(eventColor(event.calendarId)),
+                            )
+                        }
                     }
                 }
             }

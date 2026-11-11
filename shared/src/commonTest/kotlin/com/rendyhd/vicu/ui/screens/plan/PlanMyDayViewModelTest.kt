@@ -1,5 +1,8 @@
 package com.rendyhd.vicu.ui.screens.plan
 
+import com.rendyhd.vicu.calendar.CalendarPrefsStore
+import com.rendyhd.vicu.calendar.NoDeviceCalendars
+import com.rendyhd.vicu.calendar.PlanCalendars
 import com.rendyhd.vicu.ai.organize.PlanCanWait
 import com.rendyhd.vicu.ai.organize.PlanDayRequest
 import com.rendyhd.vicu.ai.organize.PlanDayResult
@@ -150,6 +153,7 @@ class PlanMyDayViewModelTest {
         val said = mutableListOf<String>()
         val behavior = BehaviorPrefsStore(InMemoryPreferencesDataStore())
         val synced = InMemorySyncedEntries()
+        val calendars = PlanCalendars(synced, NoDeviceCalendars, CalendarPrefsStore(InMemoryPreferencesDataStore()), FixedTimeSource(now, zone))
         val authScope = CoroutineScope(SupervisorJob())
         private val projects = FakeProjectRepository(
             listOf(Project(id = 1, title = "Home", position = 1.0), Project(id = 2, title = "Shared", position = 2.0)),
@@ -182,6 +186,7 @@ class PlanMyDayViewModelTest {
                 suggester = suggester,
                 dayClock = DayClock(scope.backgroundScope, FixedTimeSource(now, zone), ticking = false),
                 appMessages = messages,
+                planCalendars = calendars,
                 time = FixedTimeSource(now, zone),
             )
         }
@@ -490,6 +495,25 @@ class PlanMyDayViewModelTest {
         assertEquals(tomorrow, sent.day)
         assertEquals(listOf(MinuteRange(8 * 60, 18 * 60)), sent.free)
         assertEquals(tomorrow, rig.tasks.planDays.last(), "the day's own list was read too")
+    }
+
+    @Test
+    fun `an Event is busy time and the assistant gets only the free ranges`() = runTest {
+        val rig = Rig(this, ready = true)
+        rig.synced.set(
+            "event.a",
+            kotlinx.serialization.json.Json.parseToJsonElement("""{"title":"Secret call","start":"2026-10-07","time":"09:00","minutes":60}"""),
+        )
+        rig.open(this)
+
+        rig.vm.setDay(1)
+        runCurrent()
+
+        val sent = rig.suggester.requests.last()
+        assertEquals(tomorrow, sent.day)
+        assertEquals(listOf(MinuteRange(8 * 60, 9 * 60), MinuteRange(10 * 60, 18 * 60)), sent.free)
+        assertFalse(sent.toString().contains("Secret call"), "an Event's title never reaches the assistant")
+        assertEquals(9 * 60, rig.vm.uiState.value.freeLeft)
     }
 
     @Test

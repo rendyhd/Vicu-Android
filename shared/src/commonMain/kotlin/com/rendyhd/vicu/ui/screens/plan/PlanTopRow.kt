@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.ui.theme.LocalVicuColors
+import com.rendyhd.vicu.util.CalendarEvent
 
 /** What the top row offers while something is carried over it, or nothing. */
 internal enum class TopRowTarget {
@@ -79,8 +80,12 @@ internal fun PlanTopRow(
     onDragCancel: () -> Unit,
     modifier: Modifier = Modifier,
     interactive: Boolean = true,
+    /** The day's all-day events (contract 20.7), before the tasks: Plan only. */
+    allDayEvents: List<CalendarEvent> = emptyList(),
+    eventColor: (String) -> Color = { Color.Unspecified },
+    onEventClick: (CalendarEvent) -> Unit = {},
 ) {
-    if (tasks.isEmpty() && target == null) return
+    if (tasks.isEmpty() && allDayEvents.isEmpty() && target == null) return
     val colors = MaterialTheme.colorScheme
     Box(
         modifier = modifier
@@ -124,11 +129,20 @@ internal fun PlanTopRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "No time",
+                text = if (tasks.isEmpty()) "All day" else "No time",
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.onSurfaceVariant,
                 modifier = Modifier.padding(start = 4.dp, end = 2.dp),
             )
+            allDayEvents.forEach { event ->
+                key(event.id) {
+                    AllDayEventChip(
+                        event = event,
+                        color = eventColor(event.calendarId),
+                        onClick = if (interactive) ({ onEventClick(event) }) else null,
+                    )
+                }
+            }
             // A plain row, not a lazy one: a chip being dragged must stay composed while the day changes.
             tasks.forEach { task ->
                 key(task.id) {

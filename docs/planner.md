@@ -44,6 +44,29 @@ off in the gear.
 Today has a List and a Day switch while the planner is on. Day shows the timeline and opens and ticks
 tasks; changing them happens on Plan.
 
+## Events and calendars
+
+Plan also shows what takes your time that is not a task. Events and calendars are on Plan and in Plan
+my day only, never on Today, in lists or in reminders.
+
+- **Your events.** Press and hold an empty time and choose Event: a weekly manager call, a monthly
+  review, a month-end close. Pick how it repeats (the choices fit the day you pressed). Events have
+  nothing to tick, sync to your other devices through your Vikunja server, and count as busy time
+  unless you turn that off. The gear lists them and has New event.
+- **Change an Event** by tapping it: title, all day, time and length, the day, how it repeats, when it
+  ends and whether it counts as busy, then Save. Press and hold it to move it, or drag its handle to
+  change its length, like a block. A repeating Event asks whether the change is for this time only,
+  this and following, or all times. Skip this one and Delete are there too; each has Undo.
+- **The phone's calendars** (Android). The gear's Calendars asks to read your calendars and lists the
+  ones the phone syncs (Google, Exchange through Outlook, iCloud or other CalDAV through DAVx5,
+  subscribed links through ICSx5), grouped by account. Each can be shown or hidden, take its own colour
+  or one you pick, count as busy time or not, and show only Busy instead of titles. Vicu never changes
+  these calendars, and nothing about them leaves the phone; refusing access leaves your own Events
+  working. iPhone calendars come later.
+- **Busy time.** Timed, busy events of calendars that count are busy for free time, Next free and
+  Plan my day; all-day and free events are not. The assistant only gets your free time, never an
+  event's title.
+
 ## Plan my day
 
 The sun button on Plan. Four steps, today or tomorrow. It works fully without the assistant.

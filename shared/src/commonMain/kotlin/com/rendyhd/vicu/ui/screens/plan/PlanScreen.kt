@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -86,7 +88,12 @@ import com.rendyhd.vicu.ui.components.shared.snackbarColors
 import com.rendyhd.vicu.ui.navigation.ScreenReady
 import com.rendyhd.vicu.ui.theme.VicuMotion
 import com.rendyhd.vicu.ui.theme.rememberReduceMotion
+import com.rendyhd.vicu.util.CalendarEvent
 import com.rendyhd.vicu.util.DateContext
+import com.rendyhd.vicu.util.EventEdit
+import com.rendyhd.vicu.util.EventScope
+import com.rendyhd.vicu.util.ListedEvent
+import com.rendyhd.vicu.util.PlanEvents
 import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.GestureRange
 import com.rendyhd.vicu.util.PlanSource
@@ -109,6 +116,9 @@ private data class DrawerDrag(val task: Task, val window: Offset, val fromDrawer
 
 /** A block being moved, and where the finger is. */
 private data class BlockCarry(val task: Task, val window: Offset?)
+
+/** A change of a repeating Event waiting for All times, This time only or This and following (contract 20.6). */
+private data class PendingEventChange(val occurrence: CalendarEvent, val edit: EventEdit?, val range: GestureRange?)
 
 /** How long the drawer stays aside after a drop before it comes back (the design's 250 ms). */
 private const val DRAWER_RETURN_MS = 250L
@@ -150,6 +160,12 @@ fun PlanScreen(
     var pickedId by rememberSaveable { mutableStateOf<Long?>(null) }
     var sheetTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var gearOpen by rememberSaveable { mutableStateOf(false) }
+    // Something new on an empty time (a press and hold, or New event in the gear), and whether it starts as an Event.
+    var newAtMinute by rememberSaveable { mutableStateOf<Int?>(null) }
+    var newAsEvent by rememberSaveable { mutableStateOf(false) }
+    var calendarsOpen by rememberSaveable { mutableStateOf(false) }
+    var eventSheet by remember { mutableStateOf<CalendarEvent?>(null) }
+    var pendingEventChange by remember { mutableStateOf<PendingEventChange?>(null) }
     var drag by remember { mutableStateOf<DrawerDrag?>(null) }
     var blockCarry by remember { mutableStateOf<BlockCarry?>(null) }
     // What the drawer and the top row listed when a drag began: the row under the finger stays put
@@ -175,6 +191,19 @@ fun PlanScreen(
     val fallbackColor = MaterialTheme.colorScheme.primary
     val colorOf: (Task) -> Color = { task ->
         parseHexColor(state.projects[task.projectId]?.hexColor.orEmpty()) ?: fallbackColor
+    }
+    val eventColor: (String) -> Color = { id -> calendarColor(state.calendar.colorOf(id)) }
+    val isOwnEvent: (CalendarEvent) -> Boolean = { it.planEventId != null }
+
+    /** A change from the sheet or the timeline: a repeating Event asks which times it is for. */
+    fun changeEvent(occurrence: CalendarEvent, edit: EventEdit?, range: GestureRange?) {
+        if (viewModel.repeats(occurrence)) {
+            pendingEventChange = PendingEventChange(occurrence, edit, range)
+        } else if (edit != null) {
+            viewModel.changeEvent(occurrence, edit, EventScope.ALL)
+        } else if (range != null) {
+            viewModel.moveEvent(occurrence, range, EventScope.ALL)
+        }
     }
     val minutePx = with(density) { PlanHourHeight.toPx() } / 60f
     val openingMarginPx = with(density) { PlanOpeningMargin.toPx() }
@@ -434,6 +463,8 @@ fun PlanScreen(
                             .graphicsLayer { translationX = swipe.value + if (swipe.value < 0f) widthPx else -widthPx },
                     ) {
                         PlanTopRow(
+                            allDayEvents = neighbour.allDayEvents,
+                            eventColor = eventColor,
                             tasks = neighbour.topRow,
                             heldIds = emptySet(),
                             target = null,
@@ -462,6 +493,8 @@ fun PlanScreen(
                             onBlockClick = {},
                             onMarkerClick = {},
                             modifier = Modifier.weight(1f).fillMaxWidth(),
+                            events = neighbour.events,
+                            eventColor = eventColor,
                         )
                     }
                 }
@@ -477,6 +510,9 @@ fun PlanScreen(
                             .then(swipeModifier),
                     ) {
                         PlanTopRow(
+                            allDayEvents = content.allDayEvents,
+                            eventColor = eventColor,
+                            onEventClick = { eventSheet = it },
                             tasks = frozenTopRow ?: content.topRow,
                             heldIds = state.heldIds,
                             target = topRowTarget,
@@ -545,6 +581,19 @@ fun PlanScreen(
                             },
                             scrollsUnder = { at -> stripDayAt(at) == null && !overTopRow(at) },
                             modifier = Modifier.weight(1f).fillMaxWidth(),
+                            events = content.events,
+                            eventColor = eventColor,
+                            onEventClick = { eventSheet = it },
+                            canEditEvent = isOwnEvent,
+                            onEventChange = { occurrence, range -> changeEvent(occurrence, null, range) },
+                            onLongPressTime = if (activePick == null && drag == null) {
+                                { minute: Int ->
+                                    newAsEvent = false
+                                    newAtMinute = minute
+                                }
+                            } else {
+                                null
+                            },
                         )
                     }
                 }
@@ -668,16 +717,123 @@ fun PlanScreen(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             dragHandle = { VicuDragHandle() },
         ) {
-            Column(modifier = Modifier.navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+            Column(
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 16.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 Text(
                     text = "Plan settings",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(bottom = 12.dp),
                 )
                 PlannerOptions()
+                HorizontalDivider(Modifier.padding(vertical = 16.dp))
+                PlanEventsSection(
+                    onNewEvent = {
+                        gearOpen = false
+                        newAsEvent = true
+                        newAtMinute = newEventMinute(selectedDay == today, viewModel.minutesNow(), state.hours)
+                    },
+                    onOpenEvent = { listed ->
+                        gearOpen = false
+                        val day = today ?: selectedDay
+                        if (day != null) eventSheet = occurrenceToOpen(listed, day, clock.zone)
+                    },
+                    onOpenCalendars = if (viewModel.calendarsSupported) {
+                        {
+                            gearOpen = false
+                            calendarsOpen = true
+                        }
+                    } else {
+                        null
+                    },
+                )
             }
         }
     }
+
+    if (calendarsOpen) {
+        CalendarsSheet(onDismiss = { calendarsOpen = false })
+    }
+
+    val newMinute = newAtMinute
+    if (newMinute != null && selectedDay != null) {
+        NewOnPlanSheet(
+            day = selectedDay,
+            startMinute = newMinute,
+            defaultLength = state.defaultLength,
+            canAddTask = state.canPlace,
+            startAsEvent = newAsEvent,
+            onTask = { title ->
+                viewModel.createTask(title, selectedDay, newMinute)
+                newAtMinute = null
+            },
+            onEvent = { title, repeat ->
+                viewModel.createEvent(title, selectedDay, newMinute, state.defaultLength, repeat)
+                newAtMinute = null
+            },
+            onDismiss = { newAtMinute = null },
+        )
+    }
+
+    eventSheet?.let { shown ->
+        // As it is now: the occurrence on screen, or the one the gear's list opened.
+        val occurrence = state.calendar.events.firstOrNull { it.id == shown.id } ?: shown
+        EventSheet(
+            occurrence = occurrence,
+            own = state.calendar.ownEvent(occurrence.planEventId),
+            calendarName = state.calendar.nameOf(occurrence.calendarId),
+            defaultLength = state.defaultLength,
+            onSave = { edit ->
+                eventSheet = null
+                changeEvent(occurrence, edit, null)
+            },
+            onSkip = {
+                eventSheet = null
+                viewModel.skipEvent(occurrence)
+            },
+            onDelete = {
+                eventSheet = null
+                viewModel.deleteEvent(occurrence)
+            },
+            onDismiss = { eventSheet = null },
+        )
+    }
+
+    pendingEventChange?.let { pending ->
+        EventScopeDialog(
+            title = pending.occurrence.title,
+            allowThisOnly = pending.edit?.let(PlanEvents::allowsThisOnly) ?: true,
+            onPick = { scope ->
+                pendingEventChange = null
+                when {
+                    pending.edit != null -> viewModel.changeEvent(pending.occurrence, pending.edit, scope)
+                    pending.range != null -> viewModel.moveEvent(pending.occurrence, pending.range, scope)
+                }
+            },
+            onDismiss = { pendingEventChange = null },
+        )
+    }
+}
+
+/** Where New event in the gear starts: the next quarter hour on today, the work hours' start on another day. */
+private fun newEventMinute(isToday: Boolean, nowMinute: Int, hours: com.rendyhd.vicu.util.PlannerHours): Int {
+    val minute = if (isToday) ((nowMinute + 14) / 15) * 15 else TimeBlocks.clockMinutes(hours.start)
+    return minute.coerceIn(0, PlannerTimeline.DAY_MINUTES - TimeBlocks.STEP_MINUTES)
+}
+
+/** The occurrence an Event in the gear's list opens: [from] when it happens then, else its next one, else its first day. */
+private fun occurrenceToOpen(listed: ListedEvent, from: LocalDate, zone: kotlinx.datetime.TimeZone): CalendarEvent {
+    val event = listed.event
+    val day = when {
+        PlanEvents.occursOn(event, from) -> from
+        else -> PlanEvents.nextOccurrence(event, from) ?: event.start
+    }
+    return PlanEvents.occurrences(listOf(listed), listOf(day), zone).firstOrNull()
+        ?: PlanEvents.occurrences(listOf(ListedEvent(listed.id, event.copy(until = null, skips = emptyList()))), listOf(event.start), zone).first()
 }
 
 /**

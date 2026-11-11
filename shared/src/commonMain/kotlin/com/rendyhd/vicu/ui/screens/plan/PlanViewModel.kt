@@ -22,7 +22,22 @@ import com.rendyhd.vicu.ui.screens.shared.CompletionHold
 import com.rendyhd.vicu.ui.screens.shared.CompletionToast
 import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.ui.navigation.buildProjectTree
+import com.rendyhd.vicu.calendar.PlanCalendarDays
+import com.rendyhd.vicu.calendar.PlanCalendars
+import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.util.AppMessages
+import com.rendyhd.vicu.util.CalendarEvent
+import com.rendyhd.vicu.util.CalendarEvents
+import com.rendyhd.vicu.util.DefaultReminder
+import com.rendyhd.vicu.util.EditValue
+import com.rendyhd.vicu.util.EventEdit
+import com.rendyhd.vicu.util.EventRepeat
+import com.rendyhd.vicu.util.EventScope
+import com.rendyhd.vicu.util.GestureRange
+import com.rendyhd.vicu.util.ListedEvent
+import com.rendyhd.vicu.util.PlanEvent
+import com.rendyhd.vicu.util.PlanEvents
+import kotlinx.serialization.json.JsonElement
 import com.rendyhd.vicu.util.BlockChanges
 import com.rendyhd.vicu.util.ClockDay
 import com.rendyhd.vicu.util.DateDisplay
@@ -93,6 +108,8 @@ data class PlanUiState(
     val listed: List<Task> = emptyList(),
     val listedCount: Int = 0,
     val projectRows: List<PlanProjectRow> = emptyList(),
+    /** Your own Events and the phone's calendars for the days around the strip (contract 20). */
+    val calendar: PlanCalendarDays = PlanCalendarDays(),
 ) {
     /** A block follows the task's permissions (contract 16.8). */
     fun canChange(task: Task): Boolean = collab.access(task.projectId).canWrite
@@ -118,10 +135,12 @@ class PlanViewModel(
     plannerPreferences: PlannerPreferences,
     taskOrderPreferences: TaskOrderPreferences,
     collaborationRepository: CollaborationRepository,
-    authManager: AuthManager,
     private val refresher: ScreenRefresher,
     private val dayClock: DayClock,
     private val appMessages: AppMessages,
+    private val planCalendars: PlanCalendars,
+    private val notificationPrefsStore: NotificationPrefsStore,
+    private val authManager: AuthManager,
     navigationTicker: NavigationTicker = NavigationTicker(),
     completionToast: CompletionToast = NoCompletionToast,
     private val time: TimeSource = SystemTimeSource,
@@ -153,6 +172,17 @@ class PlanViewModel(
     private val rangeTasks: Flow<List<Task>> = stripStart
         .flatMapLatest { start ->
             taskRepository.getPlanTasks(start.minus(1, DateTimeUnit.DAY), start.plus(PLAN_STRIP_DAYS, DateTimeUnit.DAY))
+        }
+
+    /**
+     * Your own Events and the shown phone calendars for the same days as [rangeTasks]. It starts
+     * empty, so the timeline never waits for a calendar to be read.
+     */
+    private val calendarDays: Flow<PlanCalendarDays> = combine(stripStart, dayClock.day) { start, clock -> start to clock.zone }
+        .distinctUntilChanged()
+        .flatMapLatest { (start, zone) ->
+            planCalendars.observe(start.minus(1, DateTimeUnit.DAY), start.plus(PLAN_STRIP_DAYS, DateTimeUnit.DAY), zone)
+                .onStart { emit(PlanCalendarDays()) }
         }
 
     private val source: Flow<PlanSource> = behaviorPrefsStore.getPrefs()
@@ -243,10 +273,10 @@ class PlanViewModel(
         dayInputs,
         listInputs,
         prefs,
-        routines,
+        combine(routines, calendarDays) { r, c -> r to c },
         combine(sharing, dayClock.day, completions.state) { share, day, held -> Triple(share, day, held.keys) },
-    ) { day, list, prefs, routines, (share, clock, held) ->
-        build(day, list, prefs, routines, share.first, share.second, clock, held)
+    ) { day, list, prefs, (routines, calendar), (share, clock, held) ->
+        build(day, list, prefs, routines, calendar, share.first, share.second, clock, held)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PlanUiState())
 
     private fun build(
@@ -254,6 +284,7 @@ class PlanViewModel(
         list: ListInputs,
         prefs: Prefs,
         routines: List<TimelineRoutine>,
+        calendar: PlanCalendarDays,
         projects: List<Project>,
         collab: CollabState,
         clock: ClockDay,
@@ -264,7 +295,10 @@ class PlanViewModel(
         val tasks = input.tasks.filter { it.projectId in byId }
         val now = time.now()
         val isHeld: (Task) -> Boolean = { it.id in held }
-        val read = planDayContent(tasks, input.day, now, prefs.hours, clock.zone, isHeld)
+        val counting = calendar.counting
+        fun dayContent(day: LocalDate, held: (Task) -> Boolean = { false }) =
+            planDayContent(tasks, day, now, prefs.hours, clock.zone, calendar.events, counting, held)
+        val read = dayContent(input.day, isHeld)
         val content = read.copy(topRow = completions.merge(read.topRow))
         // The stored list outlives a project (archived, deleted, another account): back to the first list.
         val source = list.source.takeUnless { it is PlanSource.Project && it.id !in byId } ?: PlanSource.Day
@@ -289,8 +323,8 @@ class PlanViewModel(
             strip = planStrip(input.start, tasks, prefs.hours, clock.zone),
             stripMoved = input.weeks != 0,
             content = content,
-            previous = planDayContent(tasks, input.day.minus(1, DateTimeUnit.DAY), now, prefs.hours, clock.zone),
-            next = planDayContent(tasks, input.day.plus(1, DateTimeUnit.DAY), now, prefs.hours, clock.zone),
+            previous = dayContent(input.day.minus(1, DateTimeUnit.DAY)),
+            next = dayContent(input.day.plus(1, DateTimeUnit.DAY)),
             routines = routines,
             hours = prefs.hours,
             defaultLength = prefs.length,
@@ -308,6 +342,7 @@ class PlanViewModel(
             listed = all.filter { PlanSource.matchesTitleFilter(it.title, list.filter) },
             listedCount = all.size,
             projectRows = projectRows(projects, list.inbox),
+            calendar = calendar,
         )
     }
 
@@ -395,7 +430,13 @@ class PlanViewModel(
         val state = uiState.value
         val day = state.selectedDay ?: return false
         val length = TimeBlocks.blockOf(task, state.zone)?.minutes ?: state.defaultLength
-        val busy = TimeBlocks.busyOfDay(state.content?.blocks.orEmpty().map { it.task }, day, state.zone)
+        val events = CalendarEvents.eventBusyOfDay(
+            state.calendar.events,
+            day,
+            state.zone,
+            CalendarEvents.calendarCounts(state.calendar.counting),
+        )
+        val busy = TimeBlocks.busyOfDay(state.content?.blocks.orEmpty().map { it.task }, day, state.zone) + events
         val slot = TimeBlocks.nextFreeSlot(time.now(), day, state.hours, length, busy, state.zone)
         if (slot == null) {
             appMessages.post("Nothing fits in the free time left.")
@@ -562,6 +603,138 @@ class PlanViewModel(
         }
     }
 
+    // --- Something new on an empty time --------------------------------------------------------
+
+    /**
+     * A task with a block at [startMinute] of [day], in the Inbox: the default length and the due
+     * rule (contract 16.2), with the default reminder like any new task.
+     */
+    fun createTask(title: String, day: LocalDate, startMinute: Int) {
+        val state = uiState.value
+        val text = title.trim()
+        if (text.isEmpty()) return
+        if (state.today != null && !PlannerTimeline.canPlaceOn(day, state.today)) {
+            appMessages.post(PAST_DAY)
+            return
+        }
+        viewModelScope.launch {
+            val inbox = authManager.inboxProjectId.first()
+            if (inbox == null) {
+                appMessages.post("Choose an Inbox project in Settings first.")
+                return@launch
+            }
+            if (!state.collab.access(inbox).canWrite) {
+                appMessages.post(VIEW_ONLY)
+                return@launch
+            }
+            val start = TimeBlocks.atClock(day, startMinute, state.zone)
+            val block = TimeBlocks.placeBlock(null, start, state.defaultLength, state.zone)
+            var task = Task(
+                id = 0,
+                title = text,
+                projectId = inbox,
+                dueDate = block.dueDate.orEmpty(),
+                startDate = block.startDate.orEmpty(),
+                endDate = block.endDate.orEmpty(),
+            )
+            val prefs = notificationPrefsStore.getPrefs().first()
+            DefaultReminder.build(task.dueDate, prefs.defaultReminderOffset, prefs.defaultReminderRelativeTo, task.startDate, task.endDate)
+                ?.let { task = task.copy(reminders = listOf(it)) }
+            when (val made = taskRepository.create(task)) {
+                is NetworkResult.Success -> appMessages.post(
+                    message = "Added to the Inbox",
+                    actionLabel = "Undo",
+                    openTaskId = made.data.id,
+                ) { viewModelScope.launch { appMessages.postIfRefused(taskRepository.delete(made.data.id), "undo the new task") } }
+                is NetworkResult.Error -> appMessages.post(made.message)
+                is NetworkResult.Loading -> Unit
+            }
+        }
+    }
+
+    // --- Your Events (contract 20.3 and 20.6) -----------------------------------------------------
+
+    /** A new Event on [day]; [startMinute] null makes it all-day. Undo removes it. */
+    fun createEvent(title: String, day: LocalDate, startMinute: Int?, minutes: Int, repeat: EventRepeat) {
+        val text = title.trim()
+        if (text.isEmpty()) return
+        viewModelScope.launch {
+            val event = PlanEvent(
+                title = text,
+                start = day,
+                time = startMinute?.let(TimeBlocks::clockText),
+                minutes = if (startMinute == null) 0 else minutes.coerceIn(1, PlanEvents.MAX_EVENT_MINUTES),
+                repeat = repeat,
+            )
+            val id = planCalendars.create(event)
+            appMessages.post(message = "Event added", actionLabel = "Undo") {
+                viewModelScope.launch { planCalendars.write(PlanEvents.delete(id)) }
+            }
+        }
+    }
+
+    /** The stored Event an occurrence comes from, read now (not from a state composed earlier). */
+    private suspend fun storedEvent(occurrence: CalendarEvent): Pair<ListedEvent, Map<String, JsonElement?>>? {
+        val id = occurrence.planEventId ?: return null
+        val stored = planCalendars.storedEvents()
+        val listed = PlanEvents.readAll(stored).firstOrNull { it.id == id } ?: return null
+        return listed to stored
+    }
+
+    /** Whether changing [occurrence] asks All times, This time only or This and following. */
+    fun repeats(occurrence: CalendarEvent): Boolean =
+        uiState.value.calendar.ownEvent(occurrence.planEventId)?.event?.repeat.let { it != null && it != EventRepeat.None }
+
+    /** Writes a change to the occurrence, in [scope] (contract 20.6), with Undo. */
+    fun changeEvent(occurrence: CalendarEvent, edit: EventEdit, scope: EventScope) {
+        val day = occurrence.day ?: return
+        viewModelScope.launch {
+            val (listed, before) = storedEvent(occurrence) ?: return@launch
+            val writes = PlanEvents.change(listed, day, edit, scope, planCalendars.newId(), uiState.value.defaultLength)
+            writeEvents(writes, before, "Event changed")
+        }
+    }
+
+    /** A move or a new length on the timeline: the time and the length of the stretch it ended on. */
+    fun moveEvent(occurrence: CalendarEvent, range: GestureRange, scope: EventScope) {
+        changeEvent(
+            occurrence,
+            EventEdit(time = EditValue(TimeBlocks.clockText(range.startMinute)), minutes = range.endMinute - range.startMinute),
+            scope,
+        )
+    }
+
+    /** Skip this one: the day joins the skips. */
+    fun skipEvent(occurrence: CalendarEvent) {
+        val day = occurrence.day ?: return
+        viewModelScope.launch {
+            val (listed, before) = storedEvent(occurrence) ?: return@launch
+            val today = uiState.value.today ?: day
+            writeEvents(
+                PlanEvents.skip(listed, day),
+                before,
+                "Skipped ${listed.event.title} on ${DateDisplay.formatWeekdayDate(day, today, format)}",
+            )
+        }
+    }
+
+    /** Delete: the Event goes on every device. */
+    fun deleteEvent(occurrence: CalendarEvent) {
+        viewModelScope.launch {
+            val (listed, before) = storedEvent(occurrence) ?: return@launch
+            writeEvents(PlanEvents.delete(listed.id), before, "Event deleted")
+        }
+    }
+
+    /** Writes [writes] and offers Undo, which puts back each entry as it was stored. */
+    private suspend fun writeEvents(writes: Map<String, JsonElement?>, before: Map<String, JsonElement?>, message: String) {
+        planCalendars.write(writes)
+        val undo = PlanEvents.undo(writes, before)
+        appMessages.post(message = message, actionLabel = "Undo") {
+            viewModelScope.launch { planCalendars.write(undo) }
+        }
+    }
+
     // --- Ticking ---------------------------------------------------------------------------------
 
     /** A tick in the top row: the task stays there, struck through, for the hold; a second tap is the undo. */
@@ -605,6 +778,9 @@ class PlanViewModel(
     }
 
     fun minutesNow(): Int = dayClock.minutesNow()
+
+    /** Whether Plan settings offer the phone's calendars (Android; not iOS yet). */
+    val calendarsSupported: Boolean get() = planCalendars.supported
 
     /** How the screen phrases dates, for the messages written here. */
     var format: DateDisplayFormat = DateDisplayFormat.system(is24Hour = true)

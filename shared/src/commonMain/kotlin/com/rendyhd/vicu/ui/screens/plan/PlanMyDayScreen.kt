@@ -95,6 +95,7 @@ import com.rendyhd.vicu.util.PlanDay
 import com.rendyhd.vicu.util.PlannerNudge
 import com.rendyhd.vicu.util.PlannerTimeline
 import com.rendyhd.vicu.util.TimeBlocks
+import com.rendyhd.vicu.util.PlanEvents
 import com.rendyhd.vicu.util.parseHexColor
 import kotlinx.coroutines.delay
 import kotlinx.datetime.DateTimeUnit
@@ -833,6 +834,9 @@ private fun ArrangeStep(state: PlanMyDayUiState, viewModel: PlanMyDayViewModel, 
             draft = true,
             reasonOf = { state.reasons[it.id] },
             modifier = Modifier.weight(1f).fillMaxWidth(),
+            // Events are busy time here too (contract 20.2), drawn read only beside the draft.
+            events = state.events,
+            eventColor = { id -> calendarColor(state.eventColors[id] ?: PlanEvents.MY_EVENTS_COLOR) },
         )
     }
 

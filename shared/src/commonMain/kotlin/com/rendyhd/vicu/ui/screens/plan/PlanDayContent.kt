@@ -3,10 +3,13 @@ package com.rendyhd.vicu.ui.screens.plan
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
 import com.rendyhd.vicu.domain.model.RoutineDay
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.util.CalendarEvent
+import com.rendyhd.vicu.util.CalendarEvents
 import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.GestureRange
 import com.rendyhd.vicu.util.PlacedBlock
+import com.rendyhd.vicu.util.PlacedEvent
 import com.rendyhd.vicu.util.PlannerHours
 import com.rendyhd.vicu.util.PlannerTimeline
 import com.rendyhd.vicu.util.TimeBlocks
@@ -33,29 +36,47 @@ data class PlanDayContent(
     val topRow: List<Task> = emptyList(),
     val plannedMinutes: Int,
     val freeMinutes: Int,
+    /** Timed events beside the blocks, and all-day ones for the top row (contract 20): the Plan screen only. */
+    val events: List<PlacedEvent> = emptyList(),
+    val allDayEvents: List<CalendarEvent> = emptyList(),
 )
 
 /** One day of the 7-day strip. [load] is how full its work hours are, 0 to 1, for the bar under it. */
 data class PlanStripDay(val day: LocalDate, val plannedMinutes: Int, val load: Float)
 
-/** A day from the tasks of its range: the same reading on Today's Day view and the Plan screen. */
+/**
+ * A day from the tasks of its range: the same reading on Today's Day view and the Plan screen. Only
+ * the Plan screen passes [events] (contract 20: never on Today); the busy ones of [counting]
+ * calendars and your own Events are busy time (20.2).
+ */
 fun planDayContent(
     tasks: List<Task>,
     day: LocalDate,
     now: Instant,
     hours: PlannerHours,
     zone: TimeZone,
+    events: List<CalendarEvent> = emptyList(),
+    counting: Set<String> = emptySet(),
     isHeld: (Task) -> Boolean = { false },
-): PlanDayContent = PlanDayContent(
-    day = day,
-    blocks = PlannerTimeline.dayBlocks(tasks, day, zone),
-    markers = PlannerTimeline.dayMarkers(tasks, day, zone),
-    withoutTime = PlannerTimeline.dayWithoutTime(tasks, day, now.toLocalDateTime(zone).date, zone, isHeld)
-        .withoutNestedSubtasks(),
-    topRow = PlannerTimeline.dayTopRow(tasks, day, zone, isHeld).withoutNestedSubtasks(),
-    plannedMinutes = PlannerTimeline.plannedMinutes(tasks, day, zone),
-    freeMinutes = TimeBlocks.freeMinutes(now, day, hours, TimeBlocks.busyOfDay(tasks, day, zone), zone),
-)
+): PlanDayContent {
+    val layout = PlannerTimeline.layoutWithEvents(
+        PlannerTimeline.dayBlocks(tasks, day, zone),
+        CalendarEvents.timedEventsOn(events, day, zone),
+    )
+    val eventBusy = CalendarEvents.eventBusyOfDay(events, day, zone, CalendarEvents.calendarCounts(counting))
+    return PlanDayContent(
+        day = day,
+        blocks = layout.blocks,
+        markers = PlannerTimeline.dayMarkers(tasks, day, zone),
+        withoutTime = PlannerTimeline.dayWithoutTime(tasks, day, now.toLocalDateTime(zone).date, zone, isHeld)
+            .withoutNestedSubtasks(),
+        topRow = PlannerTimeline.dayTopRow(tasks, day, zone, isHeld).withoutNestedSubtasks(),
+        plannedMinutes = PlannerTimeline.plannedMinutes(tasks, day, zone),
+        freeMinutes = TimeBlocks.freeMinutes(now, day, hours, TimeBlocks.busyOfDay(tasks, day, zone) + eventBusy, zone),
+        events = layout.events,
+        allDayEvents = CalendarEvents.allDayEventsOn(events, day, zone),
+    )
+}
 
 /** The seven days from [start] with their load: open blocks against the work hours. */
 fun planStrip(start: LocalDate, tasks: List<Task>, hours: PlannerHours, zone: TimeZone): List<PlanStripDay> {

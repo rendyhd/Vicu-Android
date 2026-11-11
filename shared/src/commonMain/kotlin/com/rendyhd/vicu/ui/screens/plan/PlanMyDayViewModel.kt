@@ -1,5 +1,7 @@
 package com.rendyhd.vicu.ui.screens.plan
 
+import com.rendyhd.vicu.calendar.PlanCalendarDays
+import com.rendyhd.vicu.calendar.PlanCalendars
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.ai.organize.PlanDaySuggester
@@ -81,6 +83,7 @@ class PlanMyDayViewModel(
     private val suggester: PlanDaySuggester,
     private val dayClock: DayClock,
     private val appMessages: AppMessages,
+    planCalendars: PlanCalendars,
     private val time: TimeSource = SystemTimeSource,
 ) : ViewModel() {
 
@@ -156,7 +159,16 @@ class PlanMyDayViewModel(
     }
 
     /** What is stored now. A new collector reads Room again, which is how the request sees a fresh read. */
-    private val session: Flow<PlanSessionData> = combine(lists, routines, settings, sharing) { l, routineList, s, share ->
+    /**
+     * The day's events (contract 20): busy time for the meter, the draft and the assistant's free
+     * ranges, with the day they were read for, so a request never goes out with another day's.
+     */
+    private val calendar: Flow<Pair<LocalDate, PlanCalendarDays>> = combine(day, dayClock.day) { d, clock -> d to clock.zone }
+        .distinctUntilChanged()
+        .flatMapLatest { (d, zone) -> planCalendars.observe(d, d, zone).map { d to it } }
+
+    private val session: Flow<PlanSessionData> = combine(lists, routines, settings, sharing, calendar) { l, routineList, s, share, read ->
+        val events = read.second.takeIf { read.first == l.day.first } ?: PlanCalendarDays()
         PlanSessionData(
             day = l.day.first,
             today = share.third.date,
@@ -172,6 +184,10 @@ class PlanMyDayViewModel(
             hours = s.hours,
             defaultLength = s.length,
             nudge = s.nudge,
+            events = events.events,
+            countingCalendars = events.counting,
+            eventColors = (events.events.map { it.calendarId }.toSet()).associateWith(events::colorOf),
+            eventsRead = read.first == l.day.first,
         )
     }
 
@@ -238,7 +254,7 @@ class PlanMyDayViewModel(
     private suspend fun send(day: LocalDate) {
         askedFor = day
         try {
-            val data = session.first { it.day == day }
+            val data = session.first { it.day == day && it.eventsRead }
             answers.update { it.copy(loading = true, answered = null, failed = null) }
             val result = suggester.suggest(planDayRequest(data, time.now()))
             answers.update { it.copy(loading = false, answered = day to result) }

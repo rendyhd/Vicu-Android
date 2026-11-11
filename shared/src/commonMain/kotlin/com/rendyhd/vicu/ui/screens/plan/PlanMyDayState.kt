@@ -7,11 +7,15 @@ import com.rendyhd.vicu.ai.organize.PlanPick
 import com.rendyhd.vicu.domain.model.CollabState
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.util.BusyRange
+import com.rendyhd.vicu.util.CalendarEvent
+import com.rendyhd.vicu.util.CalendarEvents
 import com.rendyhd.vicu.util.DraftBlock
 import com.rendyhd.vicu.util.DraftChoices
 import com.rendyhd.vicu.util.LeftoverAction
 import com.rendyhd.vicu.util.MinuteRange
 import com.rendyhd.vicu.util.PlacedBlock
+import com.rendyhd.vicu.util.PlacedEvent
 import com.rendyhd.vicu.util.PlanDay
 import com.rendyhd.vicu.util.PlanDraft
 import com.rendyhd.vicu.util.PlanMeter
@@ -83,8 +87,20 @@ internal data class PlanSessionData(
     val hours: PlannerHours,
     val defaultLength: Int,
     val nudge: String?,
+    /** The day's events (contract 20): drawn on Arrange, and the busy ones of counting calendars are busy time. */
+    val events: List<CalendarEvent> = emptyList(),
+    /** The phone calendars that count as busy; your own Events always do. */
+    val countingCalendars: Set<String> = emptySet(),
+    /** Each calendar's colour, `#rrggbb`. */
+    val eventColors: Map<String, String> = emptyMap(),
+    /** The events are the ones read for [day]: the assistant's request waits for them. */
+    val eventsRead: Boolean = true,
 ) {
     private val projectIds = projects.mapTo(HashSet()) { it.id }
+
+    /** Busy time of the day's events (20.2): what the meter, the draft and the assistant's free time leave out. */
+    val eventBusy: List<BusyRange>
+        get() = CalendarEvents.eventBusyOfDay(events, day, zone, CalendarEvents.calendarCounts(countingCalendars))
 
     /** Tasks the person cannot change are left out of every step (contract 14.10). */
     fun canChange(task: Task): Boolean = task.projectId in projectIds && collab.access(task.projectId).canWrite
@@ -136,6 +152,10 @@ data class PlanMyDayUiState(
 
     /** The timeline: on Arrange, the day's blocks with the draft laid over them. */
     val blocks: List<PlacedBlock> = emptyList(),
+    /** The day's timed events beside the blocks, and its all-day ones. */
+    val events: List<PlacedEvent> = emptyList(),
+    val allDayEvents: List<CalendarEvent> = emptyList(),
+    val eventColors: Map<String, String> = emptyMap(),
     val markers: List<TimelineMarker> = emptyList(),
     val routines: List<TimelineRoutine> = emptyList(),
     val dashedIds: Set<Long> = emptySet(),
@@ -178,7 +198,8 @@ internal fun planGroups(data: PlanSessionData, now: Instant): PlanGroups {
 /** The request for what [data] holds: candidates are the groups without a picked project, on the day first. */
 internal fun planDayRequest(data: PlanSessionData, now: Instant): PlanDayRequest {
     val groups = planGroups(data, now)
-    val busy = TimeBlocks.busyOfDay(data.dayTasks, data.day, data.zone)
+    // Free ranges only: the assistant never gets an event's title (contract 20.2).
+    val busy = TimeBlocks.busyOfDay(data.dayTasks, data.day, data.zone) + data.eventBusy
     return PlanDayRequest(
         day = data.day,
         nowMinute = TimeBlocks.minutesOfDay(now, data.zone),
@@ -237,11 +258,16 @@ internal fun planMyDayState(
         },
         reasons = reasons,
     )
-    val meter = PlanDay.planMeter(chosen, data.dayTasks, now, day, data.hours, data.defaultLength, zone, draftChoices)
-    val draft = PlanDay.draftBlocks(chosen, data.dayTasks, now, day, data.hours, data.defaultLength, zone, draftChoices)
+    val eventBusy = data.eventBusy
+    val meter = PlanDay.planMeter(chosen, data.dayTasks, now, day, data.hours, data.defaultLength, zone, draftChoices, eventBusy)
+    val draft = PlanDay.draftBlocks(chosen, data.dayTasks, now, day, data.hours, data.defaultLength, zone, draftChoices, eventBusy)
 
     val arranging = choices.step == STEP_ARRANGE
     val timeline = if (arranging) overlaid(data.dayTasks, draft, byId, day, zone) else data.dayTasks
+    val layout = PlannerTimeline.layoutWithEvents(
+        PlannerTimeline.dayBlocks(timeline, day, zone),
+        CalendarEvents.timedEventsOn(data.events, day, zone),
+    )
     val candidateIds = (onDay + inbox + comingUp).mapTo(HashSet()) { it.id }
 
     return PlanMyDayUiState(
@@ -286,7 +312,10 @@ internal fun planMyDayState(
         keep = choices.keep,
         hours = data.hours,
         defaultLength = data.defaultLength,
-        blocks = PlannerTimeline.dayBlocks(timeline, day, zone),
+        blocks = layout.blocks,
+        events = layout.events,
+        allDayEvents = CalendarEvents.allDayEventsOn(data.events, day, zone),
+        eventColors = data.eventColors,
         markers = PlannerTimeline.dayMarkers(timeline, day, zone),
         routines = data.routines,
         dashedIds = if (arranging) draft.placed.mapTo(HashSet()) { it.id } else emptySet(),
@@ -294,7 +323,7 @@ internal fun planMyDayState(
         withTime = data.dayTasks.filter { !it.done && TimeBlocks.startsOn(it, day, zone) }
             .sortedBy { TimeBlocks.blockOf(it, zone)?.start },
         withoutTime = onDay.filter { !TimeBlocks.startsOn(it, day, zone) },
-        freeLeft = TimeBlocks.freeMinutes(now, day, data.hours, TimeBlocks.busyOfDay(data.dayTasks, day, zone), zone),
+        freeLeft = TimeBlocks.freeMinutes(now, day, data.hours, TimeBlocks.busyOfDay(data.dayTasks, day, zone) + eventBusy, zone),
         remindersOn = choices.remindersOn,
         nudge = data.nudge,
         projects = data.projects.associateBy { it.id },
