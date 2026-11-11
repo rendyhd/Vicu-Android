@@ -19,13 +19,24 @@ You can make one anywhere you type a task: `Call Sam tomorrow at 3pm for 30m`.
 
 ## The Plan screen
 
-One day at a time, with a strip of seven days above it. A swipe on the strip goes a week.
+One day at a time, with a strip of seven days above it.
 
-- **The tab at the right edge** opens the tasks to plan. Tap a task and then a time to place it, or
-  press and hold it and drag it onto the timeline. It takes the default length (the gear; 30 minutes to
-  start, synced to your other devices).
+- **Swipe the timeline** sideways for the next or previous day. Past the end of the strip, the strip
+  moves a week. A swipe on the strip itself goes a week.
+- **No time**, the row above the hours, holds the day's tasks without a time. Tap one and then a
+  time to place it, press and hold it to drag it, or tick it.
+- **The tab at the right edge** opens the tasks to plan: the selected day, the Inbox, Next 7 days,
+  No date or a project, each a chip with its count. Tap a task and then a time to place it, or press
+  and hold it and drag it onto the timeline. It takes the default length (the gear; 30 minutes to
+  start, synced to your other devices). A due date before that time moves to that day, and the
+  message says so, with Undo; a later one stays as a deadline.
 - **Press and hold a block** to move it, **drag its handle** to change the length, both in 15-minute
-  steps. **Tap a block** for exact lengths, Remove time and, on a very short block, its check.
+  steps. **Tap a block** for another day, exact lengths, Remove time and, on a very short block, its
+  check.
+- **Another day while you drag.** Rest the block or task on a day of the strip for half a second, or
+  tap the day with a second finger, and that day opens under your finger. Drop it at a time there, or
+  let go on the strip day to keep the same time on that day. Let go on the No time row to remove the
+  time and keep the day.
 
 Routines show as small pills at their times. They have no length and never count as busy. Turn them
 off in the gear.

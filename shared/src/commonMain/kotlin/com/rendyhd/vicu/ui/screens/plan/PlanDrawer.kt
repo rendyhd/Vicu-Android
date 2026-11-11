@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
@@ -23,6 +26,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,13 +70,17 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.toLocalDateTime
 
 /**
- * The tasks to plan, sliding in from the right: the same lists as the desktop's left panel. It opens
- * from the tab on the timeline (never from the screen edge, which is Back on Android). A short press
- * on a task picks it; press and hold drags it onto the timeline.
+ * The tasks to plan, sliding in from the right: the same lists as the desktop's left panel, as chips
+ * that are in sight as soon as it opens (issue 101). It opens from the tab on the timeline (never from
+ * the screen edge, which is Back on Android). A short press on a task picks it; press and hold drags
+ * it onto the timeline, or onto a day of the strip. [listed] is what the list shows: during a drag,
+ * what it showed when the drag began, so the row under the finger stays while the day changes.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun PlanDrawer(
     state: PlanUiState,
+    listed: List<Task>,
     sourceLabel: String,
     dayLabel: String,
     onClose: () -> Unit,
@@ -94,43 +102,59 @@ internal fun PlanDrawer(
     ) {
         Column(modifier = Modifier.fillMaxHeight().semantics { contentDescription = "Tasks to plan" }) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 48.dp)
-                        .clip(MaterialTheme.shapes.small)
-                        .clickable(onClickLabel = "Change the list") { choosing = !choosing }
-                        .padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = sourceLabel,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    Text(
-                        text = "  ${state.listedCount}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Icon(
-                        if (choosing) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
+                Text(
+                    text = "Tasks to plan",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, contentDescription = "Close") }
+            }
+
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                PlanSource.lists(dayLabel).forEach { (source, label) ->
+                    val count = state.sourceCounts[source.key]
+                    FilterChip(
+                        selected = state.source == source && !choosing,
+                        onClick = {
+                            choosing = false
+                            onSource(source)
+                        },
+                        label = { Text(if (count != null) "$label $count" else label, maxLines = 1) },
                     )
                 }
-                IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, contentDescription = "Close") }
+                val project = state.source as? PlanSource.Project
+                FilterChip(
+                    selected = project != null || choosing,
+                    onClick = { choosing = !choosing },
+                    label = {
+                        Text(
+                            text = if (project != null) "$sourceLabel ${state.listedCount}" else "Project",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    trailingIcon = {
+                        Icon(
+                            if (choosing) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    modifier = Modifier
+                        .widthIn(max = 220.dp)
+                        .semantics { contentDescription = if (project != null) "Project, $sourceLabel" else "Choose a project" },
+                )
             }
 
             if (choosing) {
                 SourceList(
                     state = state,
-                    dayLabel = dayLabel,
                     onChoose = {
                         onSource(it)
                         choosing = false
@@ -156,7 +180,7 @@ internal fun PlanDrawer(
                 modifier = Modifier.weight(1f).padding(top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (state.listed.isEmpty()) {
+                if (listed.isEmpty()) {
                     item(key = "empty") {
                         Text(
                             text = if (state.filter.isBlank()) "Nothing to plan here" else "Nothing with that name",
@@ -166,7 +190,7 @@ internal fun PlanDrawer(
                         )
                     }
                 }
-                items(state.listed, key = { it.id }, contentType = { "task" }) { task ->
+                items(listed, key = { it.id }, contentType = { "task" }) { task ->
                     PlanTaskRow(
                         task = task,
                         color = planProjectColor(state, task),
@@ -294,17 +318,15 @@ private fun PlanTaskRow(
     }
 }
 
-/** The four lists and every project with its subprojects, found by name. */
+/** Every project with its subprojects, found by name. The four lists are chips above it. */
 @Composable
 private fun SourceList(
     state: PlanUiState,
-    dayLabel: String,
     onChoose: (PlanSource) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val needle = query.trim().lowercase()
-    val lists = PlanSource.lists(dayLabel).filter { it.second.lowercase().contains(needle) }
     val rows = state.projectRows
         .filter { it.project.title.lowercase().contains(needle) }
         // A match stands on its own: indented under a parent that is not listed, it would look lost.
@@ -314,19 +336,15 @@ private fun SourceList(
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("Find a list or project", style = MaterialTheme.typography.bodySmall) },
+            placeholder = { Text("Find a project", style = MaterialTheme.typography.bodySmall) },
             singleLine = true,
             textStyle = MaterialTheme.typography.bodySmall,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp)
-                .semantics { contentDescription = "Find a list or project" },
+                .semantics { contentDescription = "Find a project" },
         )
         LazyColumn(modifier = Modifier.weight(1f).padding(top = 4.dp)) {
-            if (lists.isNotEmpty()) item(key = "lists") { SourceHeader("Lists") }
-            items(lists, key = { it.first.key }) { (source, label) ->
-                SourceRow(label, depth = 0, dot = null, selected = state.source == source) { onChoose(source) }
-            }
             if (rows.isNotEmpty()) item(key = "projects") { SourceHeader("Projects") }
             items(rows, key = { "project_${it.project.id}" }) { row ->
                 SourceRow(
@@ -336,7 +354,7 @@ private fun SourceList(
                     selected = state.source == PlanSource.Project(row.project.id),
                 ) { onChoose(PlanSource.Project(row.project.id)) }
             }
-            if (lists.isEmpty() && rows.isEmpty()) {
+            if (rows.isEmpty()) {
                 item(key = "none") {
                     Text(
                         text = "Nothing with that name.",

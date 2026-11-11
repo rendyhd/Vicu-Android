@@ -111,6 +111,24 @@ class TaskDuplicatorTest {
     }
 
     @Test
+    fun undoDeletesEveryCopySubtasksFirstAndNeverAnOriginal() = runTest {
+        val grandchild = Task(id = 3, title = "Adapter", projectId = 5)
+        val child = Task(id = 2, title = "Chargers", projectId = 5, relatedTasks = mapOf(RelationKind.SUBTASK to listOf(grandchild)))
+        tasks.put(child)
+        tasks.put(grandchild)
+        val parent = original.copy(relatedTasks = mapOf(RelationKind.SUBTASK to listOf(Task(id = 2, title = "Chargers"))))
+        val first = (duplicator().duplicate(parent) as NetworkResult.Success).data
+        val second = (duplicator().duplicate(original.copy(id = 9)) as NetworkResult.Success).data
+        // The copy, its subtask, that subtask's subtask.
+        assertEquals(listOf(100L, 101L, 102L), first.made)
+        assertEquals(listOf(103L), second.made)
+
+        assertTrue(duplicator().remove(listOf(first, second)) is NetworkResult.Success)
+
+        assertEquals(listOf(103L, 102L, 101L, 100L), tasks.deleted)
+    }
+
+    @Test
     fun aRelationCycleEnds() = runTest {
         val loop = Task(id = 2, title = "Loop", projectId = 5, relatedTasks = mapOf(RelationKind.SUBTASK to listOf(Task(id = 1, title = "Back"))))
         tasks.put(loop)

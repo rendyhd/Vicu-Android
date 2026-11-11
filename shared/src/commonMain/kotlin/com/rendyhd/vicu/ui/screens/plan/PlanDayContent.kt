@@ -29,6 +29,8 @@ data class PlanDayContent(
     val markers: List<TimelineMarker>,
     /** The day's tasks without a time (overdue ones on today), the first list of the drawer. */
     val withoutTime: List<Task>,
+    /** The day's own tasks without a time, the row above its timeline (contract 16.4). */
+    val topRow: List<Task> = emptyList(),
     val plannedMinutes: Int,
     val freeMinutes: Int,
 )
@@ -50,6 +52,7 @@ fun planDayContent(
     markers = PlannerTimeline.dayMarkers(tasks, day, zone),
     withoutTime = PlannerTimeline.dayWithoutTime(tasks, day, now.toLocalDateTime(zone).date, zone, isHeld)
         .withoutNestedSubtasks(),
+    topRow = PlannerTimeline.dayTopRow(tasks, day, zone, isHeld).withoutNestedSubtasks(),
     plannedMinutes = PlannerTimeline.plannedMinutes(tasks, day, zone),
     freeMinutes = TimeBlocks.freeMinutes(now, day, hours, TimeBlocks.busyOfDay(tasks, day, zone), zone),
 )

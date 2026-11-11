@@ -158,6 +158,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
+import com.rendyhd.vicu.ui.components.task.WaitingUploadRow
 import com.rendyhd.vicu.domain.model.Attachment
 import com.rendyhd.vicu.domain.model.isViewableImage
 import com.rendyhd.vicu.ui.components.task.ImageViewerDialog
@@ -926,8 +927,8 @@ fun TaskDetailScreen(
                             },
                         )
                     },
-                    EditorEntry("attachments", set = state.attachments.isNotEmpty(), addLabel = "File", addIcon = Icons.Outlined.AttachFile, onAdd = filePickerLauncher) {
-                        val count = state.attachments.size
+                    EditorEntry("attachments", set = state.attachments.isNotEmpty() || state.waitingUploads.isNotEmpty(), addLabel = "File", addIcon = Icons.Outlined.AttachFile, onAdd = filePickerLauncher) {
+                        val count = state.attachments.size + state.waitingUploads.size
                         PropertyRow(
                             icon = Icons.Outlined.AttachFile,
                             name = "Attachments",
@@ -1152,7 +1153,7 @@ fun TaskDetailScreen(
                     }
                 }
             }
-            if (visibleAttachments.isNotEmpty()) {
+            if (visibleAttachments.isNotEmpty() || state.waitingUploads.isNotEmpty()) {
                 item(key = "divider_attachments") {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     Text("Attachments", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1240,6 +1241,14 @@ fun TaskDetailScreen(
                             )
                         }
                     }
+                }
+                // Files attached while the server could not be reached, after the uploaded ones.
+                items(state.waitingUploads, key = { "wait_${it.id}" }, contentType = { "waiting_upload" }) { upload ->
+                    WaitingUploadRow(
+                        upload = upload,
+                        onRetry = { viewModel.retryWaitingUpload(upload.id) },
+                        onRemove = { viewModel.removeWaitingUpload(upload.id) },
+                    )
                 }
             }
 

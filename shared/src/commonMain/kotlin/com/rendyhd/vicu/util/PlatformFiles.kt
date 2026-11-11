@@ -34,6 +34,13 @@ interface PlatformFiles {
     fun getDisplayName(uriString: String): String?
 
     /**
+     * The folder for copies of files attached while the server could not be reached, kept until
+     * they are uploaded: private, kept by the system (not a cache), outside backups. Created when
+     * missing.
+     */
+    fun offlineAttachmentsDirectory(): String
+
+    /**
      * Opens the file behind [uriString] for streaming, off the main thread. A file larger than
      * [maxBytes] is not opened: it comes back as [UploadOpen.TooLarge].
      */

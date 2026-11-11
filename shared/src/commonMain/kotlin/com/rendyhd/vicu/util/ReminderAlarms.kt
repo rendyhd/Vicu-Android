@@ -62,21 +62,21 @@ object ReminderAlarms {
         startDate: String = "",
         endDate: String = "",
     ): Long? {
-        if (reminder.reminder.isNotBlank()) {
-            val instant = DateUtils.parseIsoDate(reminder.reminder)
-            if (instant != null) return instant.toEpochMilliseconds()
-        }
-        if (reminder.relativePeriod != 0L || reminder.relativeTo.isNotBlank()) {
+        if (reminder.isRelative) {
+            // Always from the date as it is now: the server's copy in `reminder` is from before any
+            // move made here, so a reminder "at due time" would stay at the old time (issue 99).
             val base = when (reminder.relativeTo.trim().lowercase()) {
                 "", "due_date" -> dueDate
                 "start_date" -> startDate
                 "end_date" -> endDate
                 else -> return null
             }
-            val baseDate = DateUtils.parseIsoDate(base)
-            if (baseDate != null) {
-                return (baseDate + reminder.relativePeriod.seconds).toEpochMilliseconds()
-            }
+            val baseDate = DateUtils.parseIsoDate(base)?.takeUnless { DateUtils.isNullDate(base) } ?: return null
+            return (baseDate + reminder.relativePeriod.seconds).toEpochMilliseconds()
+        }
+        if (reminder.reminder.isNotBlank()) {
+            val instant = DateUtils.parseIsoDate(reminder.reminder)
+            if (instant != null) return instant.toEpochMilliseconds()
         }
         return null
     }

@@ -27,6 +27,7 @@ import com.rendyhd.vicu.ui.FakeLabelRepository
 import com.rendyhd.vicu.ui.FakeProjectRepository
 import com.rendyhd.vicu.ui.FakeTaskRepository
 import com.rendyhd.vicu.ui.fakeScreenRefresher
+import com.rendyhd.vicu.util.AppMessage
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DueDates
@@ -253,6 +254,139 @@ class PlanViewModelTest {
         assertEquals(at("2026-10-06T11:00:00"), rig.last(1).startDate)
         assertEquals(at("2026-10-06T11:45:00"), rig.last(1).endDate)
         assertEquals(dateOnly(today), rig.last(1).dueDate)
+        rig.authScope.cancel()
+    }
+
+    @Test
+    fun `a block dragged to another day keeps its length and the due rule moves an earlier date`() = runTest {
+        val rig = Rig(this)
+        rig.tasks.put(block(1, "2026-10-06T09:00:00", "2026-10-06T09:45:00", due = dateOnly(today)))
+        runCurrent()
+
+        rig.vm.moveTo(rig.last(1), LocalDate(2026, 10, 8), 14 * 60)
+        runCurrent()
+
+        assertEquals(at("2026-10-08T14:00:00"), rig.last(1).startDate)
+        assertEquals(at("2026-10-08T14:45:00"), rig.last(1).endDate)
+        assertEquals(dateOnly(LocalDate(2026, 10, 8)), rig.last(1).dueDate)
+        rig.authScope.cancel()
+    }
+
+    @Test
+    fun `moving to a day keeps the times, follows the block there and undo puts everything back`() = runTest {
+        val rig = Rig(this)
+        val messages = mutableListOf<AppMessage>()
+        backgroundScope.launch { rig.messages.messages.collect { messages += it } }
+        val before = block(1, "2026-10-06T09:00:00", "2026-10-06T10:15:00", due = dateOnly(today))
+        rig.tasks.put(before)
+        runCurrent()
+
+        rig.vm.moveToDay(rig.last(1), LocalDate(2026, 10, 9))
+        runCurrent()
+
+        assertEquals(at("2026-10-09T09:00:00"), rig.last(1).startDate)
+        assertEquals(at("2026-10-09T10:15:00"), rig.last(1).endDate)
+        assertEquals(dateOnly(LocalDate(2026, 10, 9)), rig.last(1).dueDate)
+        assertEquals(LocalDate(2026, 10, 9), rig.vm.uiState.value.selectedDay)
+        val moved = messages.last()
+        assertTrue(moved.text.startsWith("Moved to"), moved.text)
+
+        moved.onAction!!.invoke()
+        runCurrent()
+        assertEquals(before.startDate, rig.last(1).startDate)
+        assertEquals(before.endDate, rig.last(1).endDate)
+        assertEquals(before.dueDate, rig.last(1).dueDate)
+        rig.authScope.cancel()
+    }
+
+    @Test
+    fun `moving to a past day is refused`() = runTest {
+        val rig = Rig(this)
+        rig.tasks.put(block(1, "2026-10-06T09:00:00", "2026-10-06T09:30:00"))
+        runCurrent()
+
+        rig.vm.moveToDay(rig.last(1), LocalDate(2026, 10, 5))
+        rig.vm.moveTo(rig.last(1), LocalDate(2026, 10, 5), 9 * 60)
+        runCurrent()
+
+        assertEquals(at("2026-10-06T09:00:00"), rig.last(1).startDate)
+        rig.authScope.cancel()
+    }
+
+    @Test
+    fun `placing a task due earlier says the due date moved, with undo`() = runTest {
+        val rig = Rig(this)
+        val messages = mutableListOf<AppMessage>()
+        backgroundScope.launch { rig.messages.messages.collect { messages += it } }
+        rig.tasks.put(open(1, due = dateOnly(LocalDate(2026, 10, 1))))
+        runCurrent()
+
+        rig.vm.placeAt(rig.last(1), 10 * 60)
+        runCurrent()
+
+        assertEquals(dateOnly(today), rig.last(1).dueDate)
+        val said = messages.last()
+        assertTrue(said.text.startsWith("Planned for") && "Due date moved from" in said.text, said.text)
+
+        said.onAction!!.invoke()
+        runCurrent()
+        assertEquals(dateOnly(LocalDate(2026, 10, 1)), rig.last(1).dueDate)
+        assertTrue(TimeBlocks.blockOf(rig.last(1), zone) == null)
+        rig.authScope.cancel()
+    }
+
+    @Test
+    fun `a drop on the top row removes the time and keeps the day`() = runTest {
+        val rig = Rig(this)
+        rig.tasks.put(block(1, "2026-10-06T09:00:00", "2026-10-06T09:30:00", due = dateOnly(LocalDate(2026, 10, 9))))
+        runCurrent()
+
+        rig.vm.planForDay(rig.last(1), today)
+        runCurrent()
+
+        assertTrue(TimeBlocks.blockOf(rig.last(1), zone) == null)
+        assertEquals(dateOnly(today), rig.last(1).dueDate)
+        assertEquals(listOf(1L), rig.vm.uiState.value.content?.topRow?.map { it.id })
+        rig.authScope.cancel()
+    }
+
+    @Test
+    fun `swiping past the strip moves it a week and the neighbours are read`() = runTest {
+        val rig = Rig(this)
+        rig.tasks.put(open(1, due = dateOnly(LocalDate(2026, 10, 13))))
+        rig.tasks.put(block(2, "2026-10-05T09:00:00", "2026-10-05T09:30:00"))
+        runCurrent()
+
+        assertEquals(listOf(2L), rig.vm.uiState.value.previous?.blocks?.map { it.task.id })
+        repeat(7) { rig.vm.stepDay(1) }
+        runCurrent()
+
+        val state = rig.vm.uiState.value
+        assertEquals(LocalDate(2026, 10, 13), state.selectedDay)
+        assertTrue(state.stripMoved)
+        assertEquals(LocalDate(2026, 10, 13), state.strip.first().day)
+        assertEquals(listOf(1L), state.content?.topRow?.map { it.id })
+
+        rig.vm.stepDay(-1)
+        runCurrent()
+        assertEquals(LocalDate(2026, 10, 12), rig.vm.uiState.value.selectedDay)
+        assertEquals(LocalDate(2026, 10, 6), rig.vm.uiState.value.strip.first().day)
+        rig.authScope.cancel()
+    }
+
+    @Test
+    fun `the drawer chips count the inbox, the next seven days and no date`() = runTest {
+        val rig = Rig(this)
+        rig.tasks.put(open(1, due = dateOnly(today)))
+        rig.tasks.put(open(2, due = dateOnly(LocalDate(2026, 10, 9))))
+        rig.tasks.put(open(3))
+        rig.tasks.upcomingTasks.value = listOf(rig.last(2))
+        runCurrent()
+
+        val counts = rig.vm.uiState.value.sourceCounts
+        assertEquals(1, counts[PlanSource.Day.key])
+        assertEquals(1, counts[PlanSource.NextSeven.key])
+        assertEquals(1, counts[PlanSource.NoDate.key])
         rig.authScope.cancel()
     }
 

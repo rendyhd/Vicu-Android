@@ -7,16 +7,20 @@ import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.data.local.TempIdGenerator
+import com.rendyhd.vicu.data.repository.Duplicated
 import com.rendyhd.vicu.data.repository.TaskDuplicator
 import com.rendyhd.vicu.data.repository.SubtaskOrderPreferences
 import com.rendyhd.vicu.data.repository.TaskTemplateStore
 import com.rendyhd.vicu.domain.model.Attachment
+import com.rendyhd.vicu.domain.model.WaitingUpload
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.TaskReminder
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.domain.repository.AttachResult
 import com.rendyhd.vicu.domain.repository.AttachmentRepository
+import com.rendyhd.vicu.util.WaitingUploadText
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
@@ -71,6 +75,8 @@ data class TaskDetailUiState(
     val subtasks: List<Task> = emptyList(),
     val relations: Map<String, List<Task>> = emptyMap(),
     val attachments: List<Attachment> = emptyList(),
+    /** Files attached while the server could not be reached: waiting to upload, or refused. */
+    val waitingUploads: List<WaitingUpload> = emptyList(),
     val showDeleteConfirmation: Boolean = false,
     val pendingSubtaskCompletion: Task? = null,
     /** Asking whether to complete the open task together with its unfinished subtasks. */
@@ -312,6 +318,11 @@ class TaskDetailViewModel(
         loadJobs += viewModelScope.launch {
             attachmentRepository.getByTaskId(taskId).collect { attachments ->
                 _uiState.update { it.copy(attachments = attachments) }
+            }
+        }
+        loadJobs += viewModelScope.launch {
+            attachmentRepository.waitingUploads(taskId).collect { waiting ->
+                _uiState.update { it.copy(waitingUploads = waiting) }
             }
         }
 
@@ -719,24 +730,47 @@ class TaskDetailViewModel(
         val task = _uiState.value.task ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isUploadingAttachment = true) }
-            val result = attachmentRepository.uploadPicked(task.id, uriString)
+            val result = attachmentRepository.attachPicked(task.id, uriString)
             _uiState.update { it.copy(isUploadingAttachment = false) }
             // Posted to the app-wide snackbar: the editor may have been closed by now.
-            if (result is NetworkResult.Error) appMessages.post(result.message)
+            when (result) {
+                is AttachResult.Refused -> appMessages.post(result.message)
+                is AttachResult.Queued -> appMessages.post(WaitingUploadText.queued(result.fileName))
+                is AttachResult.Uploaded -> Unit
+            }
         }
+    }
+
+    /** Removes a file that waits to upload (or was refused), with Undo. */
+    fun removeWaitingUpload(id: Long) {
+        viewModelScope.launch {
+            val removed = attachmentRepository.removeWaiting(id) ?: return@launch
+            appMessages.post("Removed ${removed.fileName}", "Undo") {
+                viewModelScope.launch {
+                    if (!attachmentRepository.restoreWaiting(removed)) {
+                        appMessages.post("Could not bring back ${removed.fileName}: its copy is gone")
+                    }
+                }
+            }
+        }
+    }
+
+    /** Sends a refused upload again. */
+    fun retryWaitingUpload(id: Long) {
+        viewModelScope.launch { attachmentRepository.retryWaiting(id) }
     }
 
     fun addImageAttachment(uriString: String) {
         val taskIdSnapshot = _uiState.value.task?.id ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isUploadingImage = true) }
-            when (val result = attachmentRepository.uploadPicked(taskIdSnapshot, uriString)) {
-                is NetworkResult.Success -> {
+            when (val result = attachmentRepository.attachPicked(taskIdSnapshot, uriString, intoNotes = true)) {
+                is AttachResult.Uploaded -> {
                     // Read the LATEST description inside .update so keystrokes typed
                     // during the upload aren't dropped by a pre-launch snapshot.
                     _uiState.update { current ->
                         val latestDesc = current.task?.description ?: ""
-                        val newDesc = ImageTokens.appendImageToken(latestDesc, result.data.id)
+                        val newDesc = ImageTokens.appendImageToken(latestDesc, result.attachment.id)
                         current.copy(
                             task = current.task?.copy(description = newDesc),
                             isUploadingImage = false,
@@ -746,11 +780,14 @@ class TaskDetailViewModel(
                     // process kill before the sheet's onDispose save fires.
                     saveIfChanged(final = false)
                 }
-                is NetworkResult.Error -> {
+                is AttachResult.Refused -> {
                     _uiState.update { it.copy(isUploadingImage = false) }
                     appMessages.post(result.message)
                 }
-                else -> _uiState.update { it.copy(isUploadingImage = false) }
+                is AttachResult.Queued -> {
+                    _uiState.update { it.copy(isUploadingImage = false) }
+                    appMessages.post(WaitingUploadText.queued(result.fileName))
+                }
             }
         }
     }
@@ -841,15 +878,27 @@ class TaskDetailViewModel(
             val source = taskRepository.getByIds(setOf(id)).firstOrNull() ?: _uiState.value.task ?: return@launch
             when (val result = duplicator.duplicate(source)) {
                 is NetworkResult.Success -> {
-                    loadTask(result.data.copy.id)
+                    val copy = result.data
+                    loadTask(copy.copy.id)
                     appMessages.post(
-                        if (result.data.complete) "Duplicated. This is the copy." else "Duplicated, but some labels, people or subtasks could not be copied",
-                    )
+                        if (copy.complete) "Duplicated. This is the copy." else "Duplicated, but some labels, people or subtasks could not be copied",
+                        "Undo",
+                    ) { undoDuplicate(copy, source.id) }
                 }
                 is NetworkResult.Error -> appMessages.post("Could not duplicate the task: ${result.message}")
                 is NetworkResult.Loading -> Unit
             }
         }
+    }
+
+    /**
+     * Undo of [duplicateTask] (issue 97): the copy and its copied subtasks are deleted, and when
+     * the editor still shows the copy it goes back to the original ([originalId]).
+     */
+    private fun undoDuplicate(copy: Duplicated, originalId: Long) {
+        val duplicator = taskDuplicator ?: return
+        if (_uiState.value.task?.id == copy.copy.id) loadTask(originalId)
+        viewModelScope.launch { appMessages.postIfRefused(duplicator.remove(listOf(copy)), "undo the duplicate") }
     }
 
     /**

@@ -417,6 +417,27 @@ class FakePendingActionDao : PendingActionDao {
                 .filter { it.entityType == entityType && it.entityId == taskId && it.status in setOf("pending", "failed", "processing") }
                 .sortedWith(compareBy({ it.createdAt }, { it.id }))
         }
+
+    override fun observeActiveForTask(entityType: String, taskId: Long): Flow<List<PendingActionEntity>> =
+        version.map { getActiveForTask(entityType, taskId) }
+
+    override suspend fun getActiveOfType(entityType: String): List<PendingActionEntity> = lock.withLock {
+        rows.values.filter { it.entityType == entityType && it.status in active }
+    }
+
+    override suspend fun retryFailed(id: Long): Int {
+        val changed = lock.withLock {
+            val row = rows[id]
+            if (row != null && row.status == "failed") {
+                rows[id] = row.copy(status = "pending", retryCount = 0)
+                1
+            } else {
+                0
+            }
+        }
+        version.value++
+        return changed
+    }
 }
 
 class FakeProjectDao(initial: List<ProjectEntity> = emptyList()) : ProjectDao {

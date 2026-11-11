@@ -17,6 +17,9 @@ class AndroidPlatformFiles(private val platformContext: PlatformContext) : Platf
         }
     }
 
+    override fun offlineAttachmentsDirectory(): String =
+        java.io.File(platformContext.context.noBackupFilesDir, OFFLINE_ATTACHMENTS_DIR).apply { mkdirs() }.absolutePath
+
     override suspend fun openForUpload(uriString: String, maxBytes: Long): UploadOpen =
         withContext(Dispatchers.IO) {
             try {
@@ -47,4 +50,8 @@ class AndroidPlatformFiles(private val platformContext: PlatformContext) : Platf
             // offers the places to save it instead.
             FileUtils.shareFile(platformContext.context, path, mimeType)
         }
+
+    private companion object {
+        const val OFFLINE_ATTACHMENTS_DIR = "offline-attachments"
+    }
 }

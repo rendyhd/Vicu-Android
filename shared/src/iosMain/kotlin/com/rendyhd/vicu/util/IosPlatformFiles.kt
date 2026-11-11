@@ -40,6 +40,9 @@ class IosPlatformFiles : PlatformFiles {
     override fun getDisplayName(uriString: String): String? =
         pathOf(uriString).substringAfterLast('/').takeIf { it.isNotBlank() }
 
+    override fun offlineAttachmentsDirectory(): String =
+        IosPaths.excludedSubdirectory(IosPaths.applicationSupport, OFFLINE_ATTACHMENTS_DIR)
+
     override suspend fun openForUpload(uriString: String, maxBytes: Long): UploadOpen = withContext(ioDispatcher) {
         val path = Path(pathOf(uriString))
         val name = getDisplayName(uriString) ?: "file"
@@ -148,6 +151,7 @@ class IosPlatformFiles : PlatformFiles {
     companion object {
         private const val ATTACHMENT_DIR = "attachments"
         private const val STAGING_DIR = "upload-staging"
+        private const val OFFLINE_ATTACHMENTS_DIR = "offline-attachments"
         private const val CACHE_MAX_AGE_SECONDS = 24 * 60 * 60.0
         private const val COPY_BUFFER_BYTES = 64 * 1024
 

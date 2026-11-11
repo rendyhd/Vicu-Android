@@ -31,6 +31,11 @@ class FakePlatformFiles : PlatformFiles {
 
     override fun getDisplayName(uriString: String): String? = files[uriString]?.name
 
+    /** Where offline copies go; a test that writes them points this at a temporary folder. */
+    var offlineDirectory: String = "/offline-attachments"
+
+    override fun offlineAttachmentsDirectory(): String = offlineDirectory
+
     override suspend fun openForUpload(uriString: String, maxBytes: Long): UploadOpen {
         val file = files[uriString] ?: return UploadOpen.Unreadable
         if (file.declaredSize > maxBytes) return UploadOpen.TooLarge(file.name, file.declaredSize)

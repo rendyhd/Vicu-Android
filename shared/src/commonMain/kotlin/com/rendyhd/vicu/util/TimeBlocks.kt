@@ -228,6 +228,18 @@ object TimeBlocks {
         )
     }
 
+    /**
+     * Move a block to another [day] (a day picker, or a day in the strip): the same wall-clock start
+     * and end, held at the midnight that ends the day, and the due rule. Wall-clock, as the desktop's
+     * `moveBlockToDay`: a block across a clock change keeps the times it shows.
+     */
+    fun moveToDay(due: String?, block: TimeBlock, day: LocalDate, zone: TimeZone): BlockChanges {
+        val from = minutesOfDay(block.start, zone)
+        val start = atClock(day, from, zone)
+        val end = atClock(day, minOf(from + wallClockMinutes(block, zone), DAY_MINUTES), zone)
+        return BlockChanges(startDate = start.toString(), endDate = end.toString(), dueDate = dueForBlock(due, start, zone))
+    }
+
     /** Drop a task on a day without a time. */
     fun planForDay(reminders: List<TaskReminder>, day: LocalDate, zone: TimeZone): BlockChanges =
         removeTime(reminders).copy(dueDate = DueDates.dateOnlyDue(day, zone).toString())

@@ -96,19 +96,56 @@ object WhenLogic {
      * What the quick-add parser's date extraction makes of typed text ("tomorrow 9am", "next mon",
      * "oct 20 at 3pm"). A phrase that names no time gives a date-only value. Null when the text has
      * no date in it. [locale] (a BCP 47 tag) orders slash dates; the device locale when null.
+     * [previous] is the day the text was showing before the edit (see [dayWordPhrase]).
      */
-    fun parseText(text: String, now: LocalDateTime, zone: TimeZone, locale: String? = null): WhenParse? {
+    fun parseText(
+        text: String,
+        now: LocalDateTime,
+        zone: TimeZone,
+        locale: String? = null,
+        previous: LocalDate? = null,
+    ): WhenParse? {
         if (text.isBlank()) return null
         val options = DateOptions(
             reference = now,
             zone = zone,
             dayFirst = isDayFirstLocale(locale ?: deviceLocaleTag()),
         )
+        return dayWordPhrase(text, options, previous) ?: read(text, options)
+    }
+
+    private fun read(text: String, options: DateOptions): WhenParse? {
         val found = extractDate(text, mutableListOf(), options)
         val due = found.dueDate ?: return null
         val time = if (found.hasTime) LocalTime(due.hour, due.minute) else null
         return WhenParse(WhenValue(due.date, time), found.tokens.firstOrNull()?.raw ?: text.trim())
     }
+
+    /**
+     * The sheet's own text for yesterday, today and tomorrow: the day word, the date it names and
+     * the time ("Today, Oct 8, 1:00 PM"). The parser takes the word as the date and leaves the time
+     * behind, so editing the time and pressing Done cleared it (issue 98). Read as one value here:
+     * the time from what follows the word, and the day from the word, unless the word still names
+     * [previous] and the date after it was changed. Null when the text is not of that form.
+     */
+    private fun dayWordPhrase(text: String, options: DateOptions, previous: LocalDate?): WhenParse? {
+        val match = DAY_WORD_RE.matchEntire(text) ?: return null
+        val today = options.reference.date
+        val word = when (match.groupValues[1].lowercase()) {
+            "yesterday" -> today.plus(-1, DateTimeUnit.DAY)
+            "tomorrow" -> today.plus(1, DateTimeUnit.DAY)
+            else -> today
+        }
+        // A date before today is read from the word's day, so "Yesterday, Oct 7" stays this year.
+        val reference = if (word < today) LocalDateTime(word, LocalTime(0, 0)) else options.reference
+        val rest = extractDate(match.groupValues[2], mutableListOf(), options.copy(reference = reference, skipTimeOnly = true))
+        val due = rest.dueDate ?: return null
+        val date = if (previous != null && word == previous && due.date != previous) due.date else word
+        val time = if (rest.hasTime) LocalTime(due.hour, due.minute) else null
+        return WhenParse(WhenValue(date, time), text.trim())
+    }
+
+    private val DAY_WORD_RE = Regex("""\s*(today|tomorrow|yesterday)\s*,\s*(.*?)\s*""", RegexOption.IGNORE_CASE)
 
     /** A value as short text, the chip phrasing ("Sat, Oct 10, 3:00 PM"). Empty when no day is picked. */
     fun text(value: WhenValue, today: LocalDate, fmt: DateDisplayFormat): String {

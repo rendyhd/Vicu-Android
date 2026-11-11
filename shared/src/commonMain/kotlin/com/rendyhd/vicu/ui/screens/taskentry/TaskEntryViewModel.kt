@@ -15,6 +15,7 @@ import com.rendyhd.vicu.domain.model.SharedContent
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.TaskReminder
 import com.rendyhd.vicu.domain.model.User
+import com.rendyhd.vicu.domain.repository.AttachResult
 import com.rendyhd.vicu.domain.repository.AttachmentRepository
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
@@ -33,6 +34,7 @@ import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DefaultReminder
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.ImageTokens
+import com.rendyhd.vicu.util.WaitingUploadText
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.RecurrenceValue
 import com.rendyhd.vicu.util.TaskTemplate
@@ -761,7 +763,14 @@ class TaskEntryViewModel(
                                 somethingToSay = true
                             }
                         }
-                        if (!somethingToSay && !state.keepEntryOpen) confirmCreated(createdTask, state, format)
+                        // Files that will wait for the server are named in the confirmation (issue 104).
+                        val filesWaiting = (pendingUris.size + pendingImages.size)
+                            .takeIf { it > 0 && attachmentRepository.waitsForServer(createdTask.id) } ?: 0
+                        if (!somethingToSay && !state.keepEntryOpen) {
+                            confirmCreated(createdTask, state, format, filesWaiting)
+                        } else if (!somethingToSay && filesWaiting > 0) {
+                            appMessages.post(WaitingUploadText.queuedCount(filesWaiting))
+                        }
                         if (pendingUris.isNotEmpty()) {
                             uploadPendingAttachments(createdTask.id, pendingUris)
                         }
@@ -794,10 +803,12 @@ class TaskEntryViewModel(
     }
 
     /** The sheet has closed: the snackbar says what was added, with Open and Undo, as the other adds do. */
-    private fun confirmCreated(created: Task, state: TaskEntryUiState, format: DateDisplayFormat) {
+    private fun confirmCreated(created: Task, state: TaskEntryUiState, format: DateDisplayFormat, filesWaiting: Int = 0) {
         val project = state.allProjects.find { it.id == created.projectId }?.takeIf { it.id != state.inboxProjectId }?.title
         val block = state.parseResult?.block.takeIf { !state.dueDateIsManual }
-        val text = TextTaskCreator.confirmation(created.title, created.dueDate, project, dayClock.day.value, format, block = block)
+        val confirmation = TextTaskCreator.confirmation(created.title, created.dueDate, project, dayClock.day.value, format, block = block)
+        // The confirmation is a phrase without a full stop; the files get a sentence of their own.
+        val text = if (filesWaiting > 0) "$confirmation. ${WaitingUploadText.queuedCount(filesWaiting)}" else confirmation
         appMessages.post(text, "Undo", openTaskId = created.id) {
             viewModelScope.launch { appMessages.postIfRefused(taskRepository.delete(created.id), "undo the task") }
         }
@@ -830,13 +841,16 @@ class TaskEntryViewModel(
     ) {
         val mapping = mutableMapOf<String, Long>()
         for ((uuid, uri) in pendingImages) {
-            when (val uploadResult = attachmentRepository.uploadPicked(task.id, uri)) {
-                is NetworkResult.Success -> mapping[uuid] = uploadResult.data.id
-                else -> {} // skip failed uploads; pending token will remain and be ignored client-side
+            when (val uploadResult = attachmentRepository.attachPicked(task.id, uri, intoNotes = true)) {
+                is AttachResult.Uploaded -> mapping[uuid] = uploadResult.attachment.id
+                // Kept for later: it goes to the end of the notes once uploaded.
+                is AttachResult.Queued -> Unit
+                is AttachResult.Refused -> appMessages.post(uploadResult.message)
             }
         }
-        if (mapping.isEmpty()) return
-        val newDescription = ImageTokens.replacePendingTokens(task.description, mapping)
+        // A placeholder never reaches the server's notes: the uploaded ones become images, the
+        // rest go (a queued image is added when it is uploaded).
+        val newDescription = ImageTokens.removePendingTokens(ImageTokens.replacePendingTokens(task.description, mapping))
         if (newDescription != task.description) {
             taskRepository.update(task.copy(description = newDescription))
         }
@@ -846,10 +860,10 @@ class TaskEntryViewModel(
         viewModelScope.launch {
             for (uri in uris) {
                 // Too large or unreadable files are reported, so one bad file does not hide the rest.
-                val result = attachmentRepository.uploadPicked(taskId, uri)
-                if (result is NetworkResult.Error) appMessages.post(result.message)
+                val result = attachmentRepository.attachPicked(taskId, uri)
+                if (result is AttachResult.Refused) appMessages.post(result.message)
             }
-            attachmentRepository.refreshForTask(taskId)
+            if (taskId > 0) attachmentRepository.refreshForTask(taskId)
         }
     }
 

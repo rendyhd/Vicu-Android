@@ -177,6 +177,8 @@ private data class BlockGesture(
     val base: GestureRange,
     val draggedPx: Float,
     val scrollAtStart: Int,
+    /** The day on screen when it started: a move may end on another (the strip, contract 16.2). */
+    val startDay: LocalDate,
 )
 
 /**
@@ -184,6 +186,11 @@ private data class BlockGesture(
  * and ticks). A press and hold moves a block, its handle changes the length, both in 15-minute steps;
  * nothing is written before the finger comes up. While [onTapTime] is set, a tap anywhere on the grid
  * places the picked task. Blocks in [dashedIds] are a draft; while [draft] is on nothing is ticked.
+ *
+ * A block being moved reports the finger with [onBlockDrag] (null when it lets go), so the screen can
+ * change the day under it; the block stays held while [day] changes. At the end [onBlockDropOutside]
+ * may take the drop (a day of the strip, the top row) before [onMove] is asked. [scrollsUnder] says
+ * whether a finger there scrolls the grid near its edges.
  */
 @Composable
 internal fun PlanTimeline(
@@ -211,6 +218,9 @@ internal fun PlanTimeline(
     dashedIds: Set<Long> = emptySet(),
     draft: Boolean = false,
     reasonOf: (Task) -> String? = { null },
+    onBlockDrag: (Task, Offset?) -> Unit = { _, _ -> },
+    onBlockDropOutside: (Task) -> Boolean = { false },
+    scrollsUnder: (Offset) -> Boolean = { true },
 ) {
     val density = LocalDensity.current
     val zone = LocalClockDay.current.zone
@@ -226,6 +236,12 @@ internal fun PlanTimeline(
     val workEnd = TimeBlocks.clockMinutes(hours.end)
 
     var gesture by remember { mutableStateOf<BlockGesture?>(null) }
+    // The block being moved, kept while another day is on screen: its gesture lives on it.
+    var carried by remember { mutableStateOf<PlacedBlock?>(null) }
+    val latestDay by rememberUpdatedState(day)
+    val latestDrag by rememberUpdatedState(onBlockDrag)
+    val latestDropOutside by rememberUpdatedState(onBlockDropOutside)
+    val latestScrollsUnder by rememberUpdatedState(scrollsUnder)
     var viewport by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var fingerInWindow by remember { mutableStateOf<Offset?>(null) }
     val edgePx = with(density) { PlanAutoScrollEdge.toPx() }
@@ -246,6 +262,7 @@ internal fun PlanTimeline(
             withFrameNanos { }
             val port = viewport ?: continue
             val finger = fingerInWindow ?: continue
+            if (!latestScrollsUnder(finger)) continue
             scrollState.dispatchRawDelta(autoScrollDelta(port.windowToLocal(finger).y, port.size.height.toFloat(), edgePx))
         }
     }
@@ -339,10 +356,12 @@ internal fun PlanTimeline(
                 }
             }
 
-            for (placed in blocks) {
+            val held = carried?.takeIf { gesture?.taskId == it.task.id && blocks.none { b -> b.task.id == it.task.id } }
+            val shownBlocks = if (held != null) blocks + held else blocks
+            for (placed in shownBlocks) {
                 key(placed.task.id) {
                     val task = placed.task
-                    val editable = canEdit(task)
+                    val editable = canEdit(task) || gesture?.taskId == task.id
                     val current = gesture?.takeIf { it.taskId == task.id }
                     val range = current?.let { rangeOf(it, scrollState.value) }
                         ?: GestureRange(placed.startMinute, placed.endMinute)
@@ -379,33 +398,41 @@ internal fun PlanTimeline(
                         gestures = if (editable) {
                                     Modifier.pointerInput(task.id) {
                                         detectDragGesturesAfterLongPress(
-                                            onDragStart = {
+                                            onDragStart = { at ->
                                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                carried = latestPlaced
                                                 gesture = BlockGesture(
                                                     task.id,
                                                     moving = true,
                                                     latestPlaced.ownRange(),
                                                     0f,
                                                     scrollState.value,
+                                                    latestDay,
                                                 )
+                                                latestDrag(task, blockCoords?.localToWindow(at))
                                             },
                                             onDrag = { change, amount ->
                                                 change.consume()
                                                 gesture = gesture?.let { it.copy(draggedPx = it.draggedPx + amount.y) }
                                                 fingerInWindow = blockCoords?.localToWindow(change.position)
+                                                latestDrag(task, fingerInWindow)
                                             },
                                             onDragEnd = {
                                                 val finished = gesture
                                                 gesture = null
                                                 fingerInWindow = null
-                                                if (finished != null) {
+                                                carried = null
+                                                if (finished != null && !latestDropOutside(task)) {
                                                     val to = rangeOf(finished, scrollState.value)
-                                                    if (to != finished.base) latestMove(task, to.startMinute)
+                                                    if (to != finished.base || latestDay != finished.startDay) latestMove(task, to.startMinute)
                                                 }
+                                                latestDrag(task, null)
                                             },
                                             onDragCancel = {
                                                 gesture = null
                                                 fingerInWindow = null
+                                                carried = null
+                                                latestDrag(task, null)
                                             },
                                         )
                                     }
@@ -454,6 +481,7 @@ internal fun PlanTimeline(
                                                 latestPlaced.ownRange(),
                                                 0f,
                                                 scrollState.value,
+                                                latestDay,
                                             )
                                         },
                                         onVerticalDrag = { change, amount ->

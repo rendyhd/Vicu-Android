@@ -65,6 +65,13 @@ object ImageTokens {
     fun imageToken(attachmentId: Long): String = "[[image:$attachmentId]]"
     fun pendingToken(uuid: String): String = "[[image-pending:$uuid]]"
 
+    /** Drops every `[[image-pending:uuid]]` token; `[[image:N]]` tokens and the text stay. */
+    fun removePendingTokens(value: String): String {
+        if (!PENDING_RE.containsMatchIn(value)) return value
+        val (text, refs) = parseValue(value)
+        return buildValue(text, refs.filterIsInstance<ImageRef.Image>())
+    }
+
     /** Replace `[[image-pending:uuid]]` tokens with `[[image:id]]` per mapping. */
     fun replacePendingTokens(text: String, mapping: Map<String, Long>): String =
         PENDING_RE.replace(text) { m ->

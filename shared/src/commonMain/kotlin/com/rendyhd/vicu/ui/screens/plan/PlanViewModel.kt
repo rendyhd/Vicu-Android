@@ -16,13 +16,20 @@ import com.rendyhd.vicu.domain.repository.CollaborationRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.domain.repository.RoutineRepository
 import com.rendyhd.vicu.domain.repository.TaskRepository
+import com.rendyhd.vicu.ui.navigation.NavigationTicker
 import com.rendyhd.vicu.ui.navigation.ProjectNode
+import com.rendyhd.vicu.ui.screens.shared.CompletionHold
+import com.rendyhd.vicu.ui.screens.shared.CompletionToast
+import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.ui.navigation.buildProjectTree
 import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.BlockChanges
 import com.rendyhd.vicu.util.ClockDay
+import com.rendyhd.vicu.util.DateDisplay
+import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DueDates
+import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.PlanSource
 import com.rendyhd.vicu.util.PlannerHours
 import com.rendyhd.vicu.util.PlannerTimeline
@@ -45,11 +52,14 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 
 /** A project of the drawer's list with how far down the tree it sits. */
@@ -69,8 +79,15 @@ data class PlanUiState(
     val defaultLength: Int = TimeBlocks.DEFAULT_LENGTH_MINUTES,
     val projects: Map<Long, Project> = emptyMap(),
     val collab: CollabState = CollabState(),
+    /** The days on either side of the selected one, for a swipe to show before it lands. */
+    val previous: PlanDayContent? = null,
+    val next: PlanDayContent? = null,
     /** The list the drawer shows, and its tasks through the filter box. */
     val source: PlanSource = PlanSource.Day,
+    /** How many tasks each of the four lists holds, by [PlanSource.key]. */
+    val sourceCounts: Map<String, Int> = emptyMap(),
+    /** Top-row tasks ticked a moment ago, still shown struck through. */
+    val heldIds: Set<Long> = emptySet(),
     val inboxProjectId: Long? = null,
     val filter: String = "",
     val listed: List<Task> = emptyList(),
@@ -105,27 +122,38 @@ class PlanViewModel(
     private val refresher: ScreenRefresher,
     private val dayClock: DayClock,
     private val appMessages: AppMessages,
+    navigationTicker: NavigationTicker = NavigationTicker(),
+    completionToast: CompletionToast = NoCompletionToast,
     private val time: TimeSource = SystemTimeSource,
 ) : ViewModel() {
 
-    /** How many weeks from today the strip is, and which of its seven days is selected. */
-    private val stripWeeks = MutableStateFlow(0)
-    private val selectedOffset = MutableStateFlow(0)
+    /** A task ticked in the top row stays there, struck through, for the hold (contract 7). */
+    val completions = CompletionHold(viewModelScope, navigationTicker = navigationTicker, toast = completionToast)
+
+    /** How many weeks from today the strip is, and which of its seven days is selected: one value, so both change together. */
+    private data class StripPosition(val weeks: Int, val offset: Int)
+
+    private val position = MutableStateFlow(StripPosition(0, 0))
     private val filter = MutableStateFlow("")
 
-    private val stripStart: Flow<LocalDate> = combine(dayClock.today, stripWeeks) { today, weeks ->
-        today.plus(weeks * PLAN_STRIP_DAYS, DateTimeUnit.DAY)
+    private val stripStart: Flow<LocalDate> = combine(dayClock.today, position) { today, at ->
+        today.plus(at.weeks * PLAN_STRIP_DAYS, DateTimeUnit.DAY)
     }.distinctUntilChanged()
 
-    private val selectedDay: Flow<LocalDate> = combine(stripStart, selectedOffset) { start, offset ->
-        start.plus(offset, DateTimeUnit.DAY)
+    private val selectedDay: Flow<LocalDate> = combine(dayClock.today, position) { today, at ->
+        today.plus(at.weeks * PLAN_STRIP_DAYS + at.offset, DateTimeUnit.DAY)
     }.distinctUntilChanged()
 
     private val projects = projectRepository.getAll()
 
-    /** The strip's days, overdue tasks with them while today is on it. Only what is on this screen. */
+    /**
+     * The strip's days and one more on each side (a swipe shows the next day before it lands), overdue
+     * tasks with them while today is among them. Only what is on this screen.
+     */
     private val rangeTasks: Flow<List<Task>> = stripStart
-        .flatMapLatest { start -> taskRepository.getPlanTasks(start, start.plus(PLAN_STRIP_DAYS - 1, DateTimeUnit.DAY)) }
+        .flatMapLatest { start ->
+            taskRepository.getPlanTasks(start.minus(1, DateTimeUnit.DAY), start.plus(PLAN_STRIP_DAYS, DateTimeUnit.DAY))
+        }
 
     private val source: Flow<PlanSource> = behaviorPrefsStore.getPrefs()
         .map { PlanSource.read(it.plannerSource) }
@@ -133,25 +161,35 @@ class PlanViewModel(
 
     private val taskOrders = taskOrderPreferences.settings
 
-    /** The drawer's list when it is not the selected day, which comes from the same request as the timeline. */
-    private val otherList: Flow<List<Task>> = combine(source, authManager.inboxProjectId) { list, inbox -> list to inbox }
+    /** A project's open tasks in its task order: the Inbox's list and a project's. */
+    private fun projectList(projectId: Long?): Flow<List<Task>> {
+        if (projectId == null) return flowOf(emptyList())
+        return combine(taskRepository.getByProjectId(projectId), taskOrders, projects) { tasks, orders, all ->
+            sortProjectTasks(tasks.filter { !it.done }, orders.orderFor(projectId, all))
+        }
+    }
+
+    /**
+     * The drawer's other lists. The selected day's comes from the same request as the timeline. The
+     * Inbox, the next seven days and No date are read even while another list is shown, because
+     * their chips say how many tasks each holds.
+     */
+    private val sourceLists: Flow<SourceLists> = combine(source, authManager.inboxProjectId) { list, inbox -> list to inbox }
         .distinctUntilChanged()
         .flatMapLatest { (list, inbox) ->
-            when (list) {
-                PlanSource.Day -> flowOf(emptyList())
-                PlanSource.NextSeven -> combine(taskRepository.getUpcomingTasks(), dayClock.day) { tasks, day ->
-                    tasks.filter { PlanSource.inNextSevenDays(it.dueDate, day.date, day.zone) }
-                }
-                PlanSource.NoDate -> taskRepository.getAnytimeTasks(inbox ?: 0L).map { tasks ->
-                    tasks.filter { DueDates.localDateOf(it.dueDate, dayClock.day.value.zone) == null }
-                }
-                PlanSource.Inbox, is PlanSource.Project -> {
-                    val projectId = list.projectId(inbox) ?: return@flatMapLatest flowOf(emptyList())
-                    combine(taskRepository.getByProjectId(projectId), taskOrders, projects) { tasks, orders, all ->
-                        sortProjectTasks(tasks.filter { !it.done }, orders.orderFor(projectId, all))
-                    }
-                }
+            val nextSeven = combine(taskRepository.getUpcomingTasks(), dayClock.day) { tasks, day ->
+                tasks.filter { PlanSource.inNextSevenDays(it.dueDate, day.date, day.zone) }
             }
+            val noDate = taskRepository.getAnytimeTasks(inbox ?: 0L).map { tasks ->
+                tasks.filter { DueDates.localDateOf(it.dueDate, dayClock.day.value.zone) == null }
+            }
+            // The counts start at nothing, so the timeline never waits for a list it does not show.
+            combine(
+                projectList(PlanSource.Inbox.projectId(inbox)).onStart { emit(emptyList()) },
+                nextSeven.onStart { emit(emptyList()) },
+                noDate.onStart { emit(emptyList()) },
+                projectList((list as? PlanSource.Project)?.id),
+            ) { inboxTasks, next, none, project -> SourceLists(inboxTasks, next, none, project) }
         }
 
     private val routines: Flow<List<TimelineRoutine>> = combine(
@@ -167,9 +205,15 @@ class PlanViewModel(
 
     private data class Prefs(val hours: PlannerHours, val length: Int)
     private data class DayInputs(val tasks: List<Task>, val day: LocalDate, val start: LocalDate, val weeks: Int)
+    private data class SourceLists(
+        val inbox: List<Task>,
+        val nextSeven: List<Task>,
+        val noDate: List<Task>,
+        val project: List<Task>,
+    )
     private data class ListInputs(
         val source: PlanSource,
-        val other: List<Task>,
+        val lists: SourceLists,
         val filter: String,
         val inbox: Long?,
     )
@@ -185,12 +229,12 @@ class PlanViewModel(
      */
     val plannerOff: Flow<Boolean> = behaviorPrefsStore.getPrefs().map { !it.plannerEnabled }.distinctUntilChanged()
 
-    private val dayInputs = combine(rangeTasks, selectedDay, stripStart, stripWeeks) { tasks, day, start, weeks ->
-        DayInputs(tasks, day, start, weeks)
+    private val dayInputs = combine(rangeTasks, selectedDay, stripStart, position) { tasks, day, start, at ->
+        DayInputs(tasks, day, start, at.weeks)
     }
 
-    private val listInputs = combine(source, otherList, filter, authManager.inboxProjectId) { list, other, text, inbox ->
-        ListInputs(list, other, text, inbox)
+    private val listInputs = combine(source, sourceLists, filter, authManager.inboxProjectId) { list, lists, text, inbox ->
+        ListInputs(list, lists, text, inbox)
     }
 
     private val sharing = combine(projects, collaborationRepository.state) { all, collab -> all to collab }
@@ -200,9 +244,9 @@ class PlanViewModel(
         listInputs,
         prefs,
         routines,
-        combine(sharing, dayClock.day) { share, day -> share to day },
-    ) { day, list, prefs, routines, (share, clock) ->
-        build(day, list, prefs, routines, share.first, share.second, clock)
+        combine(sharing, dayClock.day, completions.state) { share, day, held -> Triple(share, day, held.keys) },
+    ) { day, list, prefs, routines, (share, clock, held) ->
+        build(day, list, prefs, routines, share.first, share.second, clock, held)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PlanUiState())
 
     private fun build(
@@ -213,31 +257,52 @@ class PlanViewModel(
         projects: List<Project>,
         collab: CollabState,
         clock: ClockDay,
+        held: Set<Long>,
     ): PlanUiState {
         val byId = projects.associateBy { it.id }
         // Tasks of an archived or unknown project are not on the timeline, as on every list.
         val tasks = input.tasks.filter { it.projectId in byId }
-        val content = planDayContent(tasks, input.day, time.now(), prefs.hours, clock.zone)
+        val now = time.now()
+        val isHeld: (Task) -> Boolean = { it.id in held }
+        val read = planDayContent(tasks, input.day, now, prefs.hours, clock.zone, isHeld)
+        val content = read.copy(topRow = completions.merge(read.topRow))
         // The stored list outlives a project (archived, deleted, another account): back to the first list.
         val source = list.source.takeUnless { it is PlanSource.Project && it.id !in byId } ?: PlanSource.Day
+        fun shown(tasks: List<Task>) =
+            tasks.filter { it.projectId in byId }.withoutNestedSubtasks(hideChildrenOfCompletedParents = false)
+        val inbox = shown(list.lists.inbox)
+        val nextSeven = shown(list.lists.nextSeven)
+        val noDate = shown(list.lists.noDate)
         val all = when (source) {
             PlanSource.Day -> content.withoutTime
-            else -> list.other.filter { it.projectId in byId }.withoutNestedSubtasks(hideChildrenOfCompletedParents = false)
+            PlanSource.Inbox -> inbox
+            PlanSource.NextSeven -> nextSeven
+            PlanSource.NoDate -> noDate
+            is PlanSource.Project -> shown(list.lists.project)
         }
         return PlanUiState(
             isLoading = false,
+            heldIds = completions.completedIds,
             today = clock.date,
             zone = clock.zone,
             selectedDay = input.day,
             strip = planStrip(input.start, tasks, prefs.hours, clock.zone),
             stripMoved = input.weeks != 0,
             content = content,
+            previous = planDayContent(tasks, input.day.minus(1, DateTimeUnit.DAY), now, prefs.hours, clock.zone),
+            next = planDayContent(tasks, input.day.plus(1, DateTimeUnit.DAY), now, prefs.hours, clock.zone),
             routines = routines,
             hours = prefs.hours,
             defaultLength = prefs.length,
             projects = byId,
             collab = collab,
             source = source,
+            sourceCounts = mapOf(
+                PlanSource.Day.key to content.withoutTime.size,
+                PlanSource.Inbox.key to inbox.size,
+                PlanSource.NextSeven.key to nextSeven.size,
+                PlanSource.NoDate.key to noDate.size,
+            ),
             inboxProjectId = list.inbox,
             filter = list.filter,
             listed = all.filter { PlanSource.matchesTitleFilter(it.title, list.filter) },
@@ -263,17 +328,29 @@ class PlanViewModel(
     // --- The strip -------------------------------------------------------------------------------
 
     fun selectDay(day: LocalDate, stripStartDay: LocalDate) {
-        selectedOffset.value = (day.toEpochDays() - stripStartDay.toEpochDays()).toInt().coerceIn(0, PLAN_STRIP_DAYS - 1)
+        val offset = (day.toEpochDays() - stripStartDay.toEpochDays()).toInt().coerceIn(0, PLAN_STRIP_DAYS - 1)
+        position.update { it.copy(offset = offset) }
     }
 
     /** Another week on the strip, the same weekday selected. */
     fun moveStrip(weeks: Int) {
-        stripWeeks.value += weeks
+        position.update { it.copy(weeks = it.weeks + weeks) }
     }
 
     fun goToday() {
-        stripWeeks.value = 0
-        selectedOffset.value = 0
+        position.value = StripPosition(0, 0)
+    }
+
+    /** Any [day]: the strip moves to the week that holds it when it is not on it. */
+    fun showDay(day: LocalDate) {
+        val days = (day.toEpochDays() - dayClock.day.value.date.toEpochDays()).toInt()
+        position.value = StripPosition(days.floorDiv(PLAN_STRIP_DAYS), days.mod(PLAN_STRIP_DAYS))
+    }
+
+    /** The day before or after the selected one (a swipe on the timeline). */
+    fun stepDay(days: Int) {
+        val at = position.value
+        showDay(dayClock.day.value.date.plus(at.weeks * PLAN_STRIP_DAYS + at.offset + days, DateTimeUnit.DAY))
     }
 
     // --- The drawer ------------------------------------------------------------------------------
@@ -307,7 +384,7 @@ class PlanViewModel(
             appMessages.post(it)
             return
         }
-        write(task.id, "place the task") { current ->
+        write(task.id, "place the task", announceDue = true) { current ->
             val length = TimeBlocks.blockOf(current, state.zone)?.minutes ?: state.defaultLength
             TimeBlocks.placeBlock(current.dueDate, TimeBlocks.atClock(day, minute, state.zone), length, state.zone)
         }
@@ -335,6 +412,61 @@ class PlanViewModel(
             val block = TimeBlocks.blockOf(current, zone) ?: return@write null
             TimeBlocks.placeBlock(current.dueDate, TimeBlocks.atClock(block.day, startMinute, zone), block.minutes, zone)
         }
+    }
+
+    /**
+     * A block to [startMinute] on [day], the same length: a drag that went to another day through the
+     * strip. On its own day it is [move].
+     */
+    fun moveTo(task: Task, day: LocalDate, startMinute: Int) {
+        val state = uiState.value
+        if (state.today != null && !PlannerTimeline.canPlaceOn(day, state.today)) {
+            appMessages.post(PAST_DAY)
+            return
+        }
+        write(task.id, "move the block", announceDue = true) { current ->
+            val block = TimeBlocks.blockOf(current, state.zone) ?: return@write null
+            TimeBlocks.placeBlock(current.dueDate, TimeBlocks.atClock(day, startMinute, state.zone), block.minutes, state.zone)
+        }
+    }
+
+    /**
+     * A block to another [day] at the same times (the sheet's Day row, a drop on a day of the strip),
+     * contract 16.2. Says where it went, with Undo, and Plan follows it there.
+     */
+    fun moveToDay(task: Task, day: LocalDate) {
+        val state = uiState.value
+        if (state.today != null && !PlannerTimeline.canPlaceOn(day, state.today)) {
+            appMessages.post(PAST_DAY)
+            return
+        }
+        viewModelScope.launch {
+            val current = taskRepository.getById(task.id).first() ?: return@launch
+            if (!uiState.value.canChange(current)) {
+                appMessages.post(VIEW_ONLY)
+                return@launch
+            }
+            val block = TimeBlocks.blockOf(current, state.zone) ?: return@launch
+            if (block.day == day) return@launch
+            val result = taskRepository.update(TimeBlocks.moveToDay(current.dueDate, block, day, state.zone).applyTo(current))
+            if (appMessages.postIfRefused(result, "move the block")) return@launch
+            showDay(day)
+            val today = state.today ?: day
+            appMessages.post(
+                message = "Moved to ${DateDisplay.formatWeekdayDate(day, today, format)}",
+                actionLabel = "Undo",
+            ) { restore(current) }
+        }
+    }
+
+    /** Drop a task on a day without a time (the top row): no block, due that day (contract 16.2). */
+    fun planForDay(task: Task, day: LocalDate) {
+        val state = uiState.value
+        if (state.today != null && !PlannerTimeline.canPlaceOn(day, state.today)) {
+            appMessages.post(PAST_DAY)
+            return
+        }
+        write(task.id, "remove the time") { current -> TimeBlocks.planForDay(current.reminders, day, state.zone) }
     }
 
     /** The block's end to [endMinute] of its day. */
@@ -383,7 +515,11 @@ class PlanViewModel(
         }
     }
 
-    private fun write(taskId: Long, doing: String, change: (Task) -> BlockChanges?) {
+    /**
+     * Writes [change] on the task as it is stored. With [announceDue], a block that moved the due date
+     * to another day says so, with Undo: the due rule (16.2) is the one change nobody dragged.
+     */
+    private fun write(taskId: Long, doing: String, announceDue: Boolean = false, change: (Task) -> BlockChanges?) {
         viewModelScope.launch {
             // On the task as it is stored now, so a row composed earlier cannot write old values.
             val current = taskRepository.getById(taskId).first() ?: return@launch
@@ -392,11 +528,66 @@ class PlanViewModel(
                 return@launch
             }
             val changes = change(current) ?: return@launch
-            appMessages.postIfRefused(taskRepository.update(changes.applyTo(current)), doing)
+            if (appMessages.postIfRefused(taskRepository.update(changes.applyTo(current)), doing)) return@launch
+            if (announceDue) announceDueMove(current, changes)
+        }
+    }
+
+    /** "Planned for Tue 10 Nov. Due date moved from Mon 9 Nov", with Undo, when the due rule moved it. */
+    private fun announceDueMove(before: Task, changes: BlockChanges) {
+        val state = uiState.value
+        val today = state.today ?: return
+        val from = DueDates.localDateOf(before.dueDate, state.zone) ?: return
+        val to = DueDates.localDateOf(changes.dueDate ?: return, state.zone) ?: return
+        if (from == to) return
+        val planned = DateDisplay.formatWeekdayDate(to, today, format)
+        val was = DateDisplay.formatWeekdayDate(from, today, format)
+        appMessages.post(
+            message = "Planned for $planned. Due date moved from $was",
+            actionLabel = "Undo",
+        ) { restore(before) }
+    }
+
+    /** Puts back the block, the due date and the reminders [before] had: Undo of a move. */
+    private fun restore(before: Task) {
+        viewModelScope.launch {
+            val current = taskRepository.getById(before.id).first() ?: return@launch
+            val back = BlockChanges(
+                startDate = before.startDate.ifEmpty { TimeBlocks.CLEARED },
+                endDate = before.endDate.ifEmpty { TimeBlocks.CLEARED },
+                dueDate = before.dueDate.ifEmpty { TimeBlocks.CLEARED },
+                reminders = before.reminders,
+            )
+            appMessages.postIfRefused(taskRepository.update(back.applyTo(current)), "undo the move")
         }
     }
 
     // --- Ticking ---------------------------------------------------------------------------------
+
+    /** A tick in the top row: the task stays there, struck through, for the hold; a second tap is the undo. */
+    fun toggleTopRow(task: Task) {
+        if (!uiState.value.canChange(task)) {
+            appMessages.post(VIEW_ONLY)
+            return
+        }
+        viewModelScope.launch {
+            when {
+                task.id in completions.state.value -> {
+                    completions.undoing(task.id)
+                    val result = taskRepository.setDone(task.id, false)
+                    completions.release(task.id)
+                    appMessages.postIfRefused(result, "reopen the task")
+                }
+                task.done -> appMessages.postIfRefused(taskRepository.setDone(task.id, false), "reopen the task")
+                else -> {
+                    completions.hold(task)
+                    val result = taskRepository.toggleDone(task)
+                    if (result is NetworkResult.Error) completions.release(task.id)
+                    appMessages.postIfRefused(result, "complete the task")
+                }
+            }
+        }
+    }
 
     /** A done block stays on the timeline with its check, so a second tap is the undo. */
     fun toggleDone(task: Task) {
@@ -414,6 +605,9 @@ class PlanViewModel(
     }
 
     fun minutesNow(): Int = dayClock.minutesNow()
+
+    /** How the screen phrases dates, for the messages written here. */
+    var format: DateDisplayFormat = DateDisplayFormat.system(is24Hour = true)
 
     fun postMessage(text: String) = appMessages.post(text)
 

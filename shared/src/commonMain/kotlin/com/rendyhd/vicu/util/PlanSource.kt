@@ -38,16 +38,13 @@ sealed class PlanSource(val key: String) {
                 ?: Day
         }
 
-        /** The four lists above the projects; [dayLabel] names the first (see [dayListLabel]). */
+        /** The four lists before the projects, the drawer's chips; [dayLabel] names the first ("Today"). */
         fun lists(dayLabel: String): List<Pair<PlanSource, String>> = listOf(
             Day to dayLabel,
             Inbox to "Inbox",
             NextSeven to "Next 7 days",
             NoDate to "No date",
         )
-
-        /** "Today, no time", "Tomorrow, no time", "Fri 6 Nov, no time". */
-        fun dayListLabel(dayPhrase: String): String = "$dayPhrase, no time"
 
         /** Due after today and at most seven days on. */
         fun inNextSevenDays(due: String?, today: LocalDate, zone: TimeZone): Boolean {

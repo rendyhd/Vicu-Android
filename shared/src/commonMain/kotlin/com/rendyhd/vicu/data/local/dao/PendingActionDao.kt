@@ -197,4 +197,16 @@ interface PendingActionDao {
     /** The waiting and failed changes of one kind for one task, oldest first (comment overlay, temp id remaps). */
     @Query("SELECT * FROM pending_actions WHERE entityType = :entityType AND entityId = :taskId AND status IN ('pending', 'failed', 'processing') ORDER BY createdAt ASC, id ASC")
     suspend fun getActiveForTask(entityType: String, taskId: Long): List<PendingActionEntity>
+
+    /** [getActiveForTask] as a flow: the editor's waiting and failed uploads. */
+    @Query("SELECT * FROM pending_actions WHERE entityType = :entityType AND entityId = :taskId AND status IN ('pending', 'failed', 'processing') ORDER BY createdAt ASC, id ASC")
+    fun observeActiveForTask(entityType: String, taskId: Long): Flow<List<PendingActionEntity>>
+
+    /** Every waiting, failed or in-flight change of one kind (the files the offline uploads still need). */
+    @Query("SELECT * FROM pending_actions WHERE entityType = :entityType AND status IN ('pending', 'failed', 'processing')")
+    suspend fun getActiveOfType(entityType: String): List<PendingActionEntity>
+
+    /** Puts one failed change back in the queue; returns 0 when it is no longer failed. */
+    @Query("UPDATE pending_actions SET status = 'pending', retryCount = 0 WHERE id = :id AND status = 'failed'")
+    suspend fun retryFailed(id: Long): Int
 }

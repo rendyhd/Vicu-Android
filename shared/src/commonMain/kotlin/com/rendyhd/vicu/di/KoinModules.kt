@@ -60,6 +60,9 @@ import kotlinx.coroutines.flow.first
 import com.rendyhd.vicu.util.CustomListContext
 import com.rendyhd.vicu.worker.SyncEngine
 import com.rendyhd.vicu.worker.CollaborationSync
+import com.rendyhd.vicu.worker.AttachmentUploadSync
+import com.rendyhd.vicu.data.local.OfflineAttachmentFiles
+import com.rendyhd.vicu.util.PlatformFiles
 
 val databaseModule = module {
     single {
@@ -199,6 +202,16 @@ val repositoryModule = module {
             api = get(),
             attachmentMapper = get(),
             platformFiles = get(),
+            pendingActionDao = get(),
+            offlineFiles = get(),
+            networkMonitor = get(),
+            platformHooks = get(),
+        )
+    }
+    single {
+        OfflineAttachmentFiles(
+            directory = { get<PlatformFiles>().offlineAttachmentsDirectory() },
+            nowMillis = { get<TimeSource>().now().toEpochMilliseconds() },
         )
     }
     single { CarrierFinder(api = get(), store = get(), time = get()) }
@@ -250,6 +263,16 @@ val repositoryModule = module {
         )
     }
     single { CollaborationSync(api = get(), collaborationDao = get(), pendingActionDao = get(), tokenStorage = get()) }
+    single {
+        AttachmentUploadSync(
+            api = get(),
+            pendingActionDao = get(),
+            attachmentDao = get(),
+            attachmentMapper = get(),
+            taskDao = get(),
+            files = get(),
+        )
+    }
     single { TaskDuplicator(tasks = get(), labels = get(), collaboration = get()) }
     single {
         TaskTemplateStore(
@@ -417,6 +440,7 @@ val commonModule = module {
             assistantConversations = get(),
             keptTranscript = get(),
             savedFilters = get(),
+            offlineAttachments = get(),
         )
     }
     single {
@@ -516,6 +540,7 @@ val commonModule = module {
             syncedPreferences = get(),
             locations = get(),
             savedFilters = get(),
+            attachmentSync = get(),
         )
     }
 }

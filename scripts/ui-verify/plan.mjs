@@ -1,7 +1,10 @@
 // The day planner against the local Vikunja (docs/cross-app-semantics-v1.md section 16): Settings
 // turns it on, Today with a block, the Day switch, picking a task and placing it, the length handle,
-// a press and hold move, a drag from the drawer, the sheet, remove time. Every change is asserted on
-// what the server holds.
+// a press and hold move, a drag from the drawer, the sheet, remove time, and moving between days
+// (issue 101): a swipe on the timeline, a drop on a day of the strip, resting on a day while
+// dragging, the sheet's Day row with Undo, the No time row and a drop on it, the drawer's chips.
+// Every change is asserted on what the server holds. A second finger on the strip is not covered:
+// adb's motion events have one pointer.
 //
 //   node plan.mjs [tokenPath] [--out DIR] [--server http://127.0.0.1:3456] [--keep-on]
 //
@@ -94,6 +97,9 @@ const dateOnlyToday = () => new Date(midnightUtc + (24 * 3600 - 1) * 1000).toISO
 const minuteOf = (iso) => Math.round((Date.parse(iso) - midnightUtc) / 60000)
 const isNull = (iso) => !iso || iso.startsWith('0001-01-01')
 const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+/** The device's local date of an instant string. */
+const dayOf = (iso) => new Date(Date.parse(iso) + offsetMinutes * 60000).toISOString().slice(0, 10)
+const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86400000).toISOString().slice(0, 10)
 
 // ---- the screen ----------------------------------------------------------------------------------
 
@@ -167,6 +173,85 @@ async function holdAndDrag(x1, y1, x2, y2, { holdMs = 1100, steps = 8 } = {}) {
   await d.sleep(350)
   d.motionevent('UP', x2, y2)
   await d.sleep(1200)
+}
+
+/**
+ * Press and hold at the first point, then travel through the others; a third number on a point rests
+ * there that long before going on.
+ */
+async function holdPath(points, { holdMs = 1100, steps = 8 } = {}) {
+  let [px, py] = points[0]
+  d.motionevent('DOWN', px, py)
+  await d.sleep(holdMs)
+  for (const [x, y, rest = 0] of points.slice(1)) {
+    for (let i = 1; i <= steps; i++) {
+      d.motionevent('MOVE', Math.round(px + ((x - px) * i) / steps), Math.round(py + ((y - py) * i) / steps))
+      await d.sleep(90)
+    }
+    px = x
+    py = y
+    if (rest) await d.sleep(rest)
+  }
+  await d.sleep(350)
+  d.motionevent('UP', px, py)
+  await d.sleep(1200)
+}
+
+/**
+ * The strip's seven days, left to right: the node with the day's name. The selected day is marked
+ * checked on its tap target, a sibling node with the same bounds, so each cell carries it as `isSelected`.
+ */
+function stripCells(nodes = d.dump()) {
+  const todayCell = nodes.find((n) => n['content-desc']?.startsWith('Today, '))
+  if (!todayCell) return []
+  return nodes
+    .filter((n) => n['content-desc'] && Math.abs(n.cy - todayCell.cy) < v.px(20))
+    .map((n) => ({ ...n, isSelected: nodes.some((m) => m.bounds === n.bounds && (m.selected || m.checked)) }))
+    .sort((a, b) => a.cx - b.cx)
+}
+
+const selectedCell = () => stripCells().find((n) => n.isSelected)
+const selectedIsToday = () => selectedCell()?.['content-desc']?.startsWith('Today, ') === true
+
+async function backToToday() {
+  if (selectedIsToday()) return
+  const cell = stripCells().find((n) => n['content-desc'].startsWith('Today, '))
+  if (cell) await tapNode(cell, 1800)
+}
+
+/** The drawer's filter box, empty or not: its description names it. */
+const filterBox = (nodes) => nodes.find((n) => n['content-desc'] === 'Filter these tasks' || (n.class === 'android.widget.EditText' && n.cx > v.sc.width * 0.4))
+
+/** A task in the open drawer, found with the filter box: the seeded day holds more than one screen. */
+async function inDrawer(title, word) {
+  await tapNode(await waitFor(filterBox, 'the filter box'), 700)
+  await d.clearField()
+  // One letter at a time: the field takes its text back from the view model, and a burst comes out mixed up.
+  await d.typeSlow(word, { chunk: 1, pause: 250 })
+  await d.back()
+  // The filter field holds the same words: the row is the one that is not a text field.
+  return waitFor((ns) => ns.find((n) => n.text === title && n.class !== 'android.widget.EditText' && n.cx > v.sc.width * 0.4), `${title} in the drawer`)
+}
+
+/** A chip of the No time row, scrolled into sight. */
+async function inTopRow(title) {
+  for (let i = 0; i < 14; i++) {
+    const nodes = d.dump()
+    const chip = nodes.find((n) => n.text === title)
+    if (chip) return chip
+    const row = nodes.find((n) => n['content-desc'] === 'Tasks without a time')
+    if (!row) break
+    await d.swipe(Math.round(v.sc.width * 0.85), row.cy, Math.round(v.sc.width * 0.35), row.cy, 350, 600)
+  }
+  throw new Error(`not in the No time row: ${title}`)
+}
+
+/** Chips that wrap: by line, then left to right. */
+const readingOrder = (a, b) => (Math.abs(a.cy - b.cy) > v.px(12) ? a.cy - b.cy : a.cx - b.cx)
+
+/** The snackbar's Undo, while it shows. */
+async function undo() {
+  await tapNode(await waitFor(byText('Undo'), 'Undo on the snackbar', 8000), 1500)
 }
 
 async function settingsSwitch(on) {
@@ -284,7 +369,7 @@ try {
     const block = await revealOnGrid(descStarts(`${PREFIX}block,`), 'the block')
     const tab = await waitFor(byDesc('Show tasks to plan'), 'the tab')
     await tapNode(tab, 1500)
-    const row = await waitFor(byText(`${PREFIX}pick`), 'the task in the drawer')
+    const row = await inDrawer(`${PREFIX}pick`, 'pick')
     d.shot('light-plan-drawer')
     await tapNode(row, 1500)
     await waitFor(byText(`Tap a time for ${PREFIX}pick`), 'the placing banner')
@@ -325,30 +410,33 @@ try {
     const tab = await waitFor(byDesc('Show tasks to plan'), 'the tab')
     // A swipe on the tab itself opens the drawer too.
     await d.swipe(tab.cx, tab.cy, tab.cx - v.px(60), tab.cy, 250, 1500)
-    await waitFor(byText('Filter these tasks'), 'the drawer from a swipe on the tab')
+    await waitFor(filterBox, 'the drawer from a swipe on the tab')
     check(true, 'a swipe on the tab opens the drawer')
-    await tapNode(await waitFor(byText('Filter these tasks'), 'the filter box'), 700)
+    await tapNode(await waitFor(filterBox, 'the filter box'), 700)
+    await d.clearField()
     await d.typeSlow('dra', { chunk: 3 })
     await waitFor(byText(`${PREFIX}drag`), 'the filtered list')
     check(!d.dump().some((n) => n.text === 'Buy groceries'), 'the filter box narrows the list')
     await d.clearField()
     await d.back()
-    const header = d.dump().find((n) => /, no time$/.test(n.text ?? ''))
-    await tapNode(header, 1200)
-    const nodes = await waitFor((ns) => (ns.some((n) => n.text === 'Next 7 days') ? ns : null), 'the lists')
-    check(['Inbox', 'Next 7 days', 'No date', 'Projects'].every((t) => nodes.some((n) => n.text === t)), 'the lists and the projects are offered')
+    // The lists are chips with their counts, in sight as soon as the drawer opens.
+    const chip = (re) => (ns) => ns.find((n) => re.test(n.text ?? ''))
+    const nodes = await waitFor((ns) => (chip(/^Next 7 days \d+$/)(ns) ? ns : null), 'the chips')
+    check(
+      [/^Today \d+$/, /^Inbox \d+$/, /^Next 7 days \d+$/, /^No date \d+$/].every((re) => !!chip(re)(nodes)),
+      'the drawer has the four lists as chips with counts',
+    )
+    check(nodes.some((n) => n['content-desc'] === 'Choose a project'), 'the drawer has a Project chip')
     d.shot('light-plan-lists')
-    await tapNode(await waitFor(byText('Find a list or project'), 'the find box'), 700)
-    await d.typeSlow('inbo', { chunk: 4 })
-    const inbox = await waitFor(byText('Inbox'), 'Inbox by name')
-    check(!d.dump().some((n) => n.text === 'Next 7 days'), 'finding by name narrows the lists')
-    await d.back()
-    await tapNode(inbox, 1500)
-    await waitFor((ns) => ns.find((n) => n.text === 'Inbox' && n.y1 < v.px(320)), 'the Inbox as the list')
+    await tapNode(await waitFor(byDesc('Choose a project'), 'the Project chip'), 1200)
+    await waitFor(byText('Find a project'), 'the project finder')
+    check(d.dump().some((n) => n.text === 'Projects'), 'Project opens the projects')
+    await tapNode(await waitFor(byDesc('Choose a project'), 'the Project chip'), 1200)
+    await tapNode(await waitFor(chip(/^Inbox \d+$/), 'the Inbox chip'), 1500)
+    await waitFor(filterBox, 'the Inbox list')
     check(true, 'a list can be chosen')
     d.shot('light-plan-inbox')
-    await tapNode(await waitFor((ns) => ns.find((n) => n.text === 'Inbox' && n.y1 < v.px(320)), 'the list button'), 1200)
-    await tapNode(await waitFor((ns) => ns.find((n) => /, no time$/.test(n.text ?? '') && n.y1 > v.px(300)), 'the first list'), 1500)
+    await tapNode(await waitFor(chip(/^Today \d+$/), 'the Today chip'), 1500)
     await tapNode(await waitFor(byDesc('Close'), 'Close'), 1200)
   })
 
@@ -372,10 +460,93 @@ try {
     check(minuteOf(task.end_date) === 10 * 60 + 30, 'the move kept the length')
   })
 
+  await step('swipe-days', async () => {
+    await backToToday()
+    await revealOnGrid(descStarts(`${PREFIX}block,`), 'the block')
+    const y = Math.round(v.sc.height * 0.7)
+    await d.swipe(Math.round(v.sc.width * 0.8), y, Math.round(v.sc.width * 0.2), y, 220, 1800)
+    const next = stripCells()[1]
+    const shown = selectedCell()
+    check(!!next && shown?.['content-desc'] === next['content-desc'], `a swipe to the left shows the next day: ${shown?.['content-desc']}`)
+    check(!d.dump().some((n) => n['content-desc']?.startsWith(`${PREFIX}block,`)), 'the next day has its own blocks')
+    d.shot('light-plan-swiped')
+    await d.swipe(Math.round(v.sc.width * 0.2), y, Math.round(v.sc.width * 0.8), y, 220, 1800)
+    check(selectedIsToday(), 'a swipe to the right comes back')
+    // A slow, short sideways move is not a swipe.
+    await d.swipe(Math.round(v.sc.width * 0.6), y, Math.round(v.sc.width * 0.5), y, 600, 1200)
+    check(selectedIsToday(), 'a short sideways move stays on the day')
+  })
+
+  await step('drop-on-a-strip-day', async () => {
+    await backToToday()
+    await revealOnGrid(descStarts(`${PREFIX}block,`), 'the block')
+    await d.sleep(1200)
+    const block = await waitFor(descStarts(`${PREFIX}block,`), 'the block, settled')
+    const dueBefore = (await getTask(created.block)).due_date
+    const cell = stripCells()[1]
+    // Let go on the day at once: the same times on that day.
+    await holdAndDrag(block.cx, block.cy, cell.cx, cell.cy)
+    let task = await serverTask(created.block, (t) => dayOf(t.start_date) === tomorrow)
+    check(dayOf(task.start_date) === tomorrow, `a drop on a day of the strip moves it there: ${dayOf(task.start_date)}`)
+    check(minuteOf(task.start_date) - 1440 === 10 * 60 && minuteOf(task.end_date) - 1440 === 10 * 60 + 30, 'the same times on that day')
+    check(Date.parse(task.due_date) > Date.parse(dateOnlyToday()), 'the due rule gave it a due date on the new day')
+    check(!selectedIsToday(), 'Plan follows the block to its day')
+    d.shot('light-plan-moved-by-strip')
+    await undo()
+    task = await serverTask(created.block, (t) => dayOf(t.start_date) === today)
+    check(dayOf(task.start_date) === today && minuteOf(task.start_date) === 10 * 60, 'Undo puts it back')
+    check(Date.parse(task.due_date) === Date.parse(dueBefore), 'Undo puts the due date back as it was')
+  })
+
+  await step('move-by-the-sheet', async () => {
+    await backToToday()
+    const block = await revealOnGrid(descStarts(`${PREFIX}block,`), 'the block')
+    await d.tap(block.cx, block.cy, 1800)
+    await waitFor(byText('Day'), 'the Day row')
+    const days = d.dump().filter((n) => n['content-desc']?.startsWith('Move to ')).sort(readingOrder)
+    check(days.length >= 2, `the sheet offers days: ${days.map((n) => n['content-desc']).join(' | ')}`)
+    check(d.dump().some((n) => n.text === 'Pick a date'), 'the sheet offers Pick a date')
+    d.shot('light-block-sheet-days')
+    await tapNode(days[1], 1800)
+    let task = await serverTask(created.block, (t) => dayOf(t.start_date) === tomorrow)
+    check(dayOf(task.start_date) === tomorrow && minuteOf(task.start_date) - 1440 === 10 * 60, 'the Day row moves it, the same times')
+    check(d.dump().some((n) => /^Moved to /.test(n.text ?? '')), 'the snackbar says where it went')
+    // Back with the sheet on the new day.
+    const moved = await revealOnGrid(descStarts(`${PREFIX}block,`), 'the block on its new day')
+    await d.tap(moved.cx, moved.cy, 1800)
+    await waitFor(byText('Day'), 'the Day row')
+    const first = d.dump().filter((n) => n['content-desc']?.startsWith('Move to ')).sort(readingOrder)[0]
+    await tapNode(first, 1800)
+    task = await serverTask(created.block, (t) => dayOf(t.start_date) === today)
+    check(dayOf(task.start_date) === today && minuteOf(task.start_date) === 10 * 60, 'and back to today')
+  })
+
+  await step('rest-on-a-day', async () => {
+    await backToToday()
+    await revealOnGrid(descStarts(`${PREFIX}block,`), 'the block')
+    await d.sleep(1200)
+    const block = await waitFor(descStarts(`${PREFIX}block,`), 'the block, settled')
+    const cell = stripCells()[1]
+    // Rest on the day until it opens, then down onto its timeline.
+    await holdPath([[block.cx, block.cy], [cell.cx, cell.cy, 1400], [block.cx, block.cy + hourPx]])
+    const task = await serverTask(created.block, (t) => dayOf(t.start_date) === tomorrow)
+    const start = minuteOf(task.start_date) - 1440
+    check(dayOf(task.start_date) === tomorrow && start % 15 === 0, `resting on a day opened it and the drop landed there: ${dayOf(task.start_date)} ${hm(start)}`)
+    check(minuteOf(task.end_date) - minuteOf(task.start_date) === 30, 'the drag kept the length')
+    d.shot('light-plan-moved-by-rest')
+    // Back with the sheet: its due date may have stayed a deadline on that day (16.2), so there is no Undo to rely on.
+    const moved = await revealOnGrid(descStarts(`${PREFIX}block,`), 'the block on its new day')
+    await d.tap(moved.cx, moved.cy, 1800)
+    await waitFor(byText('Day'), 'the Day row')
+    await tapNode(d.dump().filter((n) => n['content-desc']?.startsWith('Move to ')).sort(readingOrder)[0], 1800)
+    await serverTask(created.block, (t) => dayOf(t.start_date) === today)
+    await backToToday()
+  })
+
   await step('drag-from-the-drawer', async () => {
     const tab = await waitFor(byDesc('Show tasks to plan'), 'the tab')
     await tapNode(tab, 1500)
-    const row = await waitFor(byText(`${PREFIX}drag`), 'the task in the drawer')
+    const row = await inDrawer(`${PREFIX}drag`, 'drag')
     const target = d.dump().find((n) => n['content-desc']?.startsWith(`${PREFIX}pick,`))
     const y = target ? target.y1 : Math.round(v.sc.height * 0.5)
     await holdAndDrag(row.cx, row.cy, v.px(90), y, { steps: 10 })
@@ -389,6 +560,36 @@ try {
     d.shot('light-plan-dropped')
     const close = d.dump().find((n) => n['content-desc'] === 'Close')
     if (close) await tapNode(close, 1200)
+  })
+
+  await step('the-top-row', async () => {
+    await backToToday()
+    // PLND drag has a block now; PLND pick is placed too. A new date-only task shows in the row.
+    await create('row', { due_date: dateOnlyToday() })
+    d.stop()
+    await v.launch(5000)
+    await waitFor(byDesc('Open menu'), 'the app')
+    await v.drawer('Plan')
+    await waitFor(byDesc('Show tasks to plan'), 'the Plan screen')
+    const chip = await inTopRow(`${PREFIX}row`)
+    check(d.dump().some((n) => n['content-desc'] === 'Tasks without a time'), 'Plan has the No time row')
+    check(d.dump().some((n) => n['content-desc'] === `Complete ${PREFIX}row`), 'a chip can be ticked')
+    d.shot('light-plan-top-row')
+    await tapNode(chip, 1500)
+    await waitFor(byText(`Tap a time for ${PREFIX}row`), 'the placing banner from a chip')
+    check(true, 'a tap on a chip picks it for a time')
+    await tapNode(await waitFor(byText('Cancel'), 'Cancel'), 1200)
+  })
+
+  await step('drop-on-the-top-row', async () => {
+    const block = await revealOnGrid(descStarts(`${PREFIX}drag,`), 'the dropped block')
+    const row = await waitFor(byDesc('Tasks without a time'), 'the No time row')
+    await holdAndDrag(block.cx, block.cy, Math.round(v.sc.width / 2), row.cy, { steps: 12 })
+    const task = await serverTask(created.drag, (t) => isNull(t.start_date))
+    check(isNull(task.start_date) && isNull(task.end_date), 'a block dropped on the No time row loses its time')
+    check(Date.parse(task.due_date) === Date.parse(dateOnlyToday()), 'and keeps that day, date only')
+    await inTopRow(`${PREFIX}drag`)
+    check(true, 'it is in the No time row now')
   })
 
   await step('the-sheet', async () => {
@@ -425,7 +626,7 @@ try {
     await revealOnGrid(descStarts(`${PREFIX}block,`), 'the block')
     d.shot('dark-plan')
     await tapNode(await waitFor(byDesc('Show tasks to plan'), 'the tab'), 1500)
-    await waitFor(byText(`${PREFIX}pick`), 'the task in the drawer')
+    await waitFor(byText('Tasks to plan'), 'the drawer')
     d.shot('dark-plan-drawer')
     await tapNode(await waitFor(byDesc('Close'), 'Close'), 1200)
     const block = await waitFor(descStarts(`${PREFIX}block,`), 'the block')

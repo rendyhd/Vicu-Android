@@ -780,7 +780,10 @@ fun VicuApp(
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = enableDrawerGestures,
+        // On Plan a sideways swipe changes the day, so the drawer opens from its button there; once
+        // open, a swipe or the scrim still closes it.
+        gesturesEnabled = enableDrawerGestures &&
+            (currentDestination?.hasRoute(PlanRoute::class) != true || drawerState.isOpen),
         drawerContent = {
             CompositionLocalProvider(*appLocals) {
                 DrawerContent(

@@ -16,7 +16,7 @@ object ReminderFormat {
      * "15 minutes before" (the due date), "At start" or "1 day before end".
      */
     fun format(reminder: TaskReminder, fmt: DateDisplayFormat): String {
-        if (reminder.reminder.isNotBlank() && !DateUtils.isNullDate(reminder.reminder)) {
+        if (!reminder.isRelative && reminder.reminder.isNotBlank() && !DateUtils.isNullDate(reminder.reminder)) {
             return formatAbsolute(reminder.reminder, fmt)
         }
         return formatRelative(reminder.relativePeriod, reminder.relativeTo)
