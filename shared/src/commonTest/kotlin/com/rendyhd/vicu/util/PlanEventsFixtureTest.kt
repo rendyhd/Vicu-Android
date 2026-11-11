@@ -133,6 +133,20 @@ class PlanEventsFixtureTest {
     }
 
     @Test
+    fun choiceDays() {
+        for (vector in planEvents.list("choiceDays")) {
+            val event = assertNotNull(PlanEvents.read(vector.getValue("event")), vector.text("name"))
+            val scope = when (vector.text("scope")) {
+                "all" -> EventScope.ALL
+                "this" -> EventScope.THIS
+                else -> EventScope.FOLLOWING
+            }
+            val expect = vector["expect"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content?.let { date(it) }
+            assertEquals(expect, PlanEvents.repeatChoiceDay(event, date(vector.text("day")), scope), vector.text("name"))
+        }
+    }
+
+    @Test
     fun text() {
         for (vector in planEvents.list("text")) {
             val repeat = assertNotNull(PlanEvents.readRepeat(vector.getValue("repeat")))

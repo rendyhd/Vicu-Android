@@ -826,9 +826,10 @@ fun PlanScreen(
             own = state.calendar.ownEvent(occurrence.planEventId),
             calendarName = state.calendar.nameOf(occurrence.calendarId),
             defaultLength = state.defaultLength,
-            onSave = { edit ->
+            onSave = { edit, scope ->
                 eventSheet = null
-                changeEvent(occurrence, edit, null)
+                // A new repeat says in the sheet which times it is for (20.6); anything else asks here.
+                if (scope != null) viewModel.changeEvent(occurrence, edit, scope) else changeEvent(occurrence, edit, null)
             },
             onSkip = {
                 eventSheet = null

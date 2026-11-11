@@ -73,6 +73,7 @@ class AndroidDeviceCalendars(private val context: Context) : DeviceCalendars {
                 CalendarContract.Instances.AVAILABILITY,
                 CalendarContract.Instances.STATUS,
                 CalendarContract.Instances.SELF_ATTENDEE_STATUS,
+                CalendarContract.Instances.CALENDAR_ACCESS_LEVEL,
             )
             // A day either side: all-day instances are kept in UTC, so a zone far from it needs the room.
             val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().also {
@@ -86,7 +87,8 @@ class AndroidDeviceCalendars(private val context: Context) : DeviceCalendars {
                 while (cursor.moveToNext()) {
                     val status = if (cursor.isNull(8)) null else cursor.getInt(8)
                     val self = if (cursor.isNull(9)) null else cursor.getInt(9)
-                    // Cancelled events are left out (20.9), and so is a meeting you declined.
+                    // Cancelled events are left out (20.9), and so is a meeting you declined. Not answered
+                    // yet (invited) or tentative is tentative, as is a tentative availability.
                     if (status == CalendarContract.Events.STATUS_CANCELED) continue
                     if (self == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED) continue
                     val allDay = cursor.getInt(6) != 0
@@ -100,16 +102,25 @@ class AndroidDeviceCalendars(private val context: Context) : DeviceCalendars {
                     }
                     if (finish <= from || start >= to) continue
                     val calendarId = cursor.getLong(1).toString()
+                    val availability = if (cursor.isNull(7)) null else cursor.getInt(7)
+                    val busy = availability != CalendarContract.Events.AVAILABILITY_FREE
+                    // A calendar shared as free/busy only gives no titles: "Busy" or "Free" (20.8).
+                    val freeBusyOnly = !cursor.isNull(10) &&
+                        cursor.getInt(10) == CalendarContract.Calendars.CAL_ACCESS_FREEBUSY
                     events += CalendarEvent(
                         id = "$calendarId:${cursor.getLong(0)}:$begin",
                         calendarId = calendarId,
-                        title = cursor.getString(4)?.trim()?.takeIf { it.isNotEmpty() } ?: "(No title)",
-                        location = cursor.getString(5)?.trim()?.takeIf { it.isNotEmpty() },
+                        title = when {
+                            freeBusyOnly -> if (busy) "Busy" else "Free"
+                            else -> cursor.getString(4)?.trim()?.takeIf { it.isNotEmpty() } ?: "(No title)"
+                        },
+                        location = cursor.getString(5)?.trim()?.takeIf { it.isNotEmpty() && !freeBusyOnly },
                         start = start,
                         end = finish,
                         allDay = allDay,
-                        busy = cursor.isNull(7) || cursor.getInt(7) != CalendarContract.Events.AVAILABILITY_FREE,
+                        busy = busy,
                         tentative = status == CalendarContract.Events.STATUS_TENTATIVE ||
+                            availability == CalendarContract.Events.AVAILABILITY_TENTATIVE ||
                             self == CalendarContract.Attendees.ATTENDEE_STATUS_TENTATIVE ||
                             self == CalendarContract.Attendees.ATTENDEE_STATUS_INVITED,
                     )

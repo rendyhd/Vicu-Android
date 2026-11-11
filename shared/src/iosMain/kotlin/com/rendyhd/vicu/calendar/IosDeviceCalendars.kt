@@ -31,6 +31,7 @@ import platform.EventKit.EKCalendar
 import platform.EventKit.EKEntityType
 import platform.EventKit.EKEvent
 import platform.EventKit.EKEventAvailabilityFree
+import platform.EventKit.EKEventAvailabilityTentative
 import platform.EventKit.EKEventStatusCanceled
 import platform.EventKit.EKEventStatusTentative
 import platform.EventKit.EKEventStore
@@ -135,7 +136,11 @@ class IosDeviceCalendars : DeviceCalendars {
             end = end,
             allDay = allDay,
             busy = event.availability != EKEventAvailabilityFree,
-            tentative = status == EKEventStatusTentative || self == EKParticipantStatus.EKParticipantStatusTentative || self == EKParticipantStatus.EKParticipantStatusPending,
+            // The event or its availability tentative, or your own answer tentative or not given yet (20.9).
+            tentative = status == EKEventStatusTentative ||
+                event.availability == EKEventAvailabilityTentative ||
+                self == EKParticipantStatus.EKParticipantStatusTentative ||
+                self == EKParticipantStatus.EKParticipantStatusPending,
         )
     }
 

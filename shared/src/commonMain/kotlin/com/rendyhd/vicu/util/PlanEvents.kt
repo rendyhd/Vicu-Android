@@ -445,6 +445,19 @@ object PlanEvents {
         return false
     }
 
+    /**
+     * The day whose repeat choices (20.5) a change of the occurrence on [day] offers (20.6): the day
+     * the changed rule starts on. All times, and an Event that does not repeat: its first day. This
+     * and following: the occurrence's day, or the first day when it is all times there (no
+     * occurrence before). This time only changes no repeat: null.
+     */
+    fun repeatChoiceDay(event: PlanEvent, day: LocalDate, scope: EventScope): LocalDate? = when {
+        event.repeat == EventRepeat.None -> event.start
+        scope == EventScope.THIS -> null
+        scope == EventScope.FOLLOWING && hasOccurrenceBefore(event, day) -> day
+        else -> event.start
+    }
+
     // --- Changes (20.6) -------------------------------------------------------------------------------
 
     /**

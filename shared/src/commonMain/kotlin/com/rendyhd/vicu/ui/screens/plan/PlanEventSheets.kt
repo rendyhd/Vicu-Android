@@ -171,13 +171,20 @@ internal fun NewOnPlanSheet(
     }
 }
 
-/** The repeat choices as a list of radio rows; [extra] is a rule the list does not offer, shown first. */
+/**
+ * The repeat choices as a list of radio rows; [extra] is a rule the list does not offer, shown first.
+ * With [scope] (a repeating Event), the open list starts with which times the new repeat is for, All
+ * times or This and following, because the choices are those of the day the rule then starts on
+ * (contract 20.6).
+ */
 @Composable
 private fun RepeatPicker(
     choices: List<RepeatChoice>,
     selected: Int,
     onSelect: (Int) -> Unit,
     extra: String? = null,
+    scope: EventScope? = null,
+    onScope: (EventScope) -> Unit = {},
 ) {
     var open by remember { mutableStateOf(false) }
     val current = if (selected >= 0) choices[selected].label else extra.orEmpty()
@@ -193,6 +200,21 @@ private fun RepeatPicker(
             Text(current, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
         }
         if (open) {
+            if (scope != null) {
+                val scopes = listOf(EventScope.ALL to "All times", EventScope.FOLLOWING to "This and following")
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp).semantics { contentDescription = "Repeat change for" },
+                ) {
+                    scopes.forEachIndexed { index, (value, label) ->
+                        SegmentedButton(
+                            selected = scope == value,
+                            onClick = { onScope(value) },
+                            shape = SegmentedButtonDefaults.itemShape(index, scopes.size),
+                            label = { Text(label) },
+                        )
+                    }
+                }
+            }
             Column(Modifier.selectableGroup()) {
                 if (selected < 0 && extra != null) RadioRow(extra, true) {}
                 choices.forEachIndexed { index, item ->
@@ -246,7 +268,8 @@ internal fun EventSheet(
     own: ListedEvent?,
     calendarName: String,
     defaultLength: Int,
-    onSave: (EventEdit) -> Unit,
+    /** The change, and which times it is for when the sheet already settled it (a new repeat). */
+    onSave: (EventEdit, EventScope?) -> Unit,
     onSkip: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
@@ -297,14 +320,17 @@ internal fun EventSheet(
             var time by remember(own) { mutableStateOf(event.time ?: "09:00") }
             var minutes by remember(own) { mutableStateOf(if (event.minutes > 0) event.minutes else defaultLength) }
             var day by remember(own) { mutableStateOf(occurrenceDay) }
-            val choices = remember(occurrenceDay) { PlanEvents.repeatChoices(occurrenceDay) }
-            var choice by remember(own) { mutableStateOf(PlanEvents.choiceIndex(choices, event.repeat)) }
+            val repeats = event.repeat != EventRepeat.None
+            // Which times a new repeat is for; its choices are those of the day the rule starts on (20.6).
+            var repeatScope by remember(own) { mutableStateOf(EventScope.ALL) }
+            val choiceDay = PlanEvents.repeatChoiceDay(event, occurrenceDay, if (repeats) repeatScope else EventScope.ALL) ?: event.start
+            val choices = remember(choiceDay) { PlanEvents.repeatChoices(choiceDay) }
+            var choice by remember(own, choiceDay) { mutableStateOf(PlanEvents.choiceIndex(choices, event.repeat)) }
             var until by remember(own) { mutableStateOf(event.until) }
             var busy by remember(own) { mutableStateOf(event.busy != false) }
             var pickingTime by remember { mutableStateOf(false) }
             var pickingDay by remember { mutableStateOf(false) }
             var pickingUntil by remember { mutableStateOf(false) }
-            val repeats = event.repeat != EventRepeat.None
 
             OutlinedTextField(
                 value = title,
@@ -366,6 +392,8 @@ internal fun EventSheet(
                 selected = choice,
                 onSelect = { choice = it },
                 extra = PlanEvents.repeatText(event.repeat).takeIf { choice < 0 },
+                scope = repeatScope.takeIf { repeats },
+                onScope = { repeatScope = it },
             )
             val repeatsNow = if (choice >= 0) choices[choice].repeat != EventRepeat.None else repeats
             if (repeatsNow) {
@@ -421,7 +449,10 @@ internal fun EventSheet(
                 if (repeats && occurrence.day != null) OutlinedButton(onClick = onSkip) { Text("Skip this one") }
                 OutlinedButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
-                    Button(onClick = { onSave(edit) }, enabled = changed && title.isNotBlank()) { Text("Save") }
+                    Button(
+                        onClick = { onSave(edit, repeatScope.takeIf { repeats && edit.repeat != null }) },
+                        enabled = changed && title.isNotBlank(),
+                    ) { Text("Save") }
                 }
             }
 
