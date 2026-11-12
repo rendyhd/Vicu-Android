@@ -104,6 +104,11 @@ internal fun chipDismissDescription(type: TokenType, label: String): String = wh
     TokenType.PROJECT -> "Remove project $label"
     TokenType.RECURRENCE -> "Remove repeat"
     TokenType.PLACE -> "Remove location reminder"
+    TokenType.PERSON -> "Remove person"
+    TokenType.START -> "Remove start date"
+    TokenType.ESTIMATE -> "Remove estimate"
+    TokenType.FLAG -> "Remove flag"
+    TokenType.REQUEST -> "Remove request"
 }
 
 /**

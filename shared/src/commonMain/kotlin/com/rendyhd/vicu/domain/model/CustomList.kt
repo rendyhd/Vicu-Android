@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.domain.model
 
+import com.rendyhd.vicu.util.pro.ProListFilter
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -51,6 +52,8 @@ data class CustomListFilter(
     val ruleIncludeNulls: Boolean = false,
     /** Sort keys after [sortBy] and [orderBy] (cross-app semantics 3.6). */
     val thenBy: List<ListSortKey> = emptyList(),
+    /** Pro's conditions and display choices (cross-app semantics 3.8); evaluated Pro on or off. */
+    val pro: ProListFilter = ProListFilter.NONE,
 ) {
     /** [rule] when it says something, else null. */
     val ruleText: String? get() = rule?.takeIf { it.isNotBlank() }

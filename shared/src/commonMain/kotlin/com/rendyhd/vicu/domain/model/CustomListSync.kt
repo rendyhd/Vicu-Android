@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.domain.model
 
+import com.rendyhd.vicu.util.pro.ProListFilter
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
@@ -170,6 +171,15 @@ sealed interface CustomListSyncStatus {
  * The wire form of this list. [preserving] is the value it replaces: the fields of it that this
  * version does not know are carried over, so an edit here does not drop what another app wrote.
  */
+/**
+ * Pro's keys (section 3.8) are carried in the wire filter's unknown fields, so every version keeps
+ * them. They are replaced only when the list's own Pro values differ from what [preserved] holds.
+ */
+private fun withProKeys(preserved: JsonObject, pro: ProListFilter): JsonObject {
+    if (ProListFilter.read(preserved) == pro) return preserved
+    return JsonObject(preserved.filterKeys { it !in ProListFilter.KEYS } + pro.toJson())
+}
+
 fun CustomList.toWire(preserving: CustomListWire? = null): CustomListWire = CustomListWire(
     id = id,
     name = name.trim(),
@@ -198,7 +208,7 @@ fun CustomList.toWire(preserving: CustomListWire? = null): CustomListWire = Cust
         thenBy = filter.thenBy.takeIf { it.isNotEmpty() }?.map {
             CustomListWireSortKey(it.sortBy, if (it.orderBy == "desc") "desc" else "asc")
         },
-        unknown = preserving?.filter?.unknown ?: NO_UNKNOWN_FIELDS,
+        unknown = withProKeys(preserving?.filter?.unknown ?: NO_UNKNOWN_FIELDS, filter.pro),
     ),
     savedFilterId = savedFilterId,
     unknown = preserving?.unknown ?: NO_UNKNOWN_FIELDS,
@@ -227,6 +237,7 @@ fun CustomListWire.toDomain(): CustomList = CustomList(
         rule = filter.rule?.takeIf { it.isNotBlank() },
         ruleIncludeNulls = filter.ruleIncludeNulls == true,
         thenBy = filter.thenBy.orEmpty().map { ListSortKey(it.sortBy, if (it.orderBy == "desc") "desc" else "asc") },
+        pro = ProListFilter.read(filter.unknown),
     ),
     savedFilterId = savedFilterId,
 )

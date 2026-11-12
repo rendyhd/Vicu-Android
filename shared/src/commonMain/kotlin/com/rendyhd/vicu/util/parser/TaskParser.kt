@@ -6,6 +6,7 @@ import com.rendyhd.vicu.location.SavedPlace
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.TimeBlocks
 import com.rendyhd.vicu.util.deviceLocaleTag
+import com.rendyhd.vicu.util.pro.Person
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
@@ -31,6 +32,7 @@ object TaskParser {
      * @param zone The zone [reference] is in; "in 2 hours" counts real time in it.
      * @param places The saved places "when I get home" may name ([TokenType.PLACE]); none outside
      *   the phone's quick add, so the shared contract is unchanged.
+     * @param people Pro's people `Jan:` may name (section 5.5); read only with [ParserConfig.pro].
      */
     fun parse(
         rawInput: String,
@@ -38,6 +40,7 @@ object TaskParser {
         reference: LocalDateTime? = null,
         zone: TimeZone = TimeZone.currentSystemDefault(),
         places: List<SavedPlace> = emptyList(),
+        people: List<Person> = emptyList(),
     ): ParseResult {
         val now = reference ?: systemNow(zone)
         val result = MutableParseResult(title = rawInput)
@@ -61,6 +64,32 @@ object TaskParser {
 
         val prefixes = getPrefixes(config.syntaxMode)
         val consumed = mutableListOf<IntRange>()
+        val pro = config.pro
+
+        // Pro: `req:` and a person's name at the very start, `!flag` and `~1h30` (section 5.5), before
+        // anything else reads those words.
+        if (pro) {
+            if (TokenType.REQUEST !in suppress) {
+                val found = extractRequest(rawInput, consumed)
+                result.request = found.value
+                result.tokens.addAll(found.tokens)
+            }
+            if (TokenType.PERSON !in suppress) {
+                val found = extractPersonPrefix(rawInput, people, consumed)
+                found.value?.let { result.person = ParsedPerson(it.id, it.mine) }
+                result.tokens.addAll(found.tokens)
+            }
+            if (TokenType.FLAG !in suppress) {
+                val found = extractFlag(rawInput, consumed)
+                result.flag = found.value
+                result.tokens.addAll(found.tokens)
+            }
+            if (TokenType.ESTIMATE !in suppress) {
+                val found = extractEstimate(rawInput, consumed)
+                result.estimate = found.value
+                result.tokens.addAll(found.tokens)
+            }
+        }
 
         // 0. A saved place ("when I get home"), first, so no word of the phrase is read as a date.
         if (TokenType.PLACE !in suppress) {
@@ -114,14 +143,38 @@ object TaskParser {
             weekday = extracted.weekday
         }
 
+        val options = DateOptions(
+            reference = now,
+            zone = zone,
+            dayFirst = isDayFirstLocale(config.locale ?: deviceLocaleTag()),
+            hidden = forPhrases.hidden,
+        )
+
+        // Pro: `starts <date>` is a start date, read before the due date and never as one.
+        if (pro && TokenType.START !in suppress) {
+            for (words in findStartsWords(rawInput, consumed)) {
+                val trial = (consumed + listOf(0 until words.phrase)).toMutableList()
+                val found = extractDate(rawInput, trial, options)
+                val token = found.tokens.firstOrNull()
+                val due = found.dueDate
+                if (due == null || token == null) continue
+                if (rawInput.substring(words.phrase, maxOf(words.phrase, token.start)).isNotBlank()) continue
+                val start = if (found.hasTime) {
+                    LocalDateTime(due.date, LocalTime(due.hour, due.minute))
+                } else {
+                    LocalDateTime(due.date, LocalTime(0, 0))
+                }
+                result.start = start
+                consumed.add(words.start until token.end)
+                result.tokens.add(
+                    ParsedToken(TokenType.START, words.start, token.end, start, rawInput.substring(words.start, token.end)),
+                )
+                break
+            }
+        }
+
         // 5. Dates
         if (TokenType.DATE !in suppress) {
-            val options = DateOptions(
-                reference = now,
-                zone = zone,
-                dayFirst = isDayFirstLocale(config.locale ?: deviceLocaleTag()),
-                hidden = forPhrases.hidden,
-            )
             var found: DateResult? = null
             if (weekday != null) {
                 // "every monday": the weekday is the due date unless the input has another date.
@@ -158,6 +211,8 @@ object TaskParser {
                 result.block = ParsedBlock(start, endAt.toLocalDateTime(zone))
                 result.dueDate = LocalDateTime(due.date, DueDates.DATE_ONLY_TIME)
                 result.dueDateHasTime = false
+                // A block holds the start: it replaces a start date (section 21.3).
+                result.start = null
                 consumed.add(length.start until length.end)
                 result.tokens.add(
                     ParsedToken(
@@ -233,6 +288,11 @@ private class MutableParseResult(
     var project: String? = null,
     var recurrence: ParsedRecurrence? = null,
     var place: PlaceMatch? = null,
+    var person: ParsedPerson? = null,
+    var start: LocalDateTime? = null,
+    var estimate: Int? = null,
+    var flag: Boolean = false,
+    var request: Boolean = false,
     val tokens: MutableList<ParsedToken> = mutableListOf(),
 ) {
     /**
@@ -256,6 +316,11 @@ private class MutableParseResult(
         project = project,
         recurrence = recurrence,
         place = place,
+        person = person,
+        start = start,
+        estimate = estimate,
+        flag = flag,
+        request = request,
         tokens = tokens.toList(),
     )
 }

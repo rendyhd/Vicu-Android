@@ -4,6 +4,7 @@ import com.rendyhd.vicu.location.SavedPlace
 import com.rendyhd.vicu.util.readRepoFile
 import com.rendyhd.vicu.util.CrossAppFixture
 import com.rendyhd.vicu.util.DueDates
+import com.rendyhd.vicu.util.pro.Person
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.number
@@ -32,6 +33,12 @@ object NlpCorpusFixture {
     data class PlaceRead(val id: String, val trigger: String)
 
     @Serializable
+    data class PersonRead(val id: Long, val mine: Boolean)
+
+    @Serializable
+    data class CorpusPerson(val id: Long, val title: String, val aliases: List<String> = emptyList())
+
+    @Serializable
     data class Case(
         val input: String,
         val mode: String = "todoist",
@@ -47,10 +54,23 @@ object NlpCorpusFixture {
         val project: String? = null,
         val recurrence: Recurrence? = null,
         val place: PlaceRead? = null,
+        /** Parsed with Pro on and the corpus's people (section 5.5). */
+        val pro: Boolean = false,
+        val person: PersonRead? = null,
+        val proStart: String? = null,
+        val estimate: Int? = null,
+        val flag: Boolean = false,
+        val request: Boolean = false,
     )
 
     @Serializable
-    data class Corpus(val contractVersion: Int, val reference: String, val places: List<Place>, val cases: List<Case>)
+    data class Corpus(
+        val contractVersion: Int,
+        val reference: String,
+        val places: List<Place>,
+        val people: List<CorpusPerson> = emptyList(),
+        val cases: List<Case>,
+    )
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -69,14 +89,16 @@ class NlpCorpusTest {
 
     private val reference = LocalDateTime.parse(NlpCorpusFixture.corpus.reference)
     private val places = NlpCorpusFixture.corpus.places.map { SavedPlace(it.id, it.name) }
+    private val people = NlpCorpusFixture.corpus.people.map { Person(it.id, it.title, it.aliases) }
 
     private fun problemsFor(case: NlpCorpusFixture.Case, zone: TimeZone): List<String> {
         val config = ParserConfig(
             enabled = case.parserEnabled,
             syntaxMode = if (case.mode == "vikunja") SyntaxMode.VIKUNJA else SyntaxMode.TODOIST,
             locale = case.locale,
+            pro = case.pro,
         )
-        val result = TaskParser.parse(case.input, config, reference, zone, places)
+        val result = TaskParser.parse(case.input, config, reference, zone, places, people)
         val problems = mutableListOf<String>()
 
         if (result.title != case.title) problems += "title '${result.title}', expected '${case.title}'"
@@ -101,6 +123,13 @@ class NlpCorpusTest {
         if (recurrence != case.recurrence) problems += "recurrence $recurrence, expected ${case.recurrence}"
         val place = result.place?.let { NlpCorpusFixture.PlaceRead(it.place.id, it.trigger.name.lowercase()) }
         if (place != case.place) problems += "place $place, expected ${case.place}"
+        val person = result.person?.let { NlpCorpusFixture.PersonRead(it.id, it.mine) }
+        if (person != case.person) problems += "person $person, expected ${case.person}"
+        val proStart = result.start?.let(::wallOf)
+        if (proStart != case.proStart) problems += "start date $proStart, expected ${case.proStart}"
+        if (result.estimate != case.estimate) problems += "estimate ${result.estimate}, expected ${case.estimate}"
+        if (result.flag != case.flag) problems += "flag ${result.flag}, expected ${case.flag}"
+        if (result.request != case.request) problems += "request ${result.request}, expected ${case.request}"
         return problems
     }
 
@@ -115,7 +144,7 @@ class NlpCorpusTest {
     @Test
     fun `the corpus is the contract version this parser implements`() {
         assertEquals(1, NlpCorpusFixture.corpus.contractVersion)
-        assertTrue(NlpCorpusFixture.corpus.cases.size >= 113, "the corpus was cut down")
+        assertEquals(179, NlpCorpusFixture.corpus.cases.size, "the corpus changed size")
     }
 
     @Test

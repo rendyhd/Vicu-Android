@@ -5,6 +5,8 @@ import com.rendyhd.vicu.domain.model.CustomListFilter
 import com.rendyhd.vicu.domain.model.ListSortKey
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.TaskSignal
+import com.rendyhd.vicu.util.pro.ListConditions
+import com.rendyhd.vicu.util.pro.ProListContext
 import kotlinx.datetime.DateTimeUnit
 import kotlin.time.Instant
 import kotlinx.datetime.LocalDate
@@ -21,6 +23,8 @@ data class CustomListContext(
     val me: Long? = null,
     val sharedProjectIds: Set<Long> = emptySet(),
     val signals: Map<Long, TaskSignal> = emptyMap(),
+    /** What Pro's conditions read (section 3.8); absent: they are no condition. */
+    val pro: ProListContext? = null,
 ) {
     companion object {
         val NONE = CustomListContext()
@@ -46,6 +50,7 @@ data class CustomListContext(
  *   filtering, so a matching subtask shows even when its parent does not.
  * - The assigned, comments, shared and changed conditions (section 3.3) also read a
  *   [CustomListContext]; the fixture's `customListActivity` block covers them.
+ * - Pro's conditions (section 3.8) read the same context; the `customListPro` block covers them.
  */
 object CustomListFilterBuilder {
 
@@ -120,7 +125,10 @@ object CustomListFilterBuilder {
 
         if (filter.labelIds.isNotEmpty() && task.labels.none { it.id in filter.labelIds }) return false
 
-        return matchesActivity(task, filter, today, zone, context)
+        if (!matchesActivity(task, filter, today, zone, context)) return false
+
+        // Pro's conditions (section 3.8), evaluated Pro on or off.
+        return ListConditions.matches(task, filter.pro, context.pro)
     }
 
     /** The assigned, comments, shared and changed conditions (section 3.3). */

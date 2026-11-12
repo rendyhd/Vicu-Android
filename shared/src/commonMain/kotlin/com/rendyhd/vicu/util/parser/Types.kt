@@ -9,8 +9,11 @@ enum class SyntaxMode { TODOIST, VIKUNJA }
  * [PLACE] is the phone's own: "when I get home" for a saved place (PlacePhrases), read only when
  * the caller passes the saved places. It is not in the shared contract (the desktop saves no places).
  * [LENGTH] is `for 30m` when it makes a time block (section 5.4 of the contract).
+ *
+ * [PERSON], [START], [ESTIMATE], [FLAG] and [REQUEST] are Pro's phrases (section 5.5), read only
+ * while [ParserConfig.pro] is on.
  */
-enum class TokenType { LABEL, PROJECT, PRIORITY, RECURRENCE, DATE, LENGTH, PLACE }
+enum class TokenType { LABEL, PROJECT, PRIORITY, RECURRENCE, DATE, LENGTH, PLACE, PERSON, START, ESTIMATE, FLAG, REQUEST }
 
 data class ParsedToken(
     val type: TokenType,
@@ -24,6 +27,9 @@ data class ParsedRecurrence(
     val interval: Int,
     val unit: RecurrenceUnit,
 )
+
+/** The person a leading `Jan:` names (their promise to you) or `for Jan:` (yours to them). */
+data class ParsedPerson(val id: Long, val mine: Boolean)
 
 enum class RecurrenceUnit { DAY, WEEK, MONTH, YEAR }
 
@@ -46,6 +52,17 @@ data class ParseResult(
     val recurrence: ParsedRecurrence? = null,
     /** A saved place the text names with "when I get home", for a location reminder. */
     val place: PlaceMatch? = null,
+    // Pro (section 5.5): always present, set only while [ParserConfig.pro] is on.
+    /** `Jan:` at the start: that person's promise to you; `for Jan:`: yours to them. */
+    val person: ParsedPerson? = null,
+    /** `starts monday`: a start date (local midnight without a time). Null when a block holds the start. */
+    val start: LocalDateTime? = null,
+    /** `~1h30`: minutes. */
+    val estimate: Int? = null,
+    /** `!flag` */
+    val flag: Boolean = false,
+    /** `req:` at the start: a request to triage. */
+    val request: Boolean = false,
     val tokens: List<ParsedToken> = emptyList(),
 )
 
@@ -64,6 +81,8 @@ data class ParserConfig(
      * en-GB). Null means the device locale.
      */
     val locale: String? = null,
+    /** Pro's phrases (section 5.5). Off unless true; with it off the text is read as before. */
+    val pro: Boolean = false,
 )
 
 private val SYNTAX_PREFIXES = mapOf(
