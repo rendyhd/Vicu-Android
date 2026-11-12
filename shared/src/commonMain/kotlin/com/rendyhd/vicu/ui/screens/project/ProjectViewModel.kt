@@ -1,5 +1,11 @@
 package com.rendyhd.vicu.ui.screens.project
 
+import com.rendyhd.vicu.data.repository.ProActions
+import com.rendyhd.vicu.data.repository.ProListState
+import com.rendyhd.vicu.data.repository.ProWorldSource
+import com.rendyhd.vicu.ui.screens.pro.toListView
+import com.rendyhd.vicu.util.pro.AvailabilityView
+import com.rendyhd.vicu.util.pro.ProListKeys
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -60,6 +66,10 @@ data class ProjectUiState(
     val completedTaskIds: Set<Long> = emptySet(),
     /** The order of [unsectionedTasks] (each section carries its own). */
     val taskOrder: TaskOrder = TaskOrder.DEFAULT,
+    /** Available, Remaining or All while Pro's availability layer is on (contract 21.2); null otherwise. */
+    val proView: AvailabilityView? = null,
+    /** Open tasks the view leaves out, sections included. */
+    val proHidden: Int = 0,
 )
 
 /** What the project screen's options menu offers, and what its dialogs need. */
@@ -173,6 +183,9 @@ class ProjectViewModel(
     private val appMessages: AppMessages,
     navigationTicker: NavigationTicker = NavigationTicker(),
     completionToast: CompletionToast = NoCompletionToast,
+    /** Pro's Available / Remaining / All (contract 21.2); none in tests. */
+    private val proWorld: ProWorldSource? = null,
+    private val proActions: ProActions? = null,
 ) : ViewModel() {
 
     private val projectId: Long = savedStateHandle["projectId"]!!
@@ -290,7 +303,11 @@ class ProjectViewModel(
             }.let { upstream ->
                 // Merge the held rows back in whenever they change, not only when the stored
                 // lists do.
-                combine(upstream, completions.state) { state, _ -> withHeldRows(state) }
+                combine(
+                    upstream,
+                    completions.state,
+                    proWorld?.listState(ProListKeys.project(projectId)) ?: flowOf(ProListState.OFF),
+                ) { state, _, pro -> withHeldRows(withProView(state, pro)) }
             }.collect { newState ->
                 val previousProjectError = projectError
                 projectError = newState.error
@@ -310,6 +327,23 @@ class ProjectViewModel(
             }
         }
         if (refresher.isStale()) refresh()
+    }
+
+    /** [state] as Pro's view shows it, sections included; unchanged while the layer is off (O1). */
+    private fun withProView(state: ProjectUiState, pro: ProListState): ProjectUiState {
+        if (pro.view == null || state.project == null || state.project.isArchived) return state
+        var hidden = 0
+        fun shown(tasks: List<Task>): List<Task> = pro.filter(tasks).also { hidden += it.hidden }.tasks
+        fun sections(list: List<ProjectSection>): List<ProjectSection> =
+            list.map { it.copy(tasks = shown(it.tasks), children = sections(it.children)) }
+        val unsectioned = shown(state.unsectionedTasks)
+        val filteredSections = sections(state.sections)
+        return state.copy(unsectionedTasks = unsectioned, sections = filteredSections, proView = pro.view, proHidden = hidden)
+    }
+
+    /** What the project shows while Pro's availability layer is on; per device and project. */
+    fun setProView(view: AvailabilityView) {
+        proActions?.setListView(ProListKeys.project(projectId), view.toListView())
     }
 
     /** [state] with the held rows back in the lists they were completed from. */

@@ -61,6 +61,12 @@ interface PlatformFiles {
     fun shareFile(path: String, mimeType: String?): String?
 
     /**
+     * Offers [text] to other apps through the share sheet (a recap, an agenda). Returns a message
+     * when that is not possible.
+     */
+    fun shareText(text: String, subject: String? = null): String? = "Sharing is not available here"
+
+    /**
      * Saves a copy of the cached file at [path] as [fileName] where the user keeps files: Android
      * writes it to Downloads, iOS shows the Files "Save to" sheet. Returns what to tell the user
      * (where it went, or why it failed), or null when the platform's own sheet takes over.

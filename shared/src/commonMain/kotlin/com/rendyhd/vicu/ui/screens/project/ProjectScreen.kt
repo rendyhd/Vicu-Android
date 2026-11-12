@@ -88,6 +88,13 @@ import com.rendyhd.vicu.ui.components.task.AddTaskButton
 import com.rendyhd.vicu.ui.components.task.ReorderableTaskRow
 import com.rendyhd.vicu.ui.components.task.SwipeableTaskItem
 import com.rendyhd.vicu.ui.screens.shared.ProjectActions
+import com.rendyhd.vicu.domain.model.TaskOrder
+import com.rendyhd.vicu.ui.components.pro.LocalPro
+import com.rendyhd.vicu.ui.components.pro.ProjectStatusDialog
+import com.rendyhd.vicu.ui.components.pro.ProjectTypeDialog
+import com.rendyhd.vicu.ui.components.pro.proHiddenItem
+import com.rendyhd.vicu.ui.components.pro.proViewSwitchItem
+import com.rendyhd.vicu.util.pro.AvailabilityView
 import com.rendyhd.vicu.util.isManuallyOrdered
 import com.rendyhd.vicu.util.moveOptions
 import com.rendyhd.vicu.util.parseHexColor
@@ -116,6 +123,16 @@ fun ProjectScreen(
     val reviewUndo by viewModel.reviewUndo.collectAsStateWithLifecycle()
     // The options menu's open dialog, by name so a rotation keeps it.
     var openDialog by rememberSaveable { mutableStateOf<String?>(null) }
+    // Pro's Type and Status (contract 21.2), while its availability layer is on.
+    val pro = LocalPro.current
+    val proEntries = if (pro.world.availabilityOn) {
+        listOf(
+            "Type" to { openDialog = ProjectDialog.PRO_TYPE.name },
+            "Status" to { openDialog = ProjectDialog.PRO_STATUS.name },
+        )
+    } else {
+        emptyList()
+    }
 
     // Rows kept on screen after completing them are let go when the screen is left.
     val snackbarHostState = remember { SnackbarHostState() }
@@ -177,6 +194,7 @@ fun ProjectScreen(
                         if (menu.project != null) {
                             ProjectOptionsMenu(
                                 entries = menu.entries(),
+                                extra = proEntries,
                                 onChoose = { entry ->
                                     when (entry) {
                                         ProjectMenuEntry.SORT -> openDialog = ProjectDialog.SORT.name
@@ -224,7 +242,8 @@ fun ProjectScreen(
                 !hasAnyTask(state.sections)
 
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().listScrollbar(listState), contentPadding = PaddingValues(bottom = FabClearance)) {
-                if (allEmpty && !state.isLoading) {
+                proViewSwitchItem(state.proView, viewModel::setProView)
+                if (allEmpty && !state.isLoading && state.proHidden == 0) {
                     item {
                         EmptyState(
                             icon = Icons.Outlined.Folder,
@@ -322,6 +341,7 @@ fun ProjectScreen(
                         onAddTask = { pid -> onShowTaskEntry(pid, null) },
                     )
                 }
+                proHiddenItem(state.proView, state.proHidden) { viewModel.setProView(AvailabilityView.REMAINING) }
             }
         }
     }
@@ -430,6 +450,18 @@ fun ProjectScreen(
                 onDismiss = dismissDialog,
                 sharedRoutineNames = rememberSharedRoutineNames(menuProject.id),
             )
+            ProjectDialog.PRO_TYPE -> ProjectTypeDialog(
+                current = pro.world.projectMode(menuProject.id),
+                orderIsManual = (menu.taskOrder ?: menu.inheritedTaskOrder) == TaskOrder.MANUAL,
+                onChoose = { mode -> pro.actions?.setProjectMode(menuProject.id, mode) },
+                onManual = { viewModel.setTaskOrder(TaskOrder.MANUAL) },
+                onDismiss = dismissDialog,
+            )
+            ProjectDialog.PRO_STATUS -> ProjectStatusDialog(
+                onHold = pro.world.projectOnHold(menuProject.id),
+                onChoose = { held -> pro.actions?.setProjectOnHold(menuProject.id, held) },
+                onDismiss = dismissDialog,
+            )
             null -> Unit
         }
     }
@@ -443,13 +475,15 @@ fun ProjectScreen(
 }
 
 /** The dialogs the options menu opens. */
-private enum class ProjectDialog { SORT, EDIT, SUBPROJECT, MOVE_TO_CATEGORY, NEW_CATEGORY, ARCHIVE, DELETE }
+private enum class ProjectDialog { SORT, EDIT, SUBPROJECT, MOVE_TO_CATEGORY, NEW_CATEGORY, ARCHIVE, DELETE, PRO_TYPE, PRO_STATUS }
 
 /** The top bar's "more" button and the project's options. */
 @Composable
 private fun ProjectOptionsMenu(
     entries: List<ProjectMenuEntry>,
     onChoose: (ProjectMenuEntry) -> Unit,
+    /** Pro's entries (Type, Status), after the project's own. */
+    extra: List<Pair<String, () -> Unit>> = emptyList(),
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
@@ -468,6 +502,15 @@ private fun ProjectOptionsMenu(
                     onClick = {
                         open = false
                         onChoose(entry)
+                    },
+                )
+            }
+            extra.forEach { (label, onClick) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        open = false
+                        onClick()
                     },
                 )
             }

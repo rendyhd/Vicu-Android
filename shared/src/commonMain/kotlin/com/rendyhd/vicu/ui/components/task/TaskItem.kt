@@ -80,6 +80,12 @@ import com.rendyhd.vicu.ui.components.section.ProjectMeta
 import com.rendyhd.vicu.ui.components.collab.AvatarStack
 import com.rendyhd.vicu.ui.components.collab.LocalCollab
 import com.rendyhd.vicu.ui.components.collab.RowCommentCount
+import com.rendyhd.vicu.ui.components.pro.FlagMark
+import com.rendyhd.vicu.ui.components.pro.LocalPro
+import com.rendyhd.vicu.ui.components.pro.PersonMark
+import com.rendyhd.vicu.ui.components.pro.PromiseWords
+import com.rendyhd.vicu.ui.components.pro.ProTintChip
+import com.rendyhd.vicu.ui.components.pro.VerdictSheet
 import com.rendyhd.vicu.domain.model.toCollabUser
 import com.rendyhd.vicu.util.Collaboration
 import com.rendyhd.vicu.util.DateContext
@@ -130,6 +136,11 @@ fun TaskItem(
     val displayMode = LocalSubtaskDisplayMode.current
     var subtasksExpanded by rememberSaveable(task.id) { mutableStateOf(false) }
     var pendingCompletion by remember { mutableStateOf<Task?>(null) }
+    // Pro (design system 9): null while Pro is off, so the row is drawn as without it.
+    val pro = LocalPro.current
+    val proFormat = LocalDateFormat.current
+    val proRow = if (pro.world.on) remember(task, pro.world, proFormat) { pro.world.rowOf(task, proFormat) } else null
+    var verdictOpen by remember { mutableStateOf(false) }
 
     val requestToggle: (Task) -> Unit = { candidate ->
         val shouldConfirm = !candidate.done &&
@@ -198,6 +209,9 @@ fun TaskItem(
                     onCheckedChange = { onClick() },
                     modifier = Modifier.semantics { contentDescription = "Select ${task.title}" },
                 )
+            } else if (proRow?.theirs == true) {
+                // A promise of theirs is not yours to tick: their mark opens the verdicts.
+                PersonMark(name = proRow.personName, hexColor = proRow.personHex, onClick = { verdictOpen = true })
             } else {
                 AnimatedCheckbox(
                     done = task.done,
@@ -207,7 +221,13 @@ fun TaskItem(
             }
             val view = rowView ?: LocalRowView.current
             val metaProject = rowProject(task.projectId, view, projectMeta)
-            val metaLabels = rowLabels(task.labels, view)
+            // A promise names its person on the meta line: the person's label chip would say it twice.
+            val metaLabels = rowLabels(task.labels, view).let { labels ->
+                proRow?.personId?.let { person -> labels.filter { it.id != person } } ?: labels
+            }
+            val proMeta = proRow != null && (
+                proRow.next || proRow.reason != null || proRow.promiseText != null || proRow.words != null || proRow.sent
+                )
             val parentTitle = task.relatedTasks[RelationKind.PARENTTASK].orEmpty().firstOrNull()?.title
             val isRepeating = isRecurring(task.repeatAfter, task.repeatMode)
             // The comment count is on every task, the assignees only on shared projects (cross-app semantics 9).
@@ -217,25 +237,37 @@ fun TaskItem(
             val assignees = collab.assignees(task)
             val rowSurface = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface
             val hasMeta = metaProject != null || metaLabels.isNotEmpty() || parentTitle != null ||
-                subtaskCount > 0 || hasNotes || isRepeating || task.attachments.isNotEmpty() || commentCount > 0
+                subtaskCount > 0 || hasNotes || isRepeating || task.attachments.isNotEmpty() || commentCount > 0 || proMeta
             // Line 1 is the title, level with the checkbox; line 2 is the meta line, when there is one.
             // The checklist is the row's expand control when subtasks expand inline, and the comment
             // count opens the comments: their 48 dp targets take the place of the bottom padding.
             val expandable = subtaskCount > 0 && displayMode == SubtaskDisplayMode.EXPANDABLE
             val metaTarget = expandable || (commentCount > 0 && !selectionActive)
             Column(modifier = Modifier.weight(1f).padding(top = 12.dp, bottom = if (metaTarget) 0.dp else 12.dp)) {
-                Text(
-                    text = task.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (task.done) {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None,
-                    maxLines = density.titleLines,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                val title: @Composable (Modifier) -> Unit = { titleModifier ->
+                    Text(
+                        text = task.title,
+                        modifier = titleModifier,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = when {
+                            task.done -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            // A task that is not available yet reads quieter (design system 9).
+                            proRow?.reason != null && !proRow.theirs -> MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> MaterialTheme.colorScheme.onSurface
+                        },
+                        textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None,
+                        maxLines = density.titleLines,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (proRow?.flagged == true) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        title(Modifier.weight(1f, fill = false))
+                        FlagMark(modifier = Modifier.padding(start = 6.dp))
+                    }
+                } else {
+                    title(Modifier)
+                }
                 if (notesLine.isNotEmpty()) {
                     Text(
                         text = notesLine,
@@ -254,12 +286,35 @@ fun TaskItem(
                     ) {
                         // The project, the labels and "Subtask of" give way to the icons on a narrow
                         // row: whatever does not fit on the one line is left off, never wrapped.
-                        if (metaProject != null || metaLabels.isNotEmpty() || parentTitle != null) FlowRow(
+                        if (metaProject != null || metaLabels.isNotEmpty() || parentTitle != null || proMeta) FlowRow(
                             modifier = Modifier.weight(1f, fill = false),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                             maxLines = 1,
                         ) {
+                            if (proRow != null) {
+                                if (proRow.next) ProTintChip("Next")
+                                if (proRow.reason != null && !proRow.theirs) {
+                                    Text(
+                                        text = proRow.reason,
+                                        modifier = Modifier.widthIn(max = 200.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                proRow.promiseText?.let { text ->
+                                    Text(
+                                        text = text,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                    )
+                                }
+                                proRow.words?.let { PromiseWords(it, Modifier.widthIn(max = 160.dp)) }
+                                if (proRow.sent) ProTintChip("In recap")
+                            }
                             if (metaProject != null) {
                                 RowProject(title = metaProject.title, hexColor = metaProject.hexColor)
                             }
@@ -428,6 +483,15 @@ fun TaskItem(
         HorizontalDivider(
             modifier = Modifier.padding(start = 48.dp),
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+        )
+    }
+
+    if (verdictOpen && proRow != null) {
+        VerdictSheet(
+            task = task,
+            personName = proRow.personName,
+            canSnooze = pro.world.canSnooze(task),
+            onDismiss = { verdictOpen = false },
         )
     }
 

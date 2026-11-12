@@ -265,6 +265,34 @@ val repositoryModule = module {
             time = get(),
         )
     }
+    // What the Pro screens and rows read, and what they change; nothing is read while Pro is off.
+    single {
+        ProWorldSource(
+            behaviorPrefs = get(),
+            taskRepository = get(),
+            projectRepository = get(),
+            labelRepository = get(),
+            synced = get<SyncedPreferences>(),
+            proLedger = get(),
+            dayClock = get(),
+            time = get(),
+            scope = get(),
+            dispatchers = get(),
+        )
+    }
+    single {
+        ProActions(
+            taskRepository = get(),
+            labelRepository = get(),
+            proLedger = get(),
+            proPreferences = get(),
+            behaviorPrefs = get(),
+            appMessages = get(),
+            dayClock = get(),
+            time = get(),
+            scope = get(),
+        )
+    }
     // Your own Events (synced) and the phone's calendars (read only, choices on the device): contract 20.
     single { PlanCalendars(synced = get<SyncedPreferences>(), device = get(), prefs = get(), time = get()) }
     single<CollaborationRepository> {
@@ -346,6 +374,7 @@ val commonModule = module {
             locations = get(),
             locationPermission = get(),
             proCapture = get(),
+            proLedger = get(),
         )
     }
     single { FabHint(store = get(), scope = get()) }

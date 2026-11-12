@@ -86,4 +86,25 @@ class ProCaptureTest {
         assertFalse(off.task.isFavorite)
         assertTrue(off.labelNames.isEmpty())
     }
+
+    @Test
+    fun `a person makes their promise, for a person yours, with the entry sheet's words`() {
+        val theirs = on.promiseOf(parse("Jan: send the plan", on), words = "  I'll send it Friday ", doneWhen = "")
+        assertEquals("""{"dir":"theirs","person":31,"words":"I'll send it Friday"}""", theirs.toString())
+
+        val mine = on.promiseOf(parse("for Jan: review the deck", on), words = null, doneWhen = "Jan says it reads well")
+        assertEquals("""{"dir":"mine","person":31,"done_when":"Jan says it reads well"}""", mine.toString())
+
+        // No person, Pro off, or a label that is no longer a person: no promise.
+        assertNull(on.promiseOf(parse("send the plan", on)))
+        assertNull(ProCapture.OFF.promiseOf(parse("Jan: send the plan", ProCapture.OFF)))
+        assertNull(ProCapture(on = true).promiseOf(parse("Jan: send the plan", on)))
+    }
+
+    @Test
+    fun `an estimate is read only while Pro is on`() {
+        assertEquals(90, on.estimateOf(parse("Write the report ~1h30", on)))
+        assertNull(on.estimateOf(parse("Write the report", on)))
+        assertNull(ProCapture.OFF.estimateOf(parse("Write the report ~1h30", ProCapture.OFF)))
+    }
 }

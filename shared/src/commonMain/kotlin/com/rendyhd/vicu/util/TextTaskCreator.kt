@@ -6,6 +6,7 @@ import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.repository.ProCapture
 import com.rendyhd.vicu.data.repository.ProCaptureSource
+import com.rendyhd.vicu.data.repository.ProLedgerRepository
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
@@ -50,6 +51,8 @@ class TextTaskCreator(
     private val locationPermission: LocationPermissionPlatform? = null,
     /** Pro's phrases while Pro is on (contract 5.5); none in tests. */
     private val proCapture: ProCaptureSource? = null,
+    /** Where a captured promise and estimate are kept (contract 21.7); none in tests. */
+    private val proLedger: ProLedgerRepository? = null,
 ) {
     sealed interface Result {
         /** [confirmation] says what was added, for the voice reply or a toast. */
@@ -150,6 +153,8 @@ class TextTaskCreator(
             is NetworkResult.Success -> {
                 val created = result.data
                 for (labelId in labelIds + listOfNotNull(personLabel)) labelRepository.addToTask(created.id, labelId)
+                // Pro on: `Jan:` makes the task that person's promise, `~45m` gives its estimate.
+                proLedger?.recordCapture(created.id, pro.promiseOf(parsed), pro.estimateOf(parsed))
                 placePhrase?.let { phrase ->
                     locations.setReminder(locations.reminderAt(created.id, phrase.place, phrase.trigger))
                 }

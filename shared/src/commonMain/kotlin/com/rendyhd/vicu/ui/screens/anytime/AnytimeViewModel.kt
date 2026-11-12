@@ -3,6 +3,12 @@ package com.rendyhd.vicu.ui.screens.anytime
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.data.repository.ProActions
+import com.rendyhd.vicu.data.repository.ProListState
+import com.rendyhd.vicu.data.repository.ProWorldSource
+import com.rendyhd.vicu.ui.screens.pro.toListView
+import com.rendyhd.vicu.util.pro.AvailabilityView
+import com.rendyhd.vicu.util.pro.ProListKeys
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
@@ -19,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -30,6 +37,10 @@ data class AnytimeUiState(
     val isRefreshing: Boolean = false,
     val error: String? = null,
     val completedTaskIds: Set<Long> = emptySet(),
+    /** Available, Remaining or All while Pro's availability layer is on (contract 21.2); null otherwise. */
+    val proView: AvailabilityView? = null,
+    /** Open tasks the view leaves out. */
+    val proHidden: Int = 0,
 )
 
 class AnytimeViewModel(
@@ -40,6 +51,9 @@ class AnytimeViewModel(
     private val refresher: ScreenRefresher,
     navigationTicker: NavigationTicker = NavigationTicker(),
     completionToast: CompletionToast = NoCompletionToast,
+    /** Pro's Available / Remaining / All (contract 21.2); none in tests. */
+    private val proWorld: ProWorldSource? = null,
+    private val proActions: ProActions? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AnytimeUiState())
@@ -63,14 +77,19 @@ class AnytimeViewModel(
                     projectRepository.getAll(),
                     completions.state,
                     collapsedProjectIds,
-                ) { storedTasks, projects, _, collapsed ->
-                    buildAnytimeGroups(projects, completions.merge(storedTasks), collapsed)
-                }.collect { groups ->
+                    proWorld?.listState(ProListKeys.ANYTIME) ?: flowOf(ProListState.OFF),
+                ) { storedTasks, projects, _, collapsed, pro ->
+                    // With Pro off the filter keeps every task (contract 21.1, O1).
+                    val shown = pro.filter(storedTasks)
+                    Triple(buildAnytimeGroups(projects, completions.merge(shown.tasks), collapsed), pro.view, shown.hidden)
+                }.collect { (groups, view, hidden) ->
                     _uiState.update { current ->
                         current.copy(
                             projectGroups = groups,
                             rows = flattenAnytimeGroups(groups, completions.completedIds),
                             isLoading = false,
+                            proView = view,
+                            proHidden = hidden,
                         )
                     }
                 }
@@ -123,6 +142,11 @@ class AnytimeViewModel(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    /** What the list shows while Pro's availability layer is on; per device and list. */
+    fun setProView(view: AvailabilityView) {
+        proActions?.setListView(ProListKeys.ANYTIME, view.toListView())
     }
 }
 

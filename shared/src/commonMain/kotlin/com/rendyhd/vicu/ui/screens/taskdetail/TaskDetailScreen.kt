@@ -169,6 +169,25 @@ import com.rendyhd.vicu.ui.components.collab.CommentIcon
 import com.rendyhd.vicu.ui.components.collab.LocalCollab
 import com.rendyhd.vicu.util.Collaboration
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.EventAvailable
+import androidx.compose.material.icons.outlined.Handshake
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Timer
+import com.rendyhd.vicu.data.repository.ProWorld
+import com.rendyhd.vicu.ui.components.pro.LocalPro
+import com.rendyhd.vicu.ui.components.pro.ProAfterSheet
+import com.rendyhd.vicu.ui.components.pro.ProEstimateSheet
+import com.rendyhd.vicu.ui.components.pro.ProPromiseSheet
+import com.rendyhd.vicu.ui.components.pro.ProStartSheet
+import com.rendyhd.vicu.util.DateDisplayFormat
+import com.rendyhd.vicu.util.PlannerTimeline
+import com.rendyhd.vicu.util.RelationKind
+import com.rendyhd.vicu.util.pro.ProScreens
+import com.rendyhd.vicu.util.pro.StartDates
+import kotlinx.datetime.TimeZone
+import kotlinx.serialization.json.JsonPrimitive
+import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.util.TimeBlocks
 import androidx.compose.material3.LocalContentColor
 import com.rendyhd.vicu.ui.components.picker.LabelPickerDialog
 import com.rendyhd.vicu.ui.components.picker.PriorityPickerDialog
@@ -235,6 +254,8 @@ fun TaskDetailScreen(
     var showDatePicker by remember { mutableStateOf(false) }
     var showProjectPicker by remember { mutableStateOf(false) }
     var showAssignSheet by remember { mutableStateOf(false) }
+    // Pro's sheet that is open (promise, start, estimate, after), by name so a rotation keeps it.
+    var proSheet by rememberSaveable { mutableStateOf<String?>(null) }
     var showLabelPicker by remember { mutableStateOf(false) }
     var showReminderPicker by remember { mutableStateOf(false) }
     val notificationPermission: NotificationPermissionCoordinator = koinInject()
@@ -962,6 +983,16 @@ fun TaskDetailScreen(
                             },
                         )
                     },
+                ).plus(
+                    // Pro's properties (contract 21.2 to 21.6); none while Pro is off.
+                    proEditorEntries(
+                        task = task,
+                        world = LocalPro.current.world,
+                        zone = LocalClockDay.current.zone,
+                        fmt = LocalDateFormat.current,
+                        openSheet = { proSheet = it },
+                        setFlag = viewModel::setFlag,
+                    ),
                 ).filter { it.present }
 
                 val rows = entries.filter { it.set || it.key == openRow }
@@ -1376,6 +1407,48 @@ fun TaskDetailScreen(
         )
     }
 
+    val proTask = state.task
+    val pro = LocalPro.current
+    if (proSheet != null && proTask != null && pro.world.on) {
+        val closeSheet = { proSheet = null }
+        val zone = LocalClockDay.current.zone
+        when (proSheet) {
+            PRO_PROMISE -> ProPromiseSheet(
+                task = proTask,
+                world = pro.world,
+                onSave = { value, retitle ->
+                    pro.actions?.setPromise(proTask, value)
+                    if (retitle != null) viewModel.updateTitle(retitle)
+                },
+                onRemove = { pro.actions?.setPromise(proTask, null) },
+                onDismiss = closeSheet,
+            )
+            PRO_START -> ProStartSheet(
+                current = StartDates.startDayOf(proTask, zone),
+                onSet = { day ->
+                    viewModel.setStartDate(day)
+                    closeSheet()
+                },
+                onDismiss = closeSheet,
+            )
+            PRO_ESTIMATE -> ProEstimateSheet(
+                current = pro.world.estimateOf(proTask.id),
+                onSet = { minutes ->
+                    pro.actions?.setEstimate(proTask.id, minutes)
+                    closeSheet()
+                },
+                onDismiss = closeSheet,
+            )
+            PRO_AFTER -> ProAfterSheet(
+                task = proTask,
+                world = pro.world,
+                onAdd = { other -> pro.actions?.setAfter(proTask, other, add = true) },
+                onRemove = { other -> pro.actions?.setAfter(proTask, other, add = false) },
+                onDismiss = closeSheet,
+            )
+        }
+    }
+
     if (showAssignSheet) {
         state.task?.let { current ->
             AssignSheet(
@@ -1654,4 +1727,118 @@ private fun quickMoveIcon(id: WhenQuickChoice.Id): ImageVector = when (id) {
     WhenQuickChoice.Id.TOMORROW -> Icons.Outlined.Today
     WhenQuickChoice.Id.WEEKEND -> Icons.Outlined.Weekend
     WhenQuickChoice.Id.NEXT_WEEK -> Icons.Outlined.DateRange
+}
+
+private const val PRO_PROMISE = "promise"
+private const val PRO_START = "start"
+private const val PRO_ESTIMATE = "estimate"
+private const val PRO_AFTER = "after"
+
+/**
+ * Pro's properties of the editor (contract 21.2 to 21.6, the desktop's card chips): the promise
+ * while the promises layer is on; the start date (not while the task has a time block, which holds
+ * the start), the estimate, after and the flag while the availability layer is on.
+ */
+private fun proEditorEntries(
+    task: Task,
+    world: ProWorld,
+    zone: TimeZone,
+    fmt: DateDisplayFormat,
+    openSheet: (String) -> Unit,
+    setFlag: (Boolean) -> Unit,
+): List<EditorEntry> {
+    if (!world.on) return emptyList()
+    val start = StartDates.startDayOf(task, zone)
+    val startText = start?.let { "Starts ${com.rendyhd.vicu.util.DateDisplay.formatWeekdayDate(it, world.today, fmt)}" }
+    val estimate = world.estimateOf(task.id)
+    val blockers = (world.openById[task.id] ?: task).relatedTasks[RelationKind.BLOCKED].orEmpty()
+    val afterText = ProScreens.afterValue(blockers.map { it.title })
+    val promise = world.promiseFor(task)
+    val promiseText = promise?.let {
+        val dir = (it["dir"] as? JsonPrimitive)?.content
+        ProScreens.promiseMeta(dir, world.nameOf((it["person"] as? JsonPrimitive)?.content?.toLongOrNull()))
+    }
+    return listOf(
+        EditorEntry(
+            "pro_promise",
+            set = promiseText != null,
+            present = world.promisesOn,
+            addLabel = "Promise",
+            addIcon = Icons.Outlined.Handshake,
+            onAdd = { openSheet(PRO_PROMISE) },
+        ) {
+            PropertyRow(
+                icon = Icons.Outlined.Handshake,
+                name = "Promise",
+                value = promiseText,
+                description = "Promise: ${promiseText ?: "none"}",
+                onClick = { openSheet(PRO_PROMISE) },
+            )
+        },
+        EditorEntry(
+            "pro_start",
+            set = start != null,
+            present = world.availabilityOn && TimeBlocks.blockOf(task, zone) == null,
+            addLabel = "Start",
+            addIcon = Icons.Outlined.EventAvailable,
+            onAdd = { openSheet(PRO_START) },
+        ) {
+            PropertyRow(
+                icon = Icons.Outlined.EventAvailable,
+                name = "Start",
+                value = startText,
+                description = "Start date: ${startText ?: "none"}",
+                onClick = { openSheet(PRO_START) },
+            )
+        },
+        EditorEntry(
+            "pro_estimate",
+            set = estimate != null,
+            present = world.availabilityOn,
+            addLabel = "Estimate",
+            addIcon = Icons.Outlined.Timer,
+            onAdd = { openSheet(PRO_ESTIMATE) },
+        ) {
+            val text = estimate?.let(PlannerTimeline::formatLength)
+            PropertyRow(
+                icon = Icons.Outlined.Timer,
+                name = "Estimate",
+                value = text,
+                description = "Estimate: ${text ?: "none"}",
+                onClick = { openSheet(PRO_ESTIMATE) },
+            )
+        },
+        EditorEntry(
+            "pro_after",
+            set = afterText != null,
+            present = world.availabilityOn,
+            addLabel = "After",
+            addIcon = Icons.Outlined.Link,
+            onAdd = { openSheet(PRO_AFTER) },
+        ) {
+            PropertyRow(
+                icon = Icons.Outlined.Link,
+                name = "After",
+                value = afterText,
+                description = "Waits on: ${afterText ?: "nothing"}",
+                onClick = { openSheet(PRO_AFTER) },
+            )
+        },
+        EditorEntry(
+            "pro_flag",
+            set = task.isFavorite,
+            present = world.availabilityOn,
+            addLabel = "Flag",
+            addIcon = Icons.Filled.Flag,
+            onAdd = { setFlag(true) },
+        ) {
+            PropertyRow(
+                icon = Icons.Filled.Flag,
+                name = "Flag",
+                value = "Flagged",
+                description = "Flagged. Remove the flag",
+                onClick = { setFlag(false) },
+            )
+        },
+    )
 }

@@ -1,5 +1,8 @@
 package com.rendyhd.vicu.ui.screens.anytime
 
+import com.rendyhd.vicu.ui.components.pro.proHiddenItem
+import com.rendyhd.vicu.ui.components.pro.proViewSwitchItem
+import com.rendyhd.vicu.util.pro.AvailabilityView
 import com.rendyhd.vicu.ui.components.shared.listScrollbar
 import com.rendyhd.vicu.ui.components.fab.FabDropTarget
 import com.rendyhd.vicu.ui.components.fab.fabDropTarget
@@ -129,7 +132,8 @@ fun AnytimeScreen(
                 .padding(padding),
         ) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().listScrollbar(listState), contentPadding = PaddingValues(bottom = FabClearance)) {
-                if (state.rows.isEmpty() && !state.isLoading) {
+                proViewSwitchItem(state.proView, viewModel::setProView)
+                if (state.rows.isEmpty() && !state.isLoading && state.proHidden == 0) {
                     item {
                         EmptyState(
                             icon = Icons.Outlined.AllInclusive,
@@ -186,6 +190,7 @@ fun AnytimeScreen(
                         }
                     }
                 }
+                proHiddenItem(state.proView, state.proHidden) { viewModel.setProView(AvailabilityView.REMAINING) }
             }
         }
     }

@@ -151,6 +151,10 @@ import com.rendyhd.vicu.ui.navigation.toRoute
 import com.rendyhd.vicu.ui.screens.taskdetail.EditorBackState
 import com.rendyhd.vicu.ui.components.collab.CollabUi
 import com.rendyhd.vicu.ui.components.collab.CollabViewModel
+import com.rendyhd.vicu.data.repository.ProActions
+import com.rendyhd.vicu.data.repository.ProWorldSource
+import com.rendyhd.vicu.ui.components.pro.LocalPro
+import com.rendyhd.vicu.ui.components.pro.ProUi
 import com.rendyhd.vicu.ui.components.collab.LocalCollab
 import com.rendyhd.vicu.ui.screens.comments.TaskCommentsScreen
 import com.rendyhd.vicu.ui.screens.comments.TaskCommentsViewModel
@@ -675,6 +679,11 @@ fun VicuApp(
             memberPermissions = collabViewModel::memberPermissions,
         )
     }
+    // Pro for the rows, the editor and the Pro screens; while Pro is off it reads nothing.
+    val proWorldSource: ProWorldSource = koinInject()
+    val proActions: ProActions = koinInject()
+    val proWorld by proWorldSource.world.collectAsStateWithLifecycle()
+    val proUi = remember(proWorld, proActions) { ProUi(proWorld, proActions) }
     val projectProgress by drawerViewModel.projectProgress.collectAsStateWithLifecycle()
     val projectOpenCounts by drawerViewModel.projectOpenCounts.collectAsStateWithLifecycle()
     val fabAlignStart by drawerViewModel.fabAlignStart.collectAsStateWithLifecycle()
@@ -745,6 +754,7 @@ fun VicuApp(
         LocalDateFormat provides dateFormat,
         LocalTaskRowActions provides taskRowActions,
         LocalCollab provides collabUi,
+        LocalPro provides proUi,
         LocalProjectCategories provides drawerUiState.categories,
         LocalOpenAsk provides openAsk,
     )

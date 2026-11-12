@@ -1,5 +1,7 @@
 package com.rendyhd.vicu.util
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.os.Build
 import androidx.core.net.toUri
 import com.rendyhd.vicu.data.local.PlatformContext
@@ -41,6 +43,20 @@ class AndroidPlatformFiles(private val platformContext: PlatformContext) : Platf
 
     override fun shareFile(path: String, mimeType: String?): String? =
         FileUtils.shareFile(platformContext.context, path, mimeType)
+
+    override fun shareText(text: String, subject: String?): String? {
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, text)
+            .apply { if (subject != null) putExtra(Intent.EXTRA_SUBJECT, subject) }
+        val chooser = Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return try {
+            platformContext.context.startActivity(chooser)
+            null
+        } catch (_: ActivityNotFoundException) {
+            "No app on this device can receive text"
+        }
+    }
 
     override suspend fun saveFile(path: String, fileName: String, mimeType: String?): String? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

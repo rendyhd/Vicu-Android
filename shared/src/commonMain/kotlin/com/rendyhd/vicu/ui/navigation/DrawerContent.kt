@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.navigation
 
+import com.rendyhd.vicu.ui.components.pro.ProIcons
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -274,6 +275,27 @@ fun DrawerContent(
                             selected = currentRoute == "ReviewRoute",
                             onClick = { onNavigate(ReviewRoute) },
                             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                        )
+                        DrawerView.FLAGGED -> SmartListItem(
+                            label = "Flagged",
+                            icon = ProIcons.FLAGGED,
+                            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            selected = currentRoute == "FlaggedRoute",
+                            onClick = { onNavigate(FlaggedRoute) },
+                        )
+                        DrawerView.WAITING_ON -> SmartListItem(
+                            label = "Waiting on",
+                            icon = ProIcons.WAITING_ON,
+                            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            selected = currentRoute == "WaitingOnRoute",
+                            onClick = { onNavigate(WaitingOnRoute) },
+                        )
+                        DrawerView.PEOPLE -> SmartListItem(
+                            label = "People",
+                            icon = ProIcons.PEOPLE,
+                            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            selected = currentRoute == "PeopleRoute",
+                            onClick = { onNavigate(PeopleRoute) },
                         )
                         // With the smart lists: with many projects it got lost at the bottom.
                         DrawerView.ASK -> NavigationDrawerItem(

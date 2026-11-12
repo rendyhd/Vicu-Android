@@ -115,6 +115,22 @@ class IosPlatformFiles : PlatformFiles {
         return null
     }
 
+    override fun shareText(text: String, subject: String?): String? {
+        val presenter = topViewController() ?: return "The text cannot be shared right now"
+        dispatch_async(dispatch_get_main_queue()) {
+            val sheet = UIActivityViewController(listOf(text), null)
+            // On iPad the sheet is a popover and needs an anchor.
+            sheet.popoverPresentationController?.let { popover ->
+                popover.sourceView = presenter.view
+                presenter.view.bounds.useContents {
+                    popover.sourceRect = CGRectMake(size.width / 2, size.height / 2, 1.0, 1.0)
+                }
+            }
+            presenter.presentViewController(sheet, animated = true, completion = null)
+        }
+        return null
+    }
+
     override suspend fun saveFile(path: String, fileName: String, mimeType: String?): String? {
         if (!NSFileManager.defaultManager.fileExistsAtPath(path)) return "The file is no longer available"
         val presenter = topViewController() ?: return "The file cannot be saved right now"

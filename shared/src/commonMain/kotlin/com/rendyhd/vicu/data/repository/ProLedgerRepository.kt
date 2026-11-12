@@ -198,6 +198,20 @@ class ProLedgerRepository(
         return change { ledger, _, nowMs -> LedgerRules.setEstimate(ledger, taskId, minutes, nowMs) }
     }
 
+    /**
+     * What quick add read for a new task (section 5.5): its promise and its estimate, as one change.
+     * A task made offline has a temporary id; [remapTask] moves the records when it replays.
+     */
+    suspend fun recordCapture(taskId: Long, promise: JsonObject?, estimateMinutes: Int?): Boolean {
+        if (promise == null && estimateMinutes == null) return false
+        return change { ledger, deviceId, nowMs ->
+            var next = ledger
+            if (promise != null) next = LedgerRules.setRecord(next, "promises", taskId.toString(), promise, deviceId, nowMs)
+            if (estimateMinutes != null) next = LedgerRules.setEstimate(next, taskId, estimateMinutes.coerceIn(0, 1440), nowMs)
+            next
+        }
+    }
+
     /** Syncs the ledger, then archives what has been closed long enough. Nothing while Pro is off. */
     suspend fun sync(): SyncedDocumentStatus {
         if (!isProOn()) return SyncedDocumentStatus.Idle

@@ -159,7 +159,8 @@ fun TodayScreen(
     }
 
     // All clear warms in only when Today had tasks during this visit and the last one has just gone.
-    val hasContent = state.projectGroups.isNotEmpty() || state.overdueGroups.isNotEmpty() || state.routineDay.open.isNotEmpty()
+    val hasContent = state.projectGroups.isNotEmpty() || state.overdueGroups.isNotEmpty() || state.routineDay.open.isNotEmpty() ||
+        state.promisesDue.isNotEmpty()
     var hadTasks by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(hasContent) { if (hasContent) hadTasks = true }
 
@@ -302,7 +303,30 @@ fun TodayScreen(
                     }
                 }
 
-                if (state.projectGroups.isEmpty() && state.overdueGroups.isEmpty() &&
+                // Pro: promises of theirs due a verdict come first (contract 21.6); none with Pro off.
+                if (state.promisesDue.isNotEmpty()) {
+                    item(key = "promises_title", contentType = "title") {
+                        SectionHeader(title = "Promises due", count = state.promisesDue.size)
+                    }
+                    items(state.promisesDue, key = { "promise_${it.id}" }, contentType = { "task" }) { task ->
+                        val displayTask = if (task.id in state.completedTaskIds) task.copy(done = true) else task
+                        SwipeableTaskItem(
+                            task = displayTask,
+                            onToggleDone = {
+                                if (task.id in state.completedTaskIds) viewModel.undoComplete(task) else viewModel.toggleDone(task)
+                            },
+                            onClick = { if (selectionActive) selectionVm.toggle(task.id) else onTaskClick(task.id) },
+                            onSubtaskToggleDone = viewModel::toggleDone,
+                            onSubtaskClick = { child -> onTaskClick(child.id) },
+                            selectionActive = selectionActive,
+                            selected = task.id in selectedIds,
+                            onLongClick = { selectionVm.toggle(task.id) },
+                            modifier = Modifier.animateItem(),
+                            rowView = TodayRowView,
+                        )
+                    }
+                }
+                if (state.projectGroups.isEmpty() && state.overdueGroups.isEmpty() && state.promisesDue.isEmpty() &&
                     openRoutines.isEmpty() && !state.isLoading
                 ) {
                     item(key = "all_clear", contentType = "all_clear") {

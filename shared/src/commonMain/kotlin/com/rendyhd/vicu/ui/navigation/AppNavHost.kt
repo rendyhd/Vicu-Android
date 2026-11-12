@@ -16,6 +16,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import com.rendyhd.vicu.ui.components.shared.LocalOpenAsk
 import com.rendyhd.vicu.ui.screens.anytime.AnytimeScreen
+import com.rendyhd.vicu.ui.screens.pro.FlaggedScreen
+import com.rendyhd.vicu.ui.screens.pro.PeopleScreen
+import com.rendyhd.vicu.ui.screens.pro.PersonScreen
+import com.rendyhd.vicu.ui.screens.pro.WaitingOnScreen
 import com.rendyhd.vicu.ui.screens.customlist.CustomListScreen
 import com.rendyhd.vicu.ui.screens.guided.GuidedReviewScreen
 import com.rendyhd.vicu.ui.screens.guided.GuidedSortScreen
@@ -208,6 +212,42 @@ fun AppNavHost(
                         navController.navigate(InboxRoute) { launchSingleTop = true }
                     }
                 },
+            )
+        }
+        // Pro (contract 21): a link or the history may open one with Pro off; it says so.
+        val openProSettings = { navController.navigateTopLevel(SettingsRoute) }
+        val openPerson = { labelId: Long -> navController.navigate(PersonRoute(labelId)) }
+        screen<FlaggedRoute>(reveal) {
+            FlaggedScreen(
+                onTaskClick = onTaskClick,
+                onOpenDrawer = onOpenDrawer,
+                onNavigateToSearch = onNavigateToSearch,
+                onOpenSettings = openProSettings,
+            )
+        }
+        screen<WaitingOnRoute>(reveal) {
+            WaitingOnScreen(
+                onTaskClick = onTaskClick,
+                onOpenDrawer = onOpenDrawer,
+                onNavigateToSearch = onNavigateToSearch,
+                onOpenSettings = openProSettings,
+                onOpenPerson = openPerson,
+            )
+        }
+        screen<PeopleRoute>(reveal) {
+            PeopleScreen(
+                onOpenDrawer = onOpenDrawer,
+                onNavigateToSearch = onNavigateToSearch,
+                onOpenSettings = openProSettings,
+                onOpenPerson = openPerson,
+            )
+        }
+        screen<PersonRoute>(reveal) {
+            PersonScreen(
+                onTaskClick = onTaskClick,
+                onOpenDrawer = onOpenDrawer,
+                onNavigateToSearch = onNavigateToSearch,
+                onOpenSettings = openProSettings,
             )
         }
         screen<SearchRoute>(reveal) {

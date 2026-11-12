@@ -505,6 +505,29 @@ class TaskDetailViewModel(
         scheduleAutosave()
     }
 
+    /**
+     * Pro's start date (contract 21.3): that day's local midnight, or none. Only offered while the
+     * task has no time block, which holds the start itself.
+     */
+    fun setStartDate(day: kotlinx.datetime.LocalDate?) {
+        val zone = dayClock.day.value.zone
+        _uiState.update { state ->
+            state.copy(
+                task = state.task?.copy(
+                    startDate = day?.let { com.rendyhd.vicu.util.pro.StartDates.dateOnlyStart(it, zone).toString() }
+                        ?: Constants.NULL_DATE_STRING,
+                ),
+            )
+        }
+        scheduleAutosave()
+    }
+
+    /** Pro's flag (contract 21.4): `is_favorite`, written as its own change of the task. */
+    fun setFlag(flagged: Boolean) {
+        _uiState.update { it.copy(task = it.task?.copy(isFavorite = flagged)) }
+        scheduleAutosave()
+    }
+
     /** Persists a picker choice on dismiss and prevents title NLP from overriding it. */
     fun setRecurrence(recurrence: RecurrenceValue) {
         _uiState.update {

@@ -238,6 +238,27 @@ class DrawerStateTest {
     }
 
     @Test
+    fun `Pro's views follow their layers and are nothing while Pro is off`() {
+        val slots = BottomBarSlot.DEFAULT_SLOTS
+        fun choices(availability: Boolean, promises: Boolean) = drawerViewChoices(
+            slots,
+            routinesEnabled = false,
+            reviewEnabled = false,
+            askReady = false,
+            proAvailability = availability,
+            proPromises = promises,
+        )
+
+        assertEquals(listOf(DrawerView.LOGBOOK), choices(availability = false, promises = false))
+        assertEquals(listOf(DrawerView.LOGBOOK, DrawerView.FLAGGED), choices(availability = true, promises = false))
+        assertEquals(listOf(DrawerView.LOGBOOK, DrawerView.WAITING_ON, DrawerView.PEOPLE), choices(availability = false, promises = true))
+        assertEquals(
+            listOf(DrawerView.LOGBOOK, DrawerView.FLAGGED, DrawerView.WAITING_ON, DrawerView.PEOPLE),
+            choices(availability = true, promises = true),
+        )
+    }
+
+    @Test
     fun `routines and review that are turned off are no choice at all`() {
         assertEquals(
             listOf(DrawerView.LOGBOOK, DrawerView.ASK),

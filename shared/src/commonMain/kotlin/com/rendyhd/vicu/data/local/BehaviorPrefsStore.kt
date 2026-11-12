@@ -47,7 +47,7 @@ enum class SubprojectDisplayMode { SECTIONS, PROJECT_ROWS }
  * A view the drawer lists above the projects, in the drawer's order. The user can hide each one
  * from the drawer (Settings, General, Drawer); a hidden view keeps working.
  */
-enum class DrawerView { TODAY, PLAN, UPCOMING, ANYTIME, LOGBOOK, ROUTINES, REVIEW, ASK }
+enum class DrawerView { TODAY, PLAN, UPCOMING, ANYTIME, LOGBOOK, ROUTINES, REVIEW, ASK, FLAGGED, WAITING_ON, PEOPLE }
 
 data class BehaviorPrefs(
     val completionSoundEnabled: Boolean = false,

@@ -1,5 +1,9 @@
 package com.rendyhd.vicu.ui.screens.tag
 
+import com.rendyhd.vicu.ui.components.pro.LabelProMenu
+import com.rendyhd.vicu.ui.components.pro.proHiddenItem
+import com.rendyhd.vicu.ui.components.pro.proViewSwitchItem
+import com.rendyhd.vicu.util.pro.AvailabilityView
 import com.rendyhd.vicu.ui.components.shared.listScrollbar
 import com.rendyhd.vicu.ui.components.shared.VicuSnackbarHost
 import com.rendyhd.vicu.ui.navigation.ScreenReady
@@ -104,6 +108,8 @@ fun TagScreen(
                     onOpenDrawer = onOpenDrawer,
                     scroll = topBarScroll,
                     onNavigateToSearch = onNavigateToSearch,
+                    // Pro's label menu: on hold, and marking the label as a person (contract 21.2, 21.5).
+                    trailingActions = { LabelProMenu(labelId) },
                 )
             }
         },
@@ -127,7 +133,8 @@ fun TagScreen(
                 .padding(padding),
         ) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().listScrollbar(listState), contentPadding = PaddingValues(bottom = FabClearance)) {
-                if (state.tasks.isEmpty() && !state.isLoading) {
+                proViewSwitchItem(state.proView, viewModel::setProView)
+                if (state.tasks.isEmpty() && !state.isLoading && state.proHidden == 0) {
                     item {
                         EmptyState(
                             icon = Icons.AutoMirrored.Outlined.Label,
@@ -174,6 +181,7 @@ fun TagScreen(
                         }
                     }
                 }
+                proHiddenItem(state.proView, state.proHidden) { viewModel.setProView(AvailabilityView.REMAINING) }
             }
         }
     }

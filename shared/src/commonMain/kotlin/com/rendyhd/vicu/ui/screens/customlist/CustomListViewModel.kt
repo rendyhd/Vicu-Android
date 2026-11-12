@@ -1,5 +1,11 @@
 package com.rendyhd.vicu.ui.screens.customlist
 
+import com.rendyhd.vicu.data.repository.ProActions
+import com.rendyhd.vicu.data.repository.ProListState
+import com.rendyhd.vicu.data.repository.ProWorldSource
+import com.rendyhd.vicu.ui.screens.pro.toListView
+import com.rendyhd.vicu.util.pro.AvailabilityView
+import com.rendyhd.vicu.util.pro.ProListKeys
 import com.rendyhd.vicu.util.Logger
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -54,6 +60,10 @@ data class CustomListUiState(
     val inboxProjectId: Long = 0L,
     /** The first-open notice of a list imported from a saved filter (cross-app semantics 3.7). */
     val showImportNotice: Boolean = false,
+    /** Available, Remaining or All while Pro's availability layer is on (contract 21.2); null otherwise. */
+    val proView: AvailabilityView? = null,
+    /** Open tasks the view leaves out. */
+    val proHidden: Int = 0,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -74,6 +84,9 @@ class CustomListViewModel(
     private val time: TimeSource = SystemTimeSource,
     /** Whether this device has closed an imported list's notice. */
     private val savedFilters: SavedFilterImporter? = null,
+    /** Pro's Available / Remaining / All (contract 21.2); none in tests. */
+    private val proWorld: ProWorldSource? = null,
+    private val proActions: ProActions? = null,
 ) : ViewModel() {
 
     private val listId: String = savedStateHandle["listId"]!!
@@ -106,7 +119,7 @@ class CustomListViewModel(
             customListRepository.lists.map { lists -> lists.find { it.id == listId } }
                 .flatMapLatest { customList ->
                     if (customList == null) {
-                        flowOf<Pair<CustomList?, List<Task>>>(null to emptyList())
+                        flowOf(CustomListShown(null, emptyList(), null, 0))
                     } else {
                         // Flat: the list's conditions apply to every task, and nested subtasks are
                         // hidden afterwards among the matches (a matching subtask shows even when
@@ -115,19 +128,32 @@ class CustomListViewModel(
                         val source = taskRepository.customListSource(customList.filter)
                         // The windows follow the local day, so the list is re-evaluated at midnight and
                         // when the time zone changes.
-                        combine(source, projectRepository.getAll(), completions.state, dayClock.day, collabContext) { tasks, projects, _, day, context ->
-                            val activeIds = projects.mapTo(mutableSetOf()) { it.id }
-                            val listContext = readHere.contextFor(context, customList.filter.comments)
-                            customList to completions.merge(
+                        combine(
+                            combine(source, projectRepository.getAll(), completions.state, dayClock.day, collabContext) { tasks, projects, _, day, context ->
+                                val activeIds = projects.mapTo(mutableSetOf()) { it.id }
+                                val listContext = readHere.contextFor(context, customList.filter.comments)
                                 CustomListFilterBuilder.visibleTasks(
                                     tasks, customList.filter, day.date, day.zone, activeIds, listContext, now = time.now(),
-                                ),
-                            )
+                                )
+                            },
+                            proWorld?.listState(ProListKeys.customList(listId)) ?: flowOf(ProListState.OFF),
+                        ) { visible, pro ->
+                            // With Pro off the filter keeps every task (contract 21.1, O1).
+                            val viewed = pro.filter(visible)
+                            CustomListShown(customList, completions.merge(viewed.tasks), pro.view, viewed.hidden)
                         }
                     }
                 }
-                .collect { (customList, tasks) ->
-                    _uiState.update { it.copy(customList = customList, tasks = tasks, isLoading = false) }
+                .collect { shown ->
+                    _uiState.update {
+                        it.copy(
+                            customList = shown.customList,
+                            tasks = shown.tasks,
+                            isLoading = false,
+                            proView = shown.view,
+                            proHidden = shown.hidden,
+                        )
+                    }
                 }
         }
         // Background network refresh, once per distinct filter config and local day (Room paints
@@ -242,4 +268,16 @@ class CustomListViewModel(
     fun clearError() {
         _uiState.update { it.copy(error = null) }
     }
+
+    /** What the list shows while Pro's availability layer is on; per device and list. */
+    fun setProView(view: AvailabilityView) {
+        proActions?.setListView(ProListKeys.customList(listId), view.toListView())
+    }
 }
+
+private class CustomListShown(
+    val customList: CustomList?,
+    val tasks: List<Task>,
+    val view: AvailabilityView?,
+    val hidden: Int,
+)

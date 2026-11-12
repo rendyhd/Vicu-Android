@@ -18,6 +18,9 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * What quick add takes from Pro (docs/cross-app-semantics-v1.md sections 5.5 and 21): whether the
@@ -50,6 +53,25 @@ data class ProCapture(val on: Boolean = false, val people: List<Person> = emptyL
         val id = result?.person?.id ?: return null
         return id.takeIf { wanted -> people.any { it.id == wanted } }
     }
+
+    /**
+     * The promise `Jan:` (or `for Jan:`) makes of the new task (section 21.6), with what the entry
+     * sheet's fields add: their words and how you will see it is done. Null while Pro is off,
+     * without a person, or when the label is no longer a person.
+     */
+    fun promiseOf(result: ParseResult?, words: String? = null, doneWhen: String? = null): JsonObject? {
+        val person = personLabelOf(result) ?: return null
+        val mine = result?.person?.mine == true
+        val fields = LinkedHashMap<String, JsonElement>()
+        fields["dir"] = JsonPrimitive(if (mine) "mine" else "theirs")
+        fields["person"] = JsonPrimitive(person)
+        words?.trim()?.takeIf { it.isNotEmpty() }?.let { fields["words"] = JsonPrimitive(it) }
+        doneWhen?.trim()?.takeIf { it.isNotEmpty() }?.let { fields["done_when"] = JsonPrimitive(it) }
+        return JsonObject(fields)
+    }
+
+    /** `~45m` read while Pro is on: the estimate in minutes (section 21.2, kept in the ledger). */
+    fun estimateOf(result: ParseResult?): Int? = if (on) result?.estimate?.takeIf { it in 1..1440 } else null
 
     /**
      * A new task with what the text said through Pro's phrases: the start date unless the task has

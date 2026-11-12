@@ -1,5 +1,8 @@
 package com.rendyhd.vicu.ui.screens.customlist
 
+import com.rendyhd.vicu.ui.components.pro.proHiddenItem
+import com.rendyhd.vicu.ui.components.pro.proViewSwitchItem
+import com.rendyhd.vicu.util.pro.AvailabilityView
 import com.rendyhd.vicu.ui.components.shared.listScrollbar
 import com.rendyhd.vicu.ui.components.shared.VicuSnackbarHost
 import com.rendyhd.vicu.voice.TaskDefaults
@@ -209,7 +212,8 @@ fun CustomListScreen(
                         )
                     }
                 }
-                if (state.tasks.isEmpty() && !state.isLoading) {
+                proViewSwitchItem(state.proView, viewModel::setProView)
+                if (state.tasks.isEmpty() && !state.isLoading && state.proHidden == 0) {
                     item {
                         EmptyState(
                             icon = Icons.Outlined.FilterList,
@@ -242,6 +246,7 @@ fun CustomListScreen(
                         )
                     }
                 }
+                proHiddenItem(state.proView, state.proHidden) { viewModel.setProView(AvailabilityView.REMAINING) }
             }
         }
     }

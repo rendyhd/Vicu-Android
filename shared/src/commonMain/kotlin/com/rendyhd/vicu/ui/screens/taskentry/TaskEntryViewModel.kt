@@ -25,6 +25,7 @@ import com.rendyhd.vicu.location.LocationPermissionPlatform
 import com.rendyhd.vicu.location.LocationRepository
 import com.rendyhd.vicu.data.repository.ProCapture
 import com.rendyhd.vicu.data.repository.ProCaptureSource
+import com.rendyhd.vicu.data.repository.ProLedgerRepository
 import com.rendyhd.vicu.data.repository.TaskTemplateStore
 import com.rendyhd.vicu.location.LocationTrigger
 import com.rendyhd.vicu.location.PlaceMatch
@@ -98,6 +99,9 @@ data class TaskEntryUiState(
     val places: List<SavedPlace> = emptyList(),
     /** Pro's phrases and people (contract 5.5); off unless Pro is on here. */
     val proCapture: ProCapture = ProCapture.OFF,
+    /** A promise read from `Jan:`: their words and how you will see it is done (contract 21.6). */
+    val promiseWords: String = "",
+    val promiseDoneWhen: String = "",
     /** Arrive or leave, set by tapping the place chip: wins over the words of the title. */
     val placeTrigger: LocationTrigger? = null,
     /** A place picked in the Remind tray: wins over a place the title names. */
@@ -152,6 +156,8 @@ class TaskEntryViewModel(
     private val templateStore: TaskTemplateStore? = null,
     /** Pro's phrases while Pro is on; none in tests. */
     private val proCaptureSource: ProCaptureSource? = null,
+    /** Where a captured promise and estimate are kept (contract 21.7); none in tests. */
+    private val proLedger: ProLedgerRepository? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TaskEntryUiState())
@@ -408,6 +414,15 @@ class TaskEntryViewModel(
 
     fun setDescription(description: String) {
         _uiState.update { it.copy(description = description) }
+    }
+
+    /** The promise's words, shown while the title names a person. */
+    fun setPromiseWords(words: String) {
+        _uiState.update { it.copy(promiseWords = words) }
+    }
+
+    fun setPromiseDoneWhen(doneWhen: String) {
+        _uiState.update { it.copy(promiseDoneWhen = doneWhen) }
     }
 
     /** Stops the parser reading [type]: the user set it with its own control (see [pinnedTypes]). */
@@ -776,6 +791,12 @@ class TaskEntryViewModel(
                         for (labelId in resolvedLabelIds) {
                             labelRepository.addToTask(createdTask.id, labelId)
                         }
+                        // Pro on: `Jan:` makes the task that person's promise, `~45m` gives its estimate.
+                        proLedger?.recordCapture(
+                            createdTask.id,
+                            state.proCapture.promiseOf(proParsed, state.promiseWords, state.promiseDoneWhen),
+                            state.proCapture.estimateOf(proParsed),
+                        )
                         // A newer message replaces the one on screen: what the user must act on or
                         // know about keeps the snackbar instead of the confirmation.
                         var somethingToSay = placeReminder != null && setLocationReminder(createdTask.id, placeReminder)

@@ -23,6 +23,14 @@ import kotlinx.serialization.Serializable
 @Serializable object SettingsRoute
 @Serializable object AskRoute
 
+/** Pro (docs/cross-app-semantics-v1.md, section 21): only while its layer is on. */
+@Serializable object FlaggedRoute
+@Serializable object WaitingOnRoute
+@Serializable object PeopleRoute
+
+/** A person's page: a label marked as a person. */
+@Serializable data class PersonRoute(val labelId: Long)
+
 /** A guided session over one queue (docs/cross-app-semantics-v1.md, section 14.2): `inbox`, `overdue` or `waiting`. */
 @Serializable data class GuidedSortRoute(val kind: String)
 

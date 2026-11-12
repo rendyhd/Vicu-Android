@@ -3,6 +3,8 @@ package com.rendyhd.vicu.ui.screens.today
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rendyhd.vicu.auth.AuthManager
+import com.rendyhd.vicu.data.repository.ProWorld
+import com.rendyhd.vicu.data.repository.ProWorldSource
 import com.rendyhd.vicu.data.local.RoutinePrefsStore
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.model.OccurrenceStatus
@@ -53,6 +55,11 @@ data class TodayUiState(
     val routinesFolded: Boolean = false,
     /** The next open task due after today; what an emptied Today offers (see [nextUpcomingTask]). */
     val nextUpcoming: Task? = null,
+    /**
+     * Pro (contract 21.6, decision 10): promises of theirs due a verdict, shown before the other
+     * tasks and taken out of Overdue and Today, then done ones asked about once. Empty with Pro off.
+     */
+    val promisesDue: List<Task> = emptyList(),
 )
 
 class TodayViewModel(
@@ -66,6 +73,8 @@ class TodayViewModel(
     private val dayClock: DayClock,
     navigationTicker: NavigationTicker = NavigationTicker(),
     completionToast: CompletionToast = NoCompletionToast,
+    /** Pro's promises; none in tests. */
+    private val proWorld: ProWorldSource? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TodayUiState())
@@ -78,6 +87,7 @@ class TodayViewModel(
         /** [CompletionHold] list scopes: a row keeps its place within its own section. */
         const val TODAY_SCOPE = 0L
         const val OVERDUE_SCOPE = 1L
+        const val PROMISES_SCOPE = 2L
     }
 
     /**
@@ -125,12 +135,28 @@ class TodayViewModel(
                     completions.state,
                     // The sections follow the day: a task due today is overdue once it is tomorrow.
                     dayClock.day,
-                ) { tasks, projects, _, day ->
+                    proWorld?.world ?: flowOf(ProWorld.OFF),
+                ) { tasks, projects, _, day, world ->
                     val split = TimeBlocks.splitToday(tasks, day.date, day.zone)
-                    buildTaskProjectGroups(completions.merge(split.overdue, OVERDUE_SCOPE), projects, inboxId) to
-                        buildTaskProjectGroups(completions.merge(split.today, TODAY_SCOPE), projects, inboxId)
-                }.collect { (overdueGroups, todayGroups) ->
-                    _uiState.update { it.copy(overdueGroups = overdueGroups, projectGroups = todayGroups, isLoading = false) }
+                    // With Pro off nothing is asked and the sections are as before (contract 21.1, O1).
+                    val due = if (world.promisesOn) (split.overdue + split.today).filter(world::needsVerdict) else emptyList()
+                    val asked = due.mapTo(HashSet()) { it.id }
+                    val promiseRows = completions.merge(due, PROMISES_SCOPE)
+                    val shownIds = promiseRows.mapTo(HashSet()) { it.id }
+                    TodaySections(
+                        overdue = buildTaskProjectGroups(completions.merge(split.overdue.filter { it.id !in asked }, OVERDUE_SCOPE), projects, inboxId),
+                        today = buildTaskProjectGroups(completions.merge(split.today.filter { it.id !in asked }, TODAY_SCOPE), projects, inboxId),
+                        promises = promiseRows + world.completedElsewhere.filter { it.id !in shownIds },
+                    )
+                }.collect { sections ->
+                    _uiState.update {
+                        it.copy(
+                            overdueGroups = sections.overdue,
+                            projectGroups = sections.today,
+                            promisesDue = sections.promises,
+                            isLoading = false,
+                        )
+                    }
                 }
             }
         }
@@ -220,3 +246,9 @@ class TodayViewModel(
         }
     }
 }
+
+private class TodaySections(
+    val overdue: List<TaskProjectGroup>,
+    val today: List<TaskProjectGroup>,
+    val promises: List<Task>,
+)

@@ -10,6 +10,9 @@ import com.rendyhd.vicu.ui.components.collab.CollabViewModel
 import com.rendyhd.vicu.ui.components.selection.SelectionViewModel
 import com.rendyhd.vicu.ui.navigation.DrawerViewModel
 import com.rendyhd.vicu.ui.screens.anytime.AnytimeViewModel
+import com.rendyhd.vicu.ui.screens.pro.FlaggedViewModel
+import com.rendyhd.vicu.ui.screens.pro.PersonViewModel
+import com.rendyhd.vicu.ui.screens.pro.WaitingOnViewModel
 import com.rendyhd.vicu.ui.screens.comments.TaskCommentsViewModel
 import com.rendyhd.vicu.ui.screens.customlist.CustomListViewModel
 import com.rendyhd.vicu.ui.screens.inbox.InboxViewModel
@@ -44,6 +47,10 @@ val viewModelModule = module {
     viewModelOf(::PlanMyDayViewModel)
     viewModelOf(::TodayDayViewModel)
     viewModelOf(::AnytimeViewModel)
+    // Pro's screens (contract 21): they only show while Pro is on.
+    viewModelOf(::FlaggedViewModel)
+    viewModelOf(::WaitingOnViewModel)
+    viewModelOf(::PersonViewModel)
     viewModelOf(::CustomListViewModel)
     viewModelOf(::InboxViewModel)
     viewModelOf(::LogbookViewModel)

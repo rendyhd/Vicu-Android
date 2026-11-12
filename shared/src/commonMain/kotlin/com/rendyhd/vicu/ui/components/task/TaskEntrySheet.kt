@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ui.components.task
 
+import com.rendyhd.vicu.ui.components.pro.PromiseCaptureFields
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -709,6 +710,20 @@ fun TaskEntrySheet(
                             // The keyboard opens with the sheet: the title is focused as soon as
                             // it is there (the sheet's content is composed once it starts to rise).
                             LaunchedEffect(Unit) { titleFocus.requestFocus() }
+                        }
+
+                        // Pro (contract 21.6): a person read from the title makes the task a promise; its
+                        // words and how you will see it is done can be said here.
+                        val promisePerson = parseResult?.person
+                        if (promisePerson != null && !editingTemplate) {
+                            PromiseCaptureFields(
+                                mine = promisePerson.mine,
+                                words = state.promiseWords,
+                                doneWhen = state.promiseDoneWhen,
+                                onWords = viewModel::setPromiseWords,
+                                onDoneWhen = viewModel::setPromiseDoneWhen,
+                                modifier = Modifier.padding(bottom = 8.dp),
+                            )
                         }
 
                         // Notes can be written before the task exists: the Notes button on the keyboard

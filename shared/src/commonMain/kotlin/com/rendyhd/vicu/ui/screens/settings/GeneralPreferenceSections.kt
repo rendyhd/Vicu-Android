@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.data.local.DrawerView
 import com.rendyhd.vicu.ui.components.shared.SmartListIdentity
 import com.rendyhd.vicu.ui.navigation.drawerViewChoices
+import com.rendyhd.vicu.ui.components.pro.ProIcons
+import com.rendyhd.vicu.util.pro.ProLayer
 import com.rendyhd.vicu.ui.screens.plan.PlannerOptions
 import com.rendyhd.vicu.ui.theme.LocalVicuColors
 import com.rendyhd.vicu.util.parser.SyntaxMode
@@ -148,6 +150,8 @@ internal fun LazyListScope.drawerSection(
         reviewEnabled = state.reviewPrefs.enabled,
         askReady = askReady,
         plannerEnabled = state.behaviorPrefs.plannerEnabled,
+        proAvailability = state.behaviorPrefs.isProEnabled(ProLayer.AVAILABILITY),
+        proPromises = state.behaviorPrefs.isProEnabled(ProLayer.PROMISES),
     )
     choices.forEach { view ->
         item(key = "drawer_view_${view.name}") {
@@ -211,7 +215,7 @@ private fun DrawerViewRow(
         DrawerView.LOGBOOK -> SmartListIdentity.LOGBOOK
         DrawerView.ROUTINES -> SmartListIdentity.ROUTINES
         DrawerView.REVIEW -> SmartListIdentity.REVIEW
-        DrawerView.ASK -> null
+        DrawerView.ASK, DrawerView.FLAGGED, DrawerView.WAITING_ON, DrawerView.PEOPLE -> null
     }
     val label = when (view) {
         DrawerView.TODAY -> "Today"
@@ -222,6 +226,15 @@ private fun DrawerViewRow(
         DrawerView.ROUTINES -> "Routines"
         DrawerView.REVIEW -> "Review"
         DrawerView.ASK -> "Ask"
+        DrawerView.FLAGGED -> "Flagged"
+        DrawerView.WAITING_ON -> "Waiting on"
+        DrawerView.PEOPLE -> "People"
+    }
+    val proIcon = when (view) {
+        DrawerView.FLAGGED -> ProIcons.FLAGGED
+        DrawerView.WAITING_ON -> ProIcons.WAITING_ON
+        DrawerView.PEOPLE -> ProIcons.PEOPLE
+        else -> null
     }
     Row(
         modifier = Modifier
@@ -233,7 +246,7 @@ private fun DrawerViewRow(
     ) {
         // Decorative: the label names the view.
         Icon(
-            imageVector = identity?.icon ?: Icons.Outlined.AutoAwesome,
+            imageVector = identity?.icon ?: proIcon ?: Icons.Outlined.AutoAwesome,
             contentDescription = null,
             tint = identity?.color(LocalVicuColors.current.identity) ?: MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(24.dp),

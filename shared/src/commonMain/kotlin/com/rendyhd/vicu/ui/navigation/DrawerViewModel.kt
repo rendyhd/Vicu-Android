@@ -56,6 +56,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.LocalDate
+import com.rendyhd.vicu.util.pro.ProLayer
 
 /** How long a drop is shown ahead of the stored order before the stored order is trusted again. */
 internal const val PENDING_ORDER_TIMEOUT_MS = 2_000L
@@ -98,11 +99,22 @@ data class DrawerUiState(
     val hiddenViews: Set<DrawerView> = emptySet(),
     /** The day planner (Settings, General, Plan): off means no Plan entry (contract 16.9). */
     val plannerEnabled: Boolean = false,
+    /** Pro's layers on this device (contract 21.1): Flagged with availability, Waiting on and People with promises. */
+    val proAvailability: Boolean = false,
+    val proPromises: Boolean = false,
 ) {
     /** What the drawer lists above the projects, in order: the [drawerViewChoices] the user did not hide. */
     fun views(askReady: Boolean): List<DrawerView> =
-        drawerViewChoices(bottomBarSlots, routinesEnabled, reviewEnabled, askReady, plannerEnabled) - hiddenViews
+        drawerViewChoices(bottomBarSlots, routinesEnabled, reviewEnabled, askReady, plannerEnabled, proAvailability, proPromises) - hiddenViews
 }
+
+/** The drawer's device settings, read together. */
+private data class DrawerPrefs(
+    val hiddenViews: Set<DrawerView>,
+    val plannerEnabled: Boolean,
+    val proAvailability: Boolean,
+    val proPromises: Boolean,
+)
 
 /**
  * The views the drawer can list above the projects, in its order: Today, Upcoming and Anytime
@@ -116,6 +128,8 @@ internal fun drawerViewChoices(
     reviewEnabled: Boolean,
     askReady: Boolean,
     plannerEnabled: Boolean = false,
+    proAvailability: Boolean = false,
+    proPromises: Boolean = false,
 ): List<DrawerView> {
     val inBar = slots.mapTo(HashSet()) { it.type }
     return buildList {
@@ -127,6 +141,12 @@ internal fun drawerViewChoices(
         if (routinesEnabled) add(DrawerView.ROUTINES)
         if (reviewEnabled) add(DrawerView.REVIEW)
         if (askReady) add(DrawerView.ASK)
+        // Pro's views, between the smart lists and the projects (design system 9).
+        if (proAvailability) add(DrawerView.FLAGGED)
+        if (proPromises) {
+            add(DrawerView.WAITING_ON)
+            add(DrawerView.PEOPLE)
+        }
     }
 }
 
@@ -199,7 +219,14 @@ class DrawerViewModel(
         sources,
         combine(
             bottomBarPrefsStore.config,
-            behaviorPrefsStore.getPrefs().map { it.hiddenDrawerViews to it.plannerEnabled }.distinctUntilChanged(),
+            behaviorPrefsStore.getPrefs().map {
+                DrawerPrefs(
+                    hiddenViews = it.hiddenDrawerViews,
+                    plannerEnabled = it.plannerEnabled,
+                    proAvailability = it.isProEnabled(ProLayer.AVAILABILITY),
+                    proPromises = it.isProEnabled(ProLayer.PROMISES),
+                )
+            }.distinctUntilChanged(),
         ) { bottomBar, drawerPrefs -> bottomBar to drawerPrefs },
         combine(reviewPrefsStore.getPrefs(), routinePrefsStore.enabled) { review, routines -> review to routines },
         labelOrderPrefsStore.getOrder(),
@@ -209,8 +236,10 @@ class DrawerViewModel(
         buildDrawerState(
             sources, bottomBar.slots, reviewPrefs, labelOrder, today, routinesEnabled,
             bottomBarSmartListColors = bottomBar.smartListColors,
-            hiddenViews = drawerPrefs.first,
-            plannerEnabled = drawerPrefs.second,
+            hiddenViews = drawerPrefs.hiddenViews,
+            plannerEnabled = drawerPrefs.plannerEnabled,
+            proAvailability = drawerPrefs.proAvailability,
+            proPromises = drawerPrefs.proPromises,
         )
     }.flowOn(dispatchers.default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DrawerUiState())
@@ -592,6 +621,8 @@ internal fun buildDrawerState(
     bottomBarSmartListColors: Boolean = true,
     hiddenViews: Set<DrawerView> = emptySet(),
     plannerEnabled: Boolean = false,
+    proAvailability: Boolean = false,
+    proPromises: Boolean = false,
 ): DrawerUiState {
     val inboxId = sources.inboxProjectId
     val projects = sources.projects
@@ -640,6 +671,8 @@ internal fun buildDrawerState(
         routinesEnabled = routinesEnabled,
         hiddenViews = hiddenViews,
         plannerEnabled = plannerEnabled,
+        proAvailability = proAvailability,
+        proPromises = proPromises,
     )
 }
 

@@ -38,6 +38,7 @@ internal fun GeneralTab(
         appearanceSection(state, useDeviceColors, pureBlack, viewModel)
         bottomBarSection(state, viewModel, openDialog)
         plannerSection(state, viewModel)
+        proSection()
         drawerSection(state, askReady = aiSettings.askReady, viewModel)
         widgetSection(state, viewModel)
         routinesSection(state, viewModel)

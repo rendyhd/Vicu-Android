@@ -220,3 +220,13 @@ routine carrier) and 11 (marker only). It also adds a fourth kind, the preferenc
 11. **A custom-list carrier is recognised by its title too**, in both apps (`CarrierSpec`,
     `carrier-discovery.ts`). A task the user titled `Vicu custom lists (sync metadata — do not
     delete)` counts as a malformed carrier and every sync reports an error.
+
+## Pro's ledger
+
+Pro (contract section 21.7) keeps its records in one more hidden carrier per account, built on the
+same rules as the others: title `Vicu Pro ledger (sync metadata — do not delete)`, marker
+`vicu-pro:v1`, search text `vicu-pro:v`, created in the Inbox only when it holds something, payload
+`{version, promises, initiatives, log, owed, escalations, meetings, rounds, people, estimates,
+settings}` with a value and a revision per record. Older records move to archive parts (search
+`vicu-pro-archive`). Every version keeps it, Pro on or off; mobile code is `ProLedgerEnvelope.kt` and
+`ProLedgerRepository`, desktop `pro-ledger-protocol.ts` and `pro-ledger-service.ts`.
