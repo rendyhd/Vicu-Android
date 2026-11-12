@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,7 +53,7 @@ internal fun LazyListScope.proSection() {
         )
     }
     item(key = "pro_settings") { ProSettingsSection() }
-    item(key = "pro_divider") { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
+    // No divider: Plan follows as part of the same group (GeneralTab).
 }
 
 /** A row that is a checkbox: its name and a note under it. */

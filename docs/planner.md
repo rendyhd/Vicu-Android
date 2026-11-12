@@ -1,7 +1,7 @@
 # The planner on phones
 
 Give tasks a time on a timeline, and plan a day from what you have. It is off until you turn it on in
-Settings, General, Plan, per device. The times you set show on every device either way, because they
+Settings, General, Plan (right after Pro), per device. The times you set show on every device either way, because they
 are the task's own start and end dates.
 
 ## Time blocks

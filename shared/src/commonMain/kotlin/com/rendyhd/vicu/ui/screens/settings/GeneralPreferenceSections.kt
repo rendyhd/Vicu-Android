@@ -168,7 +168,7 @@ internal fun LazyListScope.drawerSection(
     }
 }
 
-/** The day planner, off by default and per device (contract 16.9), the same as the desktop's Settings, General, Plan. */
+/** The day planner, off by default and per device (contract 16.9), right after Pro, the same as the desktop's Settings, Pro, Plan. */
 internal fun LazyListScope.plannerSection(state: SettingsUiState, viewModel: SettingsViewModel) {
     item(key = "planner_header") {
         Text(
