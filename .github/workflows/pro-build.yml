@@ -1,0 +1,83 @@
+name: Pro branch build
+
+# Every push to the pro branch (or a manual run) builds a signed release APK and keeps it as a
+# workflow artifact, to install on your own phone. Nothing is published: no release, no Play upload.
+# It is signed with the release key (the key of the GitHub APKs and, through Play App Signing, of
+# Play), so it installs over the app you have. versionCode stays as in version.properties (an equal
+# versionCode updates; the next real release, with a higher one, updates over this build), and
+# versionName becomes 3.0.0-pro.<run number> so Settings shows which build is installed. Tests, lint
+# and the debug build run in ci.yml on the same push. iOS builds go to TestFlight from a Mac
+# (iosApp/scripts/testflight.sh, docs/ios.md). The APK is kept for 30 days: Actions, the run,
+# Artifacts.
+
+on:
+  push:
+    branches: [pro]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pro-build-${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  PRO_VERSION: 3.0.0-pro.${{ github.run_number }}
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # The local speech library (native/speech, whisper.cpp) is built with the NDK and CMake that
+      # app/build.gradle.kts pins; the runner's SDK may hold other versions (licences are accepted).
+      - name: Install the NDK and CMake
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.1.12297006" "cmake;3.22.1" > /dev/null
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "KEYSTORE_BASE64 is not set: an unsigned APK would not install over the app." >&2
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > app/release-key.jks
+
+      - name: Create keystore.properties
+        env:
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+        run: |
+          printf 'storeFile=release-key.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+
+      - name: Set the build version name
+        run: sed -i "s/^versionName=.*/versionName=$PRO_VERSION/" version.properties && grep '^version' version.properties
+
+      - name: Build the release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vicu-${{ env.PRO_VERSION }}-android
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
+          if-no-files-found: error
