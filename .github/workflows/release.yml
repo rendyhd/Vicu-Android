@@ -16,6 +16,8 @@ permissions:
 
 jobs:
   build:
+    # Only version releases; the rolling pro-alpha pre-release (pro-build.yml) never reaches Play.
+    if: startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
     env:
       PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}

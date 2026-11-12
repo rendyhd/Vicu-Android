@@ -1,14 +1,16 @@
 name: Pro branch build
 
-# Every push to the pro branch (or a manual run) builds a signed release APK and keeps it as a
-# workflow artifact, to install on your own phone. Nothing is published: no release, no Play upload.
+# Every push to the pro branch (or a manual run) builds a signed release APK, keeps it as a workflow
+# artifact for 30 days, and puts it on one rolling pre-release, tag `pro-alpha`, replaced on every
+# build: https://github.com/rendyhd/Vicu-Mobile/releases/tag/pro-alpha. It goes nowhere else: a
+# release made with GITHUB_TOKEN starts no workflow, and release.yml skips tags that are not `v*`,
+# so nothing is sent to Play. The app has no update check of its own.
 # It is signed with the release key (the key of the GitHub APKs and, through Play App Signing, of
 # Play), so it installs over the app you have. versionCode stays as in version.properties (an equal
 # versionCode updates; the next real release, with a higher one, updates over this build), and
 # versionName becomes 3.0.0-pro.<run number> so Settings shows which build is installed. Tests, lint
 # and the debug build run in ci.yml on the same push. iOS builds go to TestFlight from a Mac
-# (iosApp/scripts/testflight.sh, docs/ios.md). The APK is kept for 30 days: Actions, the run,
-# Artifacts.
+# (iosApp/scripts/testflight.sh, docs/ios.md).
 
 on:
   push:
@@ -16,7 +18,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: pro-build-${{ github.ref_name }}
@@ -81,3 +83,24 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           retention-days: 30
           if-no-files-found: error
+
+      - name: Replace the pro-alpha pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          gh release delete pro-alpha --repo "$REPO" --cleanup-tag --yes || true
+          cp app/build/outputs/apk/release/*.apk "vicu-$PRO_VERSION.apk"
+          cat > notes.md <<NOTES
+          Alpha build of Vicu Pro for Android from the \`pro\` branch: version $PRO_VERSION, commit ${SHA::7}.
+
+          This is not an update and is not on Google Play. Install the APK by hand; it installs over the Vicu you have, and the next regular release installs over it again. It is replaced by every new alpha build.
+
+          Desktop builds: https://github.com/rendyhd/Vicu/releases/tag/pro-alpha. iPhone and iPad: TestFlight.
+
+          How Pro works: https://vicutodo.app/guide/pro/
+
+          Keep your Vikunja server backed up while you try it. Feedback: https://github.com/rendyhd/Vicu-Mobile/issues
+          NOTES
+          gh release create pro-alpha "vicu-$PRO_VERSION.apk" --repo "$REPO" --target "$SHA" --prerelease --latest=false --title "Vicu Pro alpha ($PRO_VERSION)" --notes-file notes.md
