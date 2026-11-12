@@ -72,6 +72,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.data.local.NlpPrefsStore
+import com.rendyhd.vicu.data.repository.ProCapture
+import com.rendyhd.vicu.data.repository.ProCaptureSource
 import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.location.LocationRepository
 import com.rendyhd.vicu.ui.components.shared.LocalClockDay
@@ -350,10 +352,12 @@ private fun rememberVoicePreview(text: String, defaults: TaskDefaults): VoicePre
     val inboxId by produceState(0L, authManager) { value = authManager.getInboxProjectId() ?: 0L }
     val locations: LocationRepository = koinInject()
     val places by locations.places.collectAsState(initial = emptyList())
+    val proCapture: ProCaptureSource = koinInject()
+    val pro by proCapture.capture.collectAsState(initial = ProCapture.OFF)
     val day = LocalClockDay.current
     val format = LocalDateFormat.current
-    return remember(text, config, projects, inboxId, day, format, defaults, places) {
-        voicePreview(text, config, time.now().toLocalDateTime(day.zone), day, projects, inboxId, format, defaults, places)
+    return remember(text, config, projects, inboxId, day, format, defaults, places, pro) {
+        voicePreview(text, config, time.now().toLocalDateTime(day.zone), day, projects, inboxId, format, defaults, places, pro)
     }
 }
 

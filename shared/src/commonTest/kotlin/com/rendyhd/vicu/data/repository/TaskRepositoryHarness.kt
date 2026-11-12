@@ -62,6 +62,8 @@ class TaskRepositoryHarness(
     positionerTime: TimeSource = SystemTimeSource,
     /** Shared with a label repository when a test needs both behind one gate. */
     val writeGate: TaskWriteGate = TaskWriteGate(pendingActionDao),
+    /** The device settings; a test turns Pro on here. */
+    val behaviorPrefsStore: BehaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ) {
     val json: Json = authTestJson
@@ -76,8 +78,6 @@ class TaskRepositoryHarness(
     fun clearSent() {
         sentLog.value = emptyList()
     }
-
-    private val behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore())
 
     private val client = HttpClient(
         MockEngine { request ->

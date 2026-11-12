@@ -11,6 +11,8 @@ import com.rendyhd.vicu.data.repository.Duplicated
 import com.rendyhd.vicu.data.repository.TaskDuplicator
 import com.rendyhd.vicu.data.repository.SubtaskOrderPreferences
 import com.rendyhd.vicu.data.repository.TaskTemplateStore
+import com.rendyhd.vicu.data.repository.ProCapture
+import com.rendyhd.vicu.data.repository.ProCaptureSource
 import com.rendyhd.vicu.domain.model.Attachment
 import com.rendyhd.vicu.domain.model.WaitingUpload
 import com.rendyhd.vicu.domain.model.Label
@@ -93,6 +95,8 @@ data class TaskDetailUiState(
     val parserConfig: ParserConfig = ParserConfig(),
     val suppressedTypes: Set<TokenType> = emptySet(),
     val manuallyEditedTypes: Set<TokenType> = emptySet(),
+    /** Pro's phrases and people (contract 5.5); off unless Pro is on here. */
+    val proCapture: ProCapture = ProCapture.OFF,
 )
 
 class TaskDetailViewModel(
@@ -110,6 +114,8 @@ class TaskDetailViewModel(
     private val taskDuplicator: TaskDuplicator? = null,
     private val templateStore: TaskTemplateStore? = null,
     private val subtaskOrders: SubtaskOrderPreferences? = null,
+    /** Pro's phrases while Pro is on; none in tests. */
+    private val proCaptureSource: ProCaptureSource? = null,
 ) : ViewModel() {
 
     companion object {
@@ -180,14 +186,31 @@ class TaskDetailViewModel(
                         parserConfig = newConfig,
                         parseResult = state.parseResult?.let {
                             state.task?.title?.takeIf(String::isNotBlank)?.let { title ->
-                                TaskParser.parse(title, newConfig)
+                                parseTitle(title, newConfig, state.proCapture)
                             }
                         },
                     )
                 }
             }
         }
+        proCaptureSource?.let { source ->
+            viewModelScope.launch {
+                source.capture.collect { pro ->
+                    _uiState.update { state ->
+                        state.copy(
+                            proCapture = pro,
+                            parseResult = state.parseResult?.let {
+                                state.task?.title?.takeIf(String::isNotBlank)?.let { title -> parseTitle(title, state.parserConfig, pro) }
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
+
+    private fun parseTitle(title: String, config: ParserConfig, pro: ProCapture): ParseResult =
+        TaskParser.parse(title, pro.config(config), people = pro.parserPeople)
 
     fun loadTask(taskId: Long) {
         // Edits of the task being replaced are saved first. The request is captured now, before
@@ -296,7 +319,7 @@ class TaskDetailViewModel(
                             isLoading = false,
                             descriptionConflict = descriptionConflict ?: state.descriptionConflict,
                             parseResult = if (draft != null) {
-                                merged.title.takeIf(String::isNotBlank)?.let { TaskParser.parse(it, state.parserConfig) }
+                                merged.title.takeIf(String::isNotBlank)?.let { parseTitle(it, state.parserConfig, state.proCapture) }
                             } else {
                                 state.parseResult
                             },
@@ -366,7 +389,7 @@ class TaskDetailViewModel(
             val config = state.parserConfig.copy(suppressTypes = activeSuppressed)
             state.copy(
                 task = state.task?.copy(title = title),
-                parseResult = title.takeIf(String::isNotBlank)?.let { TaskParser.parse(it, config) },
+                parseResult = title.takeIf(String::isNotBlank)?.let { parseTitle(it, config, state.proCapture) },
                 suppressedTypes = activeSuppressed,
                 parserConfig = config,
             )
@@ -384,7 +407,7 @@ class TaskDetailViewModel(
             val config = state.parserConfig.copy(suppressTypes = newSuppressed)
             state.copy(
                 parseResult = state.task?.title?.takeIf(String::isNotBlank)?.let {
-                    TaskParser.parse(it, config)
+                    parseTitle(it, config, state.proCapture)
                 },
                 suppressedTypes = newSuppressed,
                 parserConfig = config,
@@ -1047,6 +1070,7 @@ class TaskDetailViewModel(
                 projects = state.allProjects,
                 zone = dayClock.day.value.zone,
                 manuallyEditedTypes = state.manuallyEditedTypes,
+                pro = state.proCapture,
             ),
             hasTokens = state.parseResult.tokens.isNotEmpty(),
         )

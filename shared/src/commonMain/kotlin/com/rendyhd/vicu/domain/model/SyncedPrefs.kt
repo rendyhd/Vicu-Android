@@ -4,7 +4,11 @@ import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import com.rendyhd.vicu.util.pro.ProPrefs
+import com.rendyhd.vicu.util.pro.ProSettings
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -111,6 +115,48 @@ object SyncedPrefKeys {
     /** The routine of a `routine_hidden.<id>` key, or null for any other key. */
     fun routineHiddenRoutine(key: String): String? =
         key.takeIf { it.startsWith(ROUTINE_HIDDEN_PREFIX) }?.removePrefix(ROUTINE_HIDDEN_PREFIX)?.takeIf { it.isNotEmpty() }
+
+    // Pro (sections 11.3 and 21): written only while Pro is on, kept by every version.
+
+    /** The project categories promises and the portfolio apply in (section 21.1). */
+    const val PRO_AREA = ProSettings.AREA_KEY
+
+    /** `"sequential"` or `"single"`; parallel has no entry. */
+    fun projectModeOf(projectId: Long): String = ProPrefs.projectModeKey(projectId)
+
+    /** `"on_hold"`, or no entry. */
+    fun projectStatusOf(projectId: Long): String = ProPrefs.projectStatusKey(projectId)
+
+    /** `"on_hold"`, or no entry. */
+    fun labelStatusOf(labelId: Long): String = ProPrefs.labelStatusKey(labelId)
+
+    /** `"person"`, or no entry. */
+    fun labelKindOf(labelId: Long): String = ProPrefs.labelKindKey(labelId)
+
+    /** `{ "until"?, "count"?, "catch_up"? }` beside the task's repeat (section 21.13). */
+    fun repeatRuleOf(taskId: Long): String = ProPrefs.repeatRuleKey(taskId)
+
+    /** True for one of Pro's keys: the area, or a Pro prefix and an id. */
+    fun isProKey(key: String): Boolean = key == PRO_AREA || ProPrefs.isProKey(key)
+
+    /**
+     * Whether Pro may write [value] to [key] (the desktop's `isWritablePref` for the Pro keys):
+     * null resets any of them; otherwise only the values the registry allows.
+     */
+    fun isWritableProValue(key: String, value: JsonElement?): Boolean {
+        if (!isProKey(key)) return false
+        if (value == null || value is JsonNull) return true
+        val text = (value as? JsonPrimitive)?.takeIf { it.isString }?.content
+        return when {
+            key == PRO_AREA -> value is JsonArray && ProSettings.readArea(value).size == value.size
+            ProPrefs.idOfKey(key, ProPrefs.PROJECT_MODE_PREFIX) != null -> text == "sequential" || text == "single"
+            ProPrefs.idOfKey(key, ProPrefs.PROJECT_STATUS_PREFIX) != null ||
+                ProPrefs.idOfKey(key, ProPrefs.LABEL_STATUS_PREFIX) != null -> text == "on_hold"
+            ProPrefs.idOfKey(key, ProPrefs.LABEL_KIND_PREFIX) != null -> text == "person"
+            ProPrefs.idOfKey(key, ProPrefs.REPEAT_RULE_PREFIX) != null -> ProPrefs.readRepeatRule(value) != null
+            else -> false
+        }
+    }
 }
 
 /**

@@ -242,6 +242,32 @@ object PlannerTimeline {
         return "(start_date >= '$from' && start_date < '$to') || (done = false && ($due$overdue))"
     }
 
+    /**
+     * Whether a row the plan query returned belongs to the days [firstDay] to [lastDay]: the query
+     * is a superset, because a lone start date (contract 21.3) passes its `startDate` clause. A row
+     * belongs when it is a block starting in the range, or open and due in it (or overdue while
+     * [today] is shown). The desktop's `inPlanRange`.
+     */
+    fun inPlanRange(
+        due: String?,
+        start: String?,
+        end: String?,
+        done: Boolean,
+        firstDay: LocalDate,
+        lastDay: LocalDate,
+        today: LocalDate,
+        zone: TimeZone,
+    ): Boolean {
+        if (lastDay < firstDay) return false
+        TimeBlocks.blockOf(start, end, zone)?.let { block -> if (block.day in firstDay..lastDay) return true }
+        if (done) return false
+        val dueAt = DateUtils.parseIsoDate(due) ?: return false
+        val from = firstDay.atStartOfDayIn(zone)
+        val to = lastDay.plus(1, DateTimeUnit.DAY).atStartOfDayIn(zone)
+        if (dueAt >= from && dueAt < to) return true
+        return today in firstDay..lastDay && dueAt < today.atStartOfDayIn(zone)
+    }
+
     // --- Gestures ------------------------------------------------------------------------------
 
     private fun clamp(value: Int, low: Int, high: Int): Int = maxOf(low, minOf(high, value))

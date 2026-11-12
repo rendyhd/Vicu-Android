@@ -24,12 +24,16 @@ object DefaultReminder {
         if (offsetSeconds == 0) return null
         if (dueDate.isNullOrBlank() || dueDate == Constants.NULL_DATE_STRING) return null
 
-        val hasBlock = !blockStart.isNullOrBlank() && !blockEnd.isNullOrBlank()
+        // Both ends make a block: a lone start date (contract 21.3) is no block, so it never moves
+        // the reminder off the due date.
+        val blockFrom = DateUtils.parseIsoDate(blockStart?.takeIf { it.isNotBlank() })
+        val blockTo = DateUtils.parseIsoDate(blockEnd?.takeIf { it.isNotBlank() })
+        val hasBlock = blockFrom != null && blockTo != null && blockTo > blockFrom
         val to = if (hasBlock && relativeTo == "due_date") "start_date" else relativeTo
         val base: String = when {
             !hasBlock -> dueDate
-            to == "end_date" -> blockEnd
-            else -> blockStart
+            to == "end_date" -> blockEnd.orEmpty()
+            else -> blockStart.orEmpty()
         }
         if (offsetSeconds == -1) {
             return TaskReminder(reminder = base, relativePeriod = 0, relativeTo = to)

@@ -10,6 +10,8 @@ import com.rendyhd.vicu.data.local.dao.normalizeQueuedPatchPayload
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.local.dao.CollabQueue
 import com.rendyhd.vicu.data.local.dao.AttachmentQueue
+import com.rendyhd.vicu.data.local.dao.RelationQueue
+import com.rendyhd.vicu.data.local.dao.remapRelationAction
 import com.rendyhd.vicu.domain.repository.CollaborationRepository
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.mapper.LabelMapper
@@ -23,6 +25,7 @@ import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.data.repository.ListPositioner
+import com.rendyhd.vicu.data.repository.ProLedgerRepository
 import com.rendyhd.vicu.data.repository.RoutineCarrierWriter
 import com.rendyhd.vicu.data.repository.TaskWriteGate
 import com.rendyhd.vicu.data.local.entity.TaskEntity
@@ -109,6 +112,8 @@ class SyncEngine(
     private val savedFilters: SavedFilterImporter? = null,
     /** Uploads the files attached while the server could not be reached. */
     private val attachmentSync: AttachmentUploadSync? = null,
+    /** The Pro ledger (cross-app semantics 21.7); it syncs only while Pro is on. */
+    private val proLedger: ProLedgerRepository? = null,
 ) {
     private val missing = MissingResourceCheck(api)
     private val carrierWriter = RoutineCarrierWriter(api, json)
@@ -198,6 +203,12 @@ class SyncEngine(
                 is SyncedDocumentStatus.Offline -> run.hasRetriableFailures = true
                 // The carrier has been read: what this phone kept before places synced can be offered.
                 SyncedDocumentStatus.Idle -> locations?.moveLocalData()
+                else -> Unit
+            }
+            // Nothing is read or written here while Pro is off (contract 21.1).
+            when (proLedger?.sync()) {
+                SyncedDocumentStatus.Pending,
+                is SyncedDocumentStatus.Offline -> run.hasRetriableFailures = true
                 else -> Unit
             }
             val outcome = refreshAllFromServer()
@@ -341,6 +352,15 @@ class SyncEngine(
                 action.entityId.takeIf(::unresolved)?.let { TempRef("label", it) }
             action.entityType in CollabQueue.ENTITY_TYPES || action.entityType == AttachmentQueue.ENTITY_TYPE ->
                 action.entityId.takeIf(::unresolved)?.let { TempRef("task", it) }
+            // A relation names two tasks; either may still wait for its create (a failed one fails it too).
+            action.entityType == RelationQueue.ENTITY_TYPE -> {
+                val other = RelationQueue.decode(action.payload)?.otherTaskId
+                when {
+                    unresolved(action.entityId) -> TempRef("task", action.entityId)
+                    other != null && unresolved(other) -> TempRef("task", other)
+                    else -> null
+                }
+            }
             else -> null
         }
     }
@@ -403,6 +423,7 @@ class SyncEngine(
                 dropGoneTask(taskId, "${action.entityType}/${action.actionType}")
                 true
             }
+            RelationQueue.ENTITY_TYPE -> resolveRelation(action, e, tempIdMap)
             AttachmentQueue.ENTITY_TYPE -> {
                 // The task is gone: there is nothing to attach the file to.
                 val taskId = tempIdMap[action.entityId] ?: action.entityId
@@ -471,6 +492,50 @@ class SyncEngine(
         }
     }
 
+    /**
+     * A relation refused in a way that means it is done or can never apply (the desktop's
+     * `classify.ts`): already there (409) on an add and already gone (404) on a removal are done; a
+     * 404 on an add whose task, or other task, is confirmed gone drops it. Vikunja names a missing
+     * task with one code for either side, so each is asked for.
+     */
+    private suspend fun resolveRelation(action: PendingActionEntity, e: VikunjaApiException, tempIdMap: Map<Long, Long>): Boolean {
+        val payload = RelationQueue.decode(action.payload) ?: return false
+        val taskId = tempIdMap[action.entityId] ?: action.entityId
+        val otherId = tempIdMap[payload.otherTaskId] ?: payload.otherTaskId
+        return when (action.actionType) {
+            RelationQueue.ADD -> when {
+                e.httpStatus == 409 -> true
+                e.httpStatus != 404 -> false
+                confirmedGone(taskId) -> {
+                    dropGoneTask(taskId, "relation/${action.actionType}")
+                    true
+                }
+                confirmedGone(otherId) -> {
+                    taskDao.getByIdSync(taskId)?.let { row ->
+                        taskDao.upsert(with(taskMapper) { row.withRelatedTaskRemoved(payload.kind, otherId) })
+                    }
+                    Logger.w(TAG, "Task $otherId is gone on the server; dropped the relation from task $taskId")
+                    true
+                }
+                else -> false
+            }
+            RelationQueue.REMOVE -> e.httpStatus == 404
+            else -> false
+        }
+    }
+
+    /** True when the server says task [taskId] does not exist; a bare 404 or another failure says nothing. */
+    private suspend fun confirmedGone(taskId: Long): Boolean = try {
+        api.getTask(taskId)
+        false
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: VikunjaApiException) {
+        e.httpStatus == 404 && e.problem?.code == MissingResourceCheck.TASK_DOES_NOT_EXIST
+    } catch (_: Exception) {
+        false
+    }
+
     /** The task and label ids of an add_label / remove_label payload ("taskId:labelId"), remapped from temp ids. */
     private fun labelTaskIds(payload: String, tempIdMap: Map<Long, Long>): Pair<Long, Long>? {
         val parts = payload.split(":")
@@ -506,6 +571,7 @@ class SyncEngine(
             collabSync?.handles(action) == true ->
                 return collabSync.process(action, tempIdMap) { tempId, realId -> tempIds?.rememberRealId(tempId, realId) }
             attachmentSync?.handles(action) == true -> attachmentSync.process(action, tempIdMap)
+            action.entityType == RelationQueue.ENTITY_TYPE -> processRelationAction(action, tempIdMap)
             else -> Logger.w(TAG, "Unknown entity type: ${action.entityType}")
         }
         return true
@@ -600,6 +666,11 @@ class SyncEngine(
                     finalEntity = with(taskMapper) { doneDto.toEntity() }
                     taskDao.upsert(finalEntity)
                 }
+                // Pro's flag of a task created offline goes on its own, as online (contract 21.4).
+                if (task.isFavorite && !finalEntity.isFavorite) {
+                    finalEntity = with(taskMapper) { api.updateTask(responseEntity.id, MergePatches.taskFlag(true)).toEntity() }
+                    taskDao.upsert(finalEntity)
+                }
                 val created = with(taskMapper) { finalEntity.toDomain() }
                 if (created.done) {
                     platformHooks.cancelAlarm(created.id)
@@ -669,6 +740,8 @@ class SyncEngine(
             }
         }
         if (writeGate != null) writeGate.withTaskLock(tempId) { swap() } else swap()
+        // The ledger's keys and task ids of the offline-created task follow it (section 21.7).
+        if (tempId != created.id) proLedger?.remapTask(tempId, created.id)
     }
 
     /**
@@ -692,6 +765,21 @@ class SyncEngine(
                 // 409: the pair is already linked (an earlier attempt got this far).
                 if (e.httpStatus != 409) throw e
             }
+        }
+    }
+
+    /** A queued relation (Pro's "after"): both ids are the server's by now (see [unresolvedTempId]). */
+    private suspend fun processRelationAction(action: PendingActionEntity, tempIdMap: Map<Long, Long>) {
+        val payload = RelationQueue.decode(action.payload) ?: run {
+            Logger.w(TAG, "Dropped unreadable relation action ${action.id}")
+            return
+        }
+        val taskId = tempIdMap[action.entityId] ?: action.entityId
+        val otherId = tempIdMap[payload.otherTaskId] ?: payload.otherTaskId
+        when (action.actionType) {
+            RelationQueue.ADD -> api.createRelation(taskId, CreateRelationDto(otherTaskId = otherId, relationKind = payload.kind))
+            RelationQueue.REMOVE -> api.deleteRelation(taskId, payload.kind, otherId)
+            else -> Logger.w(TAG, "Unknown relation action: ${action.actionType}")
         }
     }
 
@@ -766,6 +854,9 @@ class SyncEngine(
                 // A label edit or delete queued behind its create while that create was being sent.
                 a.entityType == "label" && a.entityId == tempId && a.actionType in LABEL_DEPENDENT_ACTIONS ->
                     pendingActionDao.remapEntity(a.id, realId, a.payload, "pending")
+                // A relation names the task on either side.
+                a.entityType == RelationQueue.ENTITY_TYPE ->
+                    remapRelationAction(a, tempId, realId)?.let { pendingActionDao.remapEntity(a.id, it.entityId, it.payload, "pending") }
             }
         }
         // Assignee and comment changes of a task created offline, and its comments and signals.

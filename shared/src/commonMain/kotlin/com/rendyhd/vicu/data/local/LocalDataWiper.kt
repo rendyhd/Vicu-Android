@@ -4,6 +4,7 @@ import com.rendyhd.vicu.ai.ask.ConversationStore
 import com.rendyhd.vicu.ai.dictation.KeptTranscriptStore
 import com.rendyhd.vicu.data.local.dao.LocalDataDao
 import com.rendyhd.vicu.data.repository.ListPositioner
+import com.rendyhd.vicu.data.repository.ProLedgerRepository
 import com.rendyhd.vicu.data.repository.SyncedPreferences
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.domain.repository.CustomListRepository
@@ -62,6 +63,8 @@ class LocalDataWiper(
     private val savedFilters: SavedFilterStore? = null,
     /** Copies of files waiting to upload; they go with the queue that names them. */
     private val offlineAttachments: OfflineAttachmentFiles? = null,
+    /** The account's Pro ledger copy; its unsynced changes count while Pro is on. */
+    private val proLedger: ProLedgerRepository? = null,
 ) {
     /**
      * Entries of routine history that have not been uploaded to the server yet (the phone-only
@@ -73,9 +76,11 @@ class LocalDataWiper(
     suspend fun unsyncedActionCount(): Int = dao.countUnsyncedActions()
 
     private val prefsUnsynced: Flow<Boolean> = syncedPreferences?.hasUnsyncedChanges ?: flowOf(false)
+    private val proUnsynced: Flow<Boolean> = proLedger?.hasUnsyncedChanges ?: flowOf(false)
 
     /** Custom-list or synced-settings changes the server may not have yet; they are not in the queue. */
-    val syncedDataUnsynced: Flow<Boolean> = combine(customLists.hasUnsyncedChanges, prefsUnsynced) { lists, prefs -> lists || prefs }
+    val syncedDataUnsynced: Flow<Boolean> =
+        combine(customLists.hasUnsyncedChanges, prefsUnsynced, proUnsynced) { lists, prefs, pro -> lists || prefs || pro }
 
     /**
      * Everything [wipeEverything] would lose that has not reached the server: the queued changes,
@@ -84,7 +89,8 @@ class LocalDataWiper(
     suspend fun unsyncedChangeCount(): Int =
         unsyncedActionCount() +
             (if (customLists.hasUnsyncedChanges.first()) 1 else 0) +
-            (if (prefsUnsynced.first()) 1 else 0)
+            (if (prefsUnsynced.first()) 1 else 0) +
+            (if (proUnsynced.first()) 1 else 0)
 
     suspend fun clearCaches() {
         SyncEngine.exclusive {
@@ -102,6 +108,8 @@ class LocalDataWiper(
             // reads them back from their carriers.
             customLists.clearLocal()
             syncedPreferences?.clearLocal()
+            // The Pro ledger only while Pro is on: with it off its changes were not counted as unsynced.
+            if (proLedger?.isProOn() == true) proLedger.clearLocal()
             syncCursor.clear()
             syncStaleness.reset()
         }
@@ -113,6 +121,7 @@ class LocalDataWiper(
             offlineAttachments?.sweep(keep = emptySet(), minAgeMillis = 0)
             customLists.clearLocal()
             syncedPreferences?.clearLocal()
+            proLedger?.clearLocal()
             bottomBarPrefs.clear()
             // Preferences keyed by the old account's project and label ids, and the routine
             // device id. A cache clear keeps them: the same account is synced again.

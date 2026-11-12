@@ -6,8 +6,19 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
+import com.rendyhd.vicu.util.pro.Focus
+import com.rendyhd.vicu.util.pro.ProFocus
+import com.rendyhd.vicu.util.pro.ProLayer
+import com.rendyhd.vicu.util.pro.ProLayers
+import com.rendyhd.vicu.util.pro.ProSettings
+import com.rendyhd.vicu.util.pro.ProSwitches
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * App-wide behavior preferences that don't fit elsewhere:
@@ -66,7 +77,42 @@ data class BehaviorPrefs(
     val plannerSource: String = "",
     /** "HH:mm" of the evening nudge to plan tomorrow (contract 14.10), per device; null is off. */
     val plannerNudge: String? = null,
-)
+    /** Pro's switch (contract 21.1), per device and never synced; off by default. */
+    val proEnabled: Boolean = false,
+    /** Pro's layers; a layer not turned off is on. */
+    val proLayers: ProLayers = ProLayers.DEFAULT,
+    /** Available, Remaining or All per list key (`anytime`, `project:12`, `tag:4`, `list:<id>`). */
+    val proListViews: Map<String, ProListView> = emptyMap(),
+    /** Focus (contract 21.14), or null for none. */
+    val proFocus: ProFocus? = null,
+    /** Pro data reaches the assistant only while this is on. */
+    val proAssistant: Boolean = false,
+    /** "Ask me tomorrow" per promise (by task id): the due day asked about and the day to ask again. */
+    val proVerdictSnooze: Map<String, VerdictSnooze> = emptyMap(),
+    /** The first-run notice about start dates set elsewhere was shown. */
+    val proOnboardingSeen: Boolean = false,
+) {
+    /** The switch and layers as the Pro rules read them. This app has no standalone mode. */
+    val proSwitches: ProSwitches get() = ProSwitches(proEnabled = proEnabled, proLayers = proLayers)
+
+    /** Pro is on, and with a [layer], that layer too. */
+    fun isProEnabled(layer: ProLayer? = null): Boolean = ProSettings.isEnabled(proSwitches, layer)
+}
+
+/** What a list shows while Pro's availability layer is on (contract 21.2). */
+enum class ProListView(val key: String) {
+    AVAILABLE("available"),
+    REMAINING("remaining"),
+    ALL("all"),
+    ;
+
+    companion object {
+        fun of(key: String?): ProListView? = entries.firstOrNull { it.key == key }
+    }
+}
+
+/** A promise's verdict put off once: [due] is the due day asked about, [until] the day to ask again. */
+data class VerdictSnooze(val due: String, val until: String)
 
 class BehaviorPrefsStore(
     private val dataStore: DataStore<Preferences>,
@@ -105,6 +151,32 @@ class BehaviorPrefsStore(
         private val KEY_PLANNER_TODAY_DAY_VIEW = booleanPreferencesKey("planner_today_day_view")
         private val KEY_PLANNER_SOURCE = stringPreferencesKey("planner_source")
         private val KEY_PLANNER_NUDGE = stringPreferencesKey("planner_nudge")
+        private val KEY_PRO_ENABLED = booleanPreferencesKey("pro_enabled")
+        private val KEY_PRO_LAYERS = stringPreferencesKey("pro_layers")
+        private val KEY_PRO_LIST_VIEWS = stringPreferencesKey("pro_list_views")
+        private val KEY_PRO_FOCUS = stringPreferencesKey("pro_focus")
+        private val KEY_PRO_ASSISTANT = booleanPreferencesKey("pro_assistant")
+        private val KEY_PRO_VERDICT_SNOOZE = stringPreferencesKey("pro_verdict_snooze")
+        private val KEY_PRO_ONBOARDING_SEEN = booleanPreferencesKey("pro_onboarding_seen")
+
+        /** A stored JSON value, or null when there is none or it does not read. */
+        private fun parseJson(raw: String?): JsonElement? =
+            raw?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() }
+
+        private fun objectOf(raw: String?): JsonObject = parseJson(raw) as? JsonObject ?: JsonObject(emptyMap())
+
+        private fun JsonElement?.text(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+        internal fun readListViews(raw: String?): Map<String, ProListView> =
+            objectOf(raw).mapNotNull { (key, value) -> ProListView.of(value.text())?.let { key to it } }.toMap()
+
+        internal fun readVerdictSnooze(raw: String?): Map<String, VerdictSnooze> =
+            objectOf(raw).mapNotNull { (key, value) ->
+                val entry = value as? JsonObject ?: return@mapNotNull null
+                val due = entry["due"].text() ?: return@mapNotNull null
+                val until = entry["until"].text() ?: return@mapNotNull null
+                key to VerdictSnooze(due, until)
+            }.toMap()
     }
 
     fun getPrefs(): Flow<BehaviorPrefs> =
@@ -135,6 +207,13 @@ class BehaviorPrefsStore(
                 plannerTodayDayView = prefs[KEY_PLANNER_TODAY_DAY_VIEW] ?: false,
                 plannerSource = prefs[KEY_PLANNER_SOURCE].orEmpty(),
                 plannerNudge = prefs[KEY_PLANNER_NUDGE],
+                proEnabled = prefs[KEY_PRO_ENABLED] ?: false,
+                proLayers = ProSettings.readLayers(parseJson(prefs[KEY_PRO_LAYERS])),
+                proListViews = readListViews(prefs[KEY_PRO_LIST_VIEWS]),
+                proFocus = Focus.readProFocus(parseJson(prefs[KEY_PRO_FOCUS])),
+                proAssistant = prefs[KEY_PRO_ASSISTANT] ?: false,
+                proVerdictSnooze = readVerdictSnooze(prefs[KEY_PRO_VERDICT_SNOOZE]),
+                proOnboardingSeen = prefs[KEY_PRO_ONBOARDING_SEEN] ?: false,
             )
         }
 
@@ -215,6 +294,64 @@ class BehaviorPrefsStore(
 
     suspend fun setPlannerNudge(time: String?) {
         dataStore.edit { if (time == null) it.remove(KEY_PLANNER_NUDGE) else it[KEY_PLANNER_NUDGE] = time }
+    }
+
+    /** Turns Pro on or off here. Only this switch changes: turning Pro off writes nothing else. */
+    suspend fun setProEnabled(enabled: Boolean) {
+        dataStore.edit { it[KEY_PRO_ENABLED] = enabled }
+    }
+
+    /** Turns one layer on or off. Layers a newer version stored are kept. */
+    suspend fun setProLayer(layer: ProLayer, on: Boolean) {
+        dataStore.edit { prefs ->
+            prefs[KEY_PRO_LAYERS] = JsonObject(objectOf(prefs[KEY_PRO_LAYERS]) + (layer.key to JsonPrimitive(on))).toString()
+        }
+    }
+
+    /** What list [listKey] shows; null is the default (Available). Other lists are kept. */
+    suspend fun setProListView(listKey: String, view: ProListView?) {
+        dataStore.edit { prefs ->
+            val stored = objectOf(prefs[KEY_PRO_LIST_VIEWS])
+            val next = if (view == null) stored - listKey else stored + (listKey to JsonPrimitive(view.key))
+            if (next.isEmpty()) prefs.remove(KEY_PRO_LIST_VIEWS) else prefs[KEY_PRO_LIST_VIEWS] = JsonObject(next).toString()
+        }
+    }
+
+    /** The focus; null or an empty one is none. */
+    suspend fun setProFocus(focus: ProFocus?) {
+        dataStore.edit { prefs ->
+            if (focus == null || (focus.categories.isEmpty() && focus.projects.isEmpty())) {
+                prefs.remove(KEY_PRO_FOCUS)
+            } else {
+                prefs[KEY_PRO_FOCUS] = JsonObject(
+                    mapOf(
+                        "categories" to JsonArray(focus.categories.map(::JsonPrimitive)),
+                        "projects" to JsonArray(focus.projects.map(::JsonPrimitive)),
+                    ),
+                ).toString()
+            }
+        }
+    }
+
+    suspend fun setProAssistant(enabled: Boolean) {
+        dataStore.edit { it[KEY_PRO_ASSISTANT] = enabled }
+    }
+
+    /** "Ask me tomorrow" for the promise of task [taskId]; null forgets it. */
+    suspend fun setVerdictSnooze(taskId: String, snooze: VerdictSnooze?) {
+        dataStore.edit { prefs ->
+            val stored = objectOf(prefs[KEY_PRO_VERDICT_SNOOZE])
+            val next = if (snooze == null) {
+                stored - taskId
+            } else {
+                stored + (taskId to JsonObject(mapOf("due" to JsonPrimitive(snooze.due), "until" to JsonPrimitive(snooze.until))))
+            }
+            if (next.isEmpty()) prefs.remove(KEY_PRO_VERDICT_SNOOZE) else prefs[KEY_PRO_VERDICT_SNOOZE] = JsonObject(next).toString()
+        }
+    }
+
+    suspend fun setProOnboardingSeen(seen: Boolean) {
+        dataStore.edit { it[KEY_PRO_ONBOARDING_SEEN] = seen }
     }
 
     /** Shows [view] in the drawer again, or takes it out. Names this version does not know are kept. */

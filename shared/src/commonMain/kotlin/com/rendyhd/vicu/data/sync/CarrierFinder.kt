@@ -8,6 +8,7 @@ import com.rendyhd.vicu.data.remote.api.isBrokenSearch
 import com.rendyhd.vicu.util.CustomListEnvelope
 import com.rendyhd.vicu.util.HiddenTasks
 import com.rendyhd.vicu.util.Logger
+import com.rendyhd.vicu.util.ProLedgerEnvelope
 import com.rendyhd.vicu.util.SyncedPrefsEnvelope
 import com.rendyhd.vicu.util.SystemTimeSource
 import com.rendyhd.vicu.util.TimeSource
@@ -39,6 +40,20 @@ class CarrierSpec(
             kind = "prefs",
             search = SyncedPrefsEnvelope.SEARCH,
             isCarrier = { SyncedPrefsEnvelope.hasMarker(it.description) },
+        )
+
+        /** The Pro ledger (section 21.7); read and written only while Pro is on. */
+        val PRO = CarrierSpec(
+            kind = "pro",
+            search = ProLedgerEnvelope.SEARCH,
+            isCarrier = { ProLedgerEnvelope.hasMarker(it.description) },
+        )
+
+        /** The Pro ledger's archive parts, one per quarter, read on demand. */
+        val PRO_ARCHIVE = CarrierSpec(
+            kind = "pro-archive",
+            search = ProLedgerEnvelope.ARCHIVE_SEARCH,
+            isCarrier = { ProLedgerEnvelope.hasArchiveMarker(it.description) },
         )
     }
 }

@@ -23,6 +23,8 @@ import com.rendyhd.vicu.domain.repository.TaskRepository
 import com.rendyhd.vicu.location.LocationAccess
 import com.rendyhd.vicu.location.LocationPermissionPlatform
 import com.rendyhd.vicu.location.LocationRepository
+import com.rendyhd.vicu.data.repository.ProCapture
+import com.rendyhd.vicu.data.repository.ProCaptureSource
 import com.rendyhd.vicu.data.repository.TaskTemplateStore
 import com.rendyhd.vicu.location.LocationTrigger
 import com.rendyhd.vicu.location.PlaceMatch
@@ -94,6 +96,8 @@ data class TaskEntryUiState(
     val keepEntryOpen: Boolean = false,
     /** The saved places "when I get home" in the title may name (TokenType.PLACE). */
     val places: List<SavedPlace> = emptyList(),
+    /** Pro's phrases and people (contract 5.5); off unless Pro is on here. */
+    val proCapture: ProCapture = ProCapture.OFF,
     /** Arrive or leave, set by tapping the place chip: wins over the words of the title. */
     val placeTrigger: LocationTrigger? = null,
     /** A place picked in the Remind tray: wins over a place the title names. */
@@ -146,6 +150,8 @@ class TaskEntryViewModel(
     private val locations: LocationRepository,
     private val locationPermission: LocationPermissionPlatform,
     private val templateStore: TaskTemplateStore? = null,
+    /** Pro's phrases while Pro is on; none in tests. */
+    private val proCaptureSource: ProCaptureSource? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TaskEntryUiState())
@@ -233,7 +239,7 @@ class TaskEntryViewModel(
                     state.copy(
                         parserConfig = newConfig,
                         parseResult = if (state.title.isNotBlank()) {
-                            parse(state.title, newConfig, state.places)
+                            parse(state.title, newConfig, state.places, state.proCapture)
                         } else {
                             state.parseResult
                         },
@@ -247,7 +253,7 @@ class TaskEntryViewModel(
                     state.copy(
                         places = places,
                         parseResult = if (state.title.isNotBlank()) {
-                            parse(state.title, state.parserConfig, places)
+                            parse(state.title, state.parserConfig, places, state.proCapture)
                         } else {
                             state.parseResult
                         },
@@ -255,10 +261,26 @@ class TaskEntryViewModel(
                 }
             }
         }
+        proCaptureSource?.let { source ->
+            viewModelScope.launch {
+                source.capture.collect { pro ->
+                    _uiState.update { state ->
+                        state.copy(
+                            proCapture = pro,
+                            parseResult = if (state.title.isNotBlank()) {
+                                parse(state.title, state.parserConfig, state.places, pro)
+                            } else {
+                                state.parseResult
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 
-    private fun parse(title: String, config: ParserConfig, places: List<SavedPlace>): ParseResult =
-        TaskParser.parse(title, config, places = places)
+    private fun parse(title: String, config: ParserConfig, places: List<SavedPlace>, pro: ProCapture): ParseResult =
+        TaskParser.parse(title, pro.config(config), places = places, people = pro.parserPeople)
 
     fun initWithDefaults(defaultProjectId: Long?, defaultDueDate: String? = null) {
         isInitialized = true
@@ -348,7 +370,7 @@ class TaskEntryViewModel(
             val config = state.parserConfig.copy(suppressTypes = activeSuppressed)
             // A template's title is taken as typed (section 18.3).
             val parseResult = if (title.isNotBlank() && state.editingTemplate == null) {
-                parse(title, config, state.places)
+                parse(title, config, state.places, state.proCapture)
             } else {
                 null
             }
@@ -372,7 +394,7 @@ class TaskEntryViewModel(
             val newSuppressed = state.suppressedTypes + type
             val config = state.parserConfig.copy(suppressTypes = newSuppressed)
             val newResult = if (state.title.isNotBlank()) {
-                parse(state.title, config, state.places)
+                parse(state.title, config, state.places, state.proCapture)
             } else {
                 null
             }
@@ -397,7 +419,7 @@ class TaskEntryViewModel(
             state.copy(
                 suppressedTypes = suppressed,
                 parserConfig = config,
-                parseResult = if (state.title.isNotBlank()) parse(state.title, config, state.places) else null,
+                parseResult = if (state.title.isNotBlank()) parse(state.title, config, state.places, state.proCapture) else null,
             )
         }
     }
@@ -637,6 +659,7 @@ class TaskEntryViewModel(
                     allProjects = now.allProjects,
                     allLabels = now.allLabels,
                     places = now.places,
+                    proCapture = now.proCapture,
                     templates = now.templates,
                     parserConfig = now.parserConfig.copy(suppressTypes = before.state.parserConfig.suppressTypes),
                     inboxProjectId = now.inboxProjectId,
@@ -712,8 +735,11 @@ class TaskEntryViewModel(
                 if (config.enabled && parseResult != null) {
                     resolvedLabelIds += resolveParsedLabels(parseResult.labels, state.allLabels, labelRepository)
                 }
+                // Pro on: `Jan:` adds that person's label, `starts monday` and `!flag` set their fields.
+                val proParsed = parseResult.takeIf { config.enabled }
+                state.proCapture.personLabelOf(proParsed)?.let { resolvedLabelIds += it }
 
-                val task = Task(
+                val plainTask = Task(
                     id = 0,
                     title = title,
                     description = descriptionAtSave,
@@ -726,6 +752,7 @@ class TaskEntryViewModel(
                     repeatAfter = recurrence.repeatAfter,
                     repeatMode = recurrence.repeatMode,
                 )
+                val task = state.proCapture.applyToNew(plainTask, proParsed, day.zone)
 
                 // Synthesize a default reminder when the user set a due date but no
                 // manual reminder (desktop parity).
@@ -888,6 +915,7 @@ class TaskEntryViewModel(
                 allProjects = now.allProjects,
                 allLabels = now.allLabels,
                 places = now.places,
+                proCapture = now.proCapture,
                 templates = now.templates,
                 parserConfig = now.parserConfig.copy(suppressTypes = cleared.state.parserConfig.suppressTypes),
                 inboxProjectId = now.inboxProjectId,

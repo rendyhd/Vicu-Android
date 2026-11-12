@@ -4,6 +4,8 @@ import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.AuthState
 import com.rendyhd.vicu.data.local.NlpPrefsStore
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
+import com.rendyhd.vicu.data.repository.ProCapture
+import com.rendyhd.vicu.data.repository.ProCaptureSource
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
@@ -46,6 +48,8 @@ class TextTaskCreator(
     private val time: TimeSource = SystemTimeSource,
     private val locations: LocationRepository? = null,
     private val locationPermission: LocationPermissionPlatform? = null,
+    /** Pro's phrases while Pro is on (contract 5.5); none in tests. */
+    private val proCapture: ProCaptureSource? = null,
 ) {
     sealed interface Result {
         /** [confirmation] says what was added, for the voice reply or a toast. */
@@ -86,7 +90,12 @@ class TextTaskCreator(
         val now = time.now().toLocalDateTime(day.zone)
         // A project that is gone or archived since the screen was drawn falls back to the Inbox.
         val defaultProject = defaultProjectId?.takeIf { id -> projects.any { it.id == id && !it.isArchived } } ?: inboxId
-        val parsed = if (config.enabled) TaskParser.parse(sentence, config, reference = now, zone = day.zone) else null
+        val pro = proCapture?.capture?.first() ?: ProCapture.OFF
+        val parsed = if (config.enabled) {
+            TaskParser.parse(sentence, pro.config(config), reference = now, zone = day.zone, people = pro.parserPeople)
+        } else {
+            null
+        }
 
         // The same rules as the quick add sheet with nothing picked by hand (TaskEntryFields.kt).
         val fields = resolveEntryFields(
@@ -113,8 +122,9 @@ class TextTaskCreator(
         if (title.isBlank()) return Result.Failed("Say what the task is.")
 
         val labelIds = if (parsed != null) resolveParsedLabels(parsed.labels, labels, labelRepository) else emptySet()
+        val personLabel = pro.personLabelOf(parsed)
         val prefs = notificationPrefsStore.getPrefs().first()
-        val task = Task(
+        val plainTask = Task(
             id = 0,
             title = title,
             dueDate = dueDate,
@@ -134,10 +144,12 @@ class TextTaskCreator(
                 ),
             ),
         )
+        // Pro on: `starts monday` and `!flag` set their fields, `Jan:` adds that person's label.
+        val task = pro.applyToNew(plainTask, parsed, day.zone)
         return when (val result = taskRepository.createQueued(task)) {
             is NetworkResult.Success -> {
                 val created = result.data
-                for (labelId in labelIds) labelRepository.addToTask(created.id, labelId)
+                for (labelId in labelIds + listOfNotNull(personLabel)) labelRepository.addToTask(created.id, labelId)
                 placePhrase?.let { phrase ->
                     locations.setReminder(locations.reminderAt(created.id, phrase.place, phrase.trigger))
                 }

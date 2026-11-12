@@ -100,6 +100,27 @@ Contract section 16, and 11.3 for the two synced keys. Plan my day is section 14
 - A time block itself is the task's own `start_date` and `end_date`: it shows on every device,
   whether the planner is on there or not.
 
+## Changes with Pro
+
+Contract section 21; plan `docs/superpowers/plans/2026-11-11-vicu-pro.md` in the desktop repo,
+section 9.1. Pro only adds: with it off (the default) nothing below is read, written or shown.
+
+- **Per device**, in `BehaviorPrefsStore`, never synced, kept through a sign-out (the desktop's
+  `config.json` keys of the same names): the switch `pro_enabled` (off; turning it off writes nothing
+  else), `pro_layers` (JSON, a layer not stored is on; layers a newer version stored are kept),
+  `pro_list_views` (Available, Remaining or All per list key), `pro_focus` (categories and projects),
+  `pro_assistant`, `pro_verdict_snooze` ("Ask me tomorrow" per promise) and `pro_onboarding_seen`.
+  `BehaviorPrefs.isProEnabled(layer)` is the one check; this app has no standalone mode.
+- **Synced preferences** of the account (contract 11.3), written only from Pro screens through
+  `ProPreferences`: `pro.area`, `project_mode.<id>`, `project_status.<id>`, `label_status.<id>`,
+  `label_kind.<id>` and `repeat_rule.<taskId>`. `SyncedPrefKeys.isWritableProValue` refuses values
+  the registry does not allow; null resets a key on every device. Every version keeps them.
+- **The Pro ledger** (contract 21.7): a hidden carrier `vicu-pro:v1` per account with archive parts
+  `vicu-pro-archive:v1` per quarter, synced by `ProLedgerRepository` only while Pro is on. Its local
+  copy is a new account-specific store, `ProLedgerStore` (`pro_ledger`): cleared by `wipeEverything`
+  and by discarding unsynced work, excluded from Android backup, counted as unsynced work at sign-out
+  while Pro is on. Turning Pro off keeps the copy as it is.
+
 ## Summary
 
 | Where | What | Reaches the desktop and other devices | Survives sign-out | In a backup |
@@ -193,6 +214,7 @@ Stores that hold app state, not settings:
 | Store (file) | What it holds | Sign-out | Android backup |
 |---|---|---|---|
 | `CarrierIdStore` (`carrier_ids`) | The carrier task ids found so far, per server | Cleared | Excluded |
+| `ProLedgerStore` (`pro_ledger`) | The local copy of the Pro ledger and its sync state (`pro_ledger_v1`: device id, document, dirty, carrier id, last sync); read and synced only while Pro is on | Cleared | Excluded |
 | `SyncCursorStore` (`sync_cursor`) | The incremental task refresh cursor and the last full reconcile | Cleared, also by a cache clear | Excluded |
 | `TempIdGenerator` (`temp_ids`) | The negative id counter for offline creates, the temporary-to-real id map, and the creates that may have reached the server (`creates_maybe_sent`) | Never cleared | Excluded |
 | `SnoozeStore` (`snooze_prefs`) | Snoozed reminders | Emptied with the alarms | Excluded |

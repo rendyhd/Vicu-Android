@@ -53,6 +53,11 @@ class ProjectProgressSourceImpl(
             authManager.knownId()?.let { carrierFinder.ensureKnown(spec, server, it) }
             carrierFinder.knownProjects(spec, server).forEach { (id, project) -> projectOfTask[id] = project }
         }
+        // Pro's carriers count once a Pro sync has read them here; nothing is read for this, so a
+        // device with Pro off asks for none of them.
+        for (spec in listOf(CarrierSpec.PRO, CarrierSpec.PRO_ARCHIVE)) {
+            carrierFinder.knownProjects(spec, server).forEach { (id, project) -> projectOfTask[id] = project }
+        }
 
         // An archive part lives in the project of its routine's main carrier.
         val parts = archiveStore.knownPartRoutines().filterKeys { it !in projectOfTask }

@@ -96,6 +96,7 @@ val databaseModule = module {
     single { SnoozeStore(createDataStore(get(), "snooze_prefs"), get()) }
     single { SyncCursorStore(createDataStore(get(), "sync_cursor")) }
     single { SyncedPrefsStore(createDataStore(get(), "synced_prefs")) }
+    single { ProLedgerStore(createDataStore(get(), "pro_ledger")) }
     single { TempIdGenerator(createDataStore(get(), "temp_ids")) }
     single { ThemePrefsStore(createDataStore(get(), "theme_prefs")) }
     single { SavedPlacesStore(createDataStore(get(), "saved_places"), get()) }
@@ -250,6 +251,20 @@ val repositoryModule = module {
     single { SubtaskOrderPreferences(synced = get<SyncedPreferences>()) }
     single { WeeklyReviewPreferences(synced = get<SyncedPreferences>()) }
     single { PlannerPreferences(synced = get<SyncedPreferences>()) }
+    // Pro (contract 21): its synced keys, and the ledger, which syncs only while Pro is on.
+    single { ProPreferences(synced = get<SyncedPreferences>()) }
+    single { ProCaptureSource(behaviorPrefs = get(), proPreferences = get(), labelRepository = get(), proLedger = get()) }
+    single {
+        ProLedgerRepository(
+            store = get(),
+            api = get(),
+            carrierFinder = get(),
+            authManager = get(),
+            behaviorPrefs = get(),
+            platformHooks = get(),
+            time = get(),
+        )
+    }
     // Your own Events (synced) and the phone's calendars (read only, choices on the device): contract 20.
     single { PlanCalendars(synced = get<SyncedPreferences>(), device = get(), prefs = get(), time = get()) }
     single<CollaborationRepository> {
@@ -330,6 +345,7 @@ val commonModule = module {
             time = get(),
             locations = get(),
             locationPermission = get(),
+            proCapture = get(),
         )
     }
     single { FabHint(store = get(), scope = get()) }
@@ -446,6 +462,7 @@ val commonModule = module {
             keptTranscript = get(),
             savedFilters = get(),
             offlineAttachments = get(),
+            proLedger = get(),
         )
     }
     single {
@@ -546,6 +563,7 @@ val commonModule = module {
             locations = get(),
             savedFilters = get(),
             attachmentSync = get(),
+            proLedger = get(),
         )
     }
 }

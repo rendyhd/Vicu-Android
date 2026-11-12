@@ -11,6 +11,7 @@
         <exclude domain="file" path="datastore/custom_lists.preferences_pb" />
         <exclude domain="file" path="datastore/saved_filters.preferences_pb" />
         <exclude domain="file" path="datastore/synced_prefs.preferences_pb" />
+        <exclude domain="file" path="datastore/pro_ledger.preferences_pb" />
         <exclude domain="file" path="datastore/routine_prefs.preferences_pb" />
         <exclude domain="file" path="datastore/saved_places.preferences_pb" />
         <exclude domain="file" path="datastore/location_reminders.preferences_pb" />
@@ -40,6 +41,7 @@
         <exclude domain="file" path="datastore/custom_lists.preferences_pb" />
         <exclude domain="file" path="datastore/saved_filters.preferences_pb" />
         <exclude domain="file" path="datastore/synced_prefs.preferences_pb" />
+        <exclude domain="file" path="datastore/pro_ledger.preferences_pb" />
         <exclude domain="file" path="datastore/routine_prefs.preferences_pb" />
         <exclude domain="file" path="datastore/saved_places.preferences_pb" />
         <exclude domain="file" path="datastore/location_reminders.preferences_pb" />

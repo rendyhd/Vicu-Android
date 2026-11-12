@@ -5,6 +5,8 @@ import com.rendyhd.vicu.data.local.LogbookPrefsStore
 import com.rendyhd.vicu.data.local.TempIdGenerator
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
 import com.rendyhd.vicu.data.local.dao.TaskDao
+import com.rendyhd.vicu.data.local.dao.RelationPayload
+import com.rendyhd.vicu.data.local.dao.RelationQueue
 import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
@@ -390,7 +392,12 @@ class TaskRepositoryImpl(
                     toExclusive = DueDates.startOfTomorrow(lastDay, day.zone).toString(),
                     startOfToday = DueDates.startOfDay(day.date, day.zone).toString(),
                     withOverdue = day.date in firstDay..lastDay,
-                ).distinctUntilChanged().map { entities -> entities.toTasks() }
+                ).distinctUntilChanged().map { entities ->
+                    // The query is a superset: a lone start date is no block (contract 21.3).
+                    entities
+                        .filter { PlannerTimeline.inPlanRange(it.dueDate, it.startDate, it.endDate, it.done, firstDay, lastDay, day.date, day.zone) }
+                        .toTasks()
+                }
             }
             .flowOn(mappingDispatcher)
 
@@ -483,6 +490,14 @@ class TaskRepositoryImpl(
                 positioner.anchorAtEndInBackground(task.projectId, created.id)
             }
             platformHooks.updateWidgets()
+            // A create body never holds the flag (contract 21.4): it is its own write, which the
+            // queue keeps when it cannot be sent now. Only Pro's `!flag` asks for it.
+            if (task.isFavorite && !created.isFavorite) {
+                return when (val flagged = update(created.copy(isFavorite = true))) {
+                    is NetworkResult.Success -> flagged
+                    else -> NetworkResult.Success(created)
+                }
+            }
             NetworkResult.Success(created)
         } catch (e: Exception) {
             if (isRetriableNetworkError(e)) {
@@ -1035,6 +1050,7 @@ class TaskRepositoryImpl(
         val taskId = currentId(taskId)
         @Suppress("NAME_SHADOWING")
         val otherTaskId = currentId(otherTaskId)
+        if (queuesRelation(relationKind)) return writeQueuedRelation(taskId, otherTaskId, relationKind, add = true)
         return try {
             api.createRelation(
                 taskId,
@@ -1071,6 +1087,7 @@ class TaskRepositoryImpl(
         val taskId = currentId(taskId)
         @Suppress("NAME_SHADOWING")
         val otherTaskId = currentId(otherTaskId)
+        if (queuesRelation(relationKind)) return writeQueuedRelation(taskId, otherTaskId, relationKind, add = false)
         return try {
             api.deleteRelation(taskId, relationKind, otherTaskId)
             taskDao.getByIdSync(taskId)?.let { base ->
@@ -1086,6 +1103,91 @@ class TaskRepositoryImpl(
         } catch (e: Exception) {
             NetworkResult.Error(e.message ?: "Failed to delete relation")
         }
+    }
+
+    /**
+     * Pro's "after" (a `blocked` relation, contract 21.2) goes through the offline queue (decision
+     * 24) while Pro is on. With Pro off every relation is sent as before.
+     */
+    private suspend fun queuesRelation(kind: String): Boolean =
+        kind == RelationKind.BLOCKED && behaviorPrefsStore.getPrefs().first().isProEnabled()
+
+    /** Shows the relation on the local rows at once: [taskId]'s side, and the server's inverse on the other's. */
+    private suspend fun setRelationLocally(taskId: Long, otherTaskId: Long, kind: String, add: Boolean) {
+        val inverse = if (kind == RelationKind.BLOCKED) RelationKind.BLOCKING else null
+        val base = taskDao.getByIdSync(taskId)
+        val other = taskDao.getByIdSync(otherTaskId)
+        with(taskMapper) {
+            if (base != null) {
+                taskDao.upsert(
+                    when {
+                        !add -> base.withRelatedTaskRemoved(kind, otherTaskId)
+                        other != null -> base.withRelatedTaskAdded(kind, other.toDomain().toDto())
+                        else -> base
+                    },
+                )
+            }
+            if (other != null && inverse != null) {
+                val fresh = taskDao.getByIdSync(otherTaskId) ?: other
+                taskDao.upsert(
+                    when {
+                        !add -> fresh.withRelatedTaskRemoved(inverse, taskId)
+                        base != null -> fresh.withRelatedTaskAdded(inverse, base.toDomain().toDto())
+                        else -> fresh
+                    },
+                )
+            }
+        }
+    }
+
+    private suspend fun queueRelation(taskId: Long, otherTaskId: Long, kind: String, add: Boolean) {
+        val now = DateUtils.nowIso()
+        pendingActionDao.queueRelationAction(
+            PendingActionEntity(
+                entityType = RelationQueue.ENTITY_TYPE,
+                entityId = taskId,
+                actionType = if (add) RelationQueue.ADD else RelationQueue.REMOVE,
+                payload = RelationQueue.encode(RelationPayload(otherTaskId = otherTaskId, kind = kind)),
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
+        platformHooks.triggerSync()
+    }
+
+    /**
+     * Adds or removes a relation through the offline queue: shown at once, sent now when nothing
+     * waits for the task, queued while offline, behind a waiting change, or while either task only
+     * exists on this device. Already there (409) on an add and already gone (404) on a removal are
+     * what was asked for.
+     */
+    private suspend fun writeQueuedRelation(taskId: Long, otherTaskId: Long, kind: String, add: Boolean): NetworkResult<Unit> {
+        setRelationLocally(taskId, otherTaskId, kind, add)
+        val queue: suspend () -> NetworkResult<Unit> = {
+            queueRelation(taskId, otherTaskId, kind, add)
+            NetworkResult.Success(Unit)
+        }
+        if (taskId < 0L || otherTaskId < 0L) return queue()
+        return writeGate.sendOrQueue(
+            taskId = taskId,
+            send = {
+                try {
+                    if (add) {
+                        api.createRelation(taskId, com.rendyhd.vicu.data.remote.api.CreateRelationDto(otherTaskId = otherTaskId, relationKind = kind))
+                    } else {
+                        api.deleteRelation(taskId, kind, otherTaskId)
+                    }
+                } catch (e: VikunjaApiException) {
+                    if (!(add && e.httpStatus == 409) && !(!add && e.httpStatus == 404)) throw e
+                }
+                NetworkResult.Success(Unit)
+            },
+            queue = queue,
+            refused = { e ->
+                setRelationLocally(taskId, otherTaskId, kind, !add)
+                NetworkResult.Error(e.message ?: if (add) "Failed to create relation" else "Failed to delete relation")
+            },
+        )
     }
 
     /**

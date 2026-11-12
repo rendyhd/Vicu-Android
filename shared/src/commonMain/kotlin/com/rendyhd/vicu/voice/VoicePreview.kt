@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.voice
 
+import com.rendyhd.vicu.data.repository.ProCapture
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.location.SavedPlace
 import com.rendyhd.vicu.ui.screens.taskentry.FieldSource
@@ -45,9 +46,10 @@ fun voicePreview(
     format: DateDisplayFormat,
     defaults: TaskDefaults = TaskDefaults(),
     places: List<SavedPlace> = emptyList(),
+    pro: ProCapture = ProCapture.OFF,
 ): VoicePreview {
     val parsed = if (text.isNotBlank() && config.enabled) {
-        TaskParser.parse(text, config, reference = now, zone = day.zone, places = places)
+        TaskParser.parse(text, pro.config(config), reference = now, zone = day.zone, places = places, people = pro.parserPeople)
     } else {
         null
     }

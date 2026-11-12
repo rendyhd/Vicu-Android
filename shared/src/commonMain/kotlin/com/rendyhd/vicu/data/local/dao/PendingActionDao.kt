@@ -94,7 +94,7 @@ interface PendingActionDao {
      * start of each run, and discarding deletes them at once, so the server version wins after
      * the next refresh in both cases.
      */
-    @Query("SELECT entityId FROM pending_actions WHERE entityType IN ('task', 'routine', 'assignee') AND status IN ('pending', 'failed', 'processing')")
+    @Query("SELECT entityId FROM pending_actions WHERE entityType IN ('task', 'routine', 'assignee', 'relation') AND status IN ('pending', 'failed', 'processing')")
     suspend fun getTaskIdsWithPendingActions(): List<Long>
 
     /** Ids of the labels with a change the server has not accepted yet; a refresh must not overwrite or delete them. */
@@ -122,11 +122,11 @@ interface PendingActionDao {
 
     /**
      * How many changes for task [taskId] are waiting to be sent or being sent: its own actions, the
-     * label changes on it, and its assignee and comment changes. Failed ones do not count; the user retries or discards them.
+     * label changes on it, and its assignee, comment and relation changes. Failed ones do not count; the user retries or discards them.
      */
     @Query(
         "SELECT COUNT(*) FROM pending_actions WHERE status IN ('pending', 'processing') AND (" +
-            "(entityType IN ('task', 'assignee', 'comment') AND entityId = :taskId) OR " +
+            "(entityType IN ('task', 'assignee', 'comment', 'relation') AND entityId = :taskId) OR " +
             "(entityType = 'label' AND actionType IN ('add_label', 'remove_label') AND payload LIKE :labelPayloadPattern))",
     )
     suspend fun countWaitingForTask(taskId: Long, labelPayloadPattern: String): Int
@@ -191,6 +191,14 @@ interface PendingActionDao {
         val merge = resolveCollabQueueMerge(getActiveByEntity(action.entityType, action.entityId), action)
         merge.deleteIds.forEach { deleteById(it) }
         merge.rewrites.forEach { (id, payload) -> updatePayload(id, payload) }
+        if (merge.insert) insert(action)
+    }
+
+    /** Queues a relation change with the folding rules of [resolveRelationQueueMerge]. */
+    @Transaction
+    suspend fun queueRelationAction(action: PendingActionEntity) {
+        val merge = resolveRelationQueueMerge(getActiveByEntity(action.entityType, action.entityId), action)
+        merge.deleteIds.forEach { deleteById(it) }
         if (merge.insert) insert(action)
     }
 

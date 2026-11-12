@@ -104,6 +104,11 @@ object MergePatches {
         put("done", done)
     }
 
+    /** Pro's flag (contract 21.4): `is_favorite` and nothing else. */
+    fun taskFlag(flagged: Boolean): JsonObject = buildJsonObject {
+        put("is_favorite", flagged)
+    }
+
     fun project(previous: Project?, current: Project): JsonObject = buildJsonObject {
         putChanged("title", previous?.title, current.title)
         putChanged("description", previous?.description, current.description)

@@ -1,8 +1,10 @@
 package com.rendyhd.vicu.ui.screens.taskdetail
 
+import com.rendyhd.vicu.data.repository.ProCapture
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.util.DueDates
+import com.rendyhd.vicu.util.TimeBlocks
 import com.rendyhd.vicu.util.parser.ParseResult
 import com.rendyhd.vicu.util.parser.TokenType
 import com.rendyhd.vicu.util.parser.recurrenceToVikunja
@@ -17,6 +19,8 @@ internal data class TaskEditShortcutResult(
 /**
  * Applies title shortcuts to an existing task while leaving manually edited fields alone. A parsed
  * date is stored date-only unless the text named a time; [zone] is the device's current zone.
+ * With Pro on ([pro]), `starts monday` sets a lone start date (not over a block), `!flag` flags
+ * the task and `Jan:` adds that person's label; with Pro off nothing of it is read.
  */
 internal fun applyTaskEditShortcuts(
     task: Task,
@@ -24,6 +28,7 @@ internal fun applyTaskEditShortcuts(
     projects: List<Project>,
     zone: TimeZone,
     manuallyEditedTypes: Set<TokenType> = emptySet(),
+    pro: ProCapture = ProCapture.OFF,
 ): TaskEditShortcutResult {
     var updated = task.copy(title = parseResult.title)
 
@@ -65,12 +70,20 @@ internal fun applyTaskEditShortcuts(
         }
     }
 
+    // A block holds the start already (decision 17): a start date never goes over one.
+    pro.startDateOf(parseResult, zone)?.let { start ->
+        if (!TimeBlocks.isBlock(updated.startDate, updated.endDate, zone)) updated = updated.copy(startDate = start)
+    }
+    if (pro.flagOf(parseResult)) updated = updated.copy(isFavorite = true)
+    val person = pro.personLabelOf(parseResult)?.let { id -> pro.people.firstOrNull { it.id == id }?.title }
+
+    val labelNames = if (TokenType.LABEL in manuallyEditedTypes) {
+        emptyList()
+    } else {
+        parseResult.labels.distinctBy { it.lowercase() }
+    }
     return TaskEditShortcutResult(
         task = updated,
-        labelNames = if (TokenType.LABEL in manuallyEditedTypes) {
-            emptyList()
-        } else {
-            parseResult.labels.distinctBy { it.lowercase() }
-        },
+        labelNames = if (person != null && labelNames.none { it.equals(person, ignoreCase = true) }) labelNames + person else labelNames,
     )
 }
