@@ -41,9 +41,9 @@ label's screen, the menu has Put on hold and This is a person.
 ## Promises
 
 - **Today** starts with Promises due. The person's mark takes the place of the checkbox; tap it for
-  the verdict: Delivered, Late, Not yet (with a new date and "What is in the way?"), Renegotiated,
-  Dropped or Taken over, with Undo, or Ask me tomorrow. A promise someone completed elsewhere asks
-  once whether they delivered it or you did.
+  the verdict: Delivered, Late, Not yet (with a date to ask again and "What is in the way?"), New
+  date or Dropped, with Undo, or Ask me tomorrow. A promise someone completed elsewhere asks once
+  whether they delivered it or you did ("I did it").
 - **Waiting on** lists what others owe you, by person.
 - **People** lists everyone marked as a person, with counts. A person's page has what they owe you,
   what you owe them, what is still to confirm, how the last 90 days went in plain words, and the next
