@@ -174,6 +174,7 @@ val repositoryModule = module {
             refresher = get(),
             positioner = get(),
             writeGate = get(),
+            messages = get(),
         )
     }
     single<ProjectRepository> {
@@ -600,6 +601,7 @@ val commonModule = module {
             savedFilters = get(),
             attachmentSync = get(),
             proLedger = get(),
+            messages = get(),
         )
     }
 }

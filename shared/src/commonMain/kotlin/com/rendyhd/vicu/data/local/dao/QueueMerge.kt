@@ -4,6 +4,7 @@ import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.remote.api.MergePatches
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Task
+import com.rendyhd.vicu.util.NotesMerge
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
@@ -57,7 +58,9 @@ fun mergePatchPayloads(first: String, second: String, entityType: String = ""): 
         val secondObject = Json.parseToJsonElement(
             normalizeQueuedPatchPayload(entityType, second),
         ) as JsonObject
-        JsonObject(firstObject + secondObject).toString()
+        // A notes edit keeps the base of the first edit it was folded with (description format,
+        // "Notes changed in two places").
+        NotesMerge.foldBase(firstObject, JsonObject(firstObject + secondObject)).toString()
     }.getOrDefault(second)
 }
 

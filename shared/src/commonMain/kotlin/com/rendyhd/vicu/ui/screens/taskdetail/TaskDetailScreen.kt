@@ -320,14 +320,10 @@ fun TaskDetailScreen(
     var dismissed by remember { mutableStateOf(false) }
     val dismissEditor = {
         descriptionEditorController.flush()
-        if (state.descriptionConflict == null) {
-            // The save starts now, not when the exit animation ends and the screen is disposed.
-            viewModel.saveIfChanged()
-            dismissed = true
-            onDismiss()
-        } else {
-            viewModel.requireDescriptionConflictResolution()
-        }
+        // The save starts now, not when the exit animation ends and the screen is disposed.
+        viewModel.saveIfChanged()
+        dismissed = true
+        onDismiss()
     }
 
     var attachmentPendingDelete by remember { mutableStateOf<Attachment?>(null) }
@@ -378,15 +374,11 @@ fun TaskDetailScreen(
     // backState.progress); a cancelled gesture springs back. Without a gesture (a button press,
     // three-button navigation) the editor just closes.
     EditorBackHandler(enabled = backEnabled, backState = backState) {
-        // With a description conflict the dialog opens instead of closing: back to rest.
-        val conflict = state.descriptionConflict != null
         dismissEditor()
-        if (conflict) backState?.let { scope.launch { it.springBack() } }
     }
 
     // Pulling the sheet down (by its header, or past the top of the list) closes it once let go far
-    // enough or with a flick; otherwise it springs back. With a description conflict the dialog opens
-    // instead and the sheet goes back to rest.
+    // enough or with a flick; otherwise it springs back.
     val pull = remember { EditorPullState() }
     val density = LocalDensity.current
     val reduceMotion = rememberReduceMotion()
@@ -640,38 +632,6 @@ fun TaskDetailScreen(
                     hostedToolbar = true,
                     notesFoldHeight = with(density) { (listHeightPx / 2).toDp() }.coerceAtLeast(MIN_NOTES_FOLD),
                 )
-                if (state.descriptionConflict != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = "Description changed on another device",
-                                style = MaterialTheme.typography.titleSmall,
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Your draft is still here. Choose which version should be saved.",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                TextButton(onClick = viewModel::useRemoteDescription) {
-                                    Text("Use server")
-                                }
-                                Button(onClick = viewModel::keepLocalDescription) {
-                                    Text("Keep mine")
-                                }
-                            }
-                        }
-                    }
-                }
                 Spacer(modifier = Modifier.height(8.dp))
             }
 

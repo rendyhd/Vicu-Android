@@ -71,7 +71,6 @@ data class TaskDetailUiState(
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
     val error: String? = null,
-    val descriptionConflict: DescriptionConflict? = null,
     val allProjects: List<Project> = emptyList(),
     val allLabels: List<Label> = emptyList(),
     val subtasks: List<Task> = emptyList(),
@@ -135,6 +134,15 @@ class TaskDetailViewModel(
     /** Preserved link HTML stripped from description for display, re-appended on save. */
     private var preservedLinkHtml = ""
     private var preservedRoutineHtml = ""
+
+    /**
+     * The notes the editor's draft started from, as the server stored them (description format,
+     * "Notes changed in two places"). It follows the stored notes while the draft has no unsaved notes
+     * of its own, stays put while it has, and after a save is what the server answered with. A save
+     * hands it to the repository, which reads the task first and keeps both versions when the notes
+     * were changed on another device meanwhile.
+     */
+    private var notesBase: String? = null
 
     /** Raw token text retained when a parse-preview chip is dismissed. */
     private var suppressedRawTexts: Map<TokenType, List<String>> = emptyMap()
@@ -231,6 +239,7 @@ class TaskDetailViewModel(
         // Reset state for the new task so stale data from the previous task doesn't persist
         preservedLinkHtml = ""
         preservedRoutineHtml = ""
+        notesBase = null
         suppressedRawTexts = emptyMap()
         _uiState.update {
             it.copy(
@@ -242,7 +251,6 @@ class TaskDetailViewModel(
                 isDeleted = false,
                 error = null,
                 showCompleteConfirmation = false,
-                descriptionConflict = null,
                 parseResult = null,
                 suppressedTypes = emptySet(),
                 manuallyEditedTypes = emptySet(),
@@ -298,13 +306,21 @@ class TaskDetailViewModel(
                         // server value, even when the visible description has a local draft.
                         preservedLinkHtml = split.linkHtml
                         preservedRoutineHtml = split.routineHtml
-                        val descriptionConflict = if (state.task == null || state.originalTask == null || ownSaveRunning) {
-                            null
-                        } else {
-                            detectDescriptionConflict(state.task, state.originalTask, incoming)
-                        }
                         val draft = draftToApply?.takeIf { state.task == null }
                         draftToApply = null
+                        // Notes changed on another device while the draft has unsaved notes are not
+                        // asked about: the draft keeps the notes it started from as its base, and the
+                        // save keeps both versions.
+                        val unsavedNotes = state.task != null && state.originalTask != null &&
+                            state.task.description != state.originalTask.description
+                        when {
+                            draft != null && draft.edited.description != draft.base.description ->
+                                notesBase = storedDescription(draft.base.description)
+                            state.task == null || state.originalTask == null -> notesBase = task.description
+                            // The save in flight sets it from the server's answer.
+                            ownSaveRunning -> Unit
+                            !unsavedNotes -> notesBase = task.description
+                        }
                         val merged = if (state.task == null || state.originalTask == null) {
                             draft?.let { applyDraft(it, incoming) } ?: incoming
                         } else {
@@ -317,7 +333,6 @@ class TaskDetailViewModel(
                             subtasks = if (subtaskDragging) state.subtasks else subtasks,
                             relations = relations,
                             isLoading = false,
-                            descriptionConflict = descriptionConflict ?: state.descriptionConflict,
                             parseResult = if (draft != null) {
                                 merged.title.takeIf(String::isNotBlank)?.let { parseTitle(it, state.parserConfig, state.proCapture) }
                             } else {
@@ -418,29 +433,6 @@ class TaskDetailViewModel(
     fun updateDescription(description: String) {
         _uiState.update { it.copy(task = it.task?.copy(description = description)) }
         scheduleAutosave()
-    }
-
-    fun keepLocalDescription() {
-        _uiState.update { it.copy(descriptionConflict = null, error = null) }
-        scheduleAutosave()
-    }
-
-    fun useRemoteDescription() {
-        _uiState.update { state ->
-            val conflict = state.descriptionConflict ?: return@update state
-            state.copy(
-                task = state.task?.copy(description = conflict.remoteDescription),
-                descriptionConflict = null,
-                error = null,
-            )
-        }
-        scheduleAutosave()
-    }
-
-    fun requireDescriptionConflictResolution() {
-        _uiState.update {
-            it.copy(error = "Choose which description to keep before closing this task.")
-        }
     }
 
     fun setDueDate(dueDate: String) {
@@ -1077,6 +1069,8 @@ class TaskDetailViewModel(
         val parsedLabelNames: List<String>,
         val allLabels: List<Label>,
         val movedProject: Boolean,
+        /** The notes the draft started from, as stored; see [notesBase]. */
+        val notesBase: String?,
     )
 
     private class ShortcutOutcome(val result: TaskEditShortcutResult, val hasTokens: Boolean)
@@ -1125,12 +1119,6 @@ class TaskDetailViewModel(
         if (discardEdits) return null
         val state = _uiState.value
         if (state.isDeleted) return null
-        if (state.descriptionConflict != null) {
-            // The draft stays in the editor (and in the saved instance state) until the user
-            // picks a version; only a closing screen says so.
-            if (final) requireDescriptionConflictResolution()
-            return null
-        }
         val edited = state.task ?: return null
         val original = state.originalTask ?: return null
 
@@ -1172,14 +1160,7 @@ class TaskDetailViewModel(
         // Re-append preserved link HTML before saving. task.description already
         // contains the rich-text HTML body + [[image:N]] tokens; link metadata
         // is stored separately and stitched back here.
-        val (bodyHtml, imageRefs) = ImageTokens.parseValue(task.description)
-        val fullDescription = DescriptionHtml.merge(
-            bodyHtml,
-            imageRefs,
-            preservedLinkHtml,
-            preservedRoutineHtml,
-        )
-        val toSave = task.copy(description = fullDescription)
+        val toSave = task.copy(description = storedDescription(task.description))
         // The same content is already on its way (a stop save right after an autosave, or
         // leaving the screen while one runs): do not send it twice.
         if ((savesInFlight[toSave.id] ?: 0) > 0 && inFlightPayload[toSave.id] == toSave && parsedLabelNames.isEmpty()) {
@@ -1194,7 +1175,14 @@ class TaskDetailViewModel(
             parsedLabelNames = parsedLabelNames,
             allLabels = state.allLabels,
             movedProject = task.projectId != original.projectId,
+            notesBase = notesBase,
         )
+    }
+
+    /** The editor's notes ([display]: the body and its image tokens) as stored, with the link and routine HTML put back. */
+    private fun storedDescription(display: String): String {
+        val (bodyHtml, imageRefs) = ImageTokens.parseValue(display)
+        return DescriptionHtml.merge(bodyHtml, imageRefs, preservedLinkHtml, preservedRoutineHtml)
     }
 
     private fun launchSave(request: SaveRequest) {
@@ -1224,7 +1212,7 @@ class TaskDetailViewModel(
         val taskToSave = request.toSave
         // Send the COMPLETE edited task: the repository diffs it against the cached row and sends
         // only what changed.
-        when (val result = taskRepository.update(taskToSave)) {
+        when (val result = taskRepository.updateWithNotesBase(taskToSave, request.notesBase)) {
             is NetworkResult.Success -> {
                 if (request.movedProject) {
                     // Vikunja does not move subtasks with their parent: move the whole subtree.
@@ -1238,6 +1226,8 @@ class TaskDetailViewModel(
                 val displayed = result.data.copy(description = displayDesc)
                 // Only touch the editor if it still shows the task this save was for.
                 if (request.generation == loadGeneration) {
+                    // After a send the base is what the server answered with.
+                    notesBase = result.data.description
                     preservedLinkHtml = split.linkHtml
                     preservedRoutineHtml = split.routineHtml
                     val editedSince = _uiState.value.task?.let {
@@ -1301,7 +1291,7 @@ class TaskDetailViewModel(
             reconcileTaskEditor(current, request.snapshot, displayed)
         }
         return if (editedSince) {
-            state.copy(task = merged, originalTask = displayed, descriptionConflict = null)
+            state.copy(task = merged, originalTask = displayed)
         } else {
             state.copy(
                 task = merged,
@@ -1309,7 +1299,6 @@ class TaskDetailViewModel(
                 parseResult = null,
                 suppressedTypes = emptySet(),
                 manuallyEditedTypes = emptySet(),
-                descriptionConflict = null,
                 parserConfig = state.parserConfig.copy(suppressTypes = emptySet()),
             )
         }

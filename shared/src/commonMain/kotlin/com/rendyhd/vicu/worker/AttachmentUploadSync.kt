@@ -13,6 +13,7 @@ import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.ImageTokens
 import com.rendyhd.vicu.util.Logger
+import com.rendyhd.vicu.util.NotesMerge
 import com.rendyhd.vicu.util.formatByteSize
 import com.rendyhd.vicu.util.isRetriableNetworkError
 import kotlinx.coroutines.CancellationException
@@ -108,7 +109,9 @@ class AttachmentUploadSync(
                     entityType = "task",
                     entityId = taskId,
                     actionType = "update",
-                    payload = buildJsonObject { put("description", description) }.toString(),
+                    // With the notes it was added to as the base (description format, "Notes changed in
+                    // two places"); a notes edit waiting already keeps its own.
+                    payload = NotesMerge.withBase(buildJsonObject { put("description", description) }, row.description).toString(),
                     createdAt = now,
                     updatedAt = now,
                 ),

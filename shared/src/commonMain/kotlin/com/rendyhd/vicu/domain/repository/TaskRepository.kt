@@ -58,6 +58,14 @@ interface TaskRepository {
     suspend fun createQueued(task: Task): NetworkResult<Task> = create(task)
 
     suspend fun update(task: Task): NetworkResult<Task>
+
+    /**
+     * [update] for a change of the notes that knows the notes it started from: [notesBase] is the
+     * description as the server stored it when the edit began (null: not known). Before the change
+     * is sent, at once or from the queue, the task is read; notes changed on another device since are
+     * kept together with these (description format, "Notes changed in two places").
+     */
+    suspend fun updateWithNotesBase(task: Task, notesBase: String?): NetworkResult<Task> = update(task)
     /**
      * Sets the priority of a task (a swipe set to "Urgent"). The task is re-read from Room by id so
      * a caller holding an old copy cannot write stale fields back, and only the priority is patched.

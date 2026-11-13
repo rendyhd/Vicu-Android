@@ -11,6 +11,7 @@ import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.TaskDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
+import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.SystemTimeSource
 import com.rendyhd.vicu.util.TimeSource
@@ -64,6 +65,8 @@ class TaskRepositoryHarness(
     val writeGate: TaskWriteGate = TaskWriteGate(pendingActionDao),
     /** The device settings; a test turns Pro on here. */
     val behaviorPrefsStore: BehaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
+    /** The app-wide messages the repository posts to (merged notes). */
+    val messages: AppMessages = AppMessages(),
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ) {
     val json: Json = authTestJson
@@ -121,6 +124,7 @@ class TaskRepositoryHarness(
         positioner = positioner,
         writeGate = writeGate,
         mappingDispatcher = mappingDispatcher,
+        messages = messages,
     )
 
     fun patches(): List<SentRequest> = sent.filter { it.method == "PATCH" }

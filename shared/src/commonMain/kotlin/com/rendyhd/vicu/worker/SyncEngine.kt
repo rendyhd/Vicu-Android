@@ -27,7 +27,9 @@ import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.data.repository.ListPositioner
 import com.rendyhd.vicu.data.repository.ProLedgerRepository
 import com.rendyhd.vicu.data.repository.RoutineCarrierWriter
+import com.rendyhd.vicu.data.repository.TaskSendCheck
 import com.rendyhd.vicu.data.repository.TaskWriteGate
+import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.data.sync.ProjectRefresher
@@ -47,6 +49,7 @@ import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.mayHaveReachedServer
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.RelationKind
+import com.rendyhd.vicu.util.NotesMerge
 import com.rendyhd.vicu.util.RepeatCompletion
 import com.rendyhd.vicu.util.RoutineEnvelope
 import com.rendyhd.vicu.util.HiddenTasks
@@ -115,6 +118,8 @@ class SyncEngine(
     private val attachmentSync: AttachmentUploadSync? = null,
     /** The Pro ledger (cross-app semantics 21.7); it syncs only while Pro is on. */
     private val proLedger: ProLedgerRepository? = null,
+    /** Says once that notes changed on two devices were merged. */
+    private val messages: AppMessages? = null,
 ) {
     private val missing = MissingResourceCheck(api)
     private val carrierWriter = RoutineCarrierWriter(api, json)
@@ -742,14 +747,17 @@ class SyncEngine(
             }
             "update", "toggle_done" -> {
                 val taskId = tempIdMap[action.entityId] ?: action.entityId
-                // A completion of a repeating task carries the due date it completed (contract 7.5).
+                // A completion of a repeating task carries the due date it completed (contract 7.5),
+                // a notes edit the notes it started from (description format, "Notes changed in two
+                // places"); neither key is sent.
                 val queued = RepeatCompletion.fromQueued(
                     json.decodeFromString(
                         JsonObject.serializer(),
                         normalizeQueuedPatchPayload("task", action.payload),
                     ),
                 )
-                val patch = queued.patch
+                val notes = NotesMerge.fromQueued(queued.patch)
+                val patch = notes.patch
                 val localEntity = taskDao.getByIdSync(taskId)
                 // A routine carrier is merged with the server's copy and written conditionally
                 // (cross-app semantics 6.8). Never over a carrier this version cannot read: the
@@ -759,9 +767,7 @@ class SyncEngine(
                 } else {
                     null
                 }
-                val responseDto = carrierWrite
-                    ?: skippedCompletion(taskId, queued)
-                    ?: api.updateTask(taskId, patch)
+                val responseDto = carrierWrite ?: sendChecked(taskId, patch, queued.completedDue, notes.base)
                 val responseEntity = with(taskMapper) { responseDto.toEntity() }
                 taskDao.upsert(responseEntity)
                 val updated = with(taskMapper) { responseEntity.toDomain() }
@@ -778,18 +784,22 @@ class SyncEngine(
     }
 
     /**
-     * Contract 7.5: before a queued completion of a repeating task is sent, the task is read. When
-     * another device completed this occurrence already the completion is skipped: only the fields
-     * edited together with it are sent, and the server's task is returned to be stored. Null when
-     * the completion is to be sent as queued. A failed read throws, so the action waits.
+     * Sends a queued change of task [taskId]. A completion of a repeating task (contract 7.5) and a
+     * notes edit with its base (description format, "Notes changed in two places") read the task
+     * first, once for both: a completion of an occurrence completed elsewhere is taken out, notes
+     * that need nothing sent are taken out, notes changed on both sides are merged and the app says
+     * so. When nothing is left, the server's task is returned to be stored. A read that fails because
+     * the server cannot be reached throws, so the action waits.
      */
-    private suspend fun skippedCompletion(taskId: Long, queued: RepeatCompletion.Queued): TaskDto? {
-        val completedDue = queued.completedDue ?: return null
-        val server = api.getTask(taskId)
-        if (RepeatCompletion.decide(completedDue, server) == RepeatCompletion.Decision.SEND) return null
-        Logger.d(TAG, "Task $taskId: this occurrence was completed elsewhere; the queued completion is not sent")
-        val rest = RepeatCompletion.withoutCompletion(queued.patch)
-        return if (rest.isEmpty()) server else api.updateTask(taskId, rest)
+    private suspend fun sendChecked(taskId: Long, patch: JsonObject, completedDue: String?, notesBase: String?): TaskDto {
+        val plan = TaskSendCheck.plan(api, taskId, patch, completedDue, notesBase)
+        if (plan.completionSkipped) {
+            Logger.d(TAG, "Task $taskId: this occurrence was completed elsewhere; the queued completion is not sent")
+        }
+        val server = plan.server
+        val response = if (plan.sendsNothing && server != null) server else api.updateTask(taskId, plan.patch)
+        if (plan.notesMerged) messages?.post(NotesMerge.MERGED_MESSAGE)
+        return response
     }
 
     /**

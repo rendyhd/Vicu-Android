@@ -900,7 +900,8 @@ class TaskEntryViewModel(
         // rest go (a queued image is added when it is uploaded).
         val newDescription = ImageTokens.removePendingTokens(ImageTokens.replacePendingTokens(task.description, mapping))
         if (newDescription != task.description) {
-            taskRepository.update(task.copy(description = newDescription))
+            // The base is the notes the create just stored.
+            taskRepository.updateWithNotesBase(task.copy(description = newDescription), task.description)
         }
     }
 

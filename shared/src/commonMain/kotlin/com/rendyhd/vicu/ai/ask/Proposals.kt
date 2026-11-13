@@ -315,7 +315,8 @@ class Proposals(
             if (change.clearDue) updated = updated.copy(dueDate = "")
             change.priority?.let { updated = updated.copy(priority = it) }
             var ok = true
-            if (updated != current) ok = tasks.update(updated) is NetworkResult.Success
+            // Notes added to what this device read: kept with notes changed on another device since.
+            if (updated != current) ok = tasks.updateWithNotesBase(updated, current.description) is NetworkResult.Success
             val wrote = updated
             if (ok && change.projectId != null) ok = tasks.moveToProject(current.id, change.projectId) is NetworkResult.Success
             val addedLabelIds = mutableListOf<Long>()
@@ -338,7 +339,7 @@ class Proposals(
                     val now = tasks.getById(before.id).first()
                     if (now != null) {
                         val restored = restoreWritten(now, before, wrote)
-                        if (restored != now) tasks.update(restored)
+                        if (restored != now) tasks.updateWithNotesBase(restored, now.description)
                     }
                     for (id in addedLabelIds) labels.removeFromTask(before.id, id)
                     for (label in removed) labels.addToTask(before.id, label.id)

@@ -11,6 +11,7 @@ import com.rendyhd.vicu.data.local.entity.PendingActionEntity
 import com.rendyhd.vicu.data.local.entity.TaskEntity
 import com.rendyhd.vicu.data.mapper.TaskMapper
 import com.rendyhd.vicu.data.remote.api.MergePatches
+import com.rendyhd.vicu.data.remote.api.TaskDto
 import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiService
 import com.rendyhd.vicu.data.sync.TaskRefresher
@@ -31,7 +32,9 @@ import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.mayHaveReachedServer
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.RelationKind
+import com.rendyhd.vicu.util.NotesMerge
 import com.rendyhd.vicu.util.RepeatCompletion
+import com.rendyhd.vicu.util.AppMessages
 import com.rendyhd.vicu.util.RoutineEnvelope
 import com.rendyhd.vicu.util.PlannerTimeline
 import com.rendyhd.vicu.util.SqlLike
@@ -83,6 +86,8 @@ class TaskRepositoryImpl(
      * of every live list (A-UI-19). Tests pass an unconfined dispatcher to stay deterministic.
      */
     private val mappingDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    /** Says once that notes changed on two devices were merged. */
+    private val messages: AppMessages? = null,
 ) : TaskRepository {
 
     private val carrierWriter = RoutineCarrierWriter(api, json)
@@ -550,20 +555,33 @@ class TaskRepositoryImpl(
         return TimeBlocks.withDueChangeRules(previous, edited, day.date, day.zone)
     }
 
-    override suspend fun update(task: Task): NetworkResult<Task> {
+    override suspend fun update(task: Task): NetworkResult<Task> = updateWithNotesBase(task, null)
+
+    override suspend fun updateWithNotesBase(task: Task, notesBase: String?): NetworkResult<Task> {
         if (task.id < 0L) {
+            // Not on the server yet: there is no other version of its notes.
             return when (val outcome = changeLocalTask(task.id) { updateLocalTask(task) }) {
                 is LocalChange.Done -> outcome.result
-                is LocalChange.Created -> update(task.copy(id = outcome.realId))
+                is LocalChange.Created -> updateWithNotesBase(task.copy(id = outcome.realId), notesBase)
             }
         }
         val previous = taskDao.getByIdSync(task.id)
         val previousTask = previous?.let { with(taskMapper) { it.toDomain() } }
-        return writeUpdate(previous, previousTask, withDueRules(previousTask, task))
+        return writeUpdate(previous, previousTask, withDueRules(previousTask, task), notesBase)
     }
 
-    private suspend fun writeUpdate(previous: TaskEntity?, previousTask: Task?, task: Task): NetworkResult<Task> {
+    private suspend fun writeUpdate(
+        previous: TaskEntity?,
+        previousTask: Task?,
+        task: Task,
+        notesBase: String? = null,
+    ): NetworkResult<Task> {
         val patch = MergePatches.task(previousTask, task)
+        // Only an edit of the notes is checked, and never a hidden carrier: those have their own
+        // conditional write (cross-app semantics 6.8).
+        val base = notesBase?.takeIf {
+            "description" in patch && !HiddenTasks.isHidden(task.description) && !HiddenTasks.isHidden(it)
+        }
         taskDao.upsert(optimisticEntity(previous, task))
         if (previous != null && previous.projectId != task.projectId) {
             // The task changes lists: what is remembered about where each list ends is out of date.
@@ -578,9 +596,9 @@ class TaskRepositoryImpl(
 
         return writeGate.sendOrQueue(
             taskId = task.id,
-            send = { sendUpdate(task, patch) },
+            send = { sendUpdate(task, patch, base) },
             queue = {
-                queueTaskAction(task.id, "update", queuedUpdatePayload(task, patch))
+                queueTaskAction(task.id, "update", queuedUpdatePayload(task, NotesMerge.withBase(patch, base)))
                 // The reminders may have changed with this edit; the alarms follow the local row.
                 platformHooks.scheduleAlarm(task)
                 platformHooks.updateWidgets()
@@ -618,7 +636,7 @@ class TaskRepositoryImpl(
         return NetworkResult.Success(task)
     }
 
-    private suspend fun sendUpdate(task: Task, patch: JsonObject): NetworkResult<Task> {
+    private suspend fun sendUpdate(task: Task, patch: JsonObject, notesBase: String?): NetworkResult<Task> {
         // A routine carrier is merged with the server's copy and written conditionally, so a
         // change another device or person made meanwhile is kept (cross-app semantics 6.8).
         val carrierWrite = if (RoutineEnvelope.hasCarrierMarker(task.description)) {
@@ -626,7 +644,7 @@ class TaskRepositoryImpl(
         } else {
             null
         }
-        val responseDto = carrierWrite ?: api.updateTask(task.id, patch)
+        val responseDto = carrierWrite ?: sendWithNotesCheck(task.id, patch, notesBase)
         val responseEntity = with(taskMapper) { responseDto.toEntity() }
         taskDao.upsert(responseEntity)
 
@@ -634,6 +652,20 @@ class TaskRepositoryImpl(
         platformHooks.scheduleAlarm(updated)
         platformHooks.updateWidgets()
         return NetworkResult.Success(updated)
+    }
+
+    /**
+     * Sends [patch] to task [taskId]; a notes edit with its base reads the task first (description
+     * format, "Notes changed in two places"): notes that need nothing sent are left out (nothing at all
+     * left: the server's task is the answer), notes changed on both sides are merged and the app says
+     * so. A read that fails because the server cannot be reached throws, so the gate queues the edit.
+     */
+    private suspend fun sendWithNotesCheck(taskId: Long, patch: JsonObject, notesBase: String?): TaskDto {
+        val plan = TaskSendCheck.plan(api, taskId, patch, completedDue = null, notesBase = notesBase)
+        val server = plan.server
+        val response = if (plan.sendsNothing && server != null) server else api.updateTask(taskId, plan.patch)
+        if (plan.notesMerged) messages?.post(NotesMerge.MERGED_MESSAGE)
+        return response
     }
 
     override suspend fun getByIds(ids: Set<Long>): List<Task> =

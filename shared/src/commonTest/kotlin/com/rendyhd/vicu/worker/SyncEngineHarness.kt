@@ -33,6 +33,7 @@ import com.rendyhd.vicu.domain.model.CustomListSyncStatus
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.domain.repository.RoutineRepository
+import com.rendyhd.vicu.util.AppMessages
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -157,6 +158,8 @@ class SyncEngineHarness(
      * client; sign in with [signInWithApiToken]. Paths then start with `/api/v2/`.
      */
     productionPipeline: Boolean = false,
+    /** The app-wide messages the engine posts to (merged notes). */
+    val messages: AppMessages = AppMessages(),
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ) {
     private val requestLock = Mutex()
@@ -238,6 +241,7 @@ class SyncEngineHarness(
         tempIds = tempIds,
         writeGate = writeGate,
         collabSync = CollaborationSync(api, collaborationDao, pendingActionDao, storage),
+        messages = messages,
     )
 
     val engine: SyncEngine = newEngine()

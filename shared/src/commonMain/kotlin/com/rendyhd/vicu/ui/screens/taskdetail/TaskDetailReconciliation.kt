@@ -2,29 +2,6 @@ package com.rendyhd.vicu.ui.screens.taskdetail
 
 import com.rendyhd.vicu.domain.model.Task
 
-data class DescriptionConflict(
-    val remoteDescription: String,
-    val remoteUpdated: String,
-)
-
-internal fun detectDescriptionConflict(
-    current: Task,
-    baseline: Task,
-    incoming: Task,
-): DescriptionConflict? {
-    val localChanged = current.description != baseline.description
-    val remoteChanged = incoming.description != baseline.description
-    val valuesDiffer = current.description != incoming.description
-    return if (localChanged && remoteChanged && valuesDiffer) {
-        DescriptionConflict(
-            remoteDescription = incoming.description,
-            remoteUpdated = incoming.updated,
-        )
-    } else {
-        null
-    }
-}
-
 /**
  * Reconciles a fresh Room value with an editor session.
  *

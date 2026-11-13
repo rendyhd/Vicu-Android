@@ -152,6 +152,14 @@ class FakeTaskRepository : TaskRepository {
         return createHandler(task)
     }
 
+    /** The notes base of every [updateWithNotesBase], in call order. */
+    val notesBases = mutableListOf<String?>()
+
+    override suspend fun updateWithNotesBase(task: Task, notesBase: String?): NetworkResult<Task> {
+        notesBases += notesBase
+        return update(task)
+    }
+
     override suspend fun update(task: Task): NetworkResult<Task> {
         updates += task
         val previous = rowFor(task.id).value
