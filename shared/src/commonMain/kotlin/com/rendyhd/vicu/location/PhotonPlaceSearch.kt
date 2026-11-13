@@ -58,8 +58,10 @@ class PhotonPlaceSearch(
     override suspend fun reverse(point: GeoPoint): PlaceSuggestion? {
         val response = client.get("$baseUrl/reverse") {
             header(HttpHeaders.UserAgent, userAgent)
-            parameter("lat", point.latitude)
-            parameter("lon", point.longitude)
+            // Only a name is wanted back, and the caller keeps the exact point on the device, so
+            // two decimals (about a kilometre) is all that is sent.
+            parameter("lat", round2(point.latitude))
+            parameter("lon", round2(point.longitude))
             parameter("limit", 1)
         }
         if (!response.status.isSuccess()) return null

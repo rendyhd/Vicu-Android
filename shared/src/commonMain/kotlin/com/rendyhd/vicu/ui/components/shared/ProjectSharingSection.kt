@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.ProjectShares
 import com.rendyhd.vicu.domain.model.User
@@ -57,6 +59,11 @@ import org.koin.compose.koinInject
 internal const val SHARE_INTRO =
     "People you add see every task in this project. Assignees and comments appear on its tasks once it is shared. " +
         "Your other projects stay private."
+
+/** Shown under the intro for the Inbox (review S-5); the same sentence as the desktop dialog. */
+internal const val SHARE_INBOX_NOTE =
+    "This is your Inbox, which also holds Vicu’s own synced settings and lists: " +
+        "the people you share it with can read and change them."
 
 internal const val SHARE_NO_MATCH =
     "No one with that username. Names and emails only match people who made themselves findable."
@@ -90,6 +97,8 @@ fun ProjectSharingSection(project: Project, modifier: Modifier = Modifier) {
     val actions: ProjectActions = koinInject()
     val scope = rememberCoroutineScope()
     val me = collab.state.me
+    val inboxId by koinInject<AuthManager>().inboxProjectId.collectAsState(initial = null)
+    val isInbox = (inboxId ?: 0L) > 0L && inboxId == project.id
 
     var reload by remember { mutableIntStateOf(0) }
     var shares by remember { mutableStateOf<ProjectShares?>(null) }
@@ -166,8 +175,16 @@ fun ProjectSharingSection(project: Project, modifier: Modifier = Modifier) {
             text = SHARE_INTRO,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+            modifier = Modifier.padding(top = 4.dp, bottom = if (isInbox) 4.dp else 8.dp),
         )
+        if (isInbox) {
+            Text(
+                text = SHARE_INBOX_NOTE,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
 
         val current = shares
         when {

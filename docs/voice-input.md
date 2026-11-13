@@ -70,6 +70,9 @@ fade, and the microphone's ring brightens with the voice instead of growing.
 | Refused | The system speech screen (`VoiceAddActivity`, no permission needed) | A message with Settings |
 | No recognizer | The system speech screen, else quick add | Quick add |
 
+The phone's own recognizer may send the audio to Google (Android) or Apple (iOS) for recognition,
+under their terms, unless a local speech model is downloaded in Settings, Assistant.
+
 The pieces: `SpeechInput` (the platform seam), `HoldToTalk` (the session: listening, joining
 utterances, release, cancel, the message), `FabGesture` (tap, hold and drag told apart by time and
 distance, without Compose), `FabController` and `fabGestures` (the + button's pointer handling, in

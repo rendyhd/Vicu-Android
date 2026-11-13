@@ -23,6 +23,7 @@ import com.rendyhd.vicu.data.local.ThemeMode
 import com.rendyhd.vicu.data.local.ThemePrefsStore
 import com.rendyhd.vicu.data.remote.BaseUrlHolder
 import com.rendyhd.vicu.domain.model.SharedContent
+import com.rendyhd.vicu.util.ShareIntake
 import com.rendyhd.vicu.notification.DailySummaryScheduler
 import com.rendyhd.vicu.notification.PlannerNudgeScheduler
 import com.rendyhd.vicu.location.AndroidLocationPermissionPlatform
@@ -48,6 +49,11 @@ class MainActivity : ComponentActivity() {
 
         /** The launcher's Dictate shortcut: smart dictation or the voice card (`AppLink.Dictate`). */
         const val EXTRA_START_DICTATION = "start_dictation"
+        private const val STATE_SHARE = "share_pending"
+        private const val STATE_SHARE_TEXT = "share_text"
+        private const val STATE_SHARE_SUBJECT = "share_subject"
+        private const val STATE_SHARE_URIS = "share_uris"
+        private const val STATE_SHARE_MIME = "share_mime"
     }
 
     private val authManager: AuthManager by inject()
@@ -103,7 +109,7 @@ class MainActivity : ComponentActivity() {
         // The launch intent is still the activity's intent after a rotation or a restore. Handling
         // it again would reopen a share, a task or a widget "add" the user had already finished
         // with; what was in progress comes back through the saved state instead.
-        if (savedInstanceState == null) handleIntent(intent)
+        if (savedInstanceState == null) handleIntent(intent) else restoreShare(savedInstanceState)
         // The notification permission is not asked for here: the shared coordinator asks after setup
         // or when a reminder or summary is turned on (see NotificationPermissionCoordinator).
         notificationPermissionPlatform.attach(launchNotificationPermissionRequest)
@@ -256,12 +262,14 @@ class MainActivity : ComponentActivity() {
             intent.getParcelableExtra(Intent.EXTRA_STREAM)
         }
 
-        grantUriReadPermission(streamUri)
+        val fileUris = acceptedShareUris(listOfNotNull(streamUri))
+        if (fileUris.isEmpty() && text == null && subject == null) return
+        fileUris.forEach { grantUriReadPermission(Uri.parse(it)) }
 
         _sharedContent.value = SharedContent(
             text = text,
             subject = subject,
-            fileUris = listOfNotNull(streamUri).map { it.toString() },
+            fileUris = fileUris,
             mimeType = intent.type,
         )
     }
@@ -274,15 +282,43 @@ class MainActivity : ComponentActivity() {
             intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
         } ?: emptyList()
 
-        for (uri in uris) {
-            grantUriReadPermission(uri)
-        }
+        val fileUris = acceptedShareUris(uris)
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+        val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+        if (fileUris.isEmpty() && text == null && subject == null) return
+        fileUris.forEach { grantUriReadPermission(Uri.parse(it)) }
 
         _sharedContent.value = SharedContent(
-            text = intent.getStringExtra(Intent.EXTRA_TEXT),
-            subject = intent.getStringExtra(Intent.EXTRA_SUBJECT),
-            fileUris = uris.map { it.toString() },
+            text = text,
+            subject = subject,
+            fileUris = fileUris,
             mimeType = intent.type,
+        )
+    }
+
+    /** Only content addresses of other apps; never file:// or Vicu's own file provider (ShareIntake). */
+    private fun acceptedShareUris(uris: List<Uri>): List<String> =
+        ShareIntake.acceptable(uris.map { it.toString() }, "$packageName.fileprovider")
+
+    // A share that the entry sheet has not taken yet (a rotation before sign-in finished, say) is
+    // kept in the saved state. Once taken, the value is null, so it is never delivered twice.
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        val pending = _sharedContent.value ?: return
+        outState.putBoolean(STATE_SHARE, true)
+        outState.putString(STATE_SHARE_TEXT, pending.text)
+        outState.putString(STATE_SHARE_SUBJECT, pending.subject)
+        outState.putStringArrayList(STATE_SHARE_URIS, ArrayList(pending.fileUris))
+        outState.putString(STATE_SHARE_MIME, pending.mimeType)
+    }
+
+    private fun restoreShare(state: Bundle) {
+        if (!state.getBoolean(STATE_SHARE, false)) return
+        _sharedContent.value = SharedContent(
+            text = state.getString(STATE_SHARE_TEXT),
+            subject = state.getString(STATE_SHARE_SUBJECT),
+            fileUris = state.getStringArrayList(STATE_SHARE_URIS) ?: emptyList(),
+            mimeType = state.getString(STATE_SHARE_MIME),
         )
     }
 

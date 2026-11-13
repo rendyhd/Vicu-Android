@@ -563,7 +563,7 @@ fun VicuApp(
     // Handle share intent → open TaskEntrySheet with shared content
     val sharedContentValue = sharedContent?.collectAsStateWithLifecycle()?.value
     // Shared text with smart dictation on: "Make tasks from this" or one task (docs/ai-assistant-v1.md, section 4).
-    var shareChoice by remember { mutableStateOf<SharedContent?>(null) }
+    var shareChoice by rememberSaveable(stateSaver = SharedContentSaver) { mutableStateOf<SharedContent?>(null) }
     LaunchedEffect(sharedContentValue, authState) {
         if (sharedContentValue != null && authState == AuthState.Authenticated) {
             if (aiSettings.dictationReady && !sharedContentValue.hasFiles && !sharedContentValue.text.isNullOrBlank()) {

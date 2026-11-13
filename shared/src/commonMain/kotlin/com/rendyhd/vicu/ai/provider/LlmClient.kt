@@ -44,6 +44,10 @@ class LlmClient(
     private val http = HttpClient(engine) {
         install(HttpTimeout)
         expectSuccess = false
+        // The key travels in a header: a redirect must never carry it to another host. Ktor's
+        // redirect handling is client-level, so this covers the OkHttp and the Darwin engines
+        // alike (both leave redirects to it); a redirect then reads as the provider's answer.
+        followRedirects = false
     }
 
     private val json = Json { ignoreUnknownKeys = true }

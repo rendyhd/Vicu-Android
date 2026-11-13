@@ -71,6 +71,20 @@ class PhotonPlaceSearchTest {
     }
 
     @Test
+    fun `the reverse lookup sends a rounded position`() = runTest {
+        var url = ""
+        val engine = MockEngine { request ->
+            url = request.url.toString()
+            respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val search = PhotonPlaceSearch(engine, userAgent = "Vicu/test")
+
+        search.reverse(GeoPoint(52.37022, 4.89517))
+
+        assertTrue("lat=52.37" in url && "lon=4.9" in url && "4.895" !in url && "52.370" !in url, url)
+    }
+
+    @Test
     fun `a failed search throws so the dialog can say so`() = runTest {
         val search = PhotonPlaceSearch(MockEngine { respond("", HttpStatusCode.ServiceUnavailable) }, userAgent = "Vicu/test")
 

@@ -13,7 +13,7 @@ actual object Logger {
     }
 
     actual fun w(tag: String, msg: String) {
-        log("[$tag] WARN: $msg")
+        log("[$tag] WARN: ${if (BuildInfo.isDebug) msg else LogScrub.addresses(msg)}")
     }
 
     actual fun e(tag: String, msg: String, tr: Throwable?) {
