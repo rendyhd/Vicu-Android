@@ -47,7 +47,7 @@ class TaskRefresherReadBackTest {
     }
 
     @Test
-    fun `a task deleted on the server leaves the cache, and an unreadable one says so`() = runTest {
+    fun `a task deleted on the server leaves the cache and an unreadable one says so`() = runTest {
         val h = RefresherHarness()
         h.taskDao.upsert(row(5, "Gone"))
 

@@ -22,7 +22,7 @@ class DuplicateRoutineCarrierTest {
     private val shared = 36L
 
     @Test
-    fun `a tick goes into the account's own carrier, not a copy another member made`() = runTest {
+    fun `a tick goes into the account's own carrier not a copy another member made`() = runTest {
         val rig = RoutineRig(backgroundScope).also { it.signIn(me) }
         // Maya's copy has a lower task id, so it would come first.
         rig.seedCarrier(90, payload(definition = definition().copy(shared = true, name = "Copy")), projectId = shared, createdBy = maya)

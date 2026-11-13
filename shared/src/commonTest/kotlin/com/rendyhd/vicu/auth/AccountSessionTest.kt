@@ -191,7 +191,7 @@ class AccountSessionTest {
     }
 
     @Test
-    fun `applying a wipe forgets the old session held in memory, its pictures and its data epoch`() = runTest {
+    fun `applying a wipe forgets the old session held in memory its pictures and its data epoch`() = runTest {
         val f = WiperFixture()
         val h = harness(f)
         h.signIn()

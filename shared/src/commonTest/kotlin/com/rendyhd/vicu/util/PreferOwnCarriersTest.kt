@@ -27,7 +27,7 @@ class PreferOwnCarriersTest {
     }
 
     @Test
-    fun `the account's own duplicates are all kept, in their order`() {
+    fun `the account's own duplicates are all kept in their order`() {
         assertEquals(listOf(10L, 4L), prefer(listOf(C(10, 2, "r"), C(4, 2, "r"), C(1, 1, "r")), me = 2))
     }
 

@@ -40,7 +40,7 @@ class ProCaptureTest {
     }
 
     @Test
-    fun `on, a start date, a flag and a person`() {
+    fun `on a start date a flag and a person`() {
         val result = parse("Jan: send the plan starts monday !flag", on)
 
         assertEquals("send the plan", result.title)
@@ -53,7 +53,7 @@ class ProCaptureTest {
     }
 
     @Test
-    fun `a block holds the start, so no lone start date is written`() {
+    fun `a block holds the start so no lone start date is written`() {
         val result = parse("Write report starts monday at 9am for 30m", on)
         val blocked = Task(id = 0, title = "x", startDate = "2026-11-15T20:00:00Z", endDate = "2026-11-15T20:30:00Z")
 
@@ -88,7 +88,7 @@ class ProCaptureTest {
     }
 
     @Test
-    fun `a person makes their promise, for a person yours, with the entry sheet's words`() {
+    fun `a person makes their promise for a person yours with the entry sheet's words`() {
         val theirs = on.promiseOf(parse("Jan: send the plan", on), words = "  I'll send it Friday ", doneWhen = "")
         assertEquals("""{"dir":"theirs","person":31,"words":"I'll send it Friday"}""", theirs.toString())
 

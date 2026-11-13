@@ -7,6 +7,7 @@ import com.rendyhd.vicu.data.local.VikunjaDatabase
 import com.rendyhd.vicu.data.local.VikunjaDatabaseConstructor
 import com.rendyhd.vicu.ui.screens.customlist.CustomListViewModel
 import com.rendyhd.vicu.ui.screens.guided.GuidedSortViewModel
+import com.rendyhd.vicu.ui.screens.pro.PersonViewModel
 import com.rendyhd.vicu.ui.screens.project.ProjectViewModel
 import com.rendyhd.vicu.ui.screens.tag.TagViewModel
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +54,7 @@ class IosKoinGraphTest {
                 withParameter<ProjectViewModel> { SavedStateHandle(mapOf("projectId" to 1L)) }
                 withParameter<TagViewModel> { SavedStateHandle(mapOf("labelId" to 1L)) }
                 withParameter<GuidedSortViewModel> { SavedStateHandle(mapOf("kind" to "inbox")) }
+                withParameter<PersonViewModel> { SavedStateHandle(mapOf("labelId" to 1L)) }
             },
         )
     }

@@ -48,7 +48,7 @@ class ProPreferencesTest {
     }
 
     @Test
-    fun `setters write the value, and the default as null`() = runTest {
+    fun `setters write the value and the default as null`() = runTest {
         val synced = InMemorySyncedEntries(mapOf("task_order" to JsonPrimitive("due_date"), "later.key" to JsonPrimitive(1)))
         val pro = ProPreferences(synced)
 

@@ -74,7 +74,7 @@ class TaskRepositoryProTest {
     }
 
     @Test
-    fun `a flagged new task is created, then flagged with is_favorite alone`() = runTest {
+    fun `a flagged new task is created then flagged with is_favorite alone`() = runTest {
         val h = TaskRepositoryHarness { request ->
             when (request.method.value) {
                 "POST" -> respond("""{"id":77,"title":"Plan","project_id":7}""", HttpStatusCode.Created, authTestJsonHeaders)

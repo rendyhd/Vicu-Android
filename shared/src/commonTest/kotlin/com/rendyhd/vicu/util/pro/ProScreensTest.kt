@@ -115,7 +115,7 @@ class ProScreensTest {
     private val sam = Label(id = 33, title = "Sam")
 
     @Test
-    fun `people come by their next due day, then by name`() {
+    fun `people come by their next due day then by name`() {
         val tasks = listOf(
             Task(id = 1, title = "Deck", dueDate = due(LocalDate(2026, 11, 10))),
             Task(id = 2, title = "Notes", dueDate = due(LocalDate(2026, 11, 20))),
@@ -144,7 +144,7 @@ class ProScreensTest {
     }
 
     @Test
-    fun `a person page lists theirs, yours and the tasks to confirm with them`() {
+    fun `a person page lists theirs yours and the tasks to confirm with them`() {
         val people = listOf(Person(31, "Jan de Vries"), Person(32, "Maya"))
         val tasks = listOf(
             Task(id = 1, title = "Deck"),
@@ -165,7 +165,7 @@ class ProScreensTest {
     }
 
     @Test
-    fun `the agenda pins the open question, then their promises, yours and decisions they owe`() {
+    fun `the agenda pins the open question then their promises yours and decisions they owe`() {
         val late = Task(id = 1, title = "Deck ", dueDate = due(LocalDate(2026, 11, 10)))
         val todayTask = Task(id = 2, title = "Figures", dueDate = due(today))
         val mine = Task(id = 3, title = "Review the plan")
@@ -200,7 +200,7 @@ class ProScreensTest {
     // --- Small words -----------------------------------------------------------------------------
 
     @Test
-    fun `initials, the After chip, promise words and the start choices`() {
+    fun `initials the After chip promise words and the start choices`() {
         assertEquals("JV", ProScreens.initials("Jan de Vries"))
         assertEquals("M", ProScreens.initials(" maya "))
         assertEquals("?", ProScreens.initials("  "))

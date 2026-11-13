@@ -108,7 +108,7 @@ class ProLedgerRepositoryTest {
         JsonObject(mapOf("id" to JsonPrimitive(id), "at" to JsonPrimitive(at), "kind" to JsonPrimitive(kind)))
 
     @Test
-    fun `with Pro off nothing is read or written, and a change stays on the device`() = runTest {
+    fun `with Pro off nothing is read or written and a change stays on the device`() = runTest {
         val rig = rig(proOn = false)
         rig.repo.setRecord("promises", "42", promise(7))
 

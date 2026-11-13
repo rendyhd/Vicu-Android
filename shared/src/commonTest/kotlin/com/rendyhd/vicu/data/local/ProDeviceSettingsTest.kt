@@ -59,7 +59,7 @@ class ProDeviceSettingsTest {
     }
 
     @Test
-    fun `list views, focus, the assistant, snoozes and the notice`() = runTest {
+    fun `list views focus the assistant snoozes and the notice`() = runTest {
         val data = InMemoryPreferencesDataStore()
         val store = BehaviorPrefsStore(data)
 

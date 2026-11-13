@@ -73,7 +73,7 @@ class RepeatCompletionTest {
     }
 
     @Test
-    fun `a reopen merged over a completion is not checked, and an old payload is sent as before`() {
+    fun `a reopen merged over a completion is not checked and an old payload is sent as before`() {
         val reopened = RepeatCompletion.fromQueued(
             JsonObject(mapOf("done" to JsonPrimitive(false), RepeatCompletion.COMPLETED_DUE_KEY to JsonPrimitive(""))),
         )

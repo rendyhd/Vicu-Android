@@ -114,7 +114,7 @@ class LabelRepositoryWriteGateTest {
     }
 
     @Test
-    fun `a delete the server takes removes the label, and offline it is queued`() = runTest {
+    fun `a delete the server takes removes the label and offline it is queued`() = runTest {
         val online = Rig { respond("", HttpStatusCode.NoContent) }
         online.labelDao.upsert(LabelEntity(id = 5, title = "home"))
         assertIs<NetworkResult.Success<*>>(online.repository.delete(5))

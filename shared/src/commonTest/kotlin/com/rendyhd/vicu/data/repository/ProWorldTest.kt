@@ -90,7 +90,7 @@ class ProWorldTest {
     }
 
     @Test
-    fun `a promise of theirs shows the person's mark, their words and the sent mark`() {
+    fun `a promise of theirs shows the person's mark their words and the sent mark`() {
         val task = Task(id = 1, title = "Deck", projectId = 11, dueDate = DueDates.dateOnlyDue(today, zone).toString(), labels = listOf(jan))
         val w = world(listOf(task), ledger = ledger(promise))
         val row = assertNotNull(w.rowOf(task, fmt))
@@ -107,7 +107,7 @@ class ProWorldTest {
     }
 
     @Test
-    fun `promises count only inside the area, availability everywhere`() {
+    fun `promises count only inside the area availability everywhere`() {
         val inWork = Task(id = 1, title = "Deck", projectId = 11)
         val atHome = Task(id = 2, title = "Fence", projectId = 20)
         val promises = """{"1":{"value":{"dir":"theirs","person":31}},"2":{"value":{"dir":"theirs","person":31}}}"""
@@ -125,7 +125,7 @@ class ProWorldTest {
     }
 
     @Test
-    fun `a flag shows only with the availability layer, and the list view defaults to Available`() {
+    fun `a flag shows only with the availability layer and the list view defaults to Available`() {
         val task = Task(id = 1, title = "Deck", projectId = 20, isFavorite = true)
         assertTrue(assertNotNull(world(listOf(task)).rowOf(task, fmt)).flagged)
         assertFalse(assertNotNull(world(listOf(task), availability = false).rowOf(task, fmt)).flagged)

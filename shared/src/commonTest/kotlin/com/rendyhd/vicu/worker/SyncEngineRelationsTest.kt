@@ -78,7 +78,7 @@ class SyncEngineRelationsTest {
     }
 
     @Test
-    fun `cancels an add with a removal of the same relation, and the same add twice is one`() = runTest {
+    fun `cancels an add with a removal of the same relation and the same add twice is one`() = runTest {
         val dao = FakePendingActionDao()
 
         dao.queueRelationAction(relation(5, 6))

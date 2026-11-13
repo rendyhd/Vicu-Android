@@ -44,7 +44,7 @@ class CommentEditAndRetryTest {
     }
 
     @Test
-    fun `a request timeout is worth retrying, a refusal is not`() {
+    fun `a request timeout is worth retrying a refusal is not`() {
         assertTrue(isRetriableNetworkError(VikunjaApiException(408)))
         assertTrue(isRetriableNetworkError(VikunjaApiException(429)))
         assertTrue(isRetriableNetworkError(VikunjaApiException(503)))
