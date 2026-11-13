@@ -33,11 +33,14 @@ object TaskLinkParser {
         val links = mutableListOf<TaskLink>()
 
         val noteMatch = noteLinkRegex.find(description)
-        if (noteMatch != null) {
-            val url = unescapeHtml(noteMatch.groupValues[1])
+        // Anyone who may edit the task can write the marker, so only the two shapes Vicu writes are
+        // offered (NoteLinks, description format "Task links"). Any other obsidian: address gives no
+        // link; the marker itself stays in the description.
+        val noteUrl = noteMatch?.let { unescapeHtml(it.groupValues[1]) }
+        if (noteUrl != null && NoteLinks.isAllowed(noteUrl)) {
             val nameMatch = noteLinkNameRegex.find(description)
             val name = nameMatch?.groupValues?.get(1)?.trim() ?: "Obsidian note"
-            links += TaskLink.ObsidianNote(url, name)
+            links += TaskLink.ObsidianNote(noteUrl, name)
         }
 
         val pageMatch = pageLinkRegex.find(description)

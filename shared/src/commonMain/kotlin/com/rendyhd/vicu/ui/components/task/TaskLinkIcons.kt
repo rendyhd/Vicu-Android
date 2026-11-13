@@ -20,6 +20,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.rendyhd.vicu.util.NoteLinks
 import com.rendyhd.vicu.util.TaskLinkParser
 
 private val LINK_TARGET = 32.dp
@@ -116,6 +117,8 @@ fun TaskLinkIcons(
                     indication = null,
                     role = Role.Button,
                 ) {
+                    // Checked again where the address leaves the app (description format, "Task links").
+                    if (link is TaskLinkParser.TaskLink.ObsidianNote && !NoteLinks.isAllowed(url)) return@clickable
                     try {
                         uriHandler.openUri(url)
                     } catch (_: Exception) {
