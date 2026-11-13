@@ -496,6 +496,8 @@ class RecordingRepositoryHooks : PlatformRepositoryHooks {
         private set
     var discardPendingSharesCalls = 0
         private set
+    var clearImageCacheCalls = 0
+        private set
 
     override fun triggerSync() {
         syncTriggers++
@@ -543,6 +545,10 @@ class RecordingRepositoryHooks : PlatformRepositoryHooks {
 
     override suspend fun discardPendingShares() {
         discardPendingSharesCalls++
+    }
+
+    override suspend fun clearImageCache() {
+        clearImageCacheCalls++
     }
 }
 

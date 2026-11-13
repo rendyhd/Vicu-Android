@@ -2,6 +2,7 @@ package com.rendyhd.vicu.data.sync
 
 import com.rendyhd.vicu.data.local.dao.LabelDao
 import com.rendyhd.vicu.data.local.dao.PendingActionDao
+import com.rendyhd.vicu.data.local.entity.LabelEntity
 import com.rendyhd.vicu.data.local.dao.TaskDao
 import com.rendyhd.vicu.data.mapper.LabelMapper
 import com.rendyhd.vicu.data.mapper.TaskMapper
@@ -20,9 +21,16 @@ class LabelRefresher(
     private val api: VikunjaApiService,
     private val labelMapper: LabelMapper,
     private val taskMapper: TaskMapper,
+    /** What was fetched before a sign-out or account switch is not written ([AccountEpoch]). */
+    private val accountEpoch: AccountEpoch? = null,
 ) {
     suspend fun refresh() {
+        val epoch = accountEpoch?.current()
         val server = api.getAllLabels().map { with(labelMapper) { it.toEntity() } }
+        if (accountEpoch != null && epoch != null) accountEpoch.write(epoch) { store(server) } else store(server)
+    }
+
+    private suspend fun store(server: List<LabelEntity>) {
         val queued = pendingActionDao.getLabelIdsWithPendingActions().toSet()
         labelDao.upsertAll(server.filter { it.id !in queued })
 

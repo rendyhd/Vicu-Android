@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.data.repository
 
 import android.content.Context
+import coil3.ImageLoader
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.notification.AlarmScheduler
@@ -27,6 +28,7 @@ class AndroidRepositoryHooks(
     private val appScope: CoroutineScope,
     private val dailySummaryScheduler: DailySummaryScheduler,
     private val plannerNudgeScheduler: PlannerNudgeScheduler,
+    private val imageLoaderProvider: () -> ImageLoader,
 ) : PlatformRepositoryHooks {
 
     override fun triggerSync() {
@@ -78,6 +80,13 @@ class AndroidRepositoryHooks(
 
     override suspend fun clearWidgetConfigurations() {
         WidgetConfigStore.clearAll(context)
+    }
+
+    override suspend fun clearImageCache() {
+        val loader = imageLoaderProvider()
+        loader.memoryCache?.clear()
+        // The disk cache deletes files: off the main thread.
+        withContext(Dispatchers.IO) { loader.diskCache?.clear() }
     }
 
     override suspend fun routinesChanged() {

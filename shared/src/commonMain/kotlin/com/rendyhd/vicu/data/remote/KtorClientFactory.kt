@@ -190,50 +190,31 @@ object KtorClientFactory {
                 !isTokenRefreshPath(path, apiBasePathOf(baseUrlHolder))
             ) {
                 val failedToken = request.headers[HttpHeaders.Authorization]?.removePrefix("Bearer ")
-                // An API token without the permission for a collaboration request is answered 401
-                // like an ended session. When the same token still reads the project list, only
-                // this request was refused: the session stays, and the call is marked so that
-                // VikunjaApiService says what the token lacks (cross-app semantics 9.7). Asked
-                // here, outside the refresh lock.
+                val apiBasePath = apiBasePathOf(baseUrlHolder)
+                // An API token without the permission for a route group (comments, assignees,
+                // sharing, attachments, relations ...) is answered 401 like an ended session. When
+                // the same token still reads the project list, only this request was refused: the
+                // session stays, and the call is marked so that VikunjaApiService says what the
+                // token lacks (cross-app semantics 9.7). Asked here, outside the refresh lock, and
+                // at most once a minute ([ApiTokenCheck]).
                 if (failedToken != null &&
-                    isCollaborationPath(path, apiBasePathOf(baseUrlHolder)) &&
                     authManager.isApiToken(failedToken) &&
-                    tokenCheck.readsProjects(failedToken) { projectListStatus(request, failedToken, apiBasePathOf(baseUrlHolder), userAgent) }
+                    tokenCheck.readsProjects(failedToken) { projectListStatus(request, failedToken, apiBasePath, userAgent) }
                 ) {
-                    response.attributes.put(ApiTokenPermission.Refused, Unit)
+                    val message = if (isCollaborationPath(path, apiBasePath)) {
+                        ApiTokenPermission.TOKEN_LACKS_PERMISSION
+                    } else {
+                        ApiTokenPermission.TOKEN_LACKS_ROUTE_PERMISSION
+                    }
+                    response.attributes.put(ApiTokenPermission.Refused, message)
                     return@intercept response
                 }
 
-                val refreshedRequest = authManager.withRefreshLock {
-                    val currentToken = authManager.getBestTokenSync()
-
-                    if (currentToken != null && currentToken != failedToken) {
-                        request.headers[HttpHeaders.Authorization] = "Bearer $currentToken"
-                        return@withRefreshLock request
-                    }
-
-                    val success = authManager.performV2Refresh()
-                    if (success) {
-                        val newToken = authManager.getBestTokenSync()
-                        if (newToken != null) {
-                            request.headers[HttpHeaders.Authorization] = "Bearer $newToken"
-                            return@withRefreshLock request
-                        }
-                    }
-
-                    // Fallback to API token
-                    val apiToken = authManager.getBestToken()
-                    if (apiToken != null && apiToken != failedToken) {
-                        request.headers[HttpHeaders.Authorization] = "Bearer $apiToken"
-                        return@withRefreshLock request
-                    }
-
-                    authManager.setNeedsReAuth()
-                    null
-                }
-
-                if (refreshedRequest != null) {
-                    response = execute(refreshedRequest)
+                // One retry at most: the answer to the retry is returned as it is.
+                val retryToken = authManager.tokenAfterUnauthorized(failedToken)
+                if (retryToken != null) {
+                    request.headers[HttpHeaders.Authorization] = "Bearer $retryToken"
+                    response = execute(request)
                 }
             }
 

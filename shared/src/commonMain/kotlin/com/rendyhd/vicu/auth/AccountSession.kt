@@ -25,6 +25,8 @@ class AccountSession(
     private val tokenStorage: TokenStorage,
     private val apiService: VikunjaApiService,
     private val wiper: LocalDataWiper,
+    /** Forgets the old session held in memory along with the stored one. */
+    private val authManager: AuthManager? = null,
 ) {
     /** The identity [token] belongs to on [serverUrl]. Stores nothing; throws if the server rejects it. */
     suspend fun verify(serverUrl: String, token: String): AccountIdentity {
@@ -48,8 +50,9 @@ class AccountSession(
             // a sign-in writes only what its method uses, so the old refresh token, OIDC provider
             // or JWT would otherwise stay behind. The Inbox goes too: left in place, it would send
             // the app straight to an Inbox that does not exist for the new account. The install id
-            // stays (it belongs to the device).
-            tokenStorage.clear()
+            // stays (it belongs to the device). The token, its expiry and the proactive refresh
+            // held in memory go with it, so nothing of the old session is sent or refreshed later.
+            if (authManager != null) authManager.clearSessionForAccountSwitch() else tokenStorage.clear()
         }
     }
 

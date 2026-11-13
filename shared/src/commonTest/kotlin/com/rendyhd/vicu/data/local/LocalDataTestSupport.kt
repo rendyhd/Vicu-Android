@@ -184,8 +184,10 @@ class WiperFixture(
         ),
         scope = CoroutineScope(Job() + Dispatchers.Unconfined),
     )
+    val accountEpoch = com.rendyhd.vicu.data.sync.AccountEpoch()
     val wiper = LocalDataWiper(
         dao, customLists, bottomBar, hooks, staleness,
         projectSections, labelOrder, routinePrefs, widgetPrefs, syncCursor, carrierIds, listPositions,
+        accountEpoch = accountEpoch,
     )
 }

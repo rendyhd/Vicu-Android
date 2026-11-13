@@ -5,6 +5,7 @@ import com.rendyhd.vicu.auth.AuthTransitionAction.RESCHEDULE_ACCOUNT_WORK
 import com.rendyhd.vicu.auth.AuthTransitionAction.SYNC_NOW
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class AuthTransitionsTest {
 
@@ -21,7 +22,18 @@ class AuthTransitionsTest {
         val rules = AuthTransitions()
         rules.on(AuthState.Authenticated)
         assertEquals(emptySet(), rules.on(AuthState.NeedsReAuth))
-        assertEquals(setOf(SYNC_NOW), rules.on(AuthState.Authenticated))
+        // The sign-in may be another account, whose wipe cancelled the account work.
+        assertEquals(setOf(SYNC_NOW, RESCHEDULE_ACCOUNT_WORK), rules.on(AuthState.Authenticated))
+        assertEquals(emptySet(), rules.on(AuthState.Authenticated))
+    }
+
+    @Test
+    fun `a sign-out that passed through sign in again still schedules the account work`() {
+        val rules = AuthTransitions()
+        rules.on(AuthState.Authenticated)
+        rules.on(AuthState.Unauthenticated)
+        rules.on(AuthState.NeedsReAuth)
+        assertTrue(RESCHEDULE_ACCOUNT_WORK in rules.on(AuthState.Authenticated))
     }
 
     @Test

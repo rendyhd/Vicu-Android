@@ -250,22 +250,41 @@ class AuthManager(
      */
     suspend fun isApiToken(token: String): Boolean = token == tokenStorage.getApiToken()
 
-    suspend fun getBestToken(): String? {
-        val jwt = tokenStorage.getJwt()
-        val jwtExpiry = tokenStorage.getJwtExpiry()
+    /**
+     * The token to send a request again with after the server answered it 401 with [failedToken],
+     * or null when there is none and the 401 goes back to the caller. Runs under the refresh lock:
+     *  - another caller already moved to a different token: that one;
+     *  - else the session is refreshed, and the new token is used;
+     *  - else the stored API token (the user's own, or the backup token of a password or SSO
+     *    session) whenever it is not the token that was just refused. The phone's clock is not
+     *    asked: a slow clock can call a JWT valid that the server already refused;
+     *  - else the session ends, but only when the refresh itself was refused (401 or 403, or no
+     *    refresh token to try). A refresh that failed on the network, timed out, or got a 5xx or a
+     *    429 says nothing about the session: it stays, and the next request tries again.
+     * After a sign-out nothing here flips the state back to "sign in again".
+     */
+    suspend fun tokenAfterUnauthorized(failedToken: String?): String? = withRefreshLock {
+        val current = cachedToken
+        if (current != null && current != failedToken) return@withRefreshLock current
+        if (_authState.value == AuthState.Unauthenticated) return@withRefreshLock null
 
-        if (jwt != null && !isExpired(jwtExpiry)) {
-            cachedToken = jwt
-            return jwt
+        val result = performV2RefreshTyped()
+        if (result is RefreshResult.Success) {
+            cachedToken?.let { return@withRefreshLock it }
         }
 
         val apiToken = tokenStorage.getApiToken()
-        if (apiToken != null) {
+        if (apiToken != null && apiToken != failedToken) {
+            Logger.d(TAG, "401: refresh did not help, sending again with the stored API token")
             cachedToken = apiToken
-            return apiToken
+            return@withRefreshLock apiToken
         }
 
-        return jwt.also { cachedToken = it }
+        when ((result as? RefreshResult.Failure)?.kind) {
+            RefreshFailure.Unauthorized, RefreshFailure.NoRefreshToken -> setNeedsReAuth()
+            else -> Logger.w(TAG, "401: the refresh failed for a passing reason; the session stays")
+        }
+        null
     }
 
     suspend fun onLoginSuccess(
@@ -350,19 +369,50 @@ class AuthManager(
         revokeBackupApiToken()
         try {
             apiServiceProvider().serverLogout()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Logger.d(TAG, "Server logout failed (non-fatal): ${e.message}")
         }
+        // Under the refresh lock, so a refresh that is running cannot store its token after this.
+        withRefreshLock {
+            forgetSessionInMemory()
+            isInitialized = false
+            tokenStorage.clear()
+            _authState.value = AuthState.Unauthenticated
+        }
+    }
+
+    /**
+     * Forgets the old session, held in memory (the token, its expiry, the proactive refresh) and
+     * stored, before a different account signs in over this one. Under the refresh lock, like
+     * [logout], so a refresh that is running cannot store the old account's token afterwards.
+     * The state is left alone: the sign-in that follows sets it.
+     */
+    suspend fun clearSessionForAccountSwitch() {
+        withRefreshLock {
+            forgetSessionInMemory()
+            tokenStorage.clear()
+        }
+    }
+
+    /** Must run under the refresh lock. */
+    private fun forgetSessionInMemory() {
+        proactiveRefreshJob?.cancel()
+        proactiveRefreshJob = null
         cachedToken = null
         cachedJwtExpiry = 0L
-        isInitialized = false
         resetBackoff()
-        tokenStorage.clear()
-        _authState.value = AuthState.Unauthenticated
     }
 
     fun setNeedsReAuth() {
         val oldState = _authState.value.name
+        // Signed out stays signed out: a request that was running during the sign-out and got
+        // its 401 afterwards must not turn the state into "sign in again".
+        if (_authState.value == AuthState.Unauthenticated) {
+            Logger.d("AuthStateChanged", "NeedsReAuth ignored: signed out")
+            return
+        }
         Logger.d("AuthStateChanged", "from $oldState to NeedsReAuth due to all token options exhausted")
         proactiveRefreshJob?.cancel()
         proactiveRefreshJob = null

@@ -148,7 +148,7 @@ class SetupViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                val normalized = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
+                val normalized = normalizeServerAddress(url)
                 baseUrlHolder.baseUrl = normalized
                 val info = apiService.getServerInfo()
                 if (!isSupportedVikunjaVersion(info.version)) {
@@ -530,4 +530,26 @@ internal fun isSupportedVikunjaVersion(version: String): Boolean {
     val major = parts.getOrElse(0) { 0 }
     val minor = parts.getOrElse(1) { 0 }
     return major > 2 || (major == 2 && minor >= 4)
+}
+
+/**
+ * The server address as typed in Setup, made into the address the app adds `/api/v2/` to: a
+ * scheme when none was typed (https), and without trailing slashes or a trailing `/api/v1`,
+ * `/api/v2` or `/api`, which people copy from the API documentation or another client.
+ */
+internal fun normalizeServerAddress(input: String): String {
+    val trimmed = input.trim()
+    val withScheme = if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+        trimmed
+    } else {
+        "https://$trimmed"
+    }
+    var address = withScheme.trimEnd('/')
+    for (suffix in listOf("/api/v1", "/api/v2", "/api")) {
+        if (address.endsWith(suffix, ignoreCase = true)) {
+            address = address.dropLast(suffix.length).trimEnd('/')
+            break
+        }
+    }
+    return address
 }

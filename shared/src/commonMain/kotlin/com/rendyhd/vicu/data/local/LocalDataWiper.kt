@@ -6,6 +6,7 @@ import com.rendyhd.vicu.data.local.dao.LocalDataDao
 import com.rendyhd.vicu.data.repository.ListPositioner
 import com.rendyhd.vicu.data.repository.ProLedgerRepository
 import com.rendyhd.vicu.data.repository.SyncedPreferences
+import com.rendyhd.vicu.data.sync.AccountEpoch
 import com.rendyhd.vicu.data.sync.SyncStaleness
 import com.rendyhd.vicu.domain.repository.CustomListRepository
 import com.rendyhd.vicu.location.LocationReminderStore
@@ -65,6 +66,11 @@ class LocalDataWiper(
     private val offlineAttachments: OfflineAttachmentFiles? = null,
     /** The account's Pro ledger copy; its unsynced changes count while Pro is on. */
     private val proLedger: ProLedgerRepository? = null,
+    /**
+     * Moved on by [wipeEverything], so a refresh that started before the wipe cannot write the
+     * old account's rows or arm its reminders afterwards.
+     */
+    private val accountEpoch: AccountEpoch? = null,
 ) {
     /**
      * Entries of routine history that have not been uploaded to the server yet (the phone-only
@@ -115,29 +121,15 @@ class LocalDataWiper(
         }
     }
 
-    suspend fun wipeEverything() {
+    /**
+     * Wipes everything that belongs to the account. [before] runs first under the same sync lock
+     * (sign-out passes its server logout), so a running sync finishes before either starts and no
+     * sync can start in between.
+     */
+    suspend fun wipeEverything(before: suspend () -> Unit = {}) {
         SyncEngine.exclusive {
-            dao.clearEverything()
-            offlineAttachments?.sweep(keep = emptySet(), minAgeMillis = 0)
-            customLists.clearLocal()
-            syncedPreferences?.clearLocal()
-            proLedger?.clearLocal()
-            bottomBarPrefs.clear()
-            // Preferences keyed by the old account's project and label ids, and the routine
-            // device id. A cache clear keeps them: the same account is synced again.
-            projectSectionPrefs.clear()
-            labelOrderPrefs.clear()
-            routinePrefs.clear()
-            widgetPrefs.clear()
-            carrierIds.clear()
-            listPositions.clear()
-            syncCursor.clear()
-            syncStaleness.reset()
-            // Clearing them stops the watched regions too (LocationReminderCoordinator).
-            locationReminders?.clear()
-            assistantConversations?.clear()
-            keptTranscript?.clear()
-            savedFilters?.clear()
+            before()
+            if (accountEpoch != null) accountEpoch.advance { clearAccountData() } else clearAccountData()
         }
         // The old account's reminders must not keep firing for a signed-out (or switched) account.
         platformHooks.cancelAllAlarms()
@@ -145,6 +137,32 @@ class LocalDataWiper(
         platformHooks.cancelAccountBackgroundWork()
         platformHooks.clearWidgetConfigurations()
         platformHooks.discardPendingShares()
+        // Pictures (avatars, attachment previews) cached for the old account.
+        platformHooks.clearImageCache()
         platformHooks.updateWidgets()
+    }
+
+    private suspend fun clearAccountData() {
+        dao.clearEverything()
+        offlineAttachments?.sweep(keep = emptySet(), minAgeMillis = 0)
+        customLists.clearLocal()
+        syncedPreferences?.clearLocal()
+        proLedger?.clearLocal()
+        bottomBarPrefs.clear()
+        // Preferences keyed by the old account's project and label ids, and the routine
+        // device id. A cache clear keeps them: the same account is synced again.
+        projectSectionPrefs.clear()
+        labelOrderPrefs.clear()
+        routinePrefs.clear()
+        widgetPrefs.clear()
+        carrierIds.clear()
+        listPositions.clear()
+        syncCursor.clear()
+        syncStaleness.reset()
+        // Clearing them stops the watched regions too (LocationReminderCoordinator).
+        locationReminders?.clear()
+        assistantConversations?.clear()
+        keptTranscript?.clear()
+        savedFilters?.clear()
     }
 }

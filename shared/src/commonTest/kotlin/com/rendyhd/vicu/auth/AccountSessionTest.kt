@@ -191,6 +191,23 @@ class AccountSessionTest {
     }
 
     @Test
+    fun `applying a wipe forgets the old session held in memory, its pictures and its data epoch`() = runTest {
+        val f = WiperFixture()
+        val h = harness(f)
+        h.signIn()
+        assertEquals(ORIGINAL_TOKEN, h.authManager.getBestTokenSync())
+        val epochBefore = f.accountEpoch.current()
+
+        h.accountSession.apply(LoginPlan(AccountIdentity(OTHER_SERVER, 8), LoginDataAction.WIPE_ALL, 0))
+
+        assertEquals(null, h.authManager.getBestTokenSync(), "the old token is not sent any more")
+        assertEquals(null, h.storage.getApiToken())
+        assertEquals(1, f.hooks.clearImageCacheCalls)
+        assertTrue(f.accountEpoch.current() != epochBefore, "a refresh of the old account writes nothing now")
+        h.close()
+    }
+
+    @Test
     fun `the inbox project flow reports a new choice and a clear`() = runTest {
         val h = harness(signedIn = false)
         val seen = mutableListOf<Long?>()

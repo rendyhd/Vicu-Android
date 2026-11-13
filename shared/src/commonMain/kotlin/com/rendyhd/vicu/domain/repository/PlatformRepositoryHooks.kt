@@ -50,6 +50,13 @@ interface PlatformRepositoryHooks {
      */
     suspend fun discardPendingShares() {}
 
+    /**
+     * Empties the image loader's memory and disk caches (sign-out, account switch). Avatars and
+     * attachment previews are cached by address, and another account on another server can use
+     * the same ids, so the old account's pictures must not show for the new one.
+     */
+    suspend fun clearImageCache() {}
+
     /** Called after a routine definition or occurrence changes. */
     suspend fun routinesChanged() {
         updateWidgets()

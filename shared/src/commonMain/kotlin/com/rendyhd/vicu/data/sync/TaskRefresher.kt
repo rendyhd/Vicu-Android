@@ -91,6 +91,11 @@ class TaskRefresher(
     private val routineDeviceId: (suspend () -> String)? = null,
     /** Where the comment counts the task reads bring are kept (cross-app semantics 9.4). */
     private val collaborationDao: CollaborationDao? = null,
+    /**
+     * Moves on when the local data is wiped (sign-out, account switch). What a refresh fetched is
+     * written only while it is the epoch the refresh started in.
+     */
+    private val accountEpoch: AccountEpoch? = null,
 ) {
     companion object {
         private const val TAG = "TaskRefresher"
@@ -146,9 +151,24 @@ class TaskRefresher(
      */
     private var openOffset = 0L
 
+    /** The [accountEpoch] the running refresh started in; guarded by [mutex]. */
+    private var epoch = 0L
+
+    /** Notes the epoch a refresh starts in; call first inside [mutex]. */
+    private fun startRun() {
+        epoch = accountEpoch?.current() ?: 0L
+    }
+
+    /** Runs a write of the running refresh, unless the data was wiped since it started. */
+    private suspend fun <T> guarded(block: suspend () -> T): T {
+        val gate = accountEpoch ?: return block()
+        return gate.write(epoch, block)
+    }
+
     suspend fun requestFullReconcile() = cursorStore.requestFullReconcile()
 
     suspend fun refresh(forceFull: Boolean = false): Outcome = mutex.withLock {
+        startRun()
         val ticket = cursorStore.begin()
         val state = ticket.cursor
         val now = time.now()
@@ -177,7 +197,7 @@ class TaskRefresher(
         checkSharedCarriers(now, acc)
         finish(acc)
         val newest = (dtos.mapNotNull { DateUtils.parseIsoDate(it.updated) } + since).max()
-        cursorStore.commit(ticket, newest.toString())
+        guarded { cursorStore.commit(ticket, newest.toString()) }
         Logger.d(TAG, "Incremental refresh: ${dtos.size} tasks changed since $from, ${acc.changed} differed from the cache")
         // A delta never lists a deletion. After it has brought in every completion and creation
         // (which change the cached open rows too), one request for a page of one open task tells
@@ -257,7 +277,7 @@ class TaskRefresher(
 
         finish(acc)
         openOffset = open.size - taskDao.countOpenServerTasks().toLong()
-        cursorStore.commit(ticket, newest?.toString(), fullReconcileAtMs = now.toEpochMilliseconds())
+        guarded { cursorStore.commit(ticket, newest?.toString(), fullReconcileAtMs = now.toEpochMilliseconds()) }
         Logger.d(TAG, "Full reconcile: ${open.size} open tasks, ${carriers.size} routine carriers, ${acc.changed} changed, ${acc.removed} removed")
         return Outcome(full = true, changed = acc.changed, removed = acc.removed, carriersAuthoritative = carriersAuthoritative)
     }
@@ -322,6 +342,7 @@ class TaskRefresher(
      * be asked.
      */
     suspend fun refreshCarrier(taskId: Long): Boolean = mutex.withLock {
+        startRun()
         val entity = taskDao.getByIdSync(taskId) ?: return@withLock false
         val acc = Accumulator()
         val asked = try {
@@ -342,6 +363,7 @@ class TaskRefresher(
 
     /** Fetches the tasks [filters] match (a search, a custom list) and merges them. Deletes nothing. */
     suspend fun refreshMatching(filters: Map<String, String>) = mutex.withLock {
+        startRun()
         val acc = Accumulator()
         val dtos = api.getAllTasks(filters, expandSubtasks = false, collabSignals = true)
         merge(dtos, acc)
@@ -356,6 +378,7 @@ class TaskRefresher(
      * elsewhere): everything newer than the page's last row must be on the page.
      */
     suspend fun loadCompletedPage(page: Int, pageSize: Int, completedSince: String?): CompletedPage = mutex.withLock {
+        startRun()
         val filter = buildString {
             append("done = true")
             if (!completedSince.isNullOrBlank()) append(" && done_at >= '${completedSince}'")
@@ -451,7 +474,7 @@ class TaskRefresher(
         val changed = entities.filter { it.id !in protectedIds && existing[it.id] != it }
             .map { writeLostRoutineChanges(it, existing[it.id]) }
         if (changed.isEmpty()) return
-        taskDao.upsertAll(changed)
+        guarded { taskDao.upsertAll(changed) }
         for (entity in changed) {
             val old = existing[entity.id]
             if (RoutineEnvelope.hasMarker(entity.description) || RoutineEnvelope.hasMarker(old?.description)) {
@@ -481,7 +504,7 @@ class TaskRefresher(
                 else -> signal
             }
         }
-        if (changed.isNotEmpty()) dao.upsertSignals(changed)
+        if (changed.isNotEmpty()) guarded { dao.upsertSignals(changed) }
     }
 
     /**
@@ -516,16 +539,18 @@ class TaskRefresher(
                 null
             } ?: return entity
             val now = time.now().toString()
-            pendingActionDao.queuePatchActionMerging(
-                PendingActionEntity(
-                    entityType = "task",
-                    entityId = entity.id,
-                    actionType = "update",
-                    payload = buildJsonObject { put("description", RoutineEnvelope.upsert(server.body, merged, json)) }.toString(),
-                    createdAt = now,
-                    updatedAt = now,
-                ),
-            )
+            guarded {
+                pendingActionDao.queuePatchActionMerging(
+                    PendingActionEntity(
+                        entityType = "task",
+                        entityId = entity.id,
+                        actionType = "update",
+                        payload = buildJsonObject { put("description", RoutineEnvelope.upsert(server.body, merged, json)) }.toString(),
+                        createdAt = now,
+                        updatedAt = now,
+                    ),
+                )
+            }
             platformHooks.triggerSync()
             entity.copy(description = RoutineEnvelope.upsert(server.body, merged, json))
         }
@@ -535,14 +560,14 @@ class TaskRefresher(
         if (ids.isEmpty()) return
         val rows = taskDao.getByIds(ids)
         if (rows.any { RoutineEnvelope.hasMarker(it.description) }) acc.routinesTouched = true
-        taskDao.deleteByIds(ids)
+        guarded { taskDao.deleteByIds(ids) }
         // Only tasks that could have an alarm need it cancelled.
         acc.removedIds += rows.filter { it.remindersJson != "[]" }.map { it.id }
         acc.removed += ids.size
     }
 
     /** The side effects of a refresh, once: alarms for the tasks that need them, routines, widgets. */
-    private suspend fun finish(acc: Accumulator) {
+    private suspend fun finish(acc: Accumulator): Unit = guarded {
         val alarmWork = acc.alarmTasks.size + acc.removedIds.size
         when {
             alarmWork == 0 -> Unit

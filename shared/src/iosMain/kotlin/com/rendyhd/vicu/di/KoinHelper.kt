@@ -116,6 +116,7 @@ val iosModule = module {
             widgets = { get() },
             shareInbox = { get() },
             appScope = get(),
+            imageLoader = { get() },
         )
     }
     single {

@@ -84,6 +84,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.rendyhd.vicu.auth.isTotpPasscodeComplete
+import com.rendyhd.vicu.util.devicePlatformName
 import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -617,6 +618,15 @@ private fun OidcBrowserStep(
             Text(
                 text = "${provider.name} asked for a passkey. Passkeys can't be used in the in-app sign-in, so sign in through your browser instead.",
                 style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+        // On Android another app can claim the address the browser returns to, and Vikunja's
+        // sign-in takes no PKCE that would make a caught code useless (review finding S-2). iOS
+        // ties the return to this sign-in, so it says nothing there.
+        if (devicePlatformName() == "Android") {
+            Text(
+                text = "Browser sign-in is meant for passkeys; without one, the in-app sign-in is the safer choice.",
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
         Text(

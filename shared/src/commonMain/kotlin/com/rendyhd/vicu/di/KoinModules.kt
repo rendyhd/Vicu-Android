@@ -36,6 +36,7 @@ import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkMonitor
 import com.rendyhd.vicu.util.NotificationActions
 import com.rendyhd.vicu.util.RoutineReminderCheck
+import com.rendyhd.vicu.data.sync.AccountEpoch
 import com.rendyhd.vicu.data.sync.CarrierFinder
 import com.rendyhd.vicu.data.sync.LabelRefresher
 import com.rendyhd.vicu.data.sync.ProjectRefresher
@@ -133,7 +134,7 @@ val repositoryModule = module {
     single { ProjectMapper() }
     single { AttachmentMapper() }
 
-    single { TaskRefresher(taskDao = get(), pendingActionDao = get(), api = get(), taskMapper = get(), platformHooks = get(), cursorStore = get(), time = get(), currentUser = get<AuthManager>(), routineDeviceId = get<RoutinePrefsStore>()::getOrCreateDeviceId, collaborationDao = get()) }
+    single { TaskRefresher(taskDao = get(), pendingActionDao = get(), api = get(), taskMapper = get(), platformHooks = get(), cursorStore = get(), time = get(), currentUser = get<AuthManager>(), routineDeviceId = get<RoutinePrefsStore>()::getOrCreateDeviceId, collaborationDao = get(), accountEpoch = get()) }
     single {
         LabelRefresher(
             labelDao = get(),
@@ -142,9 +143,10 @@ val repositoryModule = module {
             api = get(),
             labelMapper = get(),
             taskMapper = get(),
+            accountEpoch = get(),
         )
     }
-    single { ProjectRefresher(projectDao = get(), pendingActionDao = get(), api = get(), projectMapper = get(), savedFilters = get()) }
+    single { ProjectRefresher(projectDao = get(), pendingActionDao = get(), api = get(), projectMapper = get(), savedFilters = get(), accountEpoch = get()) }
     single { SavedFilterImporter(api = get(), store = get(), customLists = get(), messages = get()) }
 
     single {
@@ -456,6 +458,7 @@ val commonModule = module {
         )
     }
     single { SyncStaleness() }
+    single { AccountEpoch() }
     single {
         ScreenRefresher(
             taskRepository = get(),
@@ -463,6 +466,7 @@ val commonModule = module {
             labelRepository = get(),
             staleness = get(),
             collaboration = get(),
+            accountEpoch = get(),
         )
     }
     single { AppMessages() }
@@ -492,6 +496,7 @@ val commonModule = module {
             savedFilters = get(),
             offlineAttachments = get(),
             proLedger = get(),
+            accountEpoch = get(),
         )
     }
     single {
@@ -550,6 +555,7 @@ val commonModule = module {
             tokenStorage = get(),
             apiService = get(),
             wiper = get(),
+            authManager = get(),
         )
     }
     single { SessionCleanup(authManager = get(), wiper = get()) }

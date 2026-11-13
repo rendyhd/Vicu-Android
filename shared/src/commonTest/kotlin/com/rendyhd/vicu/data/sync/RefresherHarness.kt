@@ -31,6 +31,8 @@ class RefresherHarness(
     val routineDeviceId: String? = null,
     /** With it a refresh keeps the comment counts its reads bring. */
     val collaborationDao: FakeCollaborationDao? = null,
+    /** With it a refresh writes nothing once the data was wiped after it started. */
+    val accountEpoch: AccountEpoch? = null,
 ) {
     private val client = HttpClient(MockEngine { request -> server.handle(this, request) }) {
         install(ContentNegotiation) { json(authTestJson) }
@@ -49,6 +51,7 @@ class RefresherHarness(
         currentUser = currentUser,
         routineDeviceId = routineDeviceId?.let { id -> { id } },
         collaborationDao = collaborationDao,
+        accountEpoch = accountEpoch,
     )
 
     suspend fun queueTaskAction(taskId: Long, type: String = "update", status: String = "pending") {

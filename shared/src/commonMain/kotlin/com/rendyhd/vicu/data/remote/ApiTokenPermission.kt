@@ -7,25 +7,33 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * An API token can lack a route group a collaboration request needs (task comments, task
- * assignees, project sharing; Vikunja offers no token the `subscriptions` group, so none may follow
- * a task), and the server answers that with 401, the same answer as an ended session. Such a 401
- * ends the session only when the same token is also refused the project list, which every token
- * the app works with reads; otherwise only that one request was refused (cross-app semantics 9.7).
- * [KtorClientFactory] asks, and marks such a call with [Refused]; [com.rendyhd.vicu.data.remote.api.VikunjaApiService]
- * turns it into a 403 that says what the token lacks.
+ * An API token can lack a route group a request needs (task comments, task assignees, project
+ * sharing, attachments, relations ...; Vikunja offers no token the `subscriptions` group, so none
+ * may follow a task), and the server answers that with 401, the same answer as an ended session.
+ * Such a 401 ends the session only when the same token is also refused the project list, which
+ * every token the app works with reads; otherwise only that one request was refused (cross-app
+ * semantics 9.7). [KtorClientFactory] asks, and marks such a call with [Refused];
+ * [com.rendyhd.vicu.data.remote.api.VikunjaApiService] turns it into a 403 that says what the
+ * token lacks.
  */
 object ApiTokenPermission {
     const val TOKEN_LACKS_PERMISSION =
         "Your API token does not have this permission. In Vikunja, give the token the permissions for task comments, " +
             "task assignees and project sharing, or sign in with your password instead."
+    /** The same refusal outside the collaboration requests (attachments, relations and the like). */
+    const val TOKEN_LACKS_ROUTE_PERMISSION =
+        "Your API token does not have the permission for this. In Vikunja, give the token this permission, " +
+            "or sign in with your password instead."
     const val TOKEN_CANNOT_FOLLOW = "Vikunja does not let API tokens follow tasks. Sign in with your password to use Notify me."
 
     /** How long a token that read the project list counts as working without asking again. */
     const val CHECK_FRESH_MS = 60_000L
 
-    /** On a call answered 401 whose token still reads the project list: only this request was refused. */
-    internal val Refused = AttributeKey<Unit>("VicuApiTokenPermissionRefused")
+    /**
+     * On a call answered 401 whose token still reads the project list: only this request was
+     * refused. The value is the message to show.
+     */
+    internal val Refused = AttributeKey<String>("VicuApiTokenPermissionRefused")
 }
 
 /**

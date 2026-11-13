@@ -178,11 +178,34 @@ class ApiTokenPermissionTest {
     }
 
     @Test
-    fun `a 401 outside the collaboration endpoints still ends the session - unchecked`() = runTest {
+    fun `a 401 outside the collaboration endpoints is checked too - the token lacks a permission`() = runTest {
+        val h = LoginHarness { request ->
+            when {
+                request.method == HttpMethod.Post && request.url.encodedPath == "/api/v2/tasks/12/relations" -> unauthorized()
+                request.isProjectList() -> projectsPage()
+                else -> respond("", HttpStatusCode.NotFound)
+            }
+        }
+        h.signIn()
+
+        val error = assertFailsWith<VikunjaApiException> {
+            h.api.createRelation(12, com.rendyhd.vicu.data.remote.api.CreateRelationDto(otherTaskId = 13, relationKind = "related"))
+        }
+
+        assertEquals(403, error.httpStatus)
+        assertTrue(error.tokenPermission)
+        assertEquals(ApiTokenPermission.TOKEN_LACKS_ROUTE_PERMISSION, error.message)
+        assertEquals(AuthState.Authenticated, h.authManager.authState.value)
+        assertEquals(1, h.checks().size)
+        h.close()
+    }
+
+    @Test
+    fun `a token the project list refuses ends the session on any request`() = runTest {
         val h = LoginHarness { request ->
             when {
                 request.method == HttpMethod.Get && request.url.encodedPath == "/api/v2/user" -> unauthorized()
-                request.isProjectList() -> projectsPage()
+                request.isProjectList() -> unauthorized()
                 else -> respond("", HttpStatusCode.NotFound)
             }
         }
@@ -191,7 +214,6 @@ class ApiTokenPermissionTest {
         assertFailsWith<VikunjaApiException> { h.api.getCurrentUser() }
 
         assertEquals(AuthState.NeedsReAuth, h.authManager.authState.value)
-        assertTrue(h.checks().isEmpty())
         h.close()
     }
 

@@ -8,7 +8,11 @@ enum class AuthTransitionAction {
     /** Signed in again after the session expired: the changes queued meanwhile can go now. */
     SYNC_NOW,
 
-    /** Signed in after a sign-out: schedule the account's background work again. */
+    /**
+     * Signed in after a sign-out or after "sign in again": schedule the account's background work
+     * again. A sign-out cancels it, and so does a sign-in to another account (the wipe); a sign-out
+     * during a sync used to pass through "sign in again", so both count.
+     */
     RESCHEDULE_ACCOUNT_WORK,
 }
 
@@ -19,7 +23,8 @@ enum class AuthTransitionAction {
 class AuthTransitions {
     private var ensuredAtStart = false
     private var neededReAuth = false
-    private var signedOut = false
+    /** Set by a sign-out or an ended session, cleared only by the next sign-in. */
+    private var accountWorkMayBeOff = false
 
     fun on(state: AuthState): Set<AuthTransitionAction> {
         val actions = mutableSetOf<AuthTransitionAction>()
@@ -29,10 +34,11 @@ class AuthTransitions {
                 actions += AuthTransitionAction.ENSURE_SUMMARIES
             }
             if (neededReAuth) actions += AuthTransitionAction.SYNC_NOW
-            if (signedOut) actions += AuthTransitionAction.RESCHEDULE_ACCOUNT_WORK
+            if (accountWorkMayBeOff) actions += AuthTransitionAction.RESCHEDULE_ACCOUNT_WORK
+            accountWorkMayBeOff = false
         }
         neededReAuth = state == AuthState.NeedsReAuth
-        signedOut = state == AuthState.Unauthenticated
+        if (state == AuthState.Unauthenticated || state == AuthState.NeedsReAuth) accountWorkMayBeOff = true
         return actions
     }
 }

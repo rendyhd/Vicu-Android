@@ -90,6 +90,7 @@ class SessionCleanupTest {
         assertTrue(f.dao.taskIds.isEmpty() && f.dao.pending.isEmpty() && f.dao.routineArchive.isEmpty())
         assertEquals(1, f.customLists.clearLocalCalls)
         assertEquals(1, f.hooks.cancelAllAlarmsCalls, "reminder, snooze and routine alarms are cancelled")
+        assertEquals(1, f.hooks.clearImageCacheCalls, "the old account's pictures are not shown to the next one")
         h.close()
     }
 

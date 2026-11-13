@@ -79,7 +79,7 @@ class LoginHarness(
     }
 
     val api: VikunjaApiService get() = service
-    val accountSession = AccountSession(storage, service, fixture.wiper)
+    val accountSession = AccountSession(storage, service, fixture.wiper, authManager)
     val sessionCleanup = SessionCleanup(authManager, fixture.wiper)
 
     /** Puts the device in the state of an existing session; call from a coroutine. */

@@ -15,6 +15,8 @@ import androidx.lifecycle.lifecycleScope
 import com.rendyhd.vicu.auth.AuthDebugLog
 import com.rendyhd.vicu.auth.AuthManager
 import com.rendyhd.vicu.auth.AuthState
+import com.rendyhd.vicu.auth.AuthTransitionAction
+import com.rendyhd.vicu.auth.AuthTransitions
 import com.rendyhd.vicu.data.local.BehaviorPrefsStore
 import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.local.ThemeMode
@@ -128,29 +130,27 @@ class MainActivity : ComponentActivity() {
         // A sync that stopped because the session ended (401 after a failed token refresh) left
         // the queued changes pending; signing in again resumes it.
         lifecycleScope.launch {
-            var neededReAuth = false
-            var signedOut = false
-            var ensuredAtStart = false
+            // The same rules as iOS (AuthTransitions): the account's background work is scheduled
+            // again on every sign-in after a sign-out or an ended session.
+            val rules = AuthTransitions()
             authManager.authState.collect { state ->
-                if (state == AuthState.Authenticated && !ensuredAtStart) {
-                    // A cheap check on every start: a summary queued already is left alone.
-                    ensuredAtStart = true
-                    dailySummaryScheduler.ensureScheduled(notificationPrefsStore.getPrefs().first())
+                for (action in rules.on(state)) {
+                    when (action) {
+                        // A cheap check on every start: a summary queued already is left alone.
+                        AuthTransitionAction.ENSURE_SUMMARIES ->
+                            dailySummaryScheduler.ensureScheduled(notificationPrefsStore.getPrefs().first())
+                        AuthTransitionAction.SYNC_NOW -> SyncScheduler.enqueueImmediate(this@MainActivity)
+                        AuthTransitionAction.RESCHEDULE_ACCOUNT_WORK -> {
+                            // Sign-out cancelled the daily summaries, the routine maintenance and the periodic sync.
+                            // A device that started signed out never scheduled the widget refresh either.
+                            RoutineMaintenanceScheduler.schedule(this@MainActivity)
+                            WidgetUpdateScheduler.schedulePeriodicRefresh(this@MainActivity)
+                            PeriodicSyncScheduler.schedule(this@MainActivity)
+                            dailySummaryScheduler.scheduleFromPrefs(notificationPrefsStore.getPrefs().first())
+                            plannerNudgeScheduler.ensureScheduled(behaviorPrefsStore.getPrefs().first())
+                        }
+                    }
                 }
-                if (state == AuthState.Authenticated && neededReAuth) {
-                    SyncScheduler.enqueueImmediate(this@MainActivity)
-                }
-                if (state == AuthState.Authenticated && signedOut) {
-                    // Sign-out cancelled the daily summaries, the routine maintenance and the periodic sync.
-                    // A device that started signed out never scheduled the widget refresh either.
-                    RoutineMaintenanceScheduler.schedule(this@MainActivity)
-                    WidgetUpdateScheduler.schedulePeriodicRefresh(this@MainActivity)
-                    PeriodicSyncScheduler.schedule(this@MainActivity)
-                    dailySummaryScheduler.scheduleFromPrefs(notificationPrefsStore.getPrefs().first())
-                    plannerNudgeScheduler.ensureScheduled(behaviorPrefsStore.getPrefs().first())
-                }
-                neededReAuth = state == AuthState.NeedsReAuth
-                signedOut = state == AuthState.Unauthenticated
             }
         }
 

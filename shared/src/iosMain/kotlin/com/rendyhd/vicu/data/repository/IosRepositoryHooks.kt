@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.data.repository
 
+import coil3.ImageLoader
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.PlatformRepositoryHooks
 import com.rendyhd.vicu.ios.IosBackgroundTasks
@@ -25,6 +26,7 @@ class IosRepositoryHooks(
     private val widgets: () -> IosWidgetSnapshots,
     private val shareInbox: () -> IosShareInbox,
     private val appScope: CoroutineScope,
+    private val imageLoader: () -> ImageLoader,
 ) : PlatformRepositoryHooks {
 
     override fun triggerSync() {
@@ -78,6 +80,12 @@ class IosRepositoryHooks(
 
     override suspend fun discardPendingShares() {
         shareInbox().discardAll()
+    }
+
+    override suspend fun clearImageCache() {
+        val loader = imageLoader()
+        loader.memoryCache?.clear()
+        loader.diskCache?.clear()
     }
 
     override suspend fun routinesChanged() {

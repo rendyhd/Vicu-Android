@@ -37,13 +37,16 @@ class SessionCleanup(
      * sequence is not cancellable: leaving the screen cancels the caller's scope as soon as the
      * auth state flips to signed-out, and an interrupted sign-out must never end with the data
      * wiped but the tokens still stored.
+     *
+     * Both run under the sync lock: a sync that is running finishes first, and none starts
+     * between the logout and the wipe. A screen refresh that finishes after the wipe writes
+     * nothing ([com.rendyhd.vicu.data.sync.AccountEpoch]).
      */
     suspend fun signOut(discardUnsynced: Boolean): SignOutResult {
         val unsynced = wiper.unsyncedChangeCount()
         if (unsynced > 0 && !discardUnsynced) return SignOutResult.NeedsDiscard(unsynced)
         withContext(NonCancellable) {
-            authManager.logout()
-            wiper.wipeEverything()
+            wiper.wipeEverything(before = { authManager.logout() })
         }
         return SignOutResult.Done
     }

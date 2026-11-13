@@ -24,6 +24,8 @@ class ScreenRefresher(
     private val staleness: SyncStaleness,
     /** Project members and comment signals (cross-app semantics 9); read after the projects. */
     private val collaboration: CollaborationRepository? = null,
+    /** A sign-out or account switch during the refresh stops it ([AccountEpoch]). */
+    private val accountEpoch: AccountEpoch? = null,
 ) {
     private val mutex = Mutex()
 
@@ -41,15 +43,22 @@ class ScreenRefresher(
         tasks: (suspend () -> NetworkResult<Unit>)? = null,
     ): NetworkResult<Unit> = mutex.withLock {
         if (!manual && tasks == null && !staleness.isStale()) return@withLock NetworkResult.Success(Unit)
+        val epoch = accountEpoch?.current()
+        val signedOut = NetworkResult.Error(AccountChangedException().message.orEmpty())
+        fun accountChanged() = epoch != null && accountEpoch?.current() != epoch
 
         val taskResult = tasks?.invoke() ?: taskRepository.refreshAll(full = manual)
         if (taskResult is NetworkResult.Error) return@withLock taskResult
+        if (accountChanged()) return@withLock signedOut
         val projectResult = projectRepository.refreshAll()
         if (projectResult is NetworkResult.Error) return@withLock projectResult
+        if (accountChanged()) return@withLock signedOut
         val labelResult = labelRepository.refreshAll()
         if (labelResult is NetworkResult.Error) return@withLock labelResult
+        if (accountChanged()) return@withLock signedOut
         // Collaboration never fails a screen's refresh: rows simply keep their last signals.
         collaboration?.refresh(force = manual)
+        if (accountChanged()) return@withLock signedOut
 
         if (tasks == null) staleness.markSynced()
         NetworkResult.Success(Unit)

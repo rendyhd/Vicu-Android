@@ -602,12 +602,13 @@ class VikunjaApiService(
         }.getOrNull()
         // A 401 that refused only this request: the API token lacks its permission, the session
         // works (KtorClientFactory, cross-app semantics 9.7).
-        if (call.attributes.contains(ApiTokenPermission.Refused)) {
+        val refusedMessage = call.attributes.getOrNull(ApiTokenPermission.Refused)
+        if (refusedMessage != null) {
             return VikunjaApiException(
                 HttpStatusCode.Forbidden.value,
                 problem,
                 tokenPermission = true,
-                message = ApiTokenPermission.TOKEN_LACKS_PERMISSION,
+                message = refusedMessage,
             )
         }
         return VikunjaApiException(status.value, problem)

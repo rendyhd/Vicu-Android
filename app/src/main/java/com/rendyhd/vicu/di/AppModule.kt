@@ -88,6 +88,7 @@ val appModule = module {
             appScope = get(),
             dailySummaryScheduler = get(),
             plannerNudgeScheduler = get(),
+            imageLoaderProvider = { get() },
         )
     }
     single<NetworkMonitor> { AndroidNetworkMonitor(androidContext()) }

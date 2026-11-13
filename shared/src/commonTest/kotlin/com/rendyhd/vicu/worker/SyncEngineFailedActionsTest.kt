@@ -59,6 +59,9 @@ class SyncEngineFailedActionsTest {
         }
         h.pendingActionDao.insert(queuedTaskAction(11, "update", createdAt = "2020-01-01T00:00:00Z"))
         h.pendingActionDao.insert(queuedTaskAction(12, "update", createdAt = "2020-01-02T00:00:00Z"))
+        // Signed in: a device that is signed out never turns to "sign in again".
+        h.storage.storeUserId(1) // known, so signing in reads nothing
+        h.signInWithApiToken()
 
         val finished = h.engine.performSync()
 
@@ -94,7 +97,8 @@ class SyncEngineFailedActionsTest {
             error("Unexpected ${request.method.value} ${request.url.encodedPath}")
         }
         h.pendingActionDao.insert(queuedTaskAction(11, "update"))
-        h.authManager.ensureInitializedAndGetToken()
+        h.storage.storeUserId(1) // known, so signing in reads nothing
+        h.signInWithApiToken()
         h.authManager.setNeedsReAuth()
 
         val finished = h.engine.performSync()
