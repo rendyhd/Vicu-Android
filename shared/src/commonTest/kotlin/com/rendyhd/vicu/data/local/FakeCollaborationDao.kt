@@ -29,8 +29,14 @@ class FakeCollaborationDao : CollaborationDao {
         this.members.value = this.members.value.filter { (it.projectId to it.userId) !in keys } + members
     }
 
-    override suspend fun deleteMembersExcept(projectIds: List<Long>) {
-        members.value = members.value.filter { it.projectId in projectIds }
+    /** The ids each delete statement bound, to check the chunking. */
+    val memberDeleteChunks = mutableListOf<List<Long>>()
+
+    override suspend fun getMemberProjectIds(): List<Long> = members.value.map { it.projectId }.distinct()
+
+    override suspend fun deleteMembersOfChunk(projectIds: List<Long>) {
+        memberDeleteChunks += projectIds
+        members.value = members.value.filter { it.projectId !in projectIds }
     }
 
     override fun observeSignals(): Flow<List<TaskSignalEntity>> = signals.map { it.values.toList() }

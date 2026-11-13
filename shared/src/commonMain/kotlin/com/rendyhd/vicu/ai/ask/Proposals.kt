@@ -316,6 +316,7 @@ class Proposals(
             change.priority?.let { updated = updated.copy(priority = it) }
             var ok = true
             if (updated != current) ok = tasks.update(updated) is NetworkResult.Success
+            val wrote = updated
             if (ok && change.projectId != null) ok = tasks.moveToProject(current.id, change.projectId) is NetworkResult.Success
             val addedLabelIds = mutableListOf<Long>()
             if (ok) {
@@ -336,18 +337,8 @@ class Proposals(
                     if (movedFrom != null) tasks.moveToProject(before.id, movedFrom)
                     val now = tasks.getById(before.id).first()
                     if (now != null) {
-                        tasks.update(
-                            now.copy(
-                                title = before.title,
-                                description = before.description,
-                                dueDate = before.dueDate,
-                                // A due date moves or removes a block on its day (contract 16.3).
-                                startDate = before.startDate,
-                                endDate = before.endDate,
-                                reminders = before.reminders,
-                                priority = before.priority,
-                            ),
-                        )
+                        val restored = restoreWritten(now, before, wrote)
+                        if (restored != now) tasks.update(restored)
                     }
                     for (id in addedLabelIds) labels.removeFromTask(before.id, id)
                     for (label in removed) labels.addToTask(before.id, label.id)
@@ -365,6 +356,28 @@ class Proposals(
                 EditedDue(taskId = it.before.id, due = cardDueText(it.due))
             },
         )
+    }
+
+    /**
+     * [now] with only the fields the proposal wrote ([before] to [wrote]) put back (review C-9): a
+     * rename or a note made on another device since, or a field the proposal never touched, stays
+     * as it is now. A due date moves or removes a block on its day (contract 16.3), so the block's
+     * times and the reminders go back with the date.
+     */
+    private fun restoreWritten(now: Task, before: Task, wrote: Task): Task {
+        var restored = now
+        if (wrote.title != before.title) restored = restored.copy(title = before.title)
+        if (wrote.description != before.description) restored = restored.copy(description = before.description)
+        if (wrote.priority != before.priority) restored = restored.copy(priority = before.priority)
+        if (wrote.dueDate != before.dueDate) {
+            restored = restored.copy(
+                dueDate = before.dueDate,
+                startDate = before.startDate,
+                endDate = before.endDate,
+                reminders = before.reminders,
+            )
+        }
+        return restored
     }
 
     private fun statusOf(applied: Int, failed: Int): String = when {

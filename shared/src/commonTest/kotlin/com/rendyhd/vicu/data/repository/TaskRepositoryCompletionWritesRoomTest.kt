@@ -46,10 +46,12 @@ class TaskRepositoryCompletionWritesRoomTest {
     @Test
     fun `a repeating task comes back open with its next due date and keeps its alarm`() = runTest {
         val repeating = open.copy(repeatAfter = 86_400, repeatMode = 0)
-        val h = TaskRepositoryHarness(taskDao = FakeTaskDao(listOf(repeating))) {
+        val h = TaskRepositoryHarness(taskDao = FakeTaskDao(listOf(repeating))) { request ->
+            // The read before the completion (contract 7.5) still finds this occurrence.
+            val dueDate = if (request.method == io.ktor.http.HttpMethod.Get) repeating.dueDate else "2026-10-09T21:59:59Z"
             jsonOk(
                 """{"id":42,"title":"Original","project_id":7,"done":false,"repeat_after":86400,
-                    "due_date":"2026-10-09T21:59:59Z"}""",
+                    "due_date":"$dueDate"}""",
             )
         }
 

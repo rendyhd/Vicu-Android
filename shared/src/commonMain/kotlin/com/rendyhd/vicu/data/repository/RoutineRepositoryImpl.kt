@@ -144,7 +144,7 @@ class RoutineRepositoryImpl(
             }
         }
         ParsedCarriers(
-            routines = routines.sortedBy { it.definition.createdAt },
+            routines = preferOwn(routines, me).sortedBy { it.definition.createdAt },
             issues = issues,
         )
     }.flowOn(mappingDispatcher)
@@ -461,11 +461,11 @@ class RoutineRepositoryImpl(
             } catch (error: Exception) {
                 Logger.w(TAG, "Routine history upload failed: ${error.message}")
             }
-            taskDao.getRoutineCarriersSync().forEach { entity ->
-                val parsed = RoutineEnvelope.parse(entity.description, json)
-                val payload = parsed.payload ?: return@forEach
-                finalizePastHealthOccurrences(Routine(entity.id, payload))
-                findRoutine(payload.definition.id)?.let { current ->
+            // Only the carriers this account reads, one per routine: never another user's that
+            // carries a routine id of this account's (review S-5).
+            loadCarrierRoutines().forEach { routine ->
+                finalizePastHealthOccurrences(routine)
+                findRoutine(routine.definition.id)?.let { current ->
                     val pruned = RoutineArchive.prune(current.payload, today(), json, time.zone())
                     if (pruned.archived.isNotEmpty()) writeCarrier(current)
                 }
@@ -625,12 +625,23 @@ class RoutineRepositoryImpl(
 
     private suspend fun loadCarrierRoutines(): List<Routine> {
         val me = authManager.knownId()
-        return taskDao.getRoutineCarriersSync().mapNotNull { entity ->
+        val readable = taskDao.getRoutineCarriersSync().mapNotNull { entity ->
             RoutineEnvelope.parse(entity.description, json).payload
                 ?.takeIf { SharedRoutines.readsCarrier(entity.createdById, me, it.definition.shared) }
                 ?.let { Routine(entity.id, it, projectId = entity.projectId, ownerId = entity.createdById) }
         }
+        return preferOwn(readable, me)
     }
+
+    /** One carrier per routine id from other users, none where the account has its own (review S-5). */
+    private fun preferOwn(routines: List<Routine>, me: Long?): List<Routine> =
+        SharedRoutines.preferOwnCarriers(
+            routines,
+            me,
+            taskId = { it.taskId },
+            createdBy = { it.ownerId },
+            routineId = { it.definition.id },
+        )
 
     private suspend fun findRoutine(routineId: String): Routine? =
         loadCarrierRoutines().firstOrNull { it.definition.id == routineId }

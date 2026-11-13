@@ -185,6 +185,7 @@ val repositoryModule = module {
             pendingActionDao = get(),
             platformHooks = get(),
             projectIcons = get(),
+            writeGate = get(),
         )
     }
     single<LabelRepository> {
@@ -340,7 +341,7 @@ val repositoryModule = module {
             api = get(),
             json = get(),
             currentUser = get<AuthManager>(),
-            readRoutines = RoutineArchiveStore.cachedRoutines(taskDao = get(), json = get()),
+            readRoutines = RoutineArchiveStore.cachedRoutines(taskDao = get(), json = get(), currentUser = get<AuthManager>()),
         )
     }
     single<RoutineRepository> {

@@ -39,31 +39,47 @@ class GuidedWriter(
         tasks.delete(taskId)
     }
 
-    /** Puts back every change of [log] except deletes, the latest first. */
+    /**
+     * Puts back every change of [log] except deletes, the latest first. Only what the session
+     * wrote goes back (the title, the project, the due date); a field changed on another device
+     * meanwhile, or one the session never touched, is left as it is now (review C-9).
+     */
     suspend fun undo(log: GuidedLog) {
         for (entry in log.all.reversed()) {
             if (entry.deleted) continue
             val before = entry.before
+            val after = entry.after
             if (entry.completed) tasks.setDone(before.id, false)
             val now = tasks.getById(before.id).first() ?: continue
-            if (now.projectId != before.projectId) tasks.moveToProject(now.id, before.projectId)
-            val sameDue = DateUtils.parseIsoDate(now.dueDate) == DateUtils.parseIsoDate(before.dueDate)
-            if (now.title != before.title || !sameDue) {
-                // A due date moves or removes a block on its day (contract 16.3): the old block goes back with it.
-                tasks.update(
-                    now.copy(
-                        title = before.title,
-                        dueDate = before.dueDate,
-                        startDate = before.startDate,
-                        endDate = before.endDate,
-                        reminders = before.reminders,
-                    ),
-                )
+            if (before.projectId != after.projectId && now.projectId != before.projectId) {
+                tasks.moveToProject(now.id, before.projectId)
             }
+            val restored = restoreWritten(now, before, after)
+            if (restored != now) tasks.update(restored)
         }
     }
 
     private companion object {
         const val CALL_ID = "guided"
+
+        /**
+         * [now] with the fields the session changed from [before] to [after] put back: the title
+         * and the due date. A due date moves or removes a block on its day (contract 16.3), so
+         * the block of the old date and its reminders come back with it.
+         */
+        fun restoreWritten(now: Task, before: Task, after: Task): Task {
+            var restored = now
+            if (before.title != after.title) restored = restored.copy(title = before.title)
+            val dueChanged = DateUtils.parseIsoDate(before.dueDate) != DateUtils.parseIsoDate(after.dueDate)
+            if (dueChanged && DateUtils.parseIsoDate(now.dueDate) != DateUtils.parseIsoDate(before.dueDate)) {
+                restored = restored.copy(
+                    dueDate = before.dueDate,
+                    startDate = before.startDate,
+                    endDate = before.endDate,
+                    reminders = before.reminders,
+                )
+            }
+            return restored
+        }
     }
 }

@@ -3,16 +3,18 @@ package com.rendyhd.vicu.util
 import io.ktor.client.plugins.ResponseException
 import com.rendyhd.vicu.data.remote.api.VikunjaApiException
 
+/**
+ * True when a failed request is worth sending again later: no answer at all (offline, a
+ * timeout), a server error (5xx), too many requests (429) or a request timeout (408), as on the
+ * desktop. Any other answer refuses the request itself.
+ */
 fun isRetriableNetworkError(e: Exception): Boolean {
-    if (e is VikunjaApiException) {
-        return e.httpStatus in 500..599 || e.httpStatus == 429
-    }
-    if (e is ResponseException) {
-        val code = e.response.status.value
-        return code in 500..599 || code == 429
-    }
+    if (e is VikunjaApiException) return isRetriableStatus(e.httpStatus)
+    if (e is ResponseException) return isRetriableStatus(e.response.status.value)
     return isPlatformRetriableError(e)
 }
+
+private fun isRetriableStatus(code: Int): Boolean = code in 500..599 || code == 429 || code == 408
 
 expect fun isPlatformRetriableError(e: Exception): Boolean
 

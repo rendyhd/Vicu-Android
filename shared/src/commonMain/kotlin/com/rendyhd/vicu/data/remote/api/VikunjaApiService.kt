@@ -492,12 +492,22 @@ class VikunjaApiService(
         }.bodyOrThrow()
     }
 
-    suspend fun updateComment(taskId: Long, commentId: Long, html: String): TaskCommentDto = serialWrite {
-        client.patch("tasks/$taskId/comments/$commentId") {
-            contentType(MERGE_PATCH)
-            setBody(CommentBodyDto(html))
-        }.bodyOrThrow()
+    /**
+     * Changes a comment. An edit that changes nothing is answered 304 without a body, as a task
+     * patch is: the comment is read back then, and it is a success.
+     */
+    suspend fun updateComment(taskId: Long, commentId: Long, html: String): TaskCommentDto {
+        val response = serialWrite {
+            client.patch("tasks/$taskId/comments/$commentId") {
+                contentType(MERGE_PATCH)
+                setBody(CommentBodyDto(html))
+            }
+        }
+        return if (response.isUnchanged()) getComment(taskId, commentId) else response.bodyOrThrow()
     }
+
+    suspend fun getComment(taskId: Long, commentId: Long): TaskCommentDto =
+        client.get("tasks/$taskId/comments/$commentId").bodyOrThrow()
 
     suspend fun deleteComment(taskId: Long, commentId: Long) = serialWrite {
         client.delete("tasks/$taskId/comments/$commentId").requireSuccess()

@@ -47,6 +47,7 @@ import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.mayHaveReachedServer
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.RelationKind
+import com.rendyhd.vicu.util.RepeatCompletion
 import com.rendyhd.vicu.util.RoutineEnvelope
 import com.rendyhd.vicu.util.HiddenTasks
 import io.ktor.client.plugins.ResponseException
@@ -240,6 +241,13 @@ class SyncEngine(
 
         /** Actions this run has already tried; each is sent at most once per run. */
         val attempted = HashSet<Long>()
+
+        /**
+         * Tasks whose assignee or relation change reached the server in this run. A refresh skipped
+         * them while the change waited and its cursor moved on, so they are read back once the
+         * replay is over (a rename or new date made elsewhere meanwhile, and its reminder).
+         */
+        val readBack = LinkedHashSet<Long>()
         var hasRetriableFailures = false
         var pausedForAuth = false
     }
@@ -247,9 +255,15 @@ class SyncEngine(
     /**
      * Sends what waits in the queue, creates first. Changes queued while a pass runs (the user kept
      * editing, or a change joined the queue behind one that was being sent) are sent by a further
-     * pass of the same run instead of waiting for the next one.
+     * pass of the same run instead of waiting for the next one. Then the tasks of the assignee and
+     * relation changes that went out are read back ([RunState.readBack]).
      */
     private suspend fun replayQueue(run: RunState) {
+        replayPasses(run)
+        readBackTasks(run)
+    }
+
+    private suspend fun replayPasses(run: RunState) {
         repeat(MAX_REPLAY_PASSES) {
             val actions = pendingActionDao.getRetryable()
                 .filter { it.id !in run.attempted }
@@ -271,6 +285,41 @@ class SyncEngine(
         }
     }
 
+    /** The tasks an assignee or relation change touched, by their server ids; nothing for other kinds. */
+    private fun readBackIds(action: PendingActionEntity, tempIdMap: Map<Long, Long>): List<Long> {
+        fun real(id: Long) = tempIdMap[id] ?: id
+        val ids = when (action.entityType) {
+            CollabQueue.ASSIGNEE -> listOf(real(action.entityId))
+            RelationQueue.ENTITY_TYPE ->
+                listOfNotNull(real(action.entityId), RelationQueue.decode(action.payload)?.otherTaskId?.let(::real))
+            else -> emptyList()
+        }
+        return ids.filter { it > 0L }
+    }
+
+    /**
+     * Reads back the tasks of [RunState.readBack] (see there). A failure never fails the sync: a
+     * full reconcile is asked for instead, which brings them in at the next refresh.
+     */
+    private suspend fun readBackTasks(run: RunState) {
+        if (run.readBack.isEmpty()) return
+        val ids = run.readBack.toList()
+        run.readBack.clear()
+        if (run.pausedForAuth) {
+            // Nothing can be read while signed out; the next refresh after signing in does it.
+            taskRefresher.requestFullReconcile()
+            return
+        }
+        try {
+            if (!taskRefresher.refreshTasks(ids)) taskRefresher.requestFullReconcile()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Logger.w(TAG, "Could not read back ${ids.size} tasks after their changes were sent: ${e.message}")
+            taskRefresher.requestFullReconcile()
+        }
+    }
+
     private suspend fun replayAction(action: PendingActionEntity, run: RunState) {
         val waitingFor = unresolvedTempId(action, run.tempIdMap)
         if (waitingFor != null) {
@@ -285,6 +334,7 @@ class SyncEngine(
                 return
             }
             pendingActionDao.updateStatus(action.id, "completed")
+            run.readBack += readBackIds(action, run.tempIdMap)
             Logger.d(TAG, "Action ${action.id} (${action.entityType}/${action.actionType}) completed")
         } catch (e: Exception) {
             if (e is CancellationException && !currentCoroutineContext().isActive) {
@@ -309,6 +359,7 @@ class SyncEngine(
                     // change already happened there), so retrying can never work and
                     // "failed" would only nag. The local rows were cleaned up.
                     pendingActionDao.updateStatus(action.id, "completed")
+                    run.readBack += readBackIds(action, run.tempIdMap)
                 }
                 isRetriableNetworkError(e) -> {
                     // Offline, a timeout, a 5xx or a 429: the change is fine, the server is
@@ -691,10 +742,14 @@ class SyncEngine(
             }
             "update", "toggle_done" -> {
                 val taskId = tempIdMap[action.entityId] ?: action.entityId
-                val patch = json.decodeFromString(
-                    JsonObject.serializer(),
-                    normalizeQueuedPatchPayload("task", action.payload),
+                // A completion of a repeating task carries the due date it completed (contract 7.5).
+                val queued = RepeatCompletion.fromQueued(
+                    json.decodeFromString(
+                        JsonObject.serializer(),
+                        normalizeQueuedPatchPayload("task", action.payload),
+                    ),
                 )
+                val patch = queued.patch
                 val localEntity = taskDao.getByIdSync(taskId)
                 // A routine carrier is merged with the server's copy and written conditionally
                 // (cross-app semantics 6.8). Never over a carrier this version cannot read: the
@@ -704,7 +759,9 @@ class SyncEngine(
                 } else {
                     null
                 }
-                val responseDto = carrierWrite ?: api.updateTask(taskId, patch)
+                val responseDto = carrierWrite
+                    ?: skippedCompletion(taskId, queued)
+                    ?: api.updateTask(taskId, patch)
                 val responseEntity = with(taskMapper) { responseDto.toEntity() }
                 taskDao.upsert(responseEntity)
                 val updated = with(taskMapper) { responseEntity.toDomain() }
@@ -718,6 +775,21 @@ class SyncEngine(
                 api.deleteTask(tempIdMap[action.entityId] ?: action.entityId)
             }
         }
+    }
+
+    /**
+     * Contract 7.5: before a queued completion of a repeating task is sent, the task is read. When
+     * another device completed this occurrence already the completion is skipped: only the fields
+     * edited together with it are sent, and the server's task is returned to be stored. Null when
+     * the completion is to be sent as queued. A failed read throws, so the action waits.
+     */
+    private suspend fun skippedCompletion(taskId: Long, queued: RepeatCompletion.Queued): TaskDto? {
+        val completedDue = queued.completedDue ?: return null
+        val server = api.getTask(taskId)
+        if (RepeatCompletion.decide(completedDue, server) == RepeatCompletion.Decision.SEND) return null
+        Logger.d(TAG, "Task $taskId: this occurrence was completed elsewhere; the queued completion is not sent")
+        val rest = RepeatCompletion.withoutCompletion(queued.patch)
+        return if (rest.isEmpty()) server else api.updateTask(taskId, rest)
     }
 
     /**

@@ -149,19 +149,39 @@ class TaskRepositoryListPositionsTest {
     }
 
     @Test
-    fun `a drag the server refuses is reported - and the local order stays until a refresh`() = runTest {
-        val server = Server().apply { failPositionOnCall = setOf(1) }
+    fun `a drag the server refuses is reported - and the server's order shows again`() = runTest {
+        val server = Server().apply {
+            failPositionOnCall = setOf(1)
+            viewTasks = listOf(3L to 10.0)
+        }
         val h = harness(server, cached = listOf(Task(id = 3, title = "T", position = 10.0)))
 
         val result = h.repository.applyPositions(7, listOf(PositionUpdate(3, 500.0)))
 
         assertIs<NetworkResult.Error>(result)
-        assertEquals(500.0, h.taskDao.entity(3)!!.position)
+        assertEquals(10.0, h.taskDao.entity(3)!!.position)
+    }
+
+    @Test
+    fun `a refused drag whose list cannot be read puts the order from before back`() = runTest {
+        val server = Server().apply {
+            failPositionOnCall = setOf(1)
+            failViewTasks = true
+        }
+        val h = harness(server, cached = listOf(Task(id = 3, title = "T", position = 10.0)))
+
+        val result = h.repository.applyPositions(7, listOf(PositionUpdate(3, 500.0)))
+
+        assertIs<NetworkResult.Error>(result)
+        assertEquals(10.0, h.taskDao.entity(3)!!.position)
     }
 
     @Test
     fun `a renumbering drag sends the updates in the order given and stops at the first refusal`() = runTest {
-        val server = Server().apply { failPositionOnCall = setOf(2) }
+        val server = Server().apply {
+            failPositionOnCall = setOf(2)
+            viewTasks = listOf(1L to 0.0, 2L to 0.0, 3L to 0.0)
+        }
         val h = harness(
             server,
             cached = listOf(Task(id = 1, title = "A"), Task(id = 2, title = "B"), Task(id = 3, title = "C")),
@@ -174,7 +194,8 @@ class TaskRepositoryListPositionsTest {
 
         assertIs<NetworkResult.Error>(result)
         assertEquals(listOf(1L to 65_536.0, 3L to 196_608.0), h.putPositions(), "the third was never sent")
-        assertEquals(listOf(65_536.0, 131_072.0, 196_608.0), (1L..3L).map { h.taskDao.entity(it)!!.position })
+        // What reached the server shows; the rest of the order is the server's again.
+        assertEquals(listOf(65_536.0, 0.0, 0.0), (1L..3L).map { h.taskDao.entity(it)!!.position })
     }
 
     // --- a drop on the project screen: planned from a read made for it ---

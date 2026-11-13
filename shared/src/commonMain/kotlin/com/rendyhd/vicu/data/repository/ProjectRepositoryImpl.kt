@@ -14,9 +14,7 @@ import com.rendyhd.vicu.domain.repository.ProjectRepository
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.isNetworkFailure
-import com.rendyhd.vicu.util.isRetriableNetworkError
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -24,7 +22,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 
 class ProjectRepositoryImpl(
@@ -38,6 +35,8 @@ class ProjectRepositoryImpl(
     private val mappingDispatcher: CoroutineDispatcher = Dispatchers.Default,
     /** Which projects are drawn without an icon (synced settings); none without it. */
     private val projectIcons: ProjectIconPreferences? = null,
+    /** One change per project at a time, and none past a queued one (shared with the other repositories). */
+    private val writeGate: TaskWriteGate = TaskWriteGate(pendingActionDao),
 ) : ProjectRepository {
 
     private val withoutIcon: Flow<Set<Long>> = projectIcons?.withoutIcon ?: flowOf(emptySet())
@@ -93,34 +92,29 @@ class ProjectRepositoryImpl(
         val patch = MergePatches.project(previousProject, project)
         if (patch.isEmpty()) return NetworkResult.Success(project)
 
-        // A change is already waiting for this project: this one must not overtake it, or the
-        // older value would be replayed over the newer one. It joins the queue instead. (A change
-        // that failed for good does not hold the project back; the user retries or discards it.)
-        val waiting = pendingActionDao.getActiveByEntity(ENTITY_TYPE, project.id)
-            .any { it.status == "pending" || it.status == "processing" }
-        if (waiting) {
-            queuePatch(project.id, patch)
-            return NetworkResult.Success(project)
-        }
-
-        return try {
-            val responseDto = api.updateProject(project.id, patch)
-            val responseEntity = with(projectMapper) { responseDto.toEntity() }
-            projectDao.upsert(responseEntity)
-            NetworkResult.Success(with(projectMapper) { responseEntity.toDomain() })
-        } catch (e: CancellationException) {
-            // Whether the request got through is unknown, and a merge patch can be sent twice.
-            withContext(NonCancellable) { queuePatch(project.id, patch) }
-            throw e
-        } catch (e: Exception) {
-            if (isRetriableNetworkError(e)) {
+        // While a change for this project waits in the queue or is being sent, this one must not
+        // overtake it, or the older value would be replayed over the newer one: it joins the queue
+        // instead. Changes to one project go one at a time, so one in flight cannot be overtaken
+        // either. (A change that failed for good does not hold the project back; the user retries
+        // or discards it.) Cancelled, the change is queued: a merge patch can be sent twice.
+        return writeGate.sendOrQueueEntity(
+            entityType = ENTITY_TYPE,
+            entityId = project.id,
+            send = {
+                val responseDto = api.updateProject(project.id, patch)
+                val responseEntity = with(projectMapper) { responseDto.toEntity() }
+                projectDao.upsert(responseEntity)
+                NetworkResult.Success(with(projectMapper) { responseEntity.toDomain() })
+            },
+            queue = {
                 queuePatch(project.id, patch)
                 NetworkResult.Success(project)
-            } else {
+            },
+            refused = { e ->
                 previous?.let { projectDao.upsert(it) }
                 NetworkResult.Error(e.message ?: "Failed to update project")
-            }
-        }
+            },
+        )
     }
 
     private suspend fun queuePatch(projectId: Long, patch: JsonObject) {

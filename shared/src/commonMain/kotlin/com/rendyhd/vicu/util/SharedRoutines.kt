@@ -27,6 +27,37 @@ object SharedRoutines {
         me == null || createdBy <= 0L || createdBy == me || shared
 
     /**
+     * The carriers to use when several carry the same routine id (review S-5): a member of a shared
+     * project can make a carrier with someone else's routine id and `shared: true`, and a tick on
+     * it would go into their task. So where the account has a carrier of that id, every other
+     * user's carrier of it is left out; where only other users have one, the oldest task (lowest
+     * id) stays, as a copy made later cannot be older than the routine. The account's own carriers
+     * are all kept, as before. A carrier counts as the account's own as in [readsCarrier] (its
+     * creator or the account not known yet). The order of [carriers] is kept; the same rule as the
+     * desktop's `preferOwnRoutineCarriers`.
+     */
+    fun <T> preferOwnCarriers(
+        carriers: List<T>,
+        me: Long?,
+        taskId: (T) -> Long,
+        createdBy: (T) -> Long,
+        routineId: (T) -> String,
+    ): List<T> {
+        fun isOwn(carrier: T) = readsCarrier(createdBy(carrier), me, shared = false)
+        val ownIds = carriers.filter(::isOwn).mapTo(HashSet()) { routineId(it) }
+        val oldestOther = HashMap<String, Long>()
+        for (carrier in carriers) {
+            if (isOwn(carrier)) continue
+            val id = routineId(carrier)
+            val kept = oldestOther[id]
+            if (kept == null || taskId(carrier) < kept) oldestOther[id] = taskId(carrier)
+        }
+        return carriers.filter { carrier ->
+            isOwn(carrier) || (routineId(carrier) !in ownIds && oldestOther[routineId(carrier)] == taskId(carrier))
+        }
+    }
+
+    /**
      * True for an archive part this account reads: one of a routine it reads ([readRoutines],
      * routine id to whether it is shared), whoever created it. A part a member wrote while the
      * routine was shared stays part of its history when the owner stops sharing it (section 6.9).

@@ -195,6 +195,23 @@ class ProjectRepositoryOfflineTest {
         assertEquals("Later notes", payload["description"]!!.jsonPrimitive.content)
     }
 
+    @Test
+    fun `a change made while the sync is sending an older one joins the queue`() = runTest {
+        val pending = FakePendingActionDao()
+        pending.insert(
+            com.rendyhd.vicu.data.local.entity.PendingActionEntity(
+                entityType = "project", entityId = 5, actionType = "update", payload = """{"title":"Older"}""",
+                status = "processing", createdAt = "2026-10-06T10:00:00Z", updatedAt = "2026-10-06T10:00:00Z",
+            ),
+        )
+        val rig = Rig(FakeProjectDao(listOf(original)), pending) { ok(projectJson("Newer")) }
+
+        rig.repository.update(domain().copy(title = "Newer"))
+
+        assertTrue(rig.patches().isEmpty(), "it must not overtake the change being sent")
+        assertTrue(rig.queued().any { it.status == "pending" && it.payload.contains("Newer") })
+    }
+
     // --- refused for good ----------------------------------------------------------------------
 
     @Test

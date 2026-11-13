@@ -156,7 +156,7 @@ class RoutineRig(
         api,
         json,
         currentUser = auth.manager,
-        readRoutines = RoutineArchiveStore.cachedRoutines(taskDao, json),
+        readRoutines = RoutineArchiveStore.cachedRoutines(taskDao, json, auth.manager),
     )
     val repository = RoutineRepositoryImpl(
         taskDao = taskDao,

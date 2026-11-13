@@ -19,6 +19,7 @@ import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.isNetworkFailure
 import com.rendyhd.vicu.util.isRetriableNetworkError
+import com.rendyhd.vicu.worker.MissingResourceCheck
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,12 @@ class LabelRepositoryImpl(
     /** Where Room rows are mapped to domain models: off the main thread; tests pass an unconfined one. */
     private val mappingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : LabelRepository {
+
+    private companion object {
+        const val ENTITY_TYPE = "label"
+    }
+
+    private val missing = MissingResourceCheck(api)
 
     private suspend fun queueLabelAction(entityId: Long, actionType: String, payload: String) {
         val action = PendingActionEntity(
@@ -124,21 +131,25 @@ class LabelRepositoryImpl(
             return NetworkResult.Success(label)
         }
         if (patch.isEmpty()) return NetworkResult.Success(label)
-        return try {
-            val responseDto = api.updateLabel(label.id, patch)
-            val entity = with(labelMapper) { responseDto.toEntity() }
-            labelDao.upsert(entity)
-            NetworkResult.Success(with(labelMapper) { entity.toDomain() })
-        } catch (e: Exception) {
-            if (isRetriableNetworkError(e)) {
-                val entity = with(labelMapper) { label.toEntity() }
+        // Through the same gate as a project's edits (review C-8): while a change of this label
+        // waits in the queue or is being sent, this one joins the queue, so the replay can never
+        // send an older value over it.
+        return writeGate.sendOrQueueEntity(
+            entityType = ENTITY_TYPE,
+            entityId = label.id,
+            send = {
+                val responseDto = api.updateLabel(label.id, patch)
+                val entity = with(labelMapper) { responseDto.toEntity() }
                 labelDao.upsert(entity)
+                NetworkResult.Success(with(labelMapper) { entity.toDomain() })
+            },
+            queue = {
+                labelDao.upsert(with(labelMapper) { label.toEntity() })
                 queueLabelAction(label.id, "update", patchPayload)
                 NetworkResult.Success(label)
-            } else {
-                NetworkResult.Error(e.message ?: "Failed to update label")
-            }
-        }
+            },
+            refused = { e -> NetworkResult.Error(e.message ?: "Failed to update label") },
+        )
     }
 
     override suspend fun delete(labelId: Long): NetworkResult<Unit> {
@@ -147,18 +158,31 @@ class LabelRepositoryImpl(
             queueLabelAction(labelId, "delete", "")
             return NetworkResult.Success(Unit)
         }
-        return try {
-            labelDao.deleteById(labelId)
-            api.deleteLabel(labelId)
-            NetworkResult.Success(Unit)
-        } catch (e: Exception) {
-            if (isRetriableNetworkError(e)) {
+        // The row goes once the server said yes (or once the delete is queued): a delete the
+        // server refuses leaves the label where it was instead of hiding it until the next refresh.
+        return writeGate.sendOrQueueEntity(
+            entityType = ENTITY_TYPE,
+            entityId = labelId,
+            send = {
+                api.deleteLabel(labelId)
+                labelDao.deleteById(labelId)
+                NetworkResult.Success(Unit)
+            },
+            queue = {
+                labelDao.deleteById(labelId)
                 queueLabelAction(labelId, "delete", "")
                 NetworkResult.Success(Unit)
-            } else {
-                NetworkResult.Error(e.message ?: "Failed to delete label")
-            }
-        }
+            },
+            refused = { e ->
+                if (e is VikunjaApiException && e.httpStatus == 404 && missing.labelGone(labelId, e)) {
+                    // Deleted on another device already: what the user asked for is done.
+                    labelDao.deleteById(labelId)
+                    NetworkResult.Success(Unit)
+                } else {
+                    NetworkResult.Error(e.message ?: "Failed to delete label")
+                }
+            },
+        )
     }
 
     /**

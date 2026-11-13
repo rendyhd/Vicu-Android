@@ -31,6 +31,7 @@ import com.rendyhd.vicu.util.isRetriableNetworkError
 import com.rendyhd.vicu.util.mayHaveReachedServer
 import com.rendyhd.vicu.util.Logger
 import com.rendyhd.vicu.util.RelationKind
+import com.rendyhd.vicu.util.RepeatCompletion
 import com.rendyhd.vicu.util.RoutineEnvelope
 import com.rendyhd.vicu.util.PlannerTimeline
 import com.rendyhd.vicu.util.SqlLike
@@ -229,9 +230,14 @@ class TaskRepositoryImpl(
 
     override suspend fun applyPositions(projectId: Long, updates: List<PositionUpdate>): NetworkResult<Unit> {
         if (updates.isEmpty()) return NetworkResult.Success(Unit)
+        val before = taskDao.getByIds(updates.map { it.id }).associate { it.id to it.position }
         // The list is drawn from the cached rows, so the new order shows at once.
         taskDao.updatePositions(updates.associate { it.id to it.position })
-        return if (sendPositions(projectId, updates)) NetworkResult.Success(Unit) else NetworkResult.Error(ORDER_NOT_SAVED)
+        if (sendPositions(projectId, updates)) return NetworkResult.Success(Unit)
+        // Refused, as in [dropInListView]: some of the moves may have arrived, so what the server
+        // holds now is the order to show; when it cannot be read, the order from before comes back.
+        if (refreshListPositions(projectId) is NetworkResult.Error) taskDao.updatePositions(before)
+        return NetworkResult.Error(ORDER_NOT_SAVED)
     }
 
     /** Sends [updates] one after the other, stopping at the first the server refuses; false when one was. */
@@ -954,6 +960,7 @@ class TaskRepositoryImpl(
         updateParentDoneReferences(current, toggled.done, parentTaskId)
 
         val patch = MergePatches.taskDone(toggled.done)
+        val completedDue = completedDueOf(current.copy(id = subtask.id), targetDone)
         if (subtask.id < 0L) {
             val outcome = changeLocalTask(subtask.id) {
                 // Read again under the lock: a row the sync has just replaced must not come back.
@@ -982,7 +989,7 @@ class TaskRepositoryImpl(
             queueTaskAction(
                 subtask.id,
                 "toggle_done",
-                queuedUpdatePayload(toggled, patch),
+                queuedUpdatePayload(toggled, queuedDonePatch(patch, completedDue)),
             )
             if (toggled.done) platformHooks.cancelAlarm(subtask.id)
             platformHooks.updateWidgets()
@@ -992,6 +999,10 @@ class TaskRepositoryImpl(
         return writeGate.sendOrQueue(
             taskId = subtask.id,
             send = {
+                skippedCompletion(subtask.id, completedDue)?.let { server ->
+                    updateParentDoneReferences(server, server.done, parentTaskId)
+                    return@sendOrQueue NetworkResult.Success(server)
+                }
                 val responseDto = api.updateTask(subtask.id, patch)
                 val responseEntity = with(taskMapper) { responseDto.toEntity() }
                 taskDao.upsert(responseEntity)
@@ -1200,6 +1211,37 @@ class TaskRepositoryImpl(
         taskDao.upsert(with(taskMapper) { dto.toEntity() })
     }
 
+    /**
+     * The completed due of a completion of [current] (cross-app semantics 7.5), or null when it
+     * needs no check: not a completion, a task that only exists here, or one that does not repeat.
+     */
+    private fun completedDueOf(current: Task, targetDone: Boolean): String? =
+        if (current.id <= 0L) null
+        else RepeatCompletion.completedDueFor(targetDone, current.repeatAfter, current.repeatMode, current.dueDate)
+
+    /** [patch] as queued: a completion of a repeating task keeps its completed due for the replay. */
+    private fun queuedDonePatch(patch: JsonObject, completedDue: String?): JsonObject =
+        if (completedDue == null) patch else RepeatCompletion.withCompletedDue(patch, completedDue)
+
+    /**
+     * Before the completion of a repeating task is sent, reads the task and decides (cross-app
+     * semantics 7.5). Null when the completion is to be sent. On a skip another device has completed
+     * this occurrence already: nothing is sent, the server's task is stored and returned, and it is
+     * not an error. Throws when the read fails, so the caller queues (offline) or refuses (404).
+     */
+    private suspend fun skippedCompletion(taskId: Long, completedDue: String?): Task? {
+        if (completedDue == null) return null
+        val server = api.getTask(taskId)
+        if (RepeatCompletion.decide(completedDue, server) == RepeatCompletion.Decision.SEND) return null
+        Logger.d(TAG, "Task $taskId: this occurrence was completed elsewhere; the completion is not sent")
+        val entity = with(taskMapper) { server.toEntity() }
+        taskDao.upsert(entity)
+        val result = with(taskMapper) { entity.toDomain() }
+        if (result.done) platformHooks.cancelAlarm(taskId) else platformHooks.scheduleAlarm(result)
+        platformHooks.updateWidgets()
+        return result
+    }
+
     override suspend fun toggleDone(task: Task): NetworkResult<Task> {
         return toggleTaskTree(current(task))
     }
@@ -1242,6 +1284,7 @@ class TaskRepositoryImpl(
             platformHooks.playCompletionSound()
         }
         val patch = MergePatches.taskDone(toggled.done)
+        val completedDue = completedDueOf(current.copy(id = task.id), targetDone)
         if (task.id < 0L) {
             val outcome = changeLocalTask(task.id) {
                 // Read again under the lock: a row the sync has just replaced must not come back.
@@ -1269,7 +1312,7 @@ class TaskRepositoryImpl(
             queueTaskAction(
                 task.id,
                 "toggle_done",
-                queuedUpdatePayload(toggled, patch),
+                queuedUpdatePayload(toggled, queuedDonePatch(patch, completedDue)),
             )
             updateParentDoneReferences(toggled, toggled.done)
             if (toggled.done) {
@@ -1282,6 +1325,10 @@ class TaskRepositoryImpl(
         return writeGate.sendOrQueue(
             taskId = task.id,
             send = {
+                skippedCompletion(task.id, completedDue)?.let { server ->
+                    updateParentDoneReferences(server, server.done)
+                    return@sendOrQueue NetworkResult.Success(server)
+                }
                 val responseDto = api.updateTask(task.id, patch)
                 val responseEntity = with(taskMapper) { responseDto.toEntity() }
                 // Store what the server answered: the task as it is now, with its relations and

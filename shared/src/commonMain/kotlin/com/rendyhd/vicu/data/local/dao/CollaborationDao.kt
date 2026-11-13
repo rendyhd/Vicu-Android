@@ -34,9 +34,23 @@ interface CollaborationDao {
         if (members.isNotEmpty()) upsertMembers(members)
     }
 
-    /** Members of projects that are gone (deleted, or no longer shared with you). */
-    @Query("DELETE FROM project_members WHERE projectId NOT IN (:projectIds)")
-    suspend fun deleteMembersExcept(projectIds: List<Long>)
+    @Query("SELECT DISTINCT projectId FROM project_members")
+    suspend fun getMemberProjectIds(): List<Long>
+
+    /** At most [MAX_SQL_ID_PARAMS] ids; callers use [deleteMembersExcept]. */
+    @Query("DELETE FROM project_members WHERE projectId IN (:projectIds)")
+    suspend fun deleteMembersOfChunk(projectIds: List<Long>)
+
+    /**
+     * Members of projects that are gone (deleted, or no longer shared with you): every project
+     * not in [projectIds]. Any number of ids: the projects to drop are worked out here and
+     * deleted [MAX_SQL_ID_PARAMS] at a time, atomically, instead of binding every kept id.
+     */
+    @Transaction
+    suspend fun deleteMembersExcept(projectIds: List<Long>) {
+        val keep = projectIds.toHashSet()
+        getMemberProjectIds().filter { it !in keep }.sqlIdChunks().forEach { deleteMembersOfChunk(it) }
+    }
 
     // --- Comment signals -----------------------------------------------------------------------
 

@@ -238,7 +238,14 @@ class TaskRefresher(
             expandSubtasks = false,
         ).items.firstOrNull()?.updated?.let { DateUtils.parseIsoDate(it) }
 
-        val open = api.getAllTasks(mapOf("filter" to "done = false"), expandSubtasks = false, collabSignals = true)
+        // Pages as large as the server allows: a task that is completed or added while the pages
+        // download shifts the rest by one, and with small pages a row could fall between two of
+        // them and be swept as vanished for a cycle (review C-13).
+        val open = api.getAllTasks(
+            mapOf("filter" to "done = false", "per_page" to SCAN_PAGE_SIZE),
+            expandSubtasks = false,
+            collabSignals = true,
+        )
         val carriers = doneRoutineCarriers()
 
         val acc = Accumulator()
@@ -359,6 +366,34 @@ class TaskRefresher(
         }
         finish(acc)
         asked
+    }
+
+    /**
+     * Reads the tasks [ids] one by one and merges them, for tasks a refresh skipped while a change
+     * of theirs waited in the queue and whose cursor has moved on since (an assignee or relation
+     * change: its replay stores no task). A task the server says is gone leaves the cache. False
+     * when one of them could not be read.
+     */
+    suspend fun refreshTasks(ids: Collection<Long>): Boolean = mutex.withLock {
+        startRun()
+        val acc = Accumulator()
+        var allRead = true
+        for (id in ids.filter { it > 0L }.distinct()) {
+            try {
+                val dto = api.getTask(id)
+                if (dto.id == id) merge(listOf(dto), acc)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (e: VikunjaApiException) {
+                val protectedIds = pendingActionDao.getTaskIdsWithPendingActions().toSet()
+                if (id !in protectedIds && missing.taskGone(id, e)) remove(listOf(id), acc) else allRead = false
+            } catch (e: Exception) {
+                Logger.w(TAG, "Could not read task $id back: ${e.message}")
+                allRead = false
+            }
+        }
+        finish(acc)
+        allRead
     }
 
     /** Fetches the tasks [filters] match (a search, a custom list) and merges them. Deletes nothing. */

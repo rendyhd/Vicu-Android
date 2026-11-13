@@ -52,11 +52,30 @@ class RoutineArchiveStore(
         private const val TAG = "RoutineArchive"
         private const val NOT_FOUND = 404
 
-        /** The routines in the task cache: the ones this account reads, with whether each is shared. */
-        fun cachedRoutines(taskDao: TaskDao, json: Json): suspend () -> Map<String, Boolean> = {
-            taskDao.getRoutineCarriersSync().mapNotNull { entity ->
+        /**
+         * The routines in the task cache this account reads (its own, and other users' shared
+         * ones), with whether each is shared. Another user's carrier that is not shared, or that
+         * carries the id of one of the account's own routines, does not make its parts count
+         * (review S-5).
+         */
+        fun cachedRoutines(
+            taskDao: TaskDao,
+            json: Json,
+            currentUser: CurrentUser = CurrentUser.fixed(null),
+        ): suspend () -> Map<String, Boolean> = {
+            val me = currentUser.knownId()
+            val readable = taskDao.getRoutineCarriersSync().mapNotNull { entity ->
                 RoutineEnvelope.parse(entity.description, json).payload?.definition
-            }.associate { it.id to it.shared }
+                    ?.takeIf { SharedRoutines.readsCarrier(entity.createdById, me, it.shared) }
+                    ?.let { entity to it }
+            }
+            SharedRoutines.preferOwnCarriers(
+                readable,
+                me,
+                taskId = { it.first.id },
+                createdBy = { it.first.createdById },
+                routineId = { it.second.id },
+            ).associate { it.second.id to it.second.shared }
         }
     }
 

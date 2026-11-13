@@ -30,17 +30,44 @@ import kotlinx.coroutines.withContext
  *
  * Writes to different tasks do not wait for each other. The sync engine's replay is the queue's
  * own sender and does not come through here.
+ *
+ * Project and label edits follow the same rules through [sendOrQueueEntity], with a lock per
+ * project or label: a queued change of one is replayed as it was written too, so a newer edit
+ * sent past it would be undone by the replay (review C-8).
  */
 class TaskWriteGate(
     private val pendingActionDao: PendingActionDao,
 ) {
-    private class Lock {
-        val mutex = Mutex()
-        var users = 0
+    /** One mutex per key while someone uses it; the entry goes when the last user leaves. */
+    private class KeyedLocks<K> {
+        private class Lock {
+            val mutex = Mutex()
+            var users = 0
+        }
+
+        private val guard = Mutex()
+        private val locks = HashMap<K, Lock>()
+
+        suspend fun <T> withLock(key: K, block: suspend () -> T): T {
+            val lock = guard.withLock { locks.getOrPut(key) { Lock() }.also { it.users++ } }
+            try {
+                return lock.mutex.withLock { block() }
+            } finally {
+                // Also when cancelled, or the entry would stay in the map.
+                withContext(NonCancellable) {
+                    guard.withLock {
+                        lock.users--
+                        if (lock.users == 0) locks.remove(key)
+                    }
+                }
+            }
+        }
+
+        suspend fun users(key: K): Int = guard.withLock { locks[key]?.users ?: 0 }
     }
 
-    private val guard = Mutex()
-    private val locks = HashMap<Long, Lock>()
+    private val taskLocks = KeyedLocks<Long>()
+    private val entityLocks = KeyedLocks<String>()
 
     /**
      * Makes one change to the existing task [taskId] (> 0): [send] sends it and stores the answer,
@@ -52,11 +79,47 @@ class TaskWriteGate(
         send: suspend () -> NetworkResult<T>,
         queue: suspend () -> NetworkResult<T>,
         refused: suspend (Exception) -> NetworkResult<T>,
+    ): NetworkResult<T> = gated(
+        lock = { block -> withTaskLock(taskId, block) },
+        waiting = { pendingActionDao.hasWaitingForTask(taskId) },
+        send = send,
+        queue = queue,
+        refused = refused,
+    )
+
+    /**
+     * [sendOrQueue] for an existing project or label ([entityType] as queued, `project` or
+     * `label`, and its server id): while a change of it waits in the queue or is being sent, a new
+     * one joins the queue, where it is merged with what waits.
+     */
+    suspend fun <T> sendOrQueueEntity(
+        entityType: String,
+        entityId: Long,
+        send: suspend () -> NetworkResult<T>,
+        queue: suspend () -> NetworkResult<T>,
+        refused: suspend (Exception) -> NetworkResult<T>,
+    ): NetworkResult<T> = gated(
+        lock = { block -> entityLocks.withLock("$entityType:$entityId", block) },
+        waiting = {
+            pendingActionDao.getActiveByEntity(entityType, entityId)
+                .any { it.status == "pending" || it.status == "processing" }
+        },
+        send = send,
+        queue = queue,
+        refused = refused,
+    )
+
+    private suspend fun <T> gated(
+        lock: suspend (suspend () -> NetworkResult<T>) -> NetworkResult<T>,
+        waiting: suspend () -> Boolean,
+        send: suspend () -> NetworkResult<T>,
+        queue: suspend () -> NetworkResult<T>,
+        refused: suspend (Exception) -> NetworkResult<T>,
     ): NetworkResult<T> {
         var queued = false
         try {
-            return withTaskLock(taskId) {
-                if (pendingActionDao.hasWaitingForTask(taskId)) {
+            return lock {
+                if (waiting()) {
                     queue().also { queued = true }
                 } else {
                     try {
@@ -75,21 +138,11 @@ class TaskWriteGate(
     }
 
     /** Runs [block] while no other write to task [taskId] runs. Not re-entrant. */
-    suspend fun <T> withTaskLock(taskId: Long, block: suspend () -> T): T {
-        val lock = guard.withLock { locks.getOrPut(taskId) { Lock() }.also { it.users++ } }
-        try {
-            return lock.mutex.withLock { block() }
-        } finally {
-            // Also when cancelled, or the entry would stay in the map.
-            withContext(NonCancellable) {
-                guard.withLock {
-                    lock.users--
-                    if (lock.users == 0) locks.remove(taskId)
-                }
-            }
-        }
-    }
+    suspend fun <T> withTaskLock(taskId: Long, block: suspend () -> T): T = taskLocks.withLock(taskId, block)
 
     /** Writes to task [taskId] running or waiting for their turn. For tests. */
-    suspend fun writersFor(taskId: Long): Int = guard.withLock { locks[taskId]?.users ?: 0 }
+    suspend fun writersFor(taskId: Long): Int = taskLocks.users(taskId)
+
+    /** Writes to the project or label running or waiting for their turn. For tests. */
+    suspend fun writersFor(entityType: String, entityId: Long): Int = entityLocks.users("$entityType:$entityId")
 }

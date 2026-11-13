@@ -121,7 +121,9 @@ class GuidedLog {
     }
 
     fun completed(task: Task) {
-        entries[task.id] = Entry(entries[task.id]?.before ?: task, task.copy(done = true), completed = true)
+        // What the session changed before completing it stays in [Entry.after], for Undo all.
+        val earlier = entries[task.id]
+        entries[task.id] = Entry(earlier?.before ?: task, (earlier?.after ?: task).copy(done = true), completed = true)
     }
 
     fun deleted(task: Task) {
