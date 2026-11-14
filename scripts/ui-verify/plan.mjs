@@ -2,7 +2,7 @@
 // turns it on, Today with a block, the Day switch, picking a task and placing it, the length handle,
 // a press and hold move, a drag from the drawer, the sheet, remove time, and moving between days
 // (issue 101): a swipe on the timeline, a drop on a day of the strip, resting on a day while
-// dragging, the sheet's Day row with Undo, the No time row and a drop on it, the drawer's chips.
+// dragging, the sheet's Day row with Undo, the No time row and a drop on it, the drawer's lists.
 // Every change is asserted on what the server holds. A second finger on the strip is not covered:
 // adb's motion events have one pointer.
 //
@@ -219,8 +219,20 @@ async function backToToday() {
   if (cell) await tapNode(cell, 1800)
 }
 
-/** The drawer's filter box, empty or not: its description names it. */
+/**
+ * The way into the drawer's filter: the search button in its header, which shows the field and puts
+ * the cursor in it, or the field itself once it shows. Both carry the name.
+ */
 const filterBox = (nodes) => nodes.find((n) => n['content-desc'] === 'Filter these tasks' || (n.class === 'android.widget.EditText' && n.cx > v.sc.width * 0.4))
+
+/** The drawer's header, which names the list on show with its count ("Tasks from Today, 8"). */
+const listPicker = descStarts('Tasks from ')
+
+/** A line of the header's menu: the lowest match in the drawer's half, above the bottom bar. */
+const inMenu = (text) => (nodes) =>
+  nodes
+    .filter((n) => n.text === text && n.cx > v.sc.width * 0.4 && n.cy < v.sc.height * 0.85)
+    .sort((a, b) => b.cy - a.cy)[0]
 
 /** A task in the open drawer, found with the filter box: the seeded day holds more than one screen. */
 async function inDrawer(title, word) {
@@ -419,24 +431,28 @@ try {
     check(!d.dump().some((n) => n.text === 'Buy groceries'), 'the filter box narrows the list')
     await d.clearField()
     await d.back()
-    // The lists are chips with their counts, in sight as soon as the drawer opens.
-    const chip = (re) => (ns) => ns.find((n) => re.test(n.text ?? ''))
-    const nodes = await waitFor((ns) => (chip(/^Next 7 days \d+$/)(ns) ? ns : null), 'the chips')
+    // The header names the list on show with its count; the other lists are behind it.
+    const header = await waitFor(listPicker, 'the header with the list')
+    check(/^Tasks from Today, \d+$/.test(header['content-desc']), `the header names the list and its count: ${header['content-desc']}`)
+    await tapNode(header, 1200)
+    const menu = await waitFor((ns) => (inMenu('Next 7 days')(ns) ? ns : null), 'the menu of lists')
     check(
-      [/^Today \d+$/, /^Inbox \d+$/, /^Next 7 days \d+$/, /^No date \d+$/].every((re) => !!chip(re)(nodes)),
-      'the drawer has the four lists as chips with counts',
+      ['Today', 'Inbox', 'Next 7 days', 'No date', 'A project'].every((text) => !!inMenu(text)(menu)),
+      'the menu has the four lists and the way to a project',
     )
-    check(nodes.some((n) => n['content-desc'] === 'Choose a project'), 'the drawer has a Project chip')
     d.shot('light-plan-lists')
-    await tapNode(await waitFor(byDesc('Choose a project'), 'the Project chip'), 1200)
+    await tapNode(inMenu('A project')(menu), 1200)
     await waitFor(byText('Find a project'), 'the project finder')
-    check(d.dump().some((n) => n.text === 'Projects'), 'Project opens the projects')
-    await tapNode(await waitFor(byDesc('Choose a project'), 'the Project chip'), 1200)
-    await tapNode(await waitFor(chip(/^Inbox \d+$/), 'the Inbox chip'), 1500)
-    await waitFor(filterBox, 'the Inbox list')
-    check(true, 'a list can be chosen')
+    check(d.dump().some((n) => n.text === 'Projects'), 'A project opens the projects')
+    await tapNode(await waitFor(byDesc('Back to the tasks'), 'the way back to the tasks'), 1200)
+    await tapNode(await waitFor(listPicker, 'the header with the list'), 1200)
+    await tapNode(await waitFor(inMenu('Inbox'), 'Inbox in the menu'), 1500)
+    const inbox = await waitFor(descStarts('Tasks from Inbox, '), 'the Inbox list')
+    check(/^Tasks from Inbox, \d+$/.test(inbox['content-desc']), 'a list can be chosen')
     d.shot('light-plan-inbox')
-    await tapNode(await waitFor(chip(/^Today \d+$/), 'the Today chip'), 1500)
+    await tapNode(inbox, 1200)
+    await tapNode(await waitFor(inMenu('Today'), 'Today in the menu'), 1500)
+    await waitFor(descStarts('Tasks from Today, '), 'the day list again')
     await tapNode(await waitFor(byDesc('Close'), 'Close'), 1200)
   })
 
@@ -555,7 +571,7 @@ try {
     check(!isNull(task.start_date) && start % 15 === 0, `the drop landed on a quarter: ${hm(start)}`)
     check(minuteOf(task.end_date) - start === 30, 'the drop took the default length')
     check(Date.parse(task.due_date) === Date.parse(dateOnlyToday()), 'the drop left a date-only due date')
-    await waitFor(byText('Tap a task to pick a time, or drag it onto the timeline.'), 'the drawer coming back', 8000)
+    await waitFor(listPicker, 'the drawer coming back', 8000)
     check(true, 'the drawer came back after the drop')
     d.shot('light-plan-dropped')
     const close = d.dump().find((n) => n['content-desc'] === 'Close')
@@ -626,7 +642,7 @@ try {
     await revealOnGrid(descStarts(`${PREFIX}block,`), 'the block')
     d.shot('dark-plan')
     await tapNode(await waitFor(byDesc('Show tasks to plan'), 'the tab'), 1500)
-    await waitFor(byText('Tasks to plan'), 'the drawer')
+    await waitFor(listPicker, 'the drawer')
     d.shot('dark-plan-drawer')
     await tapNode(await waitFor(byDesc('Close'), 'Close'), 1200)
     const block = await waitFor(descStarts(`${PREFIX}block,`), 'the block')

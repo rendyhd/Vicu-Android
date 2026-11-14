@@ -38,7 +38,7 @@ sealed class PlanSource(val key: String) {
                 ?: Day
         }
 
-        /** The four lists before the projects, the drawer's chips; [dayLabel] names the first ("Today"). */
+        /** The four lists before the projects, in the drawer header's menu; [dayLabel] names the first ("Today"). */
         fun lists(dayLabel: String): List<Pair<PlanSource, String>> = listOf(
             Day to dayLabel,
             Inbox to "Inbox",

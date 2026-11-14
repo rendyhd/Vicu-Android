@@ -25,8 +25,9 @@ One day at a time, with a strip of seven days above it.
   moves a week. A swipe on the strip itself goes a week.
 - **No time**, the row above the hours, holds the day's tasks without a time. Tap one and then a
   time to place it, press and hold it to drag it, or tick it.
-- **The tab at the right edge** opens the tasks to plan: the selected day, the Inbox, Next 7 days,
-  No date or a project, each a chip with its count. Tap a task and then a time to place it, or press
+- **The tab at the right edge** opens the tasks to plan. Its header names the list on show with its
+  count ("Today 8"); tap it for the others: the selected day, the Inbox, Next 7 days, No date or a
+  project. The search button filters the list by name. Tap a task and then a time to place it, or press
   and hold it and drag it onto the timeline. It takes the default length (the gear; 30 minutes to
   start, synced to your other devices). A due date before that time moves to that day, and the
   message says so, with Undo; a later one stays as a deadline.
