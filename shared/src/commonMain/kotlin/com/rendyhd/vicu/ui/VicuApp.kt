@@ -48,7 +48,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
@@ -922,7 +921,10 @@ fun VicuApp(
                 }
             },
         ) { innerPadding ->
-            Column(modifier = Modifier.padding(innerPadding)) {
+            // The bottom bar stands on the system navigation bar's inset. Saying so here keeps the
+            // screens from adding that inset once more under their content, which left a strip of
+            // page above the bar and lifted the + by as much, a different height on every device.
+            Column(modifier = Modifier.padding(innerPadding).consumeWindowInsets(innerPadding)) {
                 // A band at the top pays for the status bar itself. What comes below it takes off as
                 // much of the status bar's inset as the bands are tall, by their measured height, so
                 // the top bars stay exactly where they are until a band has outgrown the status bar.
@@ -982,7 +984,7 @@ fun VicuApp(
                     }
                     // The + button of the screen on top, over the screens rather than in them, so a
                     // change of screen does not fade it. Placed where the screens' Scaffolds put it:
-                    // 16 dp from the corner, above the system bar inset they leave free.
+                    // 16 dp from the corner, above the bottom bar or, without one, the system bar.
                     AppFab(
                         host = fabHost,
                         screen = navBackStackEntry?.id,
@@ -1112,13 +1114,6 @@ fun VicuApp(
             // A message stops short of the + of the screen on top, so the next task can be added
             // while it shows; the button is drawn without its label meanwhile (AppFab's compact).
             val besideFab = fabHost.specOf(navBackStackEntry?.id) != null && !taskDetailVisible && commentsTaskId == 0L
-            // The button stands the system bar's inset above the bottom bar, which already holds that
-            // inset; the message goes as high.
-            val fabInset = if (showBottomBar) {
-                WindowInsets.systemBars.only(WindowInsetsSides.Bottom).asPaddingValues().calculateBottomPadding()
-            } else {
-                0.dp
-            }
             SnackbarHost(
                 hostState = snackbarHostState,
                 modifier = Modifier
@@ -1130,7 +1125,7 @@ fun VicuApp(
                         start = if (besideFab && fabAlignStart) FAB_ROOM else 0.dp,
                         end = if (besideFab && !fabAlignStart) FAB_ROOM else 0.dp,
                         // A message of one line is as high up as the middle of the button.
-                        bottom = if (besideFab) FAB_MESSAGE_LIFT + fabInset else 0.dp,
+                        bottom = if (besideFab) FAB_MESSAGE_LIFT else 0.dp,
                     ),
             ) { data ->
                 val openTaskId = (data.visuals as? AppSnackbarVisuals)?.openTaskId
