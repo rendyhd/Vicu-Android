@@ -49,13 +49,15 @@ class TaskWidgetStatesTest {
         ),
     )
 
+    private val widgetPrefs = WidgetPrefsStore(InMemoryPreferencesDataStore())
+
     private val states = TaskWidgetStates(
         taskDao = taskDao,
         projectDao = projects,
         taskRepository = FakeTaskRepository(),
         tokenStorage = storage,
         customListStore = CustomListStore(InMemoryPreferencesDataStore()),
-        widgetPrefsStore = WidgetPrefsStore(InMemoryPreferencesDataStore()),
+        widgetPrefsStore = widgetPrefs,
         behaviorPrefsStore = BehaviorPrefsStore(InMemoryPreferencesDataStore()),
         time = FixedTimeSource(Instant.parse("2026-10-12T08:00:00Z"), zone),
         collaborationContext = { CustomListContext.NONE },
@@ -112,8 +114,17 @@ class TaskWidgetStatesTest {
         val state = states.prepare(day).build(WidgetConfig(WidgetViewType.PROJECT, "1", "Home"))
         assertTrue(state.smartAdd)
         assertTrue(state.contextNav)
+        assertTrue(state.voiceButton)
         assertEquals(0L, state.addToProjectId)
         assertEquals("Home", state.viewName)
+    }
+
+    @Test
+    fun theVoiceButtonCanBeTurnedOff() = runTest {
+        widgetPrefs.setVoiceButton(false)
+        val state = states.prepare(day).build(WidgetConfig(WidgetViewType.TODAY, "", "Today"))
+        assertFalse(state.voiceButton)
+        assertTrue(state.smartAdd)
     }
 
     @Test

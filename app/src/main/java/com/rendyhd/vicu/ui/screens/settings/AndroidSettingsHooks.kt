@@ -27,6 +27,7 @@ class AndroidSettingsHooks(
 ) : PlatformSettingsHooks {
 
     override val supportsQuickAddTile: Boolean = true
+    override val hasWidgetVoiceButton: Boolean = true
 
     override fun updateWidgets() {
         WidgetUpdateScheduler.enqueueImmediateUpdateAll(context)

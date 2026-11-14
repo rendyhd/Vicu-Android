@@ -305,6 +305,31 @@ internal fun LazyListScope.widgetSection(
         }
     }
 
+    if (state.hasWidgetVoiceButton) {
+        item(key = "widget_voice_button") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Voice button", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Show the microphone next to + to add a task by voice",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.widgetVoiceButton,
+                    onCheckedChange = viewModel::setWidgetVoiceButton,
+                )
+            }
+        }
+    }
+
     item(key = "widget_divider") {
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
     }
