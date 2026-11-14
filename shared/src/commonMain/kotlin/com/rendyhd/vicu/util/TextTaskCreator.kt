@@ -7,6 +7,7 @@ import com.rendyhd.vicu.data.local.NotificationPrefsStore
 import com.rendyhd.vicu.data.repository.ProCapture
 import com.rendyhd.vicu.data.repository.ProCaptureSource
 import com.rendyhd.vicu.data.repository.ProLedgerRepository
+import com.rendyhd.vicu.domain.model.Project
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.domain.repository.LabelRepository
 import com.rendyhd.vicu.domain.repository.ProjectRepository
@@ -55,8 +56,11 @@ class TextTaskCreator(
     private val proLedger: ProLedgerRepository? = null,
 ) {
     sealed interface Result {
-        /** [confirmation] says what was added, for the voice reply or a toast. */
-        data class Created(val task: Task, val confirmation: String) : Result
+        /**
+         * [confirmation] says what was added, for a voice reply with no screen (Siri, the Android
+         * voice add). [notice] is the short word for the app's snackbar, where Open shows the task.
+         */
+        data class Created(val task: Task, val confirmation: String, val notice: String) : Result
 
         data class Failed(val message: String) : Result
     }
@@ -161,13 +165,15 @@ class TextTaskCreator(
                 val projectName = projects.find { it.id == created.projectId }
                     ?.takeIf { it.id != inboxId }?.title
                 val block = parsed?.block.takeIf { fields.blockStart.isNotEmpty() }
-                var reply = confirmation(created.title, dueDate, projectName, day, format, placePhrase, block)
-                if (placePhrase != null && placePhrase.place.position == null) {
-                    reply += ". ${notLocated(placePhrase.place.name)}"
-                } else if (placePhrase != null && !hasAlwaysLocation()) {
-                    reply += ". $NEEDS_ALWAYS"
+                val reply = confirmation(created.title, dueDate, projectName, day, format, placePhrase, block)
+                val locationNote = when {
+                    placePhrase == null -> ""
+                    placePhrase.place.position == null -> ". ${notLocated(placePhrase.place.name)}"
+                    !hasAlwaysLocation() -> ". $NEEDS_ALWAYS"
+                    else -> ""
                 }
-                Result.Created(created, reply)
+                val elsewhere = elsewhereName(created.projectId, defaultProject, inboxId, projects)
+                Result.Created(created, reply + locationNote, notice(elsewhere) + locationNote)
             }
             is NetworkResult.Error -> Result.Failed(result.message)
             NetworkResult.Loading -> Result.Failed("Could not add the task.")
@@ -186,6 +192,23 @@ class TextTaskCreator(
 
         /** The place was saved on another device: this phone reminds there once it knows where it is. */
         internal fun notLocated(name: String) = "Set where $name is in Vicu's settings so this phone can remind you there"
+
+        /**
+         * The app's snackbar after an add: `Task added`, or `Added to Work` when the task went to
+         * another project than the list it was added in ([elsewhere], from [elsewhereName]). It does
+         * not repeat the title or the date: the task is in the list, or one tap away behind Open.
+         */
+        internal fun notice(elsewhere: String?): String = if (elsewhere == null) "Task added" else "Added to $elsewhere"
+
+        /**
+         * The name to say in [notice]: the project the task landed in when that is not [listProjectId],
+         * the project the list it was added in gives a new task. The Inbox is called Inbox.
+         */
+        internal fun elsewhereName(projectId: Long, listProjectId: Long?, inboxId: Long?, projects: List<Project>): String? {
+            if (projectId == listProjectId) return null
+            if (projectId == inboxId) return "Inbox"
+            return projects.find { it.id == projectId }?.title
+        }
 
         /** `Added "Call mom", tomorrow 15:00`, `Added "Report" to Work` or `Added "Call mom", when you arrive at Home`. */
         internal fun confirmation(

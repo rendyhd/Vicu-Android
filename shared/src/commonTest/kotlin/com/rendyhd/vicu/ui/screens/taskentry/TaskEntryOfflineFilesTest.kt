@@ -18,7 +18,6 @@ import com.rendyhd.vicu.ui.FakeProjectRepository
 import com.rendyhd.vicu.ui.FakeTaskRepository
 import com.rendyhd.vicu.util.AppMessage
 import com.rendyhd.vicu.util.AppMessages
-import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.FixedTimeSource
 import com.rendyhd.vicu.util.NetworkResult
@@ -54,7 +53,6 @@ class TaskEntryOfflineFilesTest {
         Dispatchers.resetMain()
     }
 
-    private val format = DateDisplayFormat("en-US", hour12 = false)
     private val messages = AppMessages()
     private val tasks = FakeTaskRepository().apply { createHandler = { NetworkResult.Success(it.copy(id = 500)) } }
     private val attachments = FakeAttachmentRepository().apply { offline = true }
@@ -99,7 +97,7 @@ class TaskEntryOfflineFilesTest {
         vm.setDescription("Breaker trips")
         vm.stagePendingImage("content://pick/IMG_2031.jpg")
 
-        vm.save(format)
+        vm.save()
         runCurrent()
 
         assertEquals(listOf(Triple(500L, "content://pick/IMG_2031.jpg", true)), attachments.queued)
@@ -121,7 +119,7 @@ class TaskEntryOfflineFilesTest {
         runCurrent()
         vm.setTitle("Quote")
 
-        vm.save(format)
+        vm.save()
         runCurrent()
 
         assertEquals(listOf(500L, 500L), attachments.queued.map { it.first })

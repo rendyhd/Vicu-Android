@@ -17,7 +17,6 @@ import com.rendyhd.vicu.ui.FakeProjectRepository
 import com.rendyhd.vicu.ui.FakeTaskRepository
 import com.rendyhd.vicu.util.AppMessage
 import com.rendyhd.vicu.util.AppMessages
-import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.FixedTimeSource
 import com.rendyhd.vicu.util.NetworkResult
@@ -54,7 +53,6 @@ class TaskEntryDraftTest {
         Dispatchers.resetMain()
     }
 
-    private val format = DateDisplayFormat("en-US", hour12 = false)
     private val messages = AppMessages()
     private val tasks = FakeTaskRepository().apply { createHandler = { NetworkResult.Success(it.copy(id = 500)) } }
     private val behavior = BehaviorPrefsStore(InMemoryPreferencesDataStore())
@@ -168,12 +166,12 @@ class TaskEntryDraftTest {
         backgroundScope.launch { messages.messages.collect { said += it } }
         vm.setTitle("Call mom")
 
-        vm.save(format)
+        vm.save()
         runCurrent()
 
         val message = said.single()
         val created = assertNotNull(vm.uiState.value.savedTaskId)
-        assertEquals("Added “Call mom” to Work", message.text)
+        assertEquals("Task added", message.text)
         assertEquals("Undo", message.actionLabel)
         assertEquals(created, message.openTaskId)
 
@@ -190,7 +188,7 @@ class TaskEntryDraftTest {
         backgroundScope.launch { messages.messages.collect { said += it } }
         vm.setTitle("Call mom")
 
-        vm.save(format)
+        vm.save()
         runCurrent()
 
         assertNotNull(vm.uiState.value.savedTaskId)

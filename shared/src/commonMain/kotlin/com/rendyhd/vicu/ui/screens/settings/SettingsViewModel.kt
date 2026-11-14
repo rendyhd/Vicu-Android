@@ -819,13 +819,27 @@ class SettingsViewModel(
         viewModelScope.launch { behaviorPrefsStore.setShowProjectTaskCount(enabled) }
     }
 
-    /** Lists [view] in the drawer, or takes it out of it. */
     fun setPlannerEnabled(enabled: Boolean) {
         viewModelScope.launch { behaviorPrefsStore.setPlannerEnabled(enabled) }
     }
 
-    fun setDrawerViewShown(view: DrawerView, shown: Boolean) {
-        viewModelScope.launch { behaviorPrefsStore.setDrawerViewHidden(view, hidden = !shown) }
+    /**
+     * Lists [view] in the drawer, or takes it out of it. A view the bottom bar holds ([inBar]) is
+     * kept apart: it is out of the drawer until it is turned on, any other is in it until hidden.
+     */
+    fun setDrawerViewShown(view: DrawerView, inBar: Boolean, shown: Boolean) {
+        viewModelScope.launch {
+            if (inBar) behaviorPrefsStore.setDrawerBarViewShown(view, shown) else behaviorPrefsStore.setDrawerViewHidden(view, hidden = !shown)
+        }
+    }
+
+    /** The drawer's order, as the keys of every entry (`DrawerLayout.keysAfterArranging`). */
+    fun setDrawerOrder(keys: List<String>) {
+        viewModelScope.launch { behaviorPrefsStore.setDrawerOrder(keys) }
+    }
+
+    fun resetDrawerOrder() {
+        viewModelScope.launch { behaviorPrefsStore.setDrawerOrder(emptyList()) }
     }
 
     fun setLogbookRetentionEnabled(enabled: Boolean) {

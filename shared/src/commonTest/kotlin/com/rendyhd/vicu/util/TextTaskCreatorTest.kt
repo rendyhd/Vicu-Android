@@ -108,6 +108,7 @@ class TextTaskCreatorTest {
             Instant.parse(task.dueDate).toLocalDateTime(zone).date,
         )
         assertEquals("Added “Call mom”, tomorrow, 15:00", result.confirmation)
+        assertEquals("Task added", result.notice, "the app's snackbar does not repeat the title or the date")
     }
 
     @Test
@@ -117,6 +118,7 @@ class TextTaskCreatorTest {
         assertIs<TextTaskCreator.Result.Created>(result)
         assertEquals(2, created().projectId)
         assertEquals("Added “Write the report” to Work", result.confirmation)
+        assertEquals("Added to Work", result.notice, "it went to another project than the list it was said in")
     }
 
     @Test
@@ -128,6 +130,7 @@ class TextTaskCreatorTest {
         assertEquals(2, created().projectId)
         assertEquals(today, created().dueDate)
         assertEquals("Added “Call mom” to Work, today", result.confirmation)
+        assertEquals("Task added", result.notice, "it is in the list on screen")
     }
 
     @Test
@@ -190,6 +193,7 @@ class TextTaskCreatorTest {
         assertIs<TextTaskCreator.Result.Created>(result)
         assertEquals(LocationTrigger.LEAVE, locations.allReminders().single().trigger)
         assertEquals("Added “Take the laptop”, when you leave Work. ${TextTaskCreator.NEEDS_ALWAYS}", result.confirmation)
+        assertEquals("Task added. ${TextTaskCreator.NEEDS_ALWAYS}", result.notice)
     }
 
     @Test

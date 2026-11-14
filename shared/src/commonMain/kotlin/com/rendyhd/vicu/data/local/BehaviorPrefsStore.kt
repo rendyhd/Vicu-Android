@@ -44,10 +44,11 @@ enum class RowDensity(val titleLines: Int, val notesLines: Int) {
 enum class SubprojectDisplayMode { SECTIONS, PROJECT_ROWS }
 
 /**
- * A view the drawer lists above the projects, in the drawer's order. The user can hide each one
- * from the drawer (Settings, General, Drawer); a hidden view keeps working.
+ * A view the drawer can list, in the drawer's default order. The user chooses which ones it lists
+ * and where (Settings, General, Drawer; the rules are in `DrawerLayout`); a view that is not listed
+ * keeps working.
  */
-enum class DrawerView { TODAY, PLAN, UPCOMING, ANYTIME, LOGBOOK, ROUTINES, REVIEW, ASK, FLAGGED, WAITING_ON, PEOPLE }
+enum class DrawerView { INBOX, TODAY, PLAN, UPCOMING, ANYTIME, LOGBOOK, ROUTINES, REVIEW, ASK, FLAGGED, WAITING_ON, PEOPLE }
 
 data class BehaviorPrefs(
     val completionSoundEnabled: Boolean = false,
@@ -67,6 +68,10 @@ data class BehaviorPrefs(
     val showProjectTaskCount: Boolean = false,
     /** The views the user took out of the drawer. */
     val hiddenDrawerViews: Set<DrawerView> = emptySet(),
+    /** The views of the bottom bar the user also wants in the drawer; without this a bar view is not listed there. */
+    val drawerBarViews: Set<DrawerView> = emptySet(),
+    /** The drawer's order as the user arranged it (`DrawerEntry.key`s); empty is the default order. */
+    val drawerOrder: List<String> = emptyList(),
     /** The Plan screen and Today's Day view (contract 16.9); off means nothing of them shows or is fetched. */
     val plannerEnabled: Boolean = false,
     /** Routines as small pills on the timeline. */
@@ -146,6 +151,8 @@ class BehaviorPrefsStore(
         private val KEY_SHOW_PROJECT_PROGRESS = booleanPreferencesKey("show_project_progress")
         private val KEY_SHOW_PROJECT_TASK_COUNT = booleanPreferencesKey("show_project_task_count")
         private val KEY_HIDDEN_DRAWER_VIEWS = stringSetPreferencesKey("hidden_drawer_views")
+        private val KEY_DRAWER_BAR_VIEWS = stringSetPreferencesKey("drawer_bar_views")
+        private val KEY_DRAWER_ORDER = stringPreferencesKey("drawer_order")
         private val KEY_PLANNER_ENABLED = booleanPreferencesKey("planner_enabled")
         private val KEY_PLANNER_SHOW_ROUTINES = booleanPreferencesKey("planner_show_routines")
         private val KEY_PLANNER_TODAY_DAY_VIEW = booleanPreferencesKey("planner_today_day_view")
@@ -202,6 +209,9 @@ class BehaviorPrefsStore(
                 // A name this version does not know (written by a newer one) is left out.
                 hiddenDrawerViews = prefs[KEY_HIDDEN_DRAWER_VIEWS].orEmpty()
                     .mapNotNullTo(HashSet()) { name -> DrawerView.entries.firstOrNull { it.name == name } },
+                drawerBarViews = prefs[KEY_DRAWER_BAR_VIEWS].orEmpty()
+                    .mapNotNullTo(HashSet()) { name -> DrawerView.entries.firstOrNull { it.name == name } },
+                drawerOrder = prefs[KEY_DRAWER_ORDER].orEmpty().split(',').filter { it.isNotEmpty() },
                 plannerEnabled = prefs[KEY_PLANNER_ENABLED] ?: false,
                 plannerShowRoutines = prefs[KEY_PLANNER_SHOW_ROUTINES] ?: true,
                 plannerTodayDayView = prefs[KEY_PLANNER_TODAY_DAY_VIEW] ?: false,
@@ -360,6 +370,30 @@ class BehaviorPrefsStore(
             val current = it[KEY_HIDDEN_DRAWER_VIEWS].orEmpty()
             val next = if (hidden) current + view.name else current - view.name
             if (next.isEmpty()) it.remove(KEY_HIDDEN_DRAWER_VIEWS) else it[KEY_HIDDEN_DRAWER_VIEWS] = next
+        }
+    }
+
+    /** Lists [view] in the drawer while the bottom bar holds it too, or not. Names this version does not know are kept. */
+    suspend fun setDrawerBarViewShown(view: DrawerView, shown: Boolean) {
+        dataStore.edit {
+            val current = it[KEY_DRAWER_BAR_VIEWS].orEmpty()
+            val next = if (shown) current + view.name else current - view.name
+            if (next.isEmpty()) it.remove(KEY_DRAWER_BAR_VIEWS) else it[KEY_DRAWER_BAR_VIEWS] = next
+        }
+    }
+
+    /**
+     * The drawer's order: every entry this version knows, as `DrawerEntry.key`s. An empty list is
+     * the default order again. Keys only a newer version knows are kept, after the ones given.
+     */
+    suspend fun setDrawerOrder(keys: List<String>) {
+        dataStore.edit {
+            if (keys.isEmpty()) {
+                it.remove(KEY_DRAWER_ORDER)
+            } else {
+                val fromNewer = it[KEY_DRAWER_ORDER].orEmpty().split(',').filter { key -> key.isNotEmpty() && key !in keys }
+                it[KEY_DRAWER_ORDER] = (keys + fromNewer).joinToString(",")
+            }
         }
     }
 }

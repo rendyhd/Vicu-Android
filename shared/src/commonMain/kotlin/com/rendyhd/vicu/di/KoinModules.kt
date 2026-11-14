@@ -409,7 +409,7 @@ val commonModule = module {
             scope = get(),
             addTask = { text, format, defaults ->
                 when (val result = creator.create(text, format, defaults.projectId, defaults.dueDate)) {
-                    is TextTaskCreator.Result.Created -> VoiceAddResult(result.confirmation, result.task.id) {
+                    is TextTaskCreator.Result.Created -> VoiceAddResult(result.notice, result.task.id) {
                         messages.postIfRefused(tasks.delete(result.task.id), "undo the task")
                     }
                     is TextTaskCreator.Result.Failed -> VoiceAddResult(result.message)

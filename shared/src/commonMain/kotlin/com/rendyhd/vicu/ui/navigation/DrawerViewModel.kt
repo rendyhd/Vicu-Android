@@ -10,7 +10,6 @@ import com.rendyhd.vicu.data.local.ReviewPrefs
 import com.rendyhd.vicu.data.local.ReviewPrefsStore
 import com.rendyhd.vicu.data.local.RoutinePrefsStore
 import com.rendyhd.vicu.domain.model.BottomBarSlot
-import com.rendyhd.vicu.domain.model.BottomBarSlotType
 import com.rendyhd.vicu.domain.model.CustomList
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Project
@@ -97,30 +96,43 @@ data class DrawerUiState(
     val routinesEnabled: Boolean = true,
     /** The views the user took out of the drawer (Settings, General, Drawer). */
     val hiddenViews: Set<DrawerView> = emptySet(),
+    /** The views of the bottom bar the user also wants in the drawer. */
+    val barViews: Set<DrawerView> = emptySet(),
+    /** The drawer's order as the user arranged it (`DrawerEntry.key`s); empty is the default. */
+    val drawerOrder: List<String> = emptyList(),
     /** The day planner (Settings, General, Plan): off means no Plan entry (contract 16.9). */
     val plannerEnabled: Boolean = false,
     /** Pro's layers on this device (contract 21.1): Flagged with availability, Waiting on and People with promises. */
     val proAvailability: Boolean = false,
     val proPromises: Boolean = false,
 ) {
-    /** What the drawer lists above the projects, in order: the [drawerViewChoices] the user did not hide. */
+    /** What the drawer draws, in the user's order: the views it lists, and the projects, lists and labels ([DrawerLayout]). */
+    fun entries(askReady: Boolean): List<DrawerEntry> = DrawerLayout.shown(
+        drawerOrder,
+        drawerViewOffers(bottomBarSlots, routinesEnabled, reviewEnabled, askReady, plannerEnabled, proAvailability, proPromises),
+        hiddenViews,
+        barViews,
+    )
+
+    /** The views the drawer lists, in its order. */
     fun views(askReady: Boolean): List<DrawerView> =
-        drawerViewChoices(bottomBarSlots, routinesEnabled, reviewEnabled, askReady, plannerEnabled, proAvailability, proPromises) - hiddenViews
+        entries(askReady).mapNotNull { (it as? DrawerEntry.View)?.view }
 }
 
 /** The drawer's device settings, read together. */
 private data class DrawerPrefs(
     val hiddenViews: Set<DrawerView>,
+    val barViews: Set<DrawerView>,
+    val drawerOrder: List<String>,
     val plannerEnabled: Boolean,
     val proAvailability: Boolean,
     val proPromises: Boolean,
 )
 
 /**
- * The views the drawer can list above the projects, in its order: Today, Upcoming and Anytime
- * while the bottom bar does not hold them, Plan as well while the planner is on, the Logbook,
- * Routines and Review while they are turned on, and Ask once it is set up. These are the ones
- * Settings offers to hide.
+ * The views the drawer lists unless the user hid them, in its default order: the [drawerViewOffers]
+ * the bottom bar does not hold (a view of the bar is listed only once it is turned on for the
+ * drawer too).
  */
 internal fun drawerViewChoices(
     slots: List<BottomBarSlot>,
@@ -130,25 +142,10 @@ internal fun drawerViewChoices(
     plannerEnabled: Boolean = false,
     proAvailability: Boolean = false,
     proPromises: Boolean = false,
-): List<DrawerView> {
-    val inBar = slots.mapTo(HashSet()) { it.type }
-    return buildList {
-        if (BottomBarSlotType.TODAY !in inBar) add(DrawerView.TODAY)
-        if (plannerEnabled && BottomBarSlotType.PLAN !in inBar) add(DrawerView.PLAN)
-        if (BottomBarSlotType.UPCOMING !in inBar) add(DrawerView.UPCOMING)
-        if (BottomBarSlotType.ANYTIME !in inBar) add(DrawerView.ANYTIME)
-        add(DrawerView.LOGBOOK)
-        if (routinesEnabled) add(DrawerView.ROUTINES)
-        if (reviewEnabled) add(DrawerView.REVIEW)
-        if (askReady) add(DrawerView.ASK)
-        // Pro's views, between the smart lists and the projects (design system 9).
-        if (proAvailability) add(DrawerView.FLAGGED)
-        if (proPromises) {
-            add(DrawerView.WAITING_ON)
-            add(DrawerView.PEOPLE)
-        }
-    }
-}
+): List<DrawerView> =
+    drawerViewOffers(slots, routinesEnabled, reviewEnabled, askReady, plannerEnabled, proAvailability, proPromises)
+        .filterNot { it.inBar }
+        .map { it.view }
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class DrawerViewModel(
@@ -222,6 +219,8 @@ class DrawerViewModel(
             behaviorPrefsStore.getPrefs().map {
                 DrawerPrefs(
                     hiddenViews = it.hiddenDrawerViews,
+                    barViews = it.drawerBarViews,
+                    drawerOrder = it.drawerOrder,
                     plannerEnabled = it.plannerEnabled,
                     proAvailability = it.isProEnabled(ProLayer.AVAILABILITY),
                     proPromises = it.isProEnabled(ProLayer.PROMISES),
@@ -237,6 +236,8 @@ class DrawerViewModel(
             sources, bottomBar.slots, reviewPrefs, labelOrder, today, routinesEnabled,
             bottomBarSmartListColors = bottomBar.smartListColors,
             hiddenViews = drawerPrefs.hiddenViews,
+            barViews = drawerPrefs.barViews,
+            drawerOrder = drawerPrefs.drawerOrder,
             plannerEnabled = drawerPrefs.plannerEnabled,
             proAvailability = drawerPrefs.proAvailability,
             proPromises = drawerPrefs.proPromises,
@@ -623,6 +624,8 @@ internal fun buildDrawerState(
     plannerEnabled: Boolean = false,
     proAvailability: Boolean = false,
     proPromises: Boolean = false,
+    barViews: Set<DrawerView> = emptySet(),
+    drawerOrder: List<String> = emptyList(),
 ): DrawerUiState {
     val inboxId = sources.inboxProjectId
     val projects = sources.projects
@@ -670,6 +673,8 @@ internal fun buildDrawerState(
         reviewOverdueCount = reviewOverdue,
         routinesEnabled = routinesEnabled,
         hiddenViews = hiddenViews,
+        barViews = barViews,
+        drawerOrder = drawerOrder,
         plannerEnabled = plannerEnabled,
         proAvailability = proAvailability,
         proPromises = proPromises,

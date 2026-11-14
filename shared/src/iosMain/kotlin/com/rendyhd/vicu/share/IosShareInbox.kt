@@ -86,7 +86,7 @@ class IosShareInbox(
         }
         when (added.size) {
             0 -> {}
-            1 -> appMessages.post("Added “${added.single()}” to the Inbox")
+            1 -> appMessages.post("Added to Inbox")
             else -> appMessages.post("Added ${added.size} shared tasks to the Inbox")
         }
         if (changed) syncRequester().request()

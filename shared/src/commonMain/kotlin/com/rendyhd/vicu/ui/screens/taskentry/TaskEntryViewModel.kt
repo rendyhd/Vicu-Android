@@ -31,7 +31,6 @@ import com.rendyhd.vicu.location.LocationTrigger
 import com.rendyhd.vicu.location.PlaceMatch
 import com.rendyhd.vicu.location.SavedPlace
 import com.rendyhd.vicu.util.Constants
-import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DateUtils
 import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.DefaultReminder
@@ -176,6 +175,9 @@ class TaskEntryViewModel(
     /** The due date the opening screen asked for; a fresh draft (mass-add) starts from it again. */
     private var seedDueDate: String? = null
 
+    /** The project the sheet opened with, from the list it was opened in; null before it opened. */
+    private var entryProjectId: Long? = null
+
     /** What Clear took away, while Undo can still put it back. */
     private var clearedDraft: ClearedDraft? = null
 
@@ -292,6 +294,7 @@ class TaskEntryViewModel(
         isInitialized = true
         viewModelScope.launch {
             val projectId = resolveActiveProjectId(defaultProjectId)
+            entryProjectId = projectId
             seedDueDate = defaultDueDate?.takeIf { it.isNotBlank() }
             _uiState.update {
                 it.copy(
@@ -307,6 +310,7 @@ class TaskEntryViewModel(
         isInitialized = true
         viewModelScope.launch {
             val projectId = resolveActiveProjectId(defaultProjectId)
+            entryProjectId = projectId
             _uiState.update {
                 it.copy(
                     projectId = projectId,
@@ -689,8 +693,7 @@ class TaskEntryViewModel(
         }
     }
 
-    /** [format] phrases the date of the confirmation. */
-    fun save(format: DateDisplayFormat = DateDisplayFormat.system(is24Hour = true)) {
+    fun save() {
         val state = _uiState.value
         val config = state.parserConfig
         val parseResult = state.parseResult
@@ -815,7 +818,7 @@ class TaskEntryViewModel(
                         val filesWaiting = (pendingUris.size + pendingImages.size)
                             .takeIf { it > 0 && attachmentRepository.waitsForServer(createdTask.id) } ?: 0
                         if (!somethingToSay && !state.keepEntryOpen) {
-                            confirmCreated(createdTask, state, format, filesWaiting)
+                            confirmCreated(createdTask, state, filesWaiting)
                         } else if (!somethingToSay && filesWaiting > 0) {
                             appMessages.post(WaitingUploadText.queuedCount(filesWaiting))
                         }
@@ -850,11 +853,13 @@ class TaskEntryViewModel(
         }
     }
 
-    /** The sheet has closed: the snackbar says what was added, with Open and Undo, as the other adds do. */
-    private fun confirmCreated(created: Task, state: TaskEntryUiState, format: DateDisplayFormat, filesWaiting: Int = 0) {
-        val project = state.allProjects.find { it.id == created.projectId }?.takeIf { it.id != state.inboxProjectId }?.title
-        val block = state.parseResult?.block.takeIf { !state.dueDateIsManual }
-        val confirmation = TextTaskCreator.confirmation(created.title, created.dueDate, project, dayClock.day.value, format, block = block)
+    /**
+     * The sheet has closed: the snackbar says a task was added, with Open and Undo, as the other adds
+     * do. It names the project only when that is not the one the sheet opened with.
+     */
+    private fun confirmCreated(created: Task, state: TaskEntryUiState, filesWaiting: Int = 0) {
+        val elsewhere = TextTaskCreator.elsewhereName(created.projectId, entryProjectId, state.inboxProjectId, state.allProjects)
+        val confirmation = TextTaskCreator.notice(elsewhere)
         // The confirmation is a phrase without a full stop; the files get a sentence of their own.
         val text = if (filesWaiting > 0) "$confirmation. ${WaitingUploadText.queuedCount(filesWaiting)}" else confirmation
         appMessages.post(text, "Undo", openTaskId = created.id) {

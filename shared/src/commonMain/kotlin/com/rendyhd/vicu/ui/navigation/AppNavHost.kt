@@ -318,5 +318,9 @@ private inline fun <reified T : Any> NavGraphBuilder.screen(
     reveal: ScreenReveal,
     noinline content: @Composable (NavBackStackEntry) -> Unit,
 ) {
-    composable<T> { entry -> RevealedScreen(entry, reveal) { content(entry) } }
+    composable<T> { entry ->
+        // Before the screen, so the screen's own Back handlers come ahead of it.
+        EdgeDrawerBack(entry)
+        RevealedScreen(entry, reveal) { content(entry) }
+    }
 }

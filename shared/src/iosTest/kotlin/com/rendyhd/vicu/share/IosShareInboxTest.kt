@@ -98,7 +98,7 @@ class IosShareInboxTest {
         assertEquals(3L, created.projectId)
         assertFalse(exists("$folder/a"))
         assertEquals(1, syncs)
-        assertEquals("Added “Read this article” to the Inbox", messages.messages.first().text)
+        assertEquals("Added to Inbox", messages.messages.first().text)
     }
 
     @Test

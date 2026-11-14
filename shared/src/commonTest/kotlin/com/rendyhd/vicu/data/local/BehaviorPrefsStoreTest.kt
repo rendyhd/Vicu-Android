@@ -92,4 +92,37 @@ class BehaviorPrefsStoreTest {
         data.edit { it[swipeLeftKey] = "SNOOZE" }
         assertEquals(SwipeAction.CHOOSE_WHEN, BehaviorPrefsStore(data).getPrefs().first().swipeLeft)
     }
+
+    @Test
+    fun `a view of the bottom bar is listed in the drawer only once it is turned on`() = runTest {
+        val data = InMemoryPreferencesDataStore()
+        val store = BehaviorPrefsStore(data)
+        assertTrue(store.getPrefs().first().drawerBarViews.isEmpty())
+
+        store.setDrawerBarViewShown(DrawerView.TODAY, shown = true)
+        store.setDrawerBarViewShown(DrawerView.INBOX, shown = true)
+        assertEquals(setOf(DrawerView.TODAY, DrawerView.INBOX), store.getPrefs().first().drawerBarViews)
+        assertTrue(store.getPrefs().first().hiddenDrawerViews.isEmpty(), "hiding is kept apart")
+
+        store.setDrawerBarViewShown(DrawerView.TODAY, shown = false)
+        store.setDrawerBarViewShown(DrawerView.INBOX, shown = false)
+        assertNull(data.data.first()[stringSetPreferencesKey("drawer_bar_views")])
+    }
+
+    @Test
+    fun `the drawer's order is stored - keeps a newer version's key - and resets`() = runTest {
+        val data = InMemoryPreferencesDataStore()
+        val orderKey = stringPreferencesKey("drawer_order")
+        val store = BehaviorPrefsStore(data)
+        assertTrue(store.getPrefs().first().drawerOrder.isEmpty())
+
+        data.edit { it[orderKey] = "LOGBOOK,CALENDAR,PROJECTS" }
+        assertEquals(listOf("LOGBOOK", "CALENDAR", "PROJECTS"), store.getPrefs().first().drawerOrder)
+
+        store.setDrawerOrder(listOf("PROJECTS", "LOGBOOK"))
+        assertEquals("PROJECTS,LOGBOOK,CALENDAR", data.data.first()[orderKey])
+
+        store.setDrawerOrder(emptyList())
+        assertNull(data.data.first()[orderKey])
+    }
 }

@@ -137,7 +137,6 @@ fun DrawerContent(
 ) {
     val haptic = LocalHapticFeedback.current
     val listState = rememberLazyListState()
-    val identity = LocalVicuColors.current.identity
 
     // While a row is dragged, its group is drawn in the order being made. At the drop the view
     // model takes over: it keeps the new order on show until the stored order says the same.
@@ -202,276 +201,156 @@ fun DrawerContent(
                 state = listState,
                 modifier = Modifier.weight(1f),
             ) {
-                // The smart lists and Ask: Today, Upcoming and Anytime when the bottom bar does not
-                // hold them, then what is turned on, less what the user hid from the drawer.
-                val views = state.views(askReady = showAsk)
-                item(key = "smart_spacer", contentType = "spacer") {
-                    Spacer(Modifier.height(12.dp))
-                }
-                items(views, key = { "smart_${it.name.lowercase()}" }, contentType = { "smart" }) { view ->
-                    when (view) {
-                        DrawerView.TODAY -> SmartListItem(
-                            label = "Today",
-                            icon = SmartListIdentity.TODAY.icon,
-                            iconTint = SmartListIdentity.TODAY.color(identity),
-                            selected = currentRoute == "TodayRoute",
-                            onClick = { onNavigate(TodayRoute) },
+                // What the drawer lists, in the user's order (Settings, General, Drawer): the views, with
+                // the projects, the lists and the labels as blocks among them.
+                fun projectsBlock() {
+                    item(key = "header_projects", contentType = "header") {
+                        SectionHeader(
+                            title = "Projects",
+                            expanded = state.projectsExpanded,
+                            onToggle = onToggleProjects,
+                            onAdd = onCreateProject,
+                            addDescription = "New project",
                         )
-                        DrawerView.PLAN -> SmartListItem(
-                            label = "Plan",
-                            icon = SmartListIdentity.PLAN.icon,
-                            iconTint = SmartListIdentity.PLAN.color(identity),
-                            selected = currentRoute == "PlanRoute",
-                            onClick = { onNavigate(PlanRoute) },
-                        )
-                        DrawerView.UPCOMING -> SmartListItem(
-                            label = "Upcoming",
-                            icon = SmartListIdentity.UPCOMING.icon,
-                            iconTint = SmartListIdentity.UPCOMING.color(identity),
-                            selected = currentRoute == "UpcomingRoute",
-                            onClick = { onNavigate(UpcomingRoute) },
-                        )
-                        DrawerView.ANYTIME -> SmartListItem(
-                            label = "Anytime",
-                            icon = SmartListIdentity.ANYTIME.icon,
-                            iconTint = SmartListIdentity.ANYTIME.color(identity),
-                            selected = currentRoute == "AnytimeRoute",
-                            onClick = { onNavigate(AnytimeRoute) },
-                        )
-                        DrawerView.LOGBOOK -> SmartListItem(
-                            label = "Logbook",
-                            icon = SmartListIdentity.LOGBOOK.icon,
-                            iconTint = SmartListIdentity.LOGBOOK.color(identity),
-                            selected = currentRoute == "LogbookRoute",
-                            onClick = { onNavigate(LogbookRoute) },
-                        )
-                        DrawerView.ROUTINES -> SmartListItem(
-                            label = "Routines",
-                            icon = SmartListIdentity.ROUTINES.icon,
-                            iconTint = SmartListIdentity.ROUTINES.color(identity),
-                            selected = currentRoute == "RoutinesRoute",
-                            onClick = { onNavigate(RoutinesRoute) },
-                        )
-                        // With the overdue badge.
-                        DrawerView.REVIEW -> NavigationDrawerItem(
-                            label = { Text("Review") },
-                            icon = {
-                                Icon(
-                                    SmartListIdentity.REVIEW.icon,
-                                    contentDescription = null,
-                                    tint = SmartListIdentity.REVIEW.color(identity),
-                                )
-                            },
-                            badge = {
-                                if (state.reviewOverdueCount > 0) {
-                                    // Rolls by one when a review is done or one falls due (card 4.11b).
-                                    RollingCount(
-                                        value = state.reviewOverdueCount,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        style = MaterialTheme.typography.labelLarge,
-                                    )
+                    }
+                    if (state.projectsExpanded) {
+                        items(
+                            projectItems,
+                            key = { item ->
+                                when (item) {
+                                    is ProjectListItem.Header -> drawerKey(DrawerGroup.CATEGORY, item.category.id)
+                                    is ProjectListItem.Row -> drawerKey(DrawerGroup.PROJECT, item.row.project.id)
                                 }
                             },
-                            selected = currentRoute == "ReviewRoute",
-                            onClick = { onNavigate(ReviewRoute) },
-                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                        )
-                        DrawerView.FLAGGED -> SmartListItem(
-                            label = "Flagged",
-                            icon = ProIcons.FLAGGED,
-                            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            selected = currentRoute == "FlaggedRoute",
-                            onClick = { onNavigate(FlaggedRoute) },
-                        )
-                        DrawerView.WAITING_ON -> SmartListItem(
-                            label = "Waiting on",
-                            icon = ProIcons.WAITING_ON,
-                            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            selected = currentRoute == "WaitingOnRoute",
-                            onClick = { onNavigate(WaitingOnRoute) },
-                        )
-                        DrawerView.PEOPLE -> SmartListItem(
-                            label = "People",
-                            icon = ProIcons.PEOPLE,
-                            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            selected = currentRoute == "PeopleRoute",
-                            onClick = { onNavigate(PeopleRoute) },
-                        )
-                        // With the smart lists: with many projects it got lost at the bottom.
-                        DrawerView.ASK -> NavigationDrawerItem(
-                            label = { Text("Ask") },
-                            icon = {
-                                Icon(
-                                    Icons.Outlined.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                            selected = currentRoute == "AskRoute",
-                            onClick = { onNavigate(AskRoute) },
-                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                        )
-                    }
-                }
-
-                // Projects section; with every view hidden it starts the drawer, below the spacer.
-                if (views.isNotEmpty()) {
-                    item(key = "divider_projects", contentType = "divider") {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    }
-                }
-                item(key = "header_projects", contentType = "header") {
-                    SectionHeader(
-                        title = "Projects",
-                        expanded = state.projectsExpanded,
-                        onToggle = onToggleProjects,
-                        onAdd = onCreateProject,
-                        addDescription = "New project",
-                    )
-                }
-                if (state.projectsExpanded) {
-                    items(
-                        projectItems,
-                        key = { item ->
+                            contentType = { if (it is ProjectListItem.Header) "category" else "project" },
+                        ) { item ->
                             when (item) {
-                                is ProjectListItem.Header -> drawerKey(DrawerGroup.CATEGORY, item.category.id)
-                                is ProjectListItem.Row -> drawerKey(DrawerGroup.PROJECT, item.row.project.id)
-                            }
-                        },
-                        contentType = { if (it is ProjectListItem.Header) "category" else "project" },
-                    ) { item ->
-                        when (item) {
-                            is ProjectListItem.Header -> {
-                                val category = item.category
-                                val index = categoryIds.indexOf(category.id)
-                                // A target of the drag, never dragged itself: it has no drag handle.
-                                ReorderableItem(reorderState, key = drawerKey(DrawerGroup.CATEGORY, category.id)) {
-                                    CategoryHeader(
-                                        category = category,
-                                        count = item.count,
-                                        collapsed = item.collapsed,
-                                        startPadding = 28.dp,
-                                        onToggle = { onToggleCategoryCollapsed(category.id) },
-                                        onRename = { renaming = category },
-                                        onMoveUp = if (index > 0) ({ onMoveCategory(category.id, -1) }) else null,
-                                        onMoveDown = if (index in 0 until categoryIds.lastIndex) ({ onMoveCategory(category.id, 1) }) else null,
-                                        onDelete = { onDeleteCategory(category) },
-                                    )
+                                is ProjectListItem.Header -> {
+                                    val category = item.category
+                                    val index = categoryIds.indexOf(category.id)
+                                    // A target of the drag, never dragged itself: it has no drag handle.
+                                    ReorderableItem(reorderState, key = drawerKey(DrawerGroup.CATEGORY, category.id)) {
+                                        CategoryHeader(
+                                            category = category,
+                                            count = item.count,
+                                            collapsed = item.collapsed,
+                                            startPadding = 28.dp,
+                                            onToggle = { onToggleCategoryCollapsed(category.id) },
+                                            onRename = { renaming = category },
+                                            onMoveUp = if (index > 0) ({ onMoveCategory(category.id, -1) }) else null,
+                                            onMoveDown = if (index in 0 until categoryIds.lastIndex) ({ onMoveCategory(category.id, 1) }) else null,
+                                            onDelete = { onDeleteCategory(category) },
+                                        )
+                                    }
                                 }
-                            }
-                            is ProjectListItem.Row -> {
-                                val row = item.row
-                                val projectId = row.project.id
-                                val siblings = projectSiblings[projectId].orEmpty()
-                                LongPressReorderableRow(
-                                    reorderState = reorderState,
-                                    key = drawerKey(DrawerGroup.PROJECT, projectId),
-                                    // Carried as one row: its open subprojects would be left behind, rows to pass.
-                                    onDragStarted = { liveProjects = (liveProjects ?: state.projectItems).withoutDescendants(projectId) },
-                                    onDragStopped = {
-                                        liveProjects?.let { items ->
-                                            droppedPlace(items, projectId)?.let { (categoryId, ids) -> onMoveProject(projectId, categoryId, ids) }
-                                        }
-                                        liveProjects = null
-                                    },
-                                ) { clickGuard ->
-                                    ProjectItem(
-                                        row = row,
-                                        progress = projectProgress[projectId],
-                                        openCount = projectOpenCounts[projectId],
-                                        countColumn = projectOpenCounts.isNotEmpty(),
-                                        selected = currentRoute == "ProjectRoute/$projectId",
-                                        onClick = clickGuard.guarded { onNavigate(ProjectRoute(projectId)) },
-                                        onToggleCollapsed = clickGuard.guarded { onToggleProjectCollapsed(projectId) },
-                                        onMoveUp = moveIdBy(siblings, projectId, -1)
-                                            ?.let { order -> { onMoveProject(projectId, item.categoryId, order) } },
-                                        onMoveDown = moveIdBy(siblings, projectId, 1)
-                                            ?.let { order -> { onMoveProject(projectId, item.categoryId, order) } },
-                                    )
+                                is ProjectListItem.Row -> {
+                                    val row = item.row
+                                    val projectId = row.project.id
+                                    val siblings = projectSiblings[projectId].orEmpty()
+                                    LongPressReorderableRow(
+                                        reorderState = reorderState,
+                                        key = drawerKey(DrawerGroup.PROJECT, projectId),
+                                        // Carried as one row: its open subprojects would be left behind, rows to pass.
+                                        onDragStarted = { liveProjects = (liveProjects ?: state.projectItems).withoutDescendants(projectId) },
+                                        onDragStopped = {
+                                            liveProjects?.let { items ->
+                                                droppedPlace(items, projectId)?.let { (categoryId, ids) -> onMoveProject(projectId, categoryId, ids) }
+                                            }
+                                            liveProjects = null
+                                        },
+                                    ) { clickGuard ->
+                                        ProjectItem(
+                                            row = row,
+                                            progress = projectProgress[projectId],
+                                            openCount = projectOpenCounts[projectId],
+                                            countColumn = projectOpenCounts.isNotEmpty(),
+                                            selected = currentRoute == "ProjectRoute/$projectId",
+                                            onClick = clickGuard.guarded { onNavigate(ProjectRoute(projectId)) },
+                                            onToggleCollapsed = clickGuard.guarded { onToggleProjectCollapsed(projectId) },
+                                            onMoveUp = moveIdBy(siblings, projectId, -1)
+                                                ?.let { order -> { onMoveProject(projectId, item.categoryId, order) } },
+                                            onMoveDown = moveIdBy(siblings, projectId, 1)
+                                                ?.let { order -> { onMoveProject(projectId, item.categoryId, order) } },
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                // Custom Lists section
-                item(key = "divider_lists", contentType = "divider") {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                }
-                item(key = "header_lists", contentType = "header") {
-                    SectionHeader(
-                        title = "Lists",
-                        expanded = state.listsExpanded,
-                        onToggle = onToggleLists,
-                    )
-                }
-                if (state.listsExpanded) {
-                    items(
-                        customLists,
-                        key = { drawerKey(DrawerGroup.LIST, it.id) },
-                        contentType = { "list" },
-                    ) { list ->
-                        LongPressReorderableRow(
-                            reorderState = reorderState,
-                            key = drawerKey(DrawerGroup.LIST, list.id),
-                            onDragStopped = {
-                                liveLists?.let { onReorderList(list.id, it.map { moved -> moved.id }) }
-                                liveLists = null
-                            },
-                        ) { clickGuard ->
-                            NavigationDrawerItem(
-                                label = { Text(list.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                // None leaves the icon's room to the name (a null slot has no gap either).
-                                icon = IconRegistry.customListIcon(list.icon)?.let { vector ->
-                                    {
-                                        Icon(
-                                            vector,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
+                fun listsBlock() {
+                    item(key = "header_lists", contentType = "header") {
+                        SectionHeader(
+                            title = "Lists",
+                            expanded = state.listsExpanded,
+                            onToggle = onToggleLists,
+                        )
+                    }
+                    if (state.listsExpanded) {
+                        items(
+                            customLists,
+                            key = { drawerKey(DrawerGroup.LIST, it.id) },
+                            contentType = { "list" },
+                        ) { list ->
+                            LongPressReorderableRow(
+                                reorderState = reorderState,
+                                key = drawerKey(DrawerGroup.LIST, list.id),
+                                onDragStopped = {
+                                    liveLists?.let { onReorderList(list.id, it.map { moved -> moved.id }) }
+                                    liveLists = null
                                 },
-                                selected = currentRoute == "CustomListRoute/${list.id}",
-                                onClick = clickGuard.guarded { onNavigate(CustomListRoute(list.id)) },
-                                modifier = Modifier
-                                    .padding(NavigationDrawerItemDefaults.ItemPadding)
-                                    .moveCustomActions(
-                                        onMoveUp = moveIdBy(listIds, list.id, -1)
-                                            ?.let { order -> { onReorderList(list.id, order) } },
-                                        onMoveDown = moveIdBy(listIds, list.id, 1)
-                                            ?.let { order -> { onReorderList(list.id, order) } },
-                                    ),
+                            ) { clickGuard ->
+                                NavigationDrawerItem(
+                                    label = { Text(list.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    // None leaves the icon's room to the name (a null slot has no gap either).
+                                    icon = IconRegistry.customListIcon(list.icon)?.let { vector ->
+                                        {
+                                            Icon(
+                                                vector,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    },
+                                    selected = currentRoute == "CustomListRoute/${list.id}",
+                                    onClick = clickGuard.guarded { onNavigate(CustomListRoute(list.id)) },
+                                    modifier = Modifier
+                                        .padding(NavigationDrawerItemDefaults.ItemPadding)
+                                        .moveCustomActions(
+                                            onMoveUp = moveIdBy(listIds, list.id, -1)
+                                                ?.let { order -> { onReorderList(list.id, order) } },
+                                            onMoveDown = moveIdBy(listIds, list.id, 1)
+                                                ?.let { order -> { onReorderList(list.id, order) } },
+                                        ),
+                                )
+                            }
+                        }
+                        item(key = "new_list", contentType = "action") {
+                            NavigationDrawerItem(
+                                label = {
+                                    Text(
+                                        "New List",
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                },
+                                // Decorative: the label next to it already says "New List".
+                                icon = {
+                                    Icon(
+                                        Icons.Outlined.Add,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                },
+                                selected = false,
+                                onClick = onCreateNewList,
+                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                             )
                         }
                     }
-                    item(key = "new_list", contentType = "action") {
-                        NavigationDrawerItem(
-                            label = {
-                                Text(
-                                    "New List",
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            },
-                            // Decorative: the label next to it already says "New List".
-                            icon = {
-                                Icon(
-                                    Icons.Outlined.Add,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            },
-                            selected = false,
-                            onClick = onCreateNewList,
-                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                        )
-                    }
                 }
 
-                // Labels section
-                if (state.labels.isNotEmpty()) {
-                    item(key = "divider_tags", contentType = "divider") {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    }
+                fun labelsBlock() {
                     item(key = "header_tags", contentType = "header") {
                         SectionHeader(
                             title = "Labels",
@@ -518,6 +397,33 @@ fun DrawerContent(
                                         ),
                                 )
                             }
+                        }
+                    }
+                }
+
+                // The labels have no block to draw while there are none.
+                val entries = state.entries(askReady = showAsk)
+                    .filter { it != DrawerEntry.Block(DrawerBlock.LABELS) || state.labels.isNotEmpty() }
+                item(key = "smart_spacer", contentType = "spacer") {
+                    Spacer(Modifier.height(12.dp))
+                }
+                entries.forEachIndexed { index, entry ->
+                    // A block starts with its header, so a rule sets it off from what is above it,
+                    // and the views under a block from that block.
+                    val previous = entries.getOrNull(index - 1)
+                    if (previous != null && (entry is DrawerEntry.Block || previous is DrawerEntry.Block)) {
+                        item(key = "divider_${entry.key.lowercase()}", contentType = "divider") {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        }
+                    }
+                    when (entry) {
+                        is DrawerEntry.View -> item(key = "smart_${entry.view.name.lowercase()}", contentType = "smart") {
+                            DrawerViewItem(entry.view, state, currentRoute, onNavigate)
+                        }
+                        is DrawerEntry.Block -> when (entry.block) {
+                            DrawerBlock.PROJECTS -> projectsBlock()
+                            DrawerBlock.LISTS -> listsBlock()
+                            DrawerBlock.LABELS -> labelsBlock()
                         }
                     }
                 }
@@ -689,6 +595,122 @@ private fun ProjectItem(
             .padding(start = ProjectIndent * projectIndentLevel(row.depth))
             .moveCustomActions(onMoveUp, onMoveDown),
     )
+}
+
+/** The row of [view] in the drawer; Review carries its badge of projects due. */
+@Composable
+private fun DrawerViewItem(view: DrawerView, state: DrawerUiState, currentRoute: String?, onNavigate: (Any) -> Unit) {
+    val identity = LocalVicuColors.current.identity
+    when (view) {
+        DrawerView.INBOX -> SmartListItem(
+            label = "Inbox",
+            icon = SmartListIdentity.INBOX.icon,
+            iconTint = SmartListIdentity.INBOX.color(identity),
+            selected = currentRoute == "InboxRoute",
+            onClick = { onNavigate(InboxRoute) },
+        )
+        DrawerView.TODAY -> SmartListItem(
+            label = "Today",
+            icon = SmartListIdentity.TODAY.icon,
+            iconTint = SmartListIdentity.TODAY.color(identity),
+            selected = currentRoute == "TodayRoute",
+            onClick = { onNavigate(TodayRoute) },
+        )
+        DrawerView.PLAN -> SmartListItem(
+            label = "Plan",
+            icon = SmartListIdentity.PLAN.icon,
+            iconTint = SmartListIdentity.PLAN.color(identity),
+            selected = currentRoute == "PlanRoute",
+            onClick = { onNavigate(PlanRoute) },
+        )
+        DrawerView.UPCOMING -> SmartListItem(
+            label = "Upcoming",
+            icon = SmartListIdentity.UPCOMING.icon,
+            iconTint = SmartListIdentity.UPCOMING.color(identity),
+            selected = currentRoute == "UpcomingRoute",
+            onClick = { onNavigate(UpcomingRoute) },
+        )
+        DrawerView.ANYTIME -> SmartListItem(
+            label = "Anytime",
+            icon = SmartListIdentity.ANYTIME.icon,
+            iconTint = SmartListIdentity.ANYTIME.color(identity),
+            selected = currentRoute == "AnytimeRoute",
+            onClick = { onNavigate(AnytimeRoute) },
+        )
+        DrawerView.LOGBOOK -> SmartListItem(
+            label = "Logbook",
+            icon = SmartListIdentity.LOGBOOK.icon,
+            iconTint = SmartListIdentity.LOGBOOK.color(identity),
+            selected = currentRoute == "LogbookRoute",
+            onClick = { onNavigate(LogbookRoute) },
+        )
+        DrawerView.ROUTINES -> SmartListItem(
+            label = "Routines",
+            icon = SmartListIdentity.ROUTINES.icon,
+            iconTint = SmartListIdentity.ROUTINES.color(identity),
+            selected = currentRoute == "RoutinesRoute",
+            onClick = { onNavigate(RoutinesRoute) },
+        )
+        // With the overdue badge.
+        DrawerView.REVIEW -> NavigationDrawerItem(
+            label = { Text("Review") },
+            icon = {
+                Icon(
+                    SmartListIdentity.REVIEW.icon,
+                    contentDescription = null,
+                    tint = SmartListIdentity.REVIEW.color(identity),
+                )
+            },
+            badge = {
+                if (state.reviewOverdueCount > 0) {
+                    // Rolls by one when a review is done or one falls due (card 4.11b).
+                    RollingCount(
+                        value = state.reviewOverdueCount,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+            },
+            selected = currentRoute == "ReviewRoute",
+            onClick = { onNavigate(ReviewRoute) },
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+        )
+        DrawerView.FLAGGED -> SmartListItem(
+            label = "Flagged",
+            icon = ProIcons.FLAGGED,
+            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+            selected = currentRoute == "FlaggedRoute",
+            onClick = { onNavigate(FlaggedRoute) },
+        )
+        DrawerView.WAITING_ON -> SmartListItem(
+            label = "Waiting on",
+            icon = ProIcons.WAITING_ON,
+            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+            selected = currentRoute == "WaitingOnRoute",
+            onClick = { onNavigate(WaitingOnRoute) },
+        )
+        DrawerView.PEOPLE -> SmartListItem(
+            label = "People",
+            icon = ProIcons.PEOPLE,
+            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+            selected = currentRoute == "PeopleRoute",
+            onClick = { onNavigate(PeopleRoute) },
+        )
+        // With the smart lists: with many projects it got lost at the bottom.
+        DrawerView.ASK -> NavigationDrawerItem(
+            label = { Text("Ask") },
+            icon = {
+                Icon(
+                    Icons.Outlined.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            selected = currentRoute == "AskRoute",
+            onClick = { onNavigate(AskRoute) },
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+        )
+    }
 }
 
 @Composable

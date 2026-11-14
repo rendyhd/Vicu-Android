@@ -61,12 +61,17 @@ import kotlin.math.abs
  * The shown month follows [selected] whenever it changes (a quick choice, typed text, a dimmed day
  * of the next month); the arrows and a horizontal swipe move it. Each day is a 48 dp target read
  * aloud as its full date.
+ *
+ * A calendar that shows something about each day (a routine's history) draws the days itself with
+ * [dayContent] and says what it drew in [dayNote], which is read after the date.
  */
 @Composable
 fun MonthCalendar(
     selected: LocalDate?,
     onSelect: (LocalDate) -> Unit,
     modifier: Modifier = Modifier,
+    dayNote: (LocalDate) -> String? = { null },
+    dayContent: (@Composable (day: GridDay, isSelected: Boolean, isToday: Boolean) -> Unit)? = null,
 ) {
     val today = LocalClockDay.current.date
     val fmt = LocalDateFormat.current
@@ -116,7 +121,15 @@ fun MonthCalendar(
                 }
             },
         ) { shown ->
-            MonthGrid(month = shown, selected = selected, today = today, fmt = fmt, onSelect = onSelect)
+            MonthGrid(
+                month = shown,
+                selected = selected,
+                today = today,
+                fmt = fmt,
+                onSelect = onSelect,
+                dayNote = dayNote,
+                dayContent = dayContent,
+            )
         }
     }
 }
@@ -128,6 +141,8 @@ private fun MonthGrid(
     today: LocalDate,
     fmt: DateDisplayFormat,
     onSelect: (LocalDate) -> Unit,
+    dayNote: (LocalDate) -> String?,
+    dayContent: (@Composable (day: GridDay, isSelected: Boolean, isToday: Boolean) -> Unit)?,
 ) {
     val weeks = remember(month) { WhenLogic.monthGrid(month) }
     Column(Modifier.fillMaxWidth()) {
@@ -149,13 +164,15 @@ private fun MonthGrid(
                 for (day in week) {
                     val isToday = day.date == today
                     val full = DateDisplay.formatFullDateWithYear(day.date, fmt)
+                    val named = if (isToday) "Today, $full" else full
                     DayCell(
                         day = day,
                         isSelected = day.date == selected,
                         isToday = isToday,
-                        label = if (isToday) "Today, $full" else full,
+                        label = dayNote(day.date)?.let { "$named, $it" } ?: named,
                         onClick = { onSelect(day.date) },
                         modifier = Modifier.weight(1f),
+                        content = dayContent,
                     )
                 }
             }
@@ -163,7 +180,10 @@ private fun MonthGrid(
     }
 }
 
-/** A day: filled when picked, ringed when it is today, dimmed outside the shown month. */
+/**
+ * A day: filled when picked, ringed when it is today, dimmed outside the shown month. With
+ * [content] the calendar's owner draws it instead.
+ */
 @Composable
 private fun DayCell(
     day: GridDay,
@@ -172,6 +192,7 @@ private fun DayCell(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    content: (@Composable (day: GridDay, isSelected: Boolean, isToday: Boolean) -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     Box(
@@ -189,6 +210,11 @@ private fun DayCell(
             },
         contentAlignment = Alignment.Center,
     ) {
+        if (content != null) {
+            // The cell reads the date and its note; what is drawn would only repeat part of it.
+            Box(Modifier.clearAndSetSemantics { }) { content(day, isSelected, isToday) }
+            return@Box
+        }
         Box(
             modifier = Modifier
                 .size(40.dp)

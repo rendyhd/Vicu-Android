@@ -47,6 +47,9 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -122,6 +125,10 @@ import com.rendyhd.vicu.ui.navigation.AppNavHost
 import com.rendyhd.vicu.ui.navigation.CustomListRoute
 import com.rendyhd.vicu.ui.navigation.DrawerContent
 import com.rendyhd.vicu.ui.navigation.DrawerViewModel
+import com.rendyhd.vicu.ui.navigation.EdgeDrawer
+import com.rendyhd.vicu.ui.navigation.LocalEdgeDrawer
+import com.rendyhd.vicu.ui.navigation.edgeDrawerDrag
+import com.rendyhd.vicu.ui.navigation.isEdgeDrawerScreen
 import com.rendyhd.vicu.ui.navigation.InboxRoute
 import com.rendyhd.vicu.ui.navigation.LogbookRoute
 import com.rendyhd.vicu.ui.navigation.NavigationTicker
@@ -188,6 +195,15 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * What an app message leaves free at the + button's side: the button (56 dp) and its 16 dp from the
+ * screen's edge. The message's own 12 dp of space is the gap between the two.
+ */
+private val FAB_ROOM = 72.dp
+
+/** Lifts a one-line message (48 dp, with 12 dp under it) to the middle of the button (56 dp, with 16 dp under it). */
+private val FAB_MESSAGE_LIFT = 8.dp
 
 /** An app message on the snackbar; [openTaskId] puts Open next to its action. */
 private class AppSnackbarVisuals(
@@ -788,6 +804,25 @@ fun VicuApp(
         if (authState == AuthState.Authenticated) syncStateViewModel.serverUnreachable else flowOf(false)
     }.collectAsStateWithLifecycle(initialValue = false)
 
+    // The drawer by a swipe from the left edge of a list screen (EdgeDrawer): through the system's
+    // Back gesture where the edge is the system's, by a plain drag where it is not (three buttons).
+    val voiceHeld by fabController.holdToTalk.state.collectAsStateWithLifecycle()
+    val edgeAllowed = rememberUpdatedState(enableDrawerGestures && drawerState.isClosed && voiceHeld == null)
+    val edgeOpen = rememberUpdatedState(drawerState.isOpen)
+    val edgeDrawer = remember(navController, drawerState) {
+        EdgeDrawer(
+            navController = navController,
+            allowed = edgeAllowed,
+            isOpen = edgeOpen,
+            open = { scope.launch { drawerState.open() } },
+            close = { scope.launch { drawerState.close() } },
+        )
+    }
+    val edgeListScreen = remember(navBackStackEntry) {
+        navBackStackEntry?.let { navController.isEdgeDrawerScreen(it) } == true
+    }
+    val edgeDragFree = WindowInsets.systemGestures.getLeft(LocalDensity.current, LayoutDirection.Ltr) == 0
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         // On Plan a sideways swipe changes the day, so the drawer opens from its button there; once
@@ -915,11 +950,15 @@ fun VicuApp(
                         .weight(1f)
                         .consumeWindowInsets(
                             PaddingValues(top = with(density) { (offlineBandHeight + failedBandHeight).toDp() }),
-                        ),
+                        )
+                        .edgeDrawerDrag(enabled = edgeDragFree && edgeListScreen && edgeAllowed.value) {
+                            scope.launch { drawerState.open() }
+                        },
                 ) {
                     CompositionLocalProvider(
                         *appLocals,
                         LocalAppFabHost provides fabHost,
+                        LocalEdgeDrawer provides edgeDrawer,
                         LocalFabDropTargets provides fabController.dropTargets,
                     ) {
                         AppNavHost(
@@ -952,6 +991,8 @@ fun VicuApp(
                             .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom))
                             .padding(16.dp),
                         controller = fabController.takeIf { authState == AuthState.Authenticated },
+                        // An app message sits beside the button, which gives its label's room to it.
+                        compact = snackbarHostState.currentSnackbarData != null,
                     )
                 }
             }
@@ -1068,13 +1109,29 @@ fun VicuApp(
 
         // App-level messages. Emitted after the editor so it draws above it.
         Box(modifier = Modifier.fillMaxSize()) {
+            // A message stops short of the + of the screen on top, so the next task can be added
+            // while it shows; the button is drawn without its label meanwhile (AppFab's compact).
+            val besideFab = fabHost.specOf(navBackStackEntry?.id) != null && !taskDetailVisible && commentsTaskId == 0L
+            // The button stands the system bar's inset above the bottom bar, which already holds that
+            // inset; the message goes as high.
+            val fabInset = if (showBottomBar) {
+                WindowInsets.systemBars.only(WindowInsetsSides.Bottom).asPaddingValues().calculateBottomPadding()
+            } else {
+                0.dp
+            }
             SnackbarHost(
                 hostState = snackbarHostState,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
                     // Plan my day has its buttons where the bar would be: a message must not cover them.
-                    .padding(bottom = if ((showBottomBar || inPlanSession) && !taskDetailVisible && commentsTaskId == 0L) 80.dp else 0.dp),
+                    .padding(bottom = if ((showBottomBar || inPlanSession) && !taskDetailVisible && commentsTaskId == 0L) 80.dp else 0.dp)
+                    .padding(
+                        start = if (besideFab && fabAlignStart) FAB_ROOM else 0.dp,
+                        end = if (besideFab && !fabAlignStart) FAB_ROOM else 0.dp,
+                        // A message of one line is as high up as the middle of the button.
+                        bottom = if (besideFab) FAB_MESSAGE_LIFT + fabInset else 0.dp,
+                    ),
             ) { data ->
                 val openTaskId = (data.visuals as? AppSnackbarVisuals)?.openTaskId
                 if (openTaskId == null) {

@@ -393,7 +393,7 @@ class DictationController(
         scope.launch {
             kept.clear()
             when (val result = textTasks.create(current.transcript, format, current.defaults.projectId, current.defaults.dueDate)) {
-                is TextTaskCreator.Result.Created -> messages.post(result.confirmation, "Undo", openTaskId = result.task.id) {
+                is TextTaskCreator.Result.Created -> messages.post(result.notice, "Undo", openTaskId = result.task.id) {
                     scope.launch { messages.postIfRefused(tasks.delete(result.task.id), "undo the task") }
                 }
                 is TextTaskCreator.Result.Failed -> messages.post(result.message)

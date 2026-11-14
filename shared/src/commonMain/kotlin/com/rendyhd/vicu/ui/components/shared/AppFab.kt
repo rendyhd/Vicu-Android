@@ -114,10 +114,17 @@ internal fun fabToShow(current: FabSpec?, last: FabSpec?, settling: Boolean): Fa
  * The app's + button: the one [screen] (the back stack entry on top) put in with [ScreenFab]. It
  * fades and scales in and out when a screen without one comes and goes, or a selection starts.
  * With a [controller] it can also be held to say a task and dragged onto a header (`fabGestures`);
- * a tap stays the screen's own.
+ * a tap stays the screen's own. [compact] draws it without its label, whatever the screen asked
+ * for: an app message is beside it and needs the room.
  */
 @Composable
-fun AppFab(host: AppFabHost, screen: String?, modifier: Modifier = Modifier, controller: FabController? = null) {
+fun AppFab(
+    host: AppFabHost,
+    screen: String?,
+    modifier: Modifier = Modifier,
+    controller: FabController? = null,
+    compact: Boolean = false,
+) {
     // A screen puts its button in after its first frame; until a few frames have passed, a screen
     // that has not done so yet keeps the previous button instead of hiding it.
     var settledScreen by remember { mutableStateOf(screen) }
@@ -139,8 +146,9 @@ fun AppFab(host: AppFabHost, screen: String?, modifier: Modifier = Modifier, con
     ) {
         val shown = spec ?: last[0] ?: return@AnimatedVisibility
         val defaults = shown.taskDefaults
+        val expanded = shown.expanded && !compact
         if (controller == null || defaults == null) {
-            VicuFab(onClick = shown.onClick, label = shown.label, expanded = shown.expanded)
+            VicuFab(onClick = shown.onClick, label = shown.label, expanded = expanded)
         } else {
             val tap = {
                 controller.onTapped()
@@ -149,7 +157,7 @@ fun AppFab(host: AppFabHost, screen: String?, modifier: Modifier = Modifier, con
             VicuFab(
                 onClick = tap,
                 label = shown.label,
-                expanded = shown.expanded,
+                expanded = expanded,
                 modifier = Modifier.fabGestures(controller, screen, defaults, openQuickAdd = tap),
             )
         }

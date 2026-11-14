@@ -466,7 +466,7 @@ fun TaskEntrySheet(
             viewModel.saveTemplateEdit()
             endTemplateEdit()
         } else {
-            viewModel.save(dateFormat)
+            viewModel.save()
         }
     }
 

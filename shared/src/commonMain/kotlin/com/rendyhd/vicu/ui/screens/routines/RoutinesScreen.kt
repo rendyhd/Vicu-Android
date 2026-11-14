@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,7 +30,6 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -75,7 +73,6 @@ import com.rendyhd.vicu.domain.model.Routine
 import com.rendyhd.vicu.domain.model.RoutineDay
 import com.rendyhd.vicu.domain.model.RoutineDraft
 import com.rendyhd.vicu.domain.model.RoutineOccurrence
-import com.rendyhd.vicu.domain.model.RoutineOccurrenceRecord
 import com.rendyhd.vicu.domain.model.RoutinePeriod
 import com.rendyhd.vicu.domain.model.RoutineSchedule
 import com.rendyhd.vicu.domain.model.RoutineSlot
@@ -89,10 +86,8 @@ import com.rendyhd.vicu.ui.components.shared.ScreenFab
 import com.rendyhd.vicu.ui.components.shared.VicuTopAppBar
 import org.koin.compose.viewmodel.koinViewModel
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
-import com.rendyhd.vicu.util.DateContext
 import com.rendyhd.vicu.util.DateDisplay
 import kotlinx.coroutines.launch
-import kotlinx.datetime.LocalDate
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Close
@@ -577,74 +572,10 @@ private fun RoutineDefinitionCard(
 
 /** The colour of a routine's ring and icon on its card: its own colour, or the Routines colour without one. */
 @Composable
-private fun routineTint(definition: RoutineDefinition): Color {
+internal fun routineTint(definition: RoutineDefinition): Color {
     val scheme = MaterialTheme.colorScheme
     return routineMarkColor(definition.color, scheme.onSurface, listOf(scheme.surfaceContainerLow))
         ?: SmartListIdentity.ROUTINES.color(LocalVicuColors.current.identity)
-}
-
-@Composable
-private fun RoutineHistoryDialog(
-    routine: Routine,
-    history: List<RoutineOccurrenceRecord>,
-    onDismiss: () -> Unit,
-) {
-    val logged = history.filter { it.status != OccurrenceStatus.PENDING }
-    val completed = logged.count { it.status == OccurrenceStatus.COMPLETED }
-    val adherence = if (logged.isEmpty()) 0 else (completed * 100 / logged.size)
-    val historyToday = LocalToday.current
-    val dateFormat = LocalDateFormat.current
-    val collab = LocalCollab.current
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier.fillMaxWidth().heightIn(max = 620.dp),
-            shape = RoundedCornerShape(28.dp),
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text(routine.definition.name, style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    if (logged.isEmpty()) "No history yet" else "$adherence% completed · $completed of ${logged.size} logged",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                if (logged.isEmpty()) {
-                    Text("Daily activity will appear here as you complete or skip it.")
-                } else {
-                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
-                        items(logged.take(30), key = { it.key }, contentType = { "record" }) { record ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    if (record.status == OccurrenceStatus.COMPLETED) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                                    contentDescription = null,
-                                    tint = if (record.status == OccurrenceStatus.COMPLETED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        runCatching { DateDisplay.formatDay(DateContext.CHIP, LocalDate.parse(record.scheduledDate), historyToday, dateFormat) }
-                                            .getOrDefault(record.scheduledDate),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
-                                    Text(
-                                        RoutineSharing.loggedText(routine, record.status, record.loggedByUserId, collab.state)
-                                            ?: record.status.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                Text(timeText(record.scheduledMinutes, dateFormat), style = MaterialTheme.typography.labelMedium)
-                            }
-                        }
-                    }
-                }
-                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("Done") }
-            }
-        }
-    }
 }
 
 /** One time of a routine in the editor; [slot] is the stored slot it edits (null for a new time). */
@@ -1156,7 +1087,7 @@ private val WeekdayLetters = listOf("M", "T", "W", "T", "F", "S", "S")
 private val WeekdayNames = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 private val WeekdayShortNames = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
-private fun timeText(minutes: Int, format: DateDisplayFormat): String =
+internal fun timeText(minutes: Int, format: DateDisplayFormat): String =
     DateDisplay.formatTime(LocalTime(minutes / 60, minutes % 60), format)
 
 /** "Every day · 08:00, 20:00", "Mon, Thu, every 2 weeks · 09:00", "14 days after completion · 18:00". */

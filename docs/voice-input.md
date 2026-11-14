@@ -33,7 +33,8 @@ home").
 Holding the + button (`AppFab`) for 400 ms listens in the app, on both platforms. A card over the
 screen shows the words as they are recognized, with the parsed parts in the quick add colours and
 the fields as pills under them (`voicePreview`, the same reading as `TextTaskCreator`). Letting go
-adds the task through `TextTaskCreator` and says what was added on the app snackbar, with Undo
+adds the task through `TextTaskCreator` and says "Task added" on the app snackbar, or where it went
+("Added to Inbox") when that is not the list on screen, with Undo
 (which deletes the task). The task goes to the list the + was held in, as that list's quick add
 would put it (`TaskDefaults`, handed over by the screen's `ScreenFab`): a project screen's project,
 the Inbox, a custom list's "add to" project, today's date on Today; Upcoming, Anytime and a tag add
