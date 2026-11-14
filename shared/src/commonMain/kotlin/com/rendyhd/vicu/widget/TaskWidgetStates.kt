@@ -64,6 +64,7 @@ class TaskWidgetStates(
             orders = taskOrders?.settings?.first() ?: TaskOrderSettings(),
             smartAdd = widgetPrefsStore.smartAdd.first(),
             contextNav = widgetPrefsStore.contextNav.first(),
+            voiceButton = widgetPrefsStore.voiceButton.first(),
             inboxId = tokenStorage.getInboxProjectId() ?: 0L,
         )
     }
@@ -76,6 +77,7 @@ class TaskWidgetStates(
         private val orders: TaskOrderSettings,
         private val smartAdd: Boolean,
         private val contextNav: Boolean,
+        private val voiceButton: Boolean,
         private val inboxId: Long,
     ) {
         private val activeProjectIds: Set<Long> get() = projectNames.keys
@@ -110,6 +112,7 @@ class TaskWidgetStates(
                 lastUpdated = time.now().toString(),
                 smartAdd = smartAdd,
                 contextNav = contextNav,
+                voiceButton = voiceButton,
                 addToProjectId = addToProjectId,
                 error = if (projectUnavailable) PROJECT_UNAVAILABLE else null,
             )

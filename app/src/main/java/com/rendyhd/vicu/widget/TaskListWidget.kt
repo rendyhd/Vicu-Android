@@ -299,8 +299,10 @@ private fun WidgetHeader(state: TaskWidgetState) {
                 .defaultWeight()
                 .clickable(titleClickAction(state)),
         )
-        VoiceButton()
-        Spacer(GlanceModifier.width(8.dp))
+        if (state.voiceButton) {
+            VoiceButton()
+            Spacer(GlanceModifier.width(8.dp))
+        }
         AddButton(state)
     }
 }

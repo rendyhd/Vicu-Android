@@ -13,6 +13,7 @@ class WidgetPrefsStore(
     companion object {
         private val KEY_SMART_ADD = booleanPreferencesKey("widget_smart_add")
         private val KEY_CONTEXT_NAV = booleanPreferencesKey("widget_context_nav")
+        private val KEY_VOICE_BUTTON = booleanPreferencesKey("widget_voice_button")
     }
 
     val smartAdd: Flow<Boolean> = dataStore.data.map { prefs ->
@@ -21,6 +22,11 @@ class WidgetPrefsStore(
 
     val contextNav: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[KEY_CONTEXT_NAV] ?: true
+    }
+
+    /** The task list widget's microphone button (Android); on unless turned off. */
+    val voiceButton: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[KEY_VOICE_BUTTON] ?: true
     }
 
     suspend fun setSmartAdd(enabled: Boolean) {
@@ -32,6 +38,12 @@ class WidgetPrefsStore(
     suspend fun setContextNav(enabled: Boolean) {
         dataStore.edit { prefs ->
             prefs[KEY_CONTEXT_NAV] = enabled
+        }
+    }
+
+    suspend fun setVoiceButton(enabled: Boolean) {
+        dataStore.edit { prefs ->
+            prefs[KEY_VOICE_BUTTON] = enabled
         }
     }
 

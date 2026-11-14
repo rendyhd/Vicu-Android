@@ -9,6 +9,9 @@ interface PlatformSettingsHooks {
      */
     val quickAddHint: String? get() = null
 
+    /** The task list widget has a microphone button that Settings can hide (Android). */
+    val hasWidgetVoiceButton: Boolean get() = false
+
     fun updateWidgets()
     fun scheduleSync(enabled: Boolean)
     fun scheduleDailySummary(slot: String, enabled: Boolean, hour: Int, minute: Int)
