@@ -42,6 +42,7 @@ data class TaskWidgetState(
     val error: String? = null,
     val smartAdd: Boolean = true,
     val contextNav: Boolean = true,
+    val voiceButton: Boolean = true,
     val addToProjectId: Long = 0L, // for custom lists: which project the + button targets
     val transparentBackground: Boolean = false,
 )

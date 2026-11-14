@@ -110,6 +110,8 @@ data class SettingsUiState(
     // Widget
     val widgetSmartAdd: Boolean = true,
     val widgetContextNav: Boolean = true,
+    val widgetVoiceButton: Boolean = true,
+    val hasWidgetVoiceButton: Boolean = false,
     // Review
     val reviewPrefs: ReviewPrefs = ReviewPrefs(),
     // Routines
@@ -152,9 +154,14 @@ private data class AccountGroup(
     val messages: Pair<String?, String?>,
 )
 
-private data class PrefsGroup(
+private data class WidgetPrefs(
     val smartAdd: Boolean,
     val contextNav: Boolean,
+    val voiceButton: Boolean,
+)
+
+private data class PrefsGroup(
+    val widget: WidgetPrefs,
     val behaviorPrefs: BehaviorPrefs,
     val reviewPrefs: ReviewPrefs,
     val logbookPrefs: LogbookPrefs,
@@ -235,13 +242,12 @@ class SettingsViewModel(
     }
 
     private val prefs = combine(
-        widgetPrefsStore.smartAdd,
-        widgetPrefsStore.contextNav,
+        combine(widgetPrefsStore.smartAdd, widgetPrefsStore.contextNav, widgetPrefsStore.voiceButton, ::WidgetPrefs),
         behaviorPrefsStore.getPrefs(),
         reviewPrefsStore.getPrefs(),
         logbookPrefsStore.getPrefs(),
-    ) { smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs ->
-        PrefsGroup(smartAdd, contextNav, behaviorPrefs, reviewPrefs, logbookPrefs)
+    ) { widget, behaviorPrefs, reviewPrefs, logbookPrefs ->
+        PrefsGroup(widget, behaviorPrefs, reviewPrefs, logbookPrefs)
     }
 
     val uiState: StateFlow<SettingsUiState> = combine(
@@ -277,8 +283,10 @@ class SettingsViewModel(
             isOnline = s.isOnline,
             bottomBarSlots = a.bottomBar.slots,
             bottomBarSmartListColors = a.bottomBar.smartListColors,
-            widgetSmartAdd = p.smartAdd,
-            widgetContextNav = p.contextNav,
+            widgetSmartAdd = p.widget.smartAdd,
+            widgetContextNav = p.widget.contextNav,
+            widgetVoiceButton = p.widget.voiceButton,
+            hasWidgetVoiceButton = platformSettingsHooks.hasWidgetVoiceButton,
             reviewPrefs = p.reviewPrefs,
             routineVisibility = routineVisibility,
             logbookPrefs = p.logbookPrefs,
@@ -879,6 +887,13 @@ class SettingsViewModel(
     fun setWidgetContextNav(enabled: Boolean) {
         viewModelScope.launch {
             widgetPrefsStore.setContextNav(enabled)
+            platformSettingsHooks.updateWidgets()
+        }
+    }
+
+    fun setWidgetVoiceButton(enabled: Boolean) {
+        viewModelScope.launch {
+            widgetPrefsStore.setVoiceButton(enabled)
             platformSettingsHooks.updateWidgets()
         }
     }

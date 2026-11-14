@@ -143,6 +143,8 @@ class SettingsViewModelStateTest {
         assertEquals(listOf("Old"), s.archivedProjects.map { it.title })
         assertTrue(s.isOnline)
         assertTrue(s.supportsQuickAddTile)
+        assertTrue(s.widgetVoiceButton)
+        assertFalse(s.hasWidgetVoiceButton, "only a platform with the button offers the switch")
         assertTrue(s.bottomBarSmartListColors)
         assertEquals(ThemeMode.System, s.themeMode)
         assertNull(s.error)
@@ -162,12 +164,13 @@ class SettingsViewModelStateTest {
         r.vm.setReviewEnabled(true)
         r.vm.setLogbookRetentionEnabled(true)
         r.vm.setWidgetSmartAdd(false)
+        r.vm.setWidgetVoiceButton(false)
         r.vm.setNlpEnabled(!before.nlpConfig.enabled)
         r.vm.setBottomBarSmartListColors(false)
         awaitUntil {
             val s = r.vm.uiState.value
             s.themeMode == ThemeMode.Dark && s.reviewPrefs.enabled && s.logbookPrefs.enabled &&
-                !s.widgetSmartAdd && s.nlpConfig.enabled != before.nlpConfig.enabled &&
+                !s.widgetSmartAdd && !s.widgetVoiceButton && s.nlpConfig.enabled != before.nlpConfig.enabled &&
                 !s.bottomBarSmartListColors
         }
 
@@ -175,6 +178,7 @@ class SettingsViewModelStateTest {
         assertEquals(before.labels, after.labels)
         assertEquals(before.projects, after.projects)
         assertEquals(before.username, after.username)
+        assertEquals(before.widgetContextNav, after.widgetContextNav)
         assertEquals(before.behaviorPrefs, after.behaviorPrefs)
         assertEquals(before.notificationPrefs, after.notificationPrefs)
         assertEquals(before.bottomBarSlots, after.bottomBarSlots)
