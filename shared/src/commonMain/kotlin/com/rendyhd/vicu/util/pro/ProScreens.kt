@@ -4,12 +4,12 @@ import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.domain.model.Task
 import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateDisplayFormat
+import com.rendyhd.vicu.util.DueDates
+import com.rendyhd.vicu.util.WeekStart
 import com.rendyhd.vicu.util.withoutNestedSubtasks
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.isoDayNumber
-import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -130,12 +130,11 @@ object ProScreens {
         else -> "After ${blockerTitles.size} tasks"
     }
 
-    /** The Start sheet's quick choices: tomorrow, next Monday, in two weeks. */
-    fun startChoices(today: LocalDate): List<Pair<String, LocalDate>> {
-        val monday = today.minus(today.dayOfWeek.isoDayNumber - 1, DateTimeUnit.DAY)
+    /** The Start sheet's quick choices: tomorrow, the Monday in next week (section 2.1), in two weeks. */
+    fun startChoices(today: LocalDate, weekStart: WeekStart = WeekStart.DEFAULT): List<Pair<String, LocalDate>> {
         return listOf(
             "Tomorrow" to today.plus(1, DateTimeUnit.DAY),
-            "Next week" to monday.plus(7, DateTimeUnit.DAY),
+            "Next week" to DueDates.nextWeekDay(today, weekStart),
             "In two weeks" to today.plus(14, DateTimeUnit.DAY),
         )
     }

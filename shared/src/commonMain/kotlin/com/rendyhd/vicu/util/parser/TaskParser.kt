@@ -5,6 +5,7 @@ import com.rendyhd.vicu.location.PlacePhrases
 import com.rendyhd.vicu.location.SavedPlace
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.TimeBlocks
+import com.rendyhd.vicu.util.WeekStart
 import com.rendyhd.vicu.util.deviceLocaleTag
 import com.rendyhd.vicu.util.pro.Person
 import kotlin.time.Duration.Companion.minutes
@@ -33,6 +34,7 @@ object TaskParser {
      * @param places The saved places "when I get home" may name ([TokenType.PLACE]); none outside
      *   the phone's quick add, so the shared contract is unchanged.
      * @param people Pro's people `Jan:` may name (section 5.5); read only with [ParserConfig.pro].
+     * @param weekStart The day weeks start on (section 2.1): which week `next week` means.
      */
     fun parse(
         rawInput: String,
@@ -41,6 +43,7 @@ object TaskParser {
         zone: TimeZone = TimeZone.currentSystemDefault(),
         places: List<SavedPlace> = emptyList(),
         people: List<Person> = emptyList(),
+        weekStart: WeekStart = WeekStart.DEFAULT,
     ): ParseResult {
         val now = reference ?: systemNow(zone)
         val result = MutableParseResult(title = rawInput)
@@ -148,6 +151,7 @@ object TaskParser {
             zone = zone,
             dayFirst = isDayFirstLocale(config.locale ?: deviceLocaleTag()),
             hidden = forPhrases.hidden,
+            weekStart = weekStart,
         )
 
         // Pro: `starts <date>` is a start date, read before the due date and never as one.

@@ -639,7 +639,7 @@ fun TaskDetailScreen(
             // day the task is already due (quickMoves). Always an item, so the indexes after it stay put.
             item(key = "quick_moves") {
                 val clockDay = LocalClockDay.current
-                val moves = remember(task.dueDate, clockDay) { quickMoves(task.dueDate, clockDay.date, clockDay.zone) }
+                val moves = remember(task.dueDate, clockDay) { quickMoves(task.dueDate, clockDay.date, clockDay.zone, clockDay.weekStart) }
                 if (!task.done && moves.isNotEmpty()) {
                     QuickMoveRow(moves = moves, onMove = viewModel::moveDue)
                     Spacer(modifier = Modifier.height(8.dp))
@@ -697,7 +697,7 @@ fun TaskDetailScreen(
                         )
                         RowPresets(visible = openRow == "date") {
                             val dueDay = WhenLogic.valueOfDue(task.dueDate, clockDay.zone).date
-                            WhenLogic.quickChoices(clockDay.date).distinctBy { it.date }.forEach { choice ->
+                            WhenLogic.quickChoices(clockDay.date, clockDay.weekStart).distinctBy { it.date }.forEach { choice ->
                                 PresetChip(
                                     label = choice.label,
                                     selected = dueDay == choice.date,

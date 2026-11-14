@@ -19,4 +19,9 @@ data class UserDto(
 data class UserSettingsDto(
     /** Vikunja's default project: setup's suggestion for the Inbox when no device chose one. */
     @SerialName("default_project_id") val defaultProjectId: Long = 0,
+    /**
+     * Vikunja's own week start, 0 Sunday to 6 Saturday. The "Week starts on" setting offers it; it
+     * is never followed by itself, because an account that never set it reads 0 (contract 2.1).
+     */
+    @SerialName("week_start") val weekStart: Int? = null,
 )

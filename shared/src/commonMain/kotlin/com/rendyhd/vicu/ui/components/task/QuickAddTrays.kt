@@ -62,6 +62,7 @@ import com.rendyhd.vicu.location.LocationTrigger
 import com.rendyhd.vicu.location.SavedPlace
 import com.rendyhd.vicu.ui.components.picker.MonthCalendar
 import com.rendyhd.vicu.ui.components.picker.projectPickerRows
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalDateFormat
 import com.rendyhd.vicu.ui.screens.taskdetail.PresetChip
 import com.rendyhd.vicu.ui.screens.taskdetail.ReminderPreset
@@ -184,7 +185,7 @@ internal fun WhenTrayContent(
     onCustomTime: () -> Unit,
 ) {
     val fmt = LocalDateFormat.current
-    val tiles = whenTiles(current, today, now, fmt)
+    val tiles = whenTiles(current, today, now, fmt, LocalClockDay.current.weekStart)
     val selected = selectedTile(tiles, current, today)
     var calendarOpen by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -14,6 +14,7 @@ import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.assertNull
 
 /**
@@ -47,23 +48,28 @@ class DueDatesFixtureTest {
             val result: Instant = when (v.action) {
                 "today" -> DueDates.today(today, zone)
                 "tomorrow" -> DueDates.tomorrow(today, zone)
-                "nextWeek" -> DueDates.nextWeek(today, zone)
+                "nextWeek" -> DueDates.nextWeek(today, zone, WeekStart.fromKey(v.weekStart))
                 "pickDate" -> DueDates.pickDate(date(v.date!!), zone)
                 "bang" -> DueDates.bang(today, zone)
                 "postponeDays" -> DueDates.postponeDays(local(v.from!!, zone), v.days!!, today, zone)
                 else -> error("Unknown setter action ${v.action}")
             }
-            assertEquals(v.expect, wall(result, zone), "${v.action} from ${v.reference} in $zone")
+            assertEquals(v.expect, wall(result, zone), "${v.action} from ${v.reference} in $zone (${v.weekStart ?: "monday"})")
         }
     }
 
     @Test
     fun weeks() {
+        assertTrue(fixture.weeks.any { it.weekStart == "sunday" } && fixture.weeks.any { it.weekStart == "saturday" })
         for (v in fixture.weeks) {
             val today = date(v.today)
-            assertEquals(date(v.thisWeekEnd), DueDates.endOfWeek(today), "week end of ${v.today}")
-            assertEquals(date(v.thisMonthEnd), DueDates.endOfMonth(today), "month end of ${v.today}")
-            assertEquals(date(v.nextWeekStart), DueDates.nextWeekStart(today), "next week of ${v.today}")
+            val weekStart = WeekStart.fromKey(v.weekStart)
+            val where = "${v.today} (${weekStart.key})"
+            assertEquals(date(v.thisWeekEnd), DueDates.endOfWeek(today, weekStart), "week end of $where")
+            assertEquals(date(v.thisMonthEnd), DueDates.endOfMonth(today), "month end of $where")
+            assertEquals(date(v.nextWeekStart), DueDates.nextWeekStart(today, weekStart), "next week start of $where")
+            assertEquals(date(v.nextWeek), DueDates.nextWeekDay(today, weekStart), "Next week of $where")
+            assertEquals(weekStart.day, DueDates.startOfWeek(today, weekStart).dayOfWeek, "the week of $where starts on its day")
             assertEquals(
                 date(v.nextWeekStart),
                 date(v.thisWeekEnd).plus(1, DateTimeUnit.DAY),

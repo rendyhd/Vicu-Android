@@ -350,7 +350,7 @@ class AskSession(
             put("weekday", local.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() })
             if (full) {
                 put("time_zone", snapshot.zone.id)
-                put("week_starts", "monday")
+                put("week_starts", snapshot.weekStart.key)
                 put("list", list.name.ifBlank { list.projectId?.let { snapshot.path(it) } ?: "Inbox" })
                 list.projectId?.let { put("list_project_id", it) }
                 list.customListId?.let { put("list_custom_list_id", it) }

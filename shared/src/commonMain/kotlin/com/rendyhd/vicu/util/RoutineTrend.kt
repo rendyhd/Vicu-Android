@@ -7,7 +7,6 @@ import com.rendyhd.vicu.domain.model.RoutineSchedule
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.isoDayNumber
 import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 
@@ -25,6 +24,7 @@ class RoutineTrend private constructor(
     /** The due date of an after-completion routine while it is due and neither done nor skipped; null otherwise. */
     private val openDue: LocalDate?,
     private val everCompleted: Boolean,
+    private val weekStart: WeekStart,
 ) {
     enum class DayState(val key: String) {
         NONE("none"),
@@ -144,13 +144,16 @@ class RoutineTrend private constructor(
     /** The last [WINDOW_DAYS] days, today included. Nothing is expected of an after-completion routine. */
     val window: Tally by lazy { tally(today.minus(WINDOW_DAYS - 1, DateTimeUnit.DAY), today) }
 
-    /** The [WEEKS] Monday weeks that end with today's, oldest first; null for an after-completion routine. */
+    /**
+     * The [WEEKS] weeks that end with today's, oldest first; null for an after-completion routine.
+     * Monday weeks unless the account chose another week start (section 2.1).
+     */
     val weeks: List<Tally>? by lazy {
         if (calendar == null) return@lazy null
-        val thisMonday = today.minus(today.dayOfWeek.isoDayNumber - 1, DateTimeUnit.DAY)
+        val thisWeek = DueDates.startOfWeek(today, weekStart)
         (WEEKS - 1 downTo 0).map { back ->
-            val monday = thisMonday.minus(back * 7, DateTimeUnit.DAY)
-            tally(monday, monday.plus(6, DateTimeUnit.DAY))
+            val first = thisWeek.minus(back * 7, DateTimeUnit.DAY)
+            tally(first, first.plus(6, DateTimeUnit.DAY))
         }
     }
 
@@ -179,13 +182,15 @@ class RoutineTrend private constructor(
 
         /**
          * [records] is the routine's whole history (the carrier and its archive parts), [today] the
-         * local day and [zone] the device's zone, used for a record that names none.
+         * local day and [zone] the device's zone, used for a record that names none. [weekStart]
+         * only moves the weekly counts ([weeks]).
          */
         fun of(
             definition: RoutineDefinition,
             records: Collection<RoutineOccurrenceRecord>,
             today: LocalDate,
             zone: TimeZone,
+            weekStart: WeekStart = WeekStart.DEFAULT,
         ): RoutineTrend {
             val afterCompletion = definition.schedule as? RoutineSchedule.AfterCompletion
             val byDay = HashMap<LocalDate, MutableList<RoutineOccurrenceRecord>>()
@@ -211,6 +216,7 @@ class RoutineTrend private constructor(
                 byDay = byDay,
                 openDue = openDue,
                 everCompleted = records.any { it.status == OccurrenceStatus.COMPLETED },
+                weekStart = weekStart,
             )
         }
     }

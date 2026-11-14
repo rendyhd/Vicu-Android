@@ -132,6 +132,7 @@ class CustomListViewModel(
                             combine(source, projectRepository.getAll(), completions.state, dayClock.day, collabContext) { tasks, projects, _, day, context ->
                                 val activeIds = projects.mapTo(mutableSetOf()) { it.id }
                                 val listContext = readHere.contextFor(context, customList.filter.comments)
+                                    .copy(weekStart = day.weekStart)
                                 CustomListFilterBuilder.visibleTasks(
                                     tasks, customList.filter, day.date, day.zone, activeIds, listContext, now = time.now(),
                                 )
@@ -166,7 +167,7 @@ class CustomListViewModel(
                 .distinctUntilChanged()
                 .collect { (filter, day) ->
                     if (filter != null) {
-                        val params = CustomListFilterBuilder.buildQueryParams(filter, day.date, day.zone)
+                        val params = CustomListFilterBuilder.buildQueryParams(filter, day.date, day.zone, day.weekStart)
                         val result = taskRepository.refreshAll(params)
                         refreshDoneSignals(filter, params)
                         _uiState.update { it.copy(error = result.refreshErrorToShow(manual = false) ?: it.error) }
@@ -203,7 +204,7 @@ class CustomListViewModel(
             val listTasks: (suspend () -> NetworkResult<Unit>)? = customList?.let { list ->
                 {
                     val day = dayClock.day.value
-                    val params = CustomListFilterBuilder.buildQueryParams(list.filter, day.date, day.zone)
+                    val params = CustomListFilterBuilder.buildQueryParams(list.filter, day.date, day.zone, day.weekStart)
                     taskRepository.refreshAll(params).also { refreshDoneSignals(list.filter, params) }
                 }
             }

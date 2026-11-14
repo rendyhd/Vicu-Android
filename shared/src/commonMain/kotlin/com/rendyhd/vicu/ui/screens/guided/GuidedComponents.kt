@@ -82,7 +82,7 @@ internal fun WhenChoices(
     var picking by remember { mutableStateOf(false) }
     val outline = MaterialTheme.colorScheme.primary
     val chosen = due as? DueChoice.On
-    val quick = WhenLogic.quickChoices(day.date)
+    val quick = WhenLogic.quickChoices(day.date, day.weekStart)
     val chosenIsQuick = chosen != null && !chosen.hasTime && quick.any { it.date == chosen.local.date }
     val hasDue = DateUtils.parseIsoDate(currentDue) != null
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

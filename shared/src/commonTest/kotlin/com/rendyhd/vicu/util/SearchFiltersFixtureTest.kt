@@ -27,7 +27,13 @@ class SearchFiltersFixtureTest {
     )
 
     @Serializable
-    private data class Vector(val name: String, val today: String, val filters: Filters, val expect: List<Long>)
+    private data class Vector(
+        val name: String,
+        val today: String,
+        val filters: Filters,
+        val expect: List<Long>,
+        val weekStart: String? = null,
+    )
 
     @Serializable
     private data class Vectors(val searchFilters: List<Vector>)
@@ -66,7 +72,7 @@ class SearchFiltersFixtureTest {
                 val filters = vector.filters.toDomain()
                 assertEquals(
                     vector.expect,
-                    tasks(zone).filter { filters.matches(it, today, zone) }.map { it.id },
+                    tasks(zone).filter { filters.matches(it, today, zone, WeekStart.fromKey(vector.weekStart)) }.map { it.id },
                     "${vector.name} in $zone",
                 )
             }

@@ -47,6 +47,9 @@ Branch `feat/shared-routines` (design `docs/shared-routines.md`, contract sectio
 
 Contract section 13; design-system section 5 for the header.
 
+- **Week starts on** (`week_start`, contract section 2.1, `WeekStartPreferences`; Settings, General,
+  Preferences) is a synced preference of the account: Monday (the default, written as null), Sunday
+  or Saturday. The desktop has the same setting under Settings, Preferences.
 - **Task templates** (`template.<id>`, contract section 18, `TaskTemplateStore`) and **the order of a
   task's subtasks** (`subtask_order.<taskId>`, section 19, `SubtaskOrderPreferences`) are synced
   preferences of the account: on every device of that person, never shared with others.
@@ -131,10 +134,12 @@ section 9.1. Pro only adds: with it off (the default) nothing below is read, wri
 | Widget configuration and state (section 4) | Which view each widget shows, the rows it last drew | No | Android: cleared; iOS: kept, but a project or custom list of the old account is no longer shown | No |
 | Saved UI state (section 5) | Open dialogs, drafts, the screen and tab | No | Not applicable | No |
 
-Neither app reads or writes Vikunja's own user settings (`settings` in `GET user`,
+Neither app writes Vikunja's own user settings (`settings` in `GET user`,
 `PUT user/settings/general`, `frontend_settings`, `default_project_id`, `week_start`,
-`timezone`). Weeks start on Monday (contract section 2), and the time zone, language and 12 or
-24 hour clock come from the device.
+`timezone`), and they read only two of them, as suggestions: `default_project_id` for the Inbox at
+setup, and `week_start` for the "Use Sunday" line under Week starts on. Weeks start on Monday
+unless the account chose another week start in Vicu (contract section 2.1), and the time zone,
+language and 12 or 24 hour clock come from the device.
 
 There is no export or import of settings. The only export is the Routines screen's "Copy history
 as CSV" (`RoutineRepositoryImpl.exportCsv`).

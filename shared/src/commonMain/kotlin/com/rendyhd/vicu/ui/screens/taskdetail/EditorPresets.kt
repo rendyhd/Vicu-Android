@@ -4,6 +4,7 @@ import com.rendyhd.vicu.domain.model.TaskReminder
 import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.DueDates
+import com.rendyhd.vicu.util.WeekStart
 import com.rendyhd.vicu.util.WhenLogic
 import com.rendyhd.vicu.util.WhenQuickChoice
 import kotlin.time.Duration.Companion.hours
@@ -28,9 +29,14 @@ internal const val MAX_QUICK_MOVES = 3
  * are both Saturday), at most [MAX_QUICK_MOVES]. An overdue task so gets Today, Tomorrow and This
  * weekend; a task due today gets the three later ones.
  */
-internal fun quickMoves(due: String?, today: LocalDate, zone: TimeZone): List<WhenQuickChoice> {
+internal fun quickMoves(
+    due: String?,
+    today: LocalDate,
+    zone: TimeZone,
+    weekStart: WeekStart = WeekStart.DEFAULT,
+): List<WhenQuickChoice> {
     val dueDay = WhenLogic.valueOfDue(due, zone).date
-    return WhenLogic.quickChoices(today)
+    return WhenLogic.quickChoices(today, weekStart)
         .filter { it.date != dueDay }
         .distinctBy { it.date }
         .take(MAX_QUICK_MOVES)

@@ -1,5 +1,6 @@
 package com.rendyhd.vicu.ai.dictation
 
+import com.rendyhd.vicu.util.WeekStart
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
@@ -35,6 +36,8 @@ data class DictationContext(
     val places: List<ContextPlace>,
     /** The BCP 47 tag slash dates are read with; null is the device locale. */
     val locale: String? = null,
+    /** The day the account's weeks start on (contract section 2.1): `week_starts`, and what "next week" reads as. */
+    val weekStart: WeekStart = WeekStart.DEFAULT,
 )
 
 @Serializable

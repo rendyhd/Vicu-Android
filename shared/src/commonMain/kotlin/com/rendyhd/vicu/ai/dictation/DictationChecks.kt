@@ -240,7 +240,9 @@ object DictationChecks {
 
     /** The parser's reading of the model's `said` words, with the dictation's reference time. */
     fun readSaid(said: String, context: DictationContext): Pair<LocalDateTime, Boolean>? {
-        val result = TaskParser.parse(said, datesOnly(context.locale), reference = context.now, zone = context.zone)
+        val result = TaskParser.parse(
+            said, datesOnly(context.locale), reference = context.now, zone = context.zone, weekStart = context.weekStart,
+        )
         val date = result.dueDate ?: return null
         return if (result.dueDateHasTime) {
             LocalDateTime(date.date, LocalTime(date.hour, date.minute)) to true

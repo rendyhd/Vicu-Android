@@ -18,6 +18,7 @@ import com.rendyhd.vicu.util.CustomListContext
 import com.rendyhd.vicu.util.DueDates
 import com.rendyhd.vicu.util.TimeBlocks
 import com.rendyhd.vicu.util.TimeSource
+import com.rendyhd.vicu.util.WeekStart
 import com.rendyhd.vicu.util.sortProjectTasks
 import kotlinx.coroutines.flow.first
 
@@ -40,6 +41,11 @@ class TaskWidgetStates(
     private val collaborationContext: suspend () -> CustomListContext,
     /** A project or Inbox widget lists in its project's task order (cross-app semantics 12); none: the default. */
     private val taskOrders: TaskOrderPreferences? = null,
+    /**
+     * The account's week start, read from the stored preferences: a widget can be drawn by a process
+     * that has only just started, before the day clock has caught up with the setting.
+     */
+    private val weekStart: suspend () -> WeekStart = { WeekStart.DEFAULT },
 ) {
     /** Signed in with a token the widget's data can belong to. */
     suspend fun isSignedIn(): Boolean =
@@ -139,7 +145,8 @@ class TaskWidgetStates(
                     // The same source and evaluator as the list screen: every task (done ones when
                     // the list includes them), not a capped sample, filtered and sorted the same.
                     // The collaboration conditions read the members and signals stored on the device.
-                    val context = if (customList.filter.hasCollaborationCondition) collaborationContext() else CustomListContext.NONE
+                    val context = (if (customList.filter.hasCollaborationCondition) collaborationContext() else CustomListContext.NONE)
+                        .copy(weekStart = weekStart())
                     taskRepository.customListTasks(customList.filter, day.date, day.zone, activeProjectIds, context, time.now())
                         .map { it.toRow() }
                 }

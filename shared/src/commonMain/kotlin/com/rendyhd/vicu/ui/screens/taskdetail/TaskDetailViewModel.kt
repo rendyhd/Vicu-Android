@@ -218,7 +218,7 @@ class TaskDetailViewModel(
     }
 
     private fun parseTitle(title: String, config: ParserConfig, pro: ProCapture): ParseResult =
-        TaskParser.parse(title, pro.config(config), people = pro.parserPeople)
+        TaskParser.parse(title, pro.config(config), people = pro.parserPeople, weekStart = dayClock.day.value.weekStart)
 
     fun loadTask(taskId: Long) {
         // Edits of the task being replaced are saved first. The request is captured now, before

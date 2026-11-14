@@ -31,7 +31,7 @@ object DictationRequests {
         put("now", minute(context.now))
         put("weekday", weekday(context.now))
         put("time_zone", context.zone.id)
-        put("week_starts", "monday")
+        put("week_starts", context.weekStart.key)
         put("list", context.list)
         put("default_project_id", context.defaultProjectId)
         putJsonArray("projects") {

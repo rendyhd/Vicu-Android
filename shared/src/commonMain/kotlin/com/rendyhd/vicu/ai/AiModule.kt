@@ -68,6 +68,7 @@ class RepositoryAskBackend(
             reviewCadenceDays = review.defaultCadenceDays,
             reviewEnabled = review.enabled,
             reviewExcludeInbox = review.excludeInbox,
+            weekStart = day.weekStart,
         )
     }
 

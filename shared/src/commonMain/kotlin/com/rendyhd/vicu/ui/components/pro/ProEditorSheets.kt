@@ -102,11 +102,12 @@ private fun SheetNote(text: String) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ProStartSheet(current: LocalDate?, onSet: (LocalDate?) -> Unit, onDismiss: () -> Unit) {
-    val today = LocalClockDay.current.date
+    val clockDay = LocalClockDay.current
+    val today = clockDay.date
     ProSheet("Start date", onDismiss) {
         SheetNote("Until that day the task waits: it leaves Available.")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ProScreens.startChoices(today).forEach { (label, day) ->
+            ProScreens.startChoices(today, clockDay.weekStart).forEach { (label, day) ->
                 FilterChip(selected = current == day, onClick = { onSet(day) }, label = { Text(label) })
             }
         }

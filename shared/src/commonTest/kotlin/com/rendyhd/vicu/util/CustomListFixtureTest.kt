@@ -71,7 +71,7 @@ class CustomListFixtureTest {
                 val day = dayAt(vector, clock, zone, scope)
                 assertEquals(date(vector.today), day.date, "the clock's day for ${vector.name} at $clock in $zone")
 
-                val shown = CustomListFilterBuilder.applyClientSideFilters(all, filterOf(vector), day.date, day.zone)
+                val shown = CustomListFilterBuilder.applyClientSideFilters(all, filterOf(vector), day.date, day.zone, vector.context)
 
                 assertEquals(vector.expect, shown.map { it.id }, "${vector.name} at $clock in $zone")
             }
@@ -87,9 +87,9 @@ class CustomListFixtureTest {
             for (vector in fixture.customLists) for (clock in clocks) {
                 val day = dayAt(vector, clock, zone, scope)
                 val filter = filterOf(vector)
-                val serverFilter = CustomListFilterBuilder.buildFilterString(filter, day.date, day.zone)
+                val serverFilter = CustomListFilterBuilder.buildFilterString(filter, day.date, day.zone, vector.context.weekStart)
 
-                for (task in CustomListFilterBuilder.applyClientSideFilters(all, filter, day.date, day.zone)) {
+                for (task in CustomListFilterBuilder.applyClientSideFilters(all, filter, day.date, day.zone, vector.context)) {
                     assertTrue(
                         ServerFilterEval.matches(serverFilter, serverRow(task)),
                         "task ${task.id} of ${vector.name} at $clock in $zone is dropped by: $serverFilter",
@@ -106,7 +106,7 @@ class CustomListFixtureTest {
             val withBlank = tasks(zone).map { if (it.dueDate == Constants.NULL_DATE_STRING) it.copy(dueDate = "") else it }
             for (vector in fixture.customLists) {
                 val shown = CustomListFilterBuilder.applyClientSideFilters(
-                    withBlank, filterOf(vector), date(vector.today), zone,
+                    withBlank, filterOf(vector), date(vector.today), zone, vector.context,
                 )
                 assertEquals(vector.expect, shown.map { it.id }, "${vector.name} with blank due dates in $zone")
             }
@@ -123,7 +123,7 @@ class CustomListFixtureTest {
 
             val roundTripped = original.toWire().toDomain()
 
-            val shown = CustomListFilterBuilder.applyClientSideFilters(all, roundTripped.filter, date(vector.today), zone)
+            val shown = CustomListFilterBuilder.applyClientSideFilters(all, roundTripped.filter, date(vector.today), zone, vector.context)
             assertEquals(vector.expect, shown.map { it.id }, vector.name)
         }
     }

@@ -21,6 +21,7 @@ import com.rendyhd.vicu.util.ReminderAlarms
 import com.rendyhd.vicu.util.ReviewMetadata
 import com.rendyhd.vicu.util.ReviewState
 import com.rendyhd.vicu.util.TimeBlocks
+import com.rendyhd.vicu.util.WeekStart
 import com.rendyhd.vicu.util.isRecurring
 import com.rendyhd.vicu.util.sortProjectTasks
 import kotlin.time.Instant
@@ -59,6 +60,8 @@ class AskSnapshot(
     val reviewCadenceDays: Int,
     val reviewEnabled: Boolean,
     val reviewExcludeInbox: Boolean,
+    /** The day the account's weeks start on (contract section 2.1): the `this_week` window and `week_starts`. */
+    val weekStart: WeekStart = WeekStart.DEFAULT,
 ) {
     val tasks: List<Task> = tasks.filterNot { HiddenTasks.isHidden(it.description) }
     val byId: Map<Long, Task> = this.tasks.associateBy { it.id }
@@ -236,7 +239,7 @@ class AskSnapshot(
             priorityFilter = priorityMin?.let { min -> (min.coerceIn(0, 5)..5).toList() }.orEmpty(),
             assigned = assigned,
         )
-        val context = CustomListContext.of(collab, signals)
+        val context = CustomListContext.of(collab, signals, weekStart)
         val allowed = if (projectIds.isNullOrEmpty()) activeProjectIds else activeProjectIds + projectIds
         val words = text?.lowercase()?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }.orEmpty()
         val matches = CustomListFilterBuilder.applyClientSideFilters(tasks, filter, today, zone, context)
@@ -291,7 +294,7 @@ class AskSnapshot(
             "custom_list" -> {
                 val id = (args["custom_list_id"] as? JsonPrimitive)?.contentOrNull ?: return invalid("custom_list_id is missing")
                 val list = customLists.firstOrNull { it.id == id } ?: return error("not_found", "No custom list $id.")
-                CustomListFilterBuilder.visibleTasks(tasks, list.filter, today, zone, activeProjectIds, CustomListContext.of(collab, signals))
+                CustomListFilterBuilder.visibleTasks(tasks, list.filter, today, zone, activeProjectIds, CustomListContext.of(collab, signals, weekStart))
             }
             else -> return invalid("unknown view $view")
         }

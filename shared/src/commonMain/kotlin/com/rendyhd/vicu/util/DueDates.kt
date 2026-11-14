@@ -1,13 +1,13 @@
 package com.rendyhd.vicu.util
 
 import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.DayOfWeek
 import kotlin.time.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
-import kotlinx.datetime.isoDayNumber
 import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 import kotlinx.datetime.toInstant
@@ -22,7 +22,8 @@ import kotlinx.datetime.toLocalDateTime
  * - Legacy values at local 00:00:00 are read as date-only as well and are not rewritten in bulk;
  *   they become 23:59:59 the next time the user sets the date.
  * - Any other local time is an explicit time and is kept as it is.
- * - "Today" is the local calendar date (from [DayClock]); weeks start on Monday.
+ * - "Today" is the local calendar date (from [DayClock]); weeks start on Monday unless the account
+ *   chose another [WeekStart] (section 2.1), which every week function here takes.
  *
  * Everything here is pure: the zone and the day are always passed in, never read from the system
  * clock, so behavior is the same in tests, in workers and in the UI.
@@ -61,16 +62,31 @@ object DueDates {
     fun isDateOnly(dueDate: String?, zone: TimeZone): Boolean =
         DateUtils.parseIsoDate(dueDate)?.let { isDateOnly(it, zone) } ?: false
 
-    // --- Weeks and months (Monday-start weeks) ------------------------------------------
+    // --- Weeks and months (weeks start on [WeekStart], Monday by default) ----------------
 
-    /** The Monday of the week containing [date]. */
-    fun startOfWeek(date: LocalDate): LocalDate = date.minus(date.dayOfWeek.isoDayNumber - 1, DateTimeUnit.DAY)
+    /** The first day of the week containing [date]: its Monday, or the day [weekStart] names. */
+    fun startOfWeek(date: LocalDate, weekStart: WeekStart = WeekStart.DEFAULT): LocalDate =
+        date.minus(weekStart.daysInto(date.dayOfWeek), DateTimeUnit.DAY)
 
-    /** The Sunday ending the week that contains [date] (on a Sunday: [date] itself). */
-    fun endOfWeek(date: LocalDate): LocalDate = date.plus(7 - date.dayOfWeek.isoDayNumber, DateTimeUnit.DAY)
+    /** The last day of the week that contains [date]: with Monday weeks its Sunday (on a Sunday: [date] itself). */
+    fun endOfWeek(date: LocalDate, weekStart: WeekStart = WeekStart.DEFAULT): LocalDate =
+        startOfWeek(date, weekStart).plus(6, DateTimeUnit.DAY)
 
-    /** The Monday after [date]: strictly in the future, so a Monday gives the next week's Monday. */
-    fun nextWeekStart(date: LocalDate): LocalDate = endOfWeek(date).plus(1, DateTimeUnit.DAY)
+    /** The first day of the week after the one [date] is in: strictly in the future, so a Monday gives the Monday after. */
+    fun nextWeekStart(date: LocalDate, weekStart: WeekStart = WeekStart.DEFAULT): LocalDate =
+        endOfWeek(date, weekStart).plus(1, DateTimeUnit.DAY)
+
+    /** [weekday] in the week after the one [date] is in ("next friday"). */
+    fun inNextWeek(date: LocalDate, weekday: DayOfWeek, weekStart: WeekStart = WeekStart.DEFAULT): LocalDate =
+        nextWeekStart(date, weekStart).plus(weekStart.daysInto(weekday), DateTimeUnit.DAY)
+
+    /**
+     * The day "Next week" means as a date: the Monday in the week after the one [date] is in. With
+     * Monday weeks that is [nextWeekStart]; with Sunday weeks a Sunday is already in the new week,
+     * so it gives the Monday eight days on.
+     */
+    fun nextWeekDay(date: LocalDate, weekStart: WeekStart = WeekStart.DEFAULT): LocalDate =
+        inNextWeek(date, DayOfWeek.MONDAY, weekStart)
 
     /** The last day of the month [date] is in. */
     fun endOfMonth(date: LocalDate): LocalDate =
@@ -85,8 +101,9 @@ object DueDates {
     fun tomorrow(today: LocalDate, zone: TimeZone): Instant =
         dateOnlyDue(today.plus(1, DateTimeUnit.DAY), zone)
 
-    /** "Next week": the Monday of next week (on a Sunday: the next day), date-only. */
-    fun nextWeek(today: LocalDate, zone: TimeZone): Instant = dateOnlyDue(nextWeekStart(today), zone)
+    /** "Next week": the Monday of next week (with Monday weeks, on a Sunday: the next day), date-only. */
+    fun nextWeek(today: LocalDate, zone: TimeZone, weekStart: WeekStart = WeekStart.DEFAULT): Instant =
+        dateOnlyDue(nextWeekDay(today, weekStart), zone)
 
     /** "Pick a date": the picked local calendar date, date-only. Never built from UTC millis. */
     fun pickDate(date: LocalDate, zone: TimeZone): Instant = dateOnlyDue(date, zone)

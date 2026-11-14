@@ -3,12 +3,14 @@ package com.rendyhd.vicu.ios
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import com.rendyhd.vicu.auth.AuthDebugLog
+import com.rendyhd.vicu.data.repository.WeekStartPreferences
 import com.rendyhd.vicu.di.iosModule
 import com.rendyhd.vicu.di.sharedModules
 import com.rendyhd.vicu.location.AppleLocationBridge
 import com.rendyhd.vicu.location.IosLocationBridgeHolder
 import com.rendyhd.vicu.location.IosLocationPermissionPlatform
 import com.rendyhd.vicu.location.LocationReminderCoordinator
+import com.rendyhd.vicu.util.DayClock
 import kotlinx.coroutines.CoroutineScope
 import kotlin.time.Duration.Companion.seconds
 import com.rendyhd.vicu.ui.AppInputs
@@ -67,6 +69,8 @@ object IosApp {
             syncEngine = koin.get(),
             appScope = koin.get(),
         ).also { it.install() }
+        // Every ClockDay carries the account's week start from here on (contract section 2.1).
+        koin.get<DayClock>().follow(koin.get<WeekStartPreferences>().weekStart)
         koin.get<IosBackgroundTasks>().register()
         koin.get<IosWidgetSnapshots>().bridge = widgetBridge
         koin.get<IosLocationBridgeHolder>().bridge = locationBridge

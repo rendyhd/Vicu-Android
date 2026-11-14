@@ -78,12 +78,15 @@ object WhenLogic {
         return today.plus(if (ahead == 0) 7 else ahead, DateTimeUnit.DAY)
     }
 
-    /** Today, Tomorrow, This weekend (the coming Saturday) and Next week (the coming Monday), from [today]. */
-    fun quickChoices(today: LocalDate): List<WhenQuickChoice> = listOf(
+    /**
+     * Today, Tomorrow, This weekend (the coming Saturday) and Next week (the Monday in next week,
+     * [DueDates.nextWeekDay]), from [today].
+     */
+    fun quickChoices(today: LocalDate, weekStart: WeekStart = WeekStart.DEFAULT): List<WhenQuickChoice> = listOf(
         WhenQuickChoice(WhenQuickChoice.Id.TODAY, "Today", today),
         WhenQuickChoice(WhenQuickChoice.Id.TOMORROW, "Tomorrow", today.plus(1, DateTimeUnit.DAY)),
         WhenQuickChoice(WhenQuickChoice.Id.WEEKEND, "This weekend", comingSaturday(today)),
-        WhenQuickChoice(WhenQuickChoice.Id.NEXT_WEEK, "Next week", DueDates.nextWeekStart(today)),
+        WhenQuickChoice(WhenQuickChoice.Id.NEXT_WEEK, "Next week", DueDates.nextWeekDay(today, weekStart)),
     )
 
     /** The weekday hint under a quick choice: "Wed", and for next week "Mon 12". */
@@ -104,12 +107,14 @@ object WhenLogic {
         zone: TimeZone,
         locale: String? = null,
         previous: LocalDate? = null,
+        weekStart: WeekStart = WeekStart.DEFAULT,
     ): WhenParse? {
         if (text.isBlank()) return null
         val options = DateOptions(
             reference = now,
             zone = zone,
             dayFirst = isDayFirstLocale(locale ?: deviceLocaleTag()),
+            weekStart = weekStart,
         )
         return dayWordPhrase(text, options, previous) ?: read(text, options)
     }
@@ -166,13 +171,13 @@ object WhenLogic {
     fun addMonths(date: LocalDate, months: Int): LocalDate = date.plus(months, DateTimeUnit.MONTH)
 
     /**
-     * Six weeks starting on Monday that cover the month of [month]; always six rows so the grid
-     * keeps its height. Weeks start on Monday whatever the device's region prefers, as everywhere
-     * else in Vicu (docs/cross-app-semantics-v1.md section 2); the desktop `monthGrid`.
+     * Six weeks that cover the month of [month]; always six rows so the grid keeps its height.
+     * Weeks start on [weekStart] (the account's choice, Monday by default), never on what the
+     * device's region prefers (docs/cross-app-semantics-v1.md section 2.1); the desktop `monthGrid`.
      */
-    fun monthGrid(month: LocalDate): List<List<GridDay>> {
+    fun monthGrid(month: LocalDate, weekStart: WeekStart = WeekStart.DEFAULT): List<List<GridDay>> {
         val first = monthStart(month)
-        val start = DueDates.startOfWeek(first)
+        val start = DueDates.startOfWeek(first, weekStart)
         return List(6) { row ->
             List(7) { column ->
                 val date = start.plus(row * 7 + column, DateTimeUnit.DAY)

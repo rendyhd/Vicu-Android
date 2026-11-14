@@ -44,6 +44,8 @@ class RoutineTrendFixtureTest {
         val occurrences: List<Occurrence>,
         val from: String,
         val to: String,
+        /** The week start the weekly counts use (section 2.1); Monday when absent. */
+        val weekStart: String? = null,
         val expect: Expect,
     )
 
@@ -80,7 +82,7 @@ class RoutineTrendFixtureTest {
                 modifiedBy = "a",
             )
         }
-        return RoutineTrend.of(definition, records, LocalDate.parse(case.today), zone)
+        return RoutineTrend.of(definition, records, LocalDate.parse(case.today), zone, WeekStart.fromKey(case.weekStart))
     }
 
     @Test

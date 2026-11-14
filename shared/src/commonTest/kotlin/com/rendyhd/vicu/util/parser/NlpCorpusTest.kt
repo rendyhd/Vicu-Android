@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.util.parser
 
 import com.rendyhd.vicu.location.SavedPlace
+import com.rendyhd.vicu.util.WeekStart
 import com.rendyhd.vicu.util.readRepoFile
 import com.rendyhd.vicu.util.CrossAppFixture
 import com.rendyhd.vicu.util.DueDates
@@ -44,6 +45,8 @@ object NlpCorpusFixture {
         val mode: String = "todoist",
         val locale: String = "en-US",
         val parserEnabled: Boolean = true,
+        /** The week start the case is parsed with (section 2.1). */
+        val weekStart: String = "monday",
         val title: String,
         val due: String? = null,
         /** The time block `for 30m` makes (section 5.4). */
@@ -98,7 +101,7 @@ class NlpCorpusTest {
             locale = case.locale,
             pro = case.pro,
         )
-        val result = TaskParser.parse(case.input, config, reference, zone, places, people)
+        val result = TaskParser.parse(case.input, config, reference, zone, places, people, WeekStart.fromKey(case.weekStart))
         val problems = mutableListOf<String>()
 
         if (result.title != case.title) problems += "title '${result.title}', expected '${case.title}'"
@@ -136,7 +139,7 @@ class NlpCorpusTest {
     private fun runCorpus(zone: TimeZone) {
         val failures = NlpCorpusFixture.corpus.cases.mapNotNull { case ->
             val problems = problemsFor(case, zone)
-            if (problems.isEmpty()) null else "'${case.input}' (${case.mode}, ${case.locale}): ${problems.joinToString("; ")}"
+            if (problems.isEmpty()) null else "'${case.input}' (${case.mode}, ${case.locale}, ${case.weekStart}): ${problems.joinToString("; ")}"
         }
         assertTrue(failures.isEmpty(), "${failures.size} corpus cases failed in $zone:\n${failures.joinToString("\n")}")
     }
@@ -144,7 +147,7 @@ class NlpCorpusTest {
     @Test
     fun `the corpus is the contract version this parser implements`() {
         assertEquals(1, NlpCorpusFixture.corpus.contractVersion)
-        assertEquals(179, NlpCorpusFixture.corpus.cases.size, "the corpus changed size")
+        assertEquals(189, NlpCorpusFixture.corpus.cases.size, "the corpus changed size")
     }
 
     @Test

@@ -30,7 +30,7 @@ data class SearchFilters(
             return if (first <= last) first..last else last..first
         }
 
-    fun matches(task: Task, today: LocalDate, zone: TimeZone): Boolean {
+    fun matches(task: Task, today: LocalDate, zone: TimeZone, weekStart: WeekStart = WeekStart.DEFAULT): Boolean {
         when (status) {
             STATUS_OPEN -> if (task.done) return false
             STATUS_DONE -> if (!task.done) return false
@@ -39,7 +39,7 @@ data class SearchFilters(
         val inDate = if (date == DATE_RANGE) {
             due != null && range?.contains(due) == true
         } else {
-            CustomListFilterBuilder.inDateWindow(due, date, includeOverdue = false, today = today)
+            CustomListFilterBuilder.inDateWindow(due, date, includeOverdue = false, today = today, weekStart = weekStart)
         }
         if (!inDate) return false
         if (labelIds.isNotEmpty() && task.labels.none { it.id in labelIds }) return false
@@ -50,7 +50,12 @@ data class SearchFilters(
      * What to ask the server: a superset of what [matches] accepts. With no [text] to narrow the read,
      * labels and priority go along, so it does not read every task there is.
      */
-    fun serverParams(text: String, today: LocalDate, zone: TimeZone): Map<String, String> {
+    fun serverParams(
+        text: String,
+        today: LocalDate,
+        zone: TimeZone,
+        weekStart: WeekStart = WeekStart.DEFAULT,
+    ): Map<String, String> {
         val parts = mutableListOf<String>()
         when (status) {
             STATUS_OPEN -> parts += "done = false"
@@ -62,7 +67,7 @@ data class SearchFilters(
             parts += "due_date < '${DueDates.startOfDay(days.endInclusive.plus(1, DateTimeUnit.DAY), zone)}'"
         } else {
             val window = CustomListFilter(dueDateFilter = date, includeOverdue = false, includeDone = true)
-            CustomListFilterBuilder.buildFilterString(window, today, zone).takeIf { it.isNotBlank() }?.let { parts += it }
+            CustomListFilterBuilder.buildFilterString(window, today, zone, weekStart).takeIf { it.isNotBlank() }?.let { parts += it }
         }
         if (text.isEmpty()) {
             if (labelIds.isNotEmpty()) parts += "labels in ${labelIds.sorted().joinToString(",")}"

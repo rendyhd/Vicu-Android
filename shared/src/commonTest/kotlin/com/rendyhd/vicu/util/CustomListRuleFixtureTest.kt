@@ -57,7 +57,15 @@ class CustomListRuleFixtureTest {
     )
 
     @Serializable
-    data class RuleVector(val name: String, val now: String, val rule: String, val includeNulls: Boolean, val expect: List<Long>)
+    data class RuleVector(
+        val name: String,
+        val now: String,
+        val rule: String,
+        val includeNulls: Boolean,
+        val expect: List<Long>,
+        /** The week start `/w` rounds to (section 2.1); Monday when absent. */
+        val weekStart: String? = null,
+    )
 
     @Serializable
     data class RuleBlock(val tasks: List<RuleTask>, val vectors: List<RuleVector>, val invalid: List<String>)
@@ -142,7 +150,7 @@ class CustomListRuleFixtureTest {
             for (vector in blocks.customListRule.vectors) {
                 val now = local(vector.now, zone)
                 assertNull(CustomListRule.validate(vector.rule), "${vector.name} should be valid")
-                val match = CustomListRule.compile(vector.rule, vector.includeNulls, now, zone)
+                val match = CustomListRule.compile(vector.rule, vector.includeNulls, now, zone, WeekStart.fromKey(vector.weekStart))
                 assertEquals(vector.expect, tasks.filter(match).map { it.id }, "${vector.name} in $zone: ${vector.rule}")
             }
         }
@@ -156,7 +164,8 @@ class CustomListRuleFixtureTest {
                 val now = local(vector.now, zone)
                 val filter = CustomListFilter(includeDone = true, rule = vector.rule, ruleIncludeNulls = vector.includeNulls)
                 val today = CrossAppFixture.date(vector.now.substringBefore('T'))
-                val shown = CustomListFilterBuilder.applyClientSideFilters(tasks, filter, today, zone, now = now)
+                val context = CustomListContext(weekStart = WeekStart.fromKey(vector.weekStart))
+                val shown = CustomListFilterBuilder.applyClientSideFilters(tasks, filter, today, zone, context, now = now)
                 assertEquals(vector.expect, shown.map { it.id }, "${vector.name} in $zone")
             }
         }

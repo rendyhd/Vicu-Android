@@ -28,6 +28,8 @@ object CrossAppFixture {
         val date: String? = null,
         val days: Int? = null,
         val from: String? = null,
+        /** The week start the vector runs with (section 2.1); Monday when absent. */
+        val weekStart: String? = null,
         val expect: String,
     )
 
@@ -35,7 +37,15 @@ object CrossAppFixture {
     data class DueDatesSection(val display: List<Display>, val setters: List<Setter>)
 
     @Serializable
-    data class Week(val today: String, val thisWeekEnd: String, val thisMonthEnd: String, val nextWeekStart: String)
+    data class Week(
+        val today: String,
+        val thisWeekEnd: String,
+        val thisMonthEnd: String,
+        val nextWeekStart: String,
+        /** The day "Next week" gives: the Monday in next week. */
+        val nextWeek: String,
+        val weekStart: String? = null,
+    )
 
     @Serializable
     data class FixtureTask(
@@ -62,7 +72,11 @@ object CrossAppFixture {
         val today: String,
         val filter: CustomListWireFilter,
         val expect: List<Long>,
-    )
+        val weekStart: String? = null,
+    ) {
+        /** The evaluator's context for this vector: nothing shared, and the vector's week start. */
+        val context: CustomListContext get() = CustomListContext(weekStart = WeekStart.fromKey(weekStart))
+    }
 
     /** A task of the `customListActivity` block: the collaboration fields next to the basics. */
     @Serializable

@@ -25,14 +25,21 @@ data class CustomListContext(
     val signals: Map<Long, TaskSignal> = emptyMap(),
     /** What Pro's conditions read (section 3.8); absent: they are no condition. */
     val pro: ProListContext? = null,
+    /** The day weeks start on (section 2.1): where `this_week` ends and what `/w` rounds to. */
+    val weekStart: WeekStart = WeekStart.DEFAULT,
 ) {
     companion object {
         val NONE = CustomListContext()
 
-        fun of(state: CollabState, signals: Map<Long, TaskSignal>): CustomListContext = CustomListContext(
+        fun of(
+            state: CollabState,
+            signals: Map<Long, TaskSignal>,
+            weekStart: WeekStart = WeekStart.DEFAULT,
+        ): CustomListContext = CustomListContext(
             me = state.me,
             sharedProjectIds = state.projects.filterValues { it.shared }.keys,
             signals = signals,
+            weekStart = weekStart,
         )
     }
 }
@@ -42,7 +49,8 @@ data class CustomListContext(
  * the same vectors (`test-fixtures/cross-app-semantics-v1.json`) against its own evaluator.
  *
  * - Dates are local calendar dates: a due date is compared by the date it falls on in the zone,
- *   never by its instant or its UTC date. Weeks start on Monday ([DueDates.endOfWeek]).
+ *   never by its instant or its UTC date. Weeks start on the context's [WeekStart], Monday by
+ *   default ([DueDates.endOfWeek]).
  * - "Today" and the zone are passed in (from [DayClock]); nothing here reads the system clock.
  * - The server filter is only a superset of the exact window, built from the same local-day
  *   boundaries. The exact rule is always [matches], applied client-side.
@@ -67,12 +75,18 @@ object CustomListFilterBuilder {
      * [today]. [includeOverdue] only matters for the today, this week and this month windows.
      * A window this version does not know (from a newer app) is no date condition.
      */
-    fun inDateWindow(due: LocalDate?, window: String, includeOverdue: Boolean, today: LocalDate): Boolean =
+    fun inDateWindow(
+        due: LocalDate?,
+        window: String,
+        includeOverdue: Boolean,
+        today: LocalDate,
+        weekStart: WeekStart = WeekStart.DEFAULT,
+    ): Boolean =
         when (window) {
             "overdue" -> due != null && due < today
             "today" -> due != null && (due == today || (includeOverdue && due < today))
             "this_week" -> due != null &&
-                ((due >= today && due <= DueDates.endOfWeek(today)) || (includeOverdue && due < today))
+                ((due >= today && due <= DueDates.endOfWeek(today, weekStart)) || (includeOverdue && due < today))
             "this_month" -> due != null &&
                 ((due >= today && due <= DueDates.endOfMonth(today)) || (includeOverdue && due < today))
             "has_due_date" -> due != null
@@ -92,11 +106,17 @@ object CustomListFilterBuilder {
         zone: TimeZone,
         context: CustomListContext = CustomListContext.NONE,
         now: Instant? = null,
-    ): Boolean = matchesForm(task, filter, today, zone, context) && ruleOf(filter, today, zone, now)(task)
+    ): Boolean = matchesForm(task, filter, today, zone, context) && ruleOf(filter, today, zone, now, context.weekStart)(task)
 
     /** The list's rule as a predicate at [now] (section 3.5): every task when there is none. */
-    private fun ruleOf(filter: CustomListFilter, today: LocalDate, zone: TimeZone, now: Instant?): (Task) -> Boolean =
-        CustomListRule.compile(filter.ruleText, filter.ruleIncludeNulls, now ?: DueDates.startOfDay(today, zone), zone)
+    private fun ruleOf(
+        filter: CustomListFilter,
+        today: LocalDate,
+        zone: TimeZone,
+        now: Instant?,
+        weekStart: WeekStart,
+    ): (Task) -> Boolean =
+        CustomListRule.compile(filter.ruleText, filter.ruleIncludeNulls, now ?: DueDates.startOfDay(today, zone), zone, weekStart)
 
     /** The conditions of sections 3.1 to 3.3, without the rule. */
     private fun matchesForm(
@@ -110,7 +130,7 @@ object CustomListFilterBuilder {
 
         val includeOverdue = filter.includesOverdue
         val due = DueDates.localDateOf(task.dueDate, zone)
-        if (!inDateWindow(due, filter.dueDateFilter, includeOverdue, today)) return false
+        if (!inDateWindow(due, filter.dueDateFilter, includeOverdue, today, context.weekStart)) return false
 
         if (filter.projectIds.isNotEmpty()) {
             val listed = task.projectId in filter.projectIds
@@ -178,7 +198,7 @@ object CustomListFilterBuilder {
         context: CustomListContext = CustomListContext.NONE,
         now: Instant? = null,
     ): List<Task> {
-        val rule = ruleOf(filter, today, zone, now)
+        val rule = ruleOf(filter, today, zone, now, context.weekStart)
         return tasks.filter { matchesForm(it, filter, today, zone, context) && rule(it) }
     }
 
@@ -212,7 +232,13 @@ object CustomListFilterBuilder {
      * as UTC instants: `due_date < '<start of the day after the window's last day>'`. Null when
      * the window has no date condition.
      */
-    private fun dateWindowClause(window: String, includeOverdue: Boolean, today: LocalDate, zone: TimeZone): String? {
+    private fun dateWindowClause(
+        window: String,
+        includeOverdue: Boolean,
+        today: LocalDate,
+        zone: TimeZone,
+        weekStart: WeekStart = WeekStart.DEFAULT,
+    ): String? {
         val notNull = "due_date != '${Constants.NULL_DATE_STRING}'"
         fun before(lastDay: LocalDate) = DueDates.startOfDay(lastDay.plus(1, DateTimeUnit.DAY), zone)
         fun bounded(lastDay: LocalDate) =
@@ -225,7 +251,7 @@ object CustomListFilterBuilder {
         return when (window) {
             "overdue" -> "due_date < '${DueDates.startOfDay(today, zone)}' && $notNull"
             "today" -> bounded(today)
-            "this_week" -> bounded(DueDates.endOfWeek(today))
+            "this_week" -> bounded(DueDates.endOfWeek(today, weekStart))
             "this_month" -> bounded(DueDates.endOfMonth(today))
             "has_due_date" -> notNull
             "no_due_date" -> "due_date = '${Constants.NULL_DATE_STRING}'"
@@ -241,7 +267,12 @@ object CustomListFilterBuilder {
      * shared). "Changed" is `updated >= '<start of the first local day>'`, which is exact. The
      * server may send more than the list shows; [applyClientSideFilters] decides.
      */
-    fun buildFilterString(filter: CustomListFilter, today: LocalDate, zone: TimeZone): String {
+    fun buildFilterString(
+        filter: CustomListFilter,
+        today: LocalDate,
+        zone: TimeZone,
+        weekStart: WeekStart = WeekStart.DEFAULT,
+    ): String {
         val parts = mutableListOf<String>()
         if (!filter.includeDone) parts.add("done = false")
 
@@ -260,24 +291,26 @@ object CustomListFilterBuilder {
             }
         }
 
-        dateWindowClause(filter.dueDateFilter, includeOverdue, today, zone)?.let { parts.add(it) }
+        dateWindowClause(filter.dueDateFilter, includeOverdue, today, zone, weekStart)?.let { parts.add(it) }
 
         filter.changedDays?.let { days ->
             parts.add("updated >= '${DueDates.startOfDay(today.minus(days - 1, DateTimeUnit.DAY), zone)}'")
         }
 
         val base = parts.joinToString(" && ")
-        val rule = serverRule(filter) ?: return base
+        val rule = serverRule(filter, weekStart) ?: return base
         return if (base.isEmpty()) "($rule)" else "($base) && ($rule)"
     }
 
     /**
-     * The rule when the server can be asked for it (section 3.5): valid, and without `like`, whose
-     * case rules depend on the server's database. Null otherwise.
+     * The rule when the server can be asked for it (section 3.5): valid, without `like`, whose
+     * case rules depend on the server's database, and without `/w` while the week does not start
+     * on Monday, because the server rounds to its own week. Null otherwise.
      */
-    private fun serverRule(filter: CustomListFilter): String? {
+    private fun serverRule(filter: CustomListFilter, weekStart: WeekStart): String? {
         val rule = filter.ruleText ?: return null
         if (CustomListRule.validate(rule) != null || CustomListRule.usesLike(rule)) return null
+        if (weekStart != WeekStart.MONDAY && CustomListRule.usesWeekRounding(rule)) return null
         return rule
     }
 
@@ -293,12 +326,17 @@ object CustomListFilterBuilder {
      * ordered on the phone by [sortTasks], so a sort the server cannot do is left out: the server
      * only has to send the right tasks.
      */
-    fun buildQueryParams(filter: CustomListFilter, today: LocalDate, zone: TimeZone): Map<String, String> = buildMap {
-        val filterStr = buildFilterString(filter, today, zone)
+    fun buildQueryParams(
+        filter: CustomListFilter,
+        today: LocalDate,
+        zone: TimeZone,
+        weekStart: WeekStart = WeekStart.DEFAULT,
+    ): Map<String, String> = buildMap {
+        val filterStr = buildFilterString(filter, today, zone, weekStart)
         if (filterStr.isNotBlank()) {
             put("filter", filterStr)
         }
-        if (serverRule(filter) != null) {
+        if (serverRule(filter, weekStart) != null) {
             // The rule's dates mean the device's zone (section 3.5).
             put("filter_timezone", zone.id)
             if (filter.ruleIncludeNulls) put("filter_include_nulls", "true")

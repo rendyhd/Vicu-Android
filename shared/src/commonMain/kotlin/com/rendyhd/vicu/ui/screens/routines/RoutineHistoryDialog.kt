@@ -64,8 +64,8 @@ internal fun RoutineHistoryDialog(
 ) {
     val clock = LocalClockDay.current
     val today = clock.date
-    val trend = remember(routine.definition, history, today, clock.zone) {
-        RoutineTrend.of(routine.definition, history, today, clock.zone)
+    val trend = remember(routine.definition, history, clock) {
+        RoutineTrend.of(routine.definition, history, today, clock.zone, clock.weekStart)
     }
     var picked by remember { mutableStateOf(today) }
     val tint = routineTint(routine.definition)

@@ -14,10 +14,12 @@ import com.rendyhd.vicu.ui.screens.shared.CompletionToast
 import com.rendyhd.vicu.ui.screens.shared.NoCompletionToast
 import com.rendyhd.vicu.domain.model.Label
 import com.rendyhd.vicu.ui.screens.shared.SEARCH_REFRESH_DEBOUNCE_MS
+import com.rendyhd.vicu.util.DayClock
 import com.rendyhd.vicu.util.NetworkResult
 import com.rendyhd.vicu.util.SearchFilters
 import com.rendyhd.vicu.util.SystemTimeSource
 import com.rendyhd.vicu.util.TimeSource
+import com.rendyhd.vicu.util.WeekStart
 import com.rendyhd.vicu.util.withoutNestedSubtasks
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -67,7 +69,11 @@ class SearchViewModel(
     navigationTicker: NavigationTicker = NavigationTicker(),
     completionToast: CompletionToast = NoCompletionToast,
     private val time: TimeSource = SystemTimeSource,
+    /** Where "this week" ends: the week start the day clock carries (contract section 2.1); Monday without it. */
+    private val dayClock: DayClock? = null,
 ) : ViewModel() {
+
+    private val weekStart: WeekStart get() = dayClock?.day?.value?.weekStart ?: WeekStart.DEFAULT
 
     /** The projects, so a row can name its own: the results mix them without headers. */
     val projects: StateFlow<List<Project>> = projectRepository.getAll()
@@ -127,7 +133,7 @@ class SearchViewModel(
                 try {
                     val zone = time.zone()
                     val today = time.now().toLocalDateTime(zone).date
-                    val refreshed = taskRepository.refreshAll(set.serverParams(text, today, zone))
+                    val refreshed = taskRepository.refreshAll(set.serverParams(text, today, zone, weekStart))
                     // Offline stays quiet (the cached matches are shown); other failures are reported.
                     refreshed.refreshErrorToShow(manual = false)?.let { message ->
                         _uiState.update { it.copy(error = message) }
@@ -150,7 +156,7 @@ class SearchViewModel(
         val today = time.now().toLocalDateTime(zone).date
         // Nest what matched: a matching subtask shows by itself when its parent did not match.
         val matched = tasks
-            .filter { it.projectId in activeIds && set.matches(it, today, zone) }
+            .filter { it.projectId in activeIds && set.matches(it, today, zone, weekStart) }
             .withoutNestedSubtasks(hideChildrenOfCompletedParents = false)
         Matches(
             text = text,

@@ -78,6 +78,7 @@ import com.rendyhd.vicu.domain.model.RoutineSchedule
 import com.rendyhd.vicu.domain.model.RoutineSlot
 import com.rendyhd.vicu.ui.components.shared.EmptyState
 import com.rendyhd.vicu.ui.components.shared.IconColorPicker
+import com.rendyhd.vicu.ui.components.shared.LocalClockDay
 import com.rendyhd.vicu.ui.components.shared.LocalFabAlignStart
 import com.rendyhd.vicu.ui.components.shared.VicuSnackbarHost
 import com.rendyhd.vicu.ui.components.shared.copyPlainText
@@ -752,12 +753,16 @@ private fun RoutineEditorDialog(
                         }
                     } else {
                         val daily = weekdays.isEmpty()
+                        // The days in the order of the account's week (contract section 2.1); what is saved is unchanged.
+                        val weekOrder = LocalClockDay.current.weekStart.weekdays
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             FilterChip(selected = daily, onClick = { weekdays = emptySet() }, label = { Text("Daily") })
-                            WeekdayLetters.forEachIndexed { index, letter ->
+                            weekOrder.forEach { weekday ->
+                                val index = weekday.ordinal
+                                val letter = WeekdayLetters[index]
                                 val day = index + 1
                                 val selected = daily || day in weekdays
                                 FilterChip(

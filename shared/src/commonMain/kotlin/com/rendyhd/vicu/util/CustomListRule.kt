@@ -396,10 +396,10 @@ object CustomListRule {
     }
 
     /**
-     * A date value of section 3.5 at the moment [now] in [zone]: a fixed date or date math. Null
-     * when it does not read.
+     * A date value of section 3.5 at the moment [now] in [zone]: a fixed date or date math. `/w`
+     * rounds to the first day of the week by [weekStart] (section 2.1). Null when it does not read.
      */
-    fun parseDate(text: String, now: Instant, zone: TimeZone): Instant? {
+    fun parseDate(text: String, now: Instant, zone: TimeZone, weekStart: WeekStart = WeekStart.DEFAULT): Instant? {
         val t = text.trim()
         val (anchor, steps) = when {
             t.startsWith("now") -> now to t.substring(3)
@@ -416,7 +416,7 @@ object CustomListRule {
             if (sign == '/') {
                 val unit = steps.getOrNull(i + 1) ?: return null
                 if (unit == 'b') return null
-                moment = roundDown(moment, unit, zone) ?: return null
+                moment = roundDown(moment, unit, zone, weekStart) ?: return null
                 i += 2
                 continue
             }
@@ -454,13 +454,13 @@ object CustomListRule {
         else -> null
     }
 
-    private fun roundDown(moment: Instant, unit: Char, zone: TimeZone): Instant? {
+    private fun roundDown(moment: Instant, unit: Char, zone: TimeZone, weekStart: WeekStart): Instant? {
         val local = moment.toLocalDateTime(zone)
         val date = local.date
         return when (unit) {
             'y' -> LocalDate(date.year, 1, 1).atStartOfDayIn(zone)
             'M' -> LocalDate(date.year, date.month, 1).atStartOfDayIn(zone)
-            'w' -> date.minus(date.dayOfWeek.ordinal, DateTimeUnit.DAY).atStartOfDayIn(zone)
+            'w' -> DueDates.startOfWeek(date, weekStart).atStartOfDayIn(zone)
             'd' -> date.atStartOfDayIn(zone)
             'h', 'H' -> LocalDateTime(date, LocalTime(local.hour, 0)).toInstant(zone)
             'm' -> LocalDateTime(date, LocalTime(local.hour, local.minute)).toInstant(zone)
@@ -526,23 +526,23 @@ object CustomListRule {
      * The predicate of a valid rule at [now] in [zone]. [includeNulls] is the list's
      * `rule_include_nulls`. An invalid rule matches no task; an empty one every task.
      */
-    fun compile(text: String?, includeNulls: Boolean, now: Instant, zone: TimeZone): (Task) -> Boolean {
+    fun compile(text: String?, includeNulls: Boolean, now: Instant, zone: TimeZone, weekStart: WeekStart = WeekStart.DEFAULT): (Task) -> Boolean {
         if (text.isNullOrBlank()) return { true }
         val parsed = parse(text) as? Parsed.Ok ?: return { false }
         if (check(parsed.root) != null) return { false }
-        val root = compileGroup(parsed.root, includeNulls, now, zone) ?: return { true }
+        val root = compileGroup(parsed.root, includeNulls, now, zone, weekStart) ?: return { true }
         return { task -> root(Values(task)) }
     }
 
     /** Null when nothing in the group counts (every term skipped). */
-    private fun compileGroup(group: Group, nulls: Boolean, now: Instant, zone: TimeZone): ((Values) -> Boolean)? {
+    private fun compileGroup(group: Group, nulls: Boolean, now: Instant, zone: TimeZone, weekStart: WeekStart = WeekStart.DEFAULT): ((Values) -> Boolean)? {
         val parts = mutableListOf<Pair<Join, (Values) -> Boolean>>()
         val items = group.items
         var i = 0
         while (i < items.size) {
             val item = items[i]
             when (val node = item.node) {
-                is Group -> compileGroup(node, nulls, now, zone)?.let { parts += item.join to it }
+                is Group -> compileGroup(node, nulls, now, zone, weekStart)?.let { parts += item.join to it }
                 is Term -> {
                     val kind = FIELDS.getValue(node.field)
                     if (node.op == Op.LIKE && (kind == Kind.USERS || kind == Kind.CREATOR)) {
@@ -559,9 +559,9 @@ object CustomListRule {
                             run += nextTerm
                             i++
                         }
-                        parts += item.join to manyRange(kind, run, nulls, now, zone)
+                        parts += item.join to manyRange(kind, run, nulls, now, zone, weekStart)
                     } else {
-                        parts += item.join to compileTerm(node, kind, nulls, now, zone)
+                        parts += item.join to compileTerm(node, kind, nulls, now, zone, weekStart)
                     }
                 }
             }
@@ -578,12 +578,12 @@ object CustomListRule {
         }
     }
 
-    private fun dates(term: Term, now: Instant, zone: TimeZone): List<Instant> {
+    private fun dates(term: Term, now: Instant, zone: TimeZone, weekStart: WeekStart = WeekStart.DEFAULT): List<Instant> {
         val texts = if (term.op.isList) term.items() else listOf(term.value)
-        return texts.map { parseDate(it, now, zone)!! }
+        return texts.map { parseDate(it, now, zone, weekStart)!! }
     }
 
-    private fun manyRange(kind: Kind, run: List<Term>, nulls: Boolean, now: Instant, zone: TimeZone): ((Values) -> Boolean) {
+    private fun manyRange(kind: Kind, run: List<Term>, nulls: Boolean, now: Instant, zone: TimeZone, weekStart: WeekStart = WeekStart.DEFAULT): ((Values) -> Boolean) {
         return when (kind) {
             Kind.LABELS -> {
                 val wanted = run.map { it.op to parseWhole(it.value)!! }
@@ -594,13 +594,13 @@ object CustomListRule {
                 ({ v -> v.assignees.any { a -> wanted.all { (op, w) -> compare(op, a, w) } } || (nulls && v.assignees.isEmpty()) })
             }
             else -> {
-                val wanted = run.map { it.op to dates(it, now, zone).first() }
+                val wanted = run.map { it.op to dates(it, now, zone, weekStart).first() }
                 ({ v -> v.reminders.any { r -> wanted.all { (op, w) -> compare(op, r, w) } } || (nulls && v.reminders.isEmpty()) })
             }
         }
     }
 
-    private fun compileTerm(term: Term, kind: Kind, nulls: Boolean, now: Instant, zone: TimeZone): ((Values) -> Boolean) {
+    private fun compileTerm(term: Term, kind: Kind, nulls: Boolean, now: Instant, zone: TimeZone, weekStart: WeekStart = WeekStart.DEFAULT): ((Values) -> Boolean) {
         val op = term.op
         val texts = if (op.isList) term.items() else listOf(term.value)
         return when (kind) {
@@ -617,7 +617,7 @@ object CustomListRule {
                 ({ v -> passes(op, v.task.percentDone, wanted) })
             }
             Kind.DATE -> {
-                val wanted = dates(term, now, zone)
+                val wanted = dates(term, now, zone, weekStart)
                 ({ v -> v.date(term.field).let { if (it == null) nulls else passes(op, it, wanted) } })
             }
             Kind.TEXT -> if (op == Op.LIKE) {
@@ -635,7 +635,7 @@ object CustomListRule {
                 many(op, nulls, wanted) { it.assignees }
             }
             Kind.REMINDERS -> {
-                val wanted = dates(term, now, zone)
+                val wanted = dates(term, now, zone, weekStart)
                 many(op, nulls, wanted) { it.reminders }
             }
             Kind.CREATOR -> {
@@ -719,6 +719,13 @@ object CustomListRule {
         }
         return any(root)
     }
+
+    /**
+     * Whether [text] rounds a date to a week (`/w`). With a week start other than Monday the server
+     * cannot be asked for such a rule: it has its own week (section 3.5).
+     */
+    fun usesWeekRounding(text: String?): Boolean =
+        !text.isNullOrBlank() && terms(text).any { "/w" in it.value }
 
     /** Every term of [text] in source order, for editors; empty when it does not read. */
     fun terms(text: String): List<Term> {

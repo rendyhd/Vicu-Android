@@ -1,6 +1,7 @@
 package com.rendyhd.vicu.util.parser
 
 import com.rendyhd.vicu.util.DueDates
+import com.rendyhd.vicu.util.WeekStart
 import kotlin.time.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
@@ -66,6 +67,8 @@ data class DateOptions(
     val prefer: IntRange? = null,
     /** Words read as if they were not there: they are no date and do not split one (`for 30m`). */
     val hidden: List<IntRange> = emptyList(),
+    /** The day weeks start on: which week `next week` and `next friday` mean (contract section 2.1). */
+    val weekStart: WeekStart = WeekStart.DEFAULT,
 )
 
 /** The local date and time on the device clock in [zone]. */
@@ -323,10 +326,10 @@ private fun findAtoms(working: String, consumed: List<IntRange>, options: DateOp
         atoms += dateAtom(m, date)
     }
 
-    // "next week" is the Monday of the following week; "next month" the same day next month.
+    // "next week" is the Monday in the following week; "next month" the same day next month.
     for (m in NEXT_PERIOD_RE.findAll(working)) {
         val date = if (m.groupValues[1].equals("week", ignoreCase = true)) {
-            DueDates.nextWeekStart(today)
+            DueDates.nextWeekDay(today, options.weekStart)
         } else {
             runCatching { today.plus(1, DateTimeUnit.MONTH) }.getOrNull() ?: continue
         }
@@ -350,7 +353,7 @@ private fun findAtoms(working: String, consumed: List<IntRange>, options: DateOp
         // "friday next week" is "next friday", "friday this week" is "this friday".
         val modifier = prefix.ifEmpty { if (NEXT_WEEK_POSTFIX_RE.containsMatchIn(postfix)) "next" else "" }
         val date = if (modifier == "next") {
-            DueDates.nextWeekStart(today).plusDays(target.isoDayNumber - 1)
+            DueDates.inNextWeek(today, target, options.weekStart)
         } else {
             today.plusDays((target.isoDayNumber - today.dayOfWeek.isoDayNumber + 7) % 7)
         }

@@ -254,6 +254,8 @@ val repositoryModule = module {
     single { ProjectIconPreferences(synced = get<SyncedPreferences>()) }
     single { SubtaskOrderPreferences(synced = get<SyncedPreferences>()) }
     single { WeeklyReviewPreferences(synced = get<SyncedPreferences>()) }
+    // The app start makes DayClock follow it (VicuApplication, IosApp), so every ClockDay carries it.
+    single { WeekStartPreferences(synced = get<SyncedPreferences>()) }
     single { PlannerPreferences(synced = get<SyncedPreferences>()) }
     // Pro (contract 21): its synced keys, and the ledger, which syncs only while Pro is on.
     single { ProPreferences(synced = get<SyncedPreferences>()) }
@@ -439,6 +441,7 @@ val commonModule = module {
                 CustomListContext.of(collaboration.state.first(), collaboration.signals.first())
             },
             taskOrders = get(),
+            weekStart = { get<WeekStartPreferences>().current() },
         )
     }
     single {

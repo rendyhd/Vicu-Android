@@ -288,7 +288,10 @@ class TaskEntryViewModel(
     }
 
     private fun parse(title: String, config: ParserConfig, places: List<SavedPlace>, pro: ProCapture): ParseResult =
-        TaskParser.parse(title, pro.config(config), places = places, people = pro.parserPeople)
+        TaskParser.parse(
+            title, pro.config(config), places = places, people = pro.parserPeople,
+            weekStart = dayClock.day.value.weekStart,
+        )
 
     fun initWithDefaults(defaultProjectId: Long?, defaultDueDate: String? = null) {
         isInitialized = true

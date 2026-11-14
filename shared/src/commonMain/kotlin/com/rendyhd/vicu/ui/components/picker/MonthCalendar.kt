@@ -48,15 +48,17 @@ import com.rendyhd.vicu.ui.theme.VicuMotion
 import com.rendyhd.vicu.util.DateDisplay
 import com.rendyhd.vicu.util.DateDisplayFormat
 import com.rendyhd.vicu.util.GridDay
+import com.rendyhd.vicu.util.WeekStart
 import com.rendyhd.vicu.util.WhenLogic
 import kotlinx.datetime.LocalDate
 import kotlin.math.abs
 
 /**
- * A month of days in six weeks that start on Monday ([WhenLogic.monthGrid]): the calendar of the
- * When sheet and the reminder picker, the same grid as the desktop When panel. Material's date
- * picker starts its weeks where the device's region does (on iOS it reads nothing else), while
- * Vicu's weeks start on Monday everywhere.
+ * A month of days in six weeks that start on the account's week start ([WhenLogic.monthGrid]):
+ * the calendar of the When sheet and the reminder picker, the same grid as the desktop When panel.
+ * Material's date picker starts its weeks where the device's region does (on iOS it reads nothing
+ * else), while Vicu's weeks start on the day the account chose, Monday unless it chose another
+ * (contract section 2.1).
  *
  * The shown month follows [selected] whenever it changes (a quick choice, typed text, a dimmed day
  * of the next month); the arrows and a horizontal swipe move it. Each day is a 48 dp target read
@@ -73,7 +75,8 @@ fun MonthCalendar(
     dayNote: (LocalDate) -> String? = { null },
     dayContent: (@Composable (day: GridDay, isSelected: Boolean, isToday: Boolean) -> Unit)? = null,
 ) {
-    val today = LocalClockDay.current.date
+    val clockDay = LocalClockDay.current
+    val today = clockDay.date
     val fmt = LocalDateFormat.current
     var month by remember { mutableStateOf(WhenLogic.monthStart(selected ?: today)) }
     LaunchedEffect(selected) {
@@ -123,6 +126,7 @@ fun MonthCalendar(
         ) { shown ->
             MonthGrid(
                 month = shown,
+                weekStart = clockDay.weekStart,
                 selected = selected,
                 today = today,
                 fmt = fmt,
@@ -137,6 +141,7 @@ fun MonthCalendar(
 @Composable
 private fun MonthGrid(
     month: LocalDate,
+    weekStart: WeekStart,
     selected: LocalDate?,
     today: LocalDate,
     fmt: DateDisplayFormat,
@@ -144,7 +149,7 @@ private fun MonthGrid(
     dayNote: (LocalDate) -> String?,
     dayContent: (@Composable (day: GridDay, isSelected: Boolean, isToday: Boolean) -> Unit)?,
 ) {
-    val weeks = remember(month) { WhenLogic.monthGrid(month) }
+    val weeks = remember(month, weekStart) { WhenLogic.monthGrid(month, weekStart) }
     Column(Modifier.fillMaxWidth()) {
         // Every day reads its own weekday aloud, so the column names stay out of the reading order.
         Row(Modifier.fillMaxWidth().clearAndSetSemantics { }) {

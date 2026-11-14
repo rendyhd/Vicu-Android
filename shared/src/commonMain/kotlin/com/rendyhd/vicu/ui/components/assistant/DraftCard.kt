@@ -316,7 +316,7 @@ private fun DueChip(
             }
             quickChoice("Today", day.date)
             quickChoice("Tomorrow", day.date.plus(1, DateTimeUnit.DAY))
-            quickChoice("Next week", com.rendyhd.vicu.util.DueDates.nextWeekStart(day.date))
+            quickChoice("Next week", com.rendyhd.vicu.util.DueDates.nextWeekDay(day.date, day.weekStart))
             DropdownMenuItem(text = { Text("No date") }, onClick = { pick(null) })
         }
     }

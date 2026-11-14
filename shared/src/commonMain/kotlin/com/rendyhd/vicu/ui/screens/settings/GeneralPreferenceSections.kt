@@ -378,6 +378,10 @@ internal fun LazyListScope.behaviorSection(
         )
     }
 
+    item(key = "week_start") {
+        WeekStartSetting()
+    }
+
     item(key = "subtask_display_mode") {
         Column(
             modifier = Modifier

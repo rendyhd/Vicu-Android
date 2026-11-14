@@ -57,7 +57,7 @@ import kotlinx.datetime.toLocalDateTime
 /**
  * The When sheet (design review card 3.4b), the Android counterpart of the desktop When panel:
  * a text field read by the quick-add parser, the quick choices, a month calendar whose weeks start
- * on Monday ([MonthCalendar]) and a row of times. A quick choice or Done finishes; the calendar and the time chips only change the value,
+ * on the account's week start ([MonthCalendar]) and a row of times. A quick choice or Done finishes; the calendar and the time chips only change the value,
  * and the text follows them. The rules live in [WhenLogic]. A day without a time becomes a
  * date-only due date (local 23:59:59, see [DueDates]).
  *
@@ -129,7 +129,7 @@ fun WhenSheet(
                     onValueChange = { raw ->
                         text = raw
                         val now = SystemTimeSource.now().toLocalDateTime(zone)
-                        typed = WhenLogic.parseText(raw, now, zone, previous = selected.date)?.value
+                        typed = WhenLogic.parseText(raw, now, zone, previous = selected.date, weekStart = clockDay.weekStart)?.value
                     },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Date and time") },
@@ -148,7 +148,7 @@ fun WhenSheet(
                     keyboardActions = KeyboardActions(onDone = { typed?.let(::finish) }),
                 )
 
-                val choices = remember(today) { WhenLogic.quickChoices(today) }
+                val choices = remember(today, clockDay.weekStart) { WhenLogic.quickChoices(today, clockDay.weekStart) }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (pair in choices.chunked(2)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {

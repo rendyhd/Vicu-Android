@@ -87,6 +87,7 @@ class DictationService(
             projects = writable,
             labels = labelList,
             places = places,
+            weekStart = day.weekStart,
         )
     }
 

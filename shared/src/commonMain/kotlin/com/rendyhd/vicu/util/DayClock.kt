@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -27,8 +28,12 @@ object SystemTimeSource : TimeSource {
     override fun zone(): TimeZone = TimeZone.currentSystemDefault()
 }
 
-/** The local calendar day and the zone it was read in; a zone change can move the day boundary. */
-data class ClockDay(val date: LocalDate, val zone: TimeZone)
+/**
+ * The local calendar day and the zone it was read in; a zone change can move the day boundary.
+ * [weekStart] is the day the account's weeks start on (contract section 2.1), so everything that
+ * reads the day reads the same week with it.
+ */
+data class ClockDay(val date: LocalDate, val zone: TimeZone, val weekStart: WeekStart = WeekStart.DEFAULT)
 
 /**
  * The current local calendar day as a flow, so everything that depends on "today" can follow it
@@ -38,12 +43,16 @@ data class ClockDay(val date: LocalDate, val zone: TimeZone)
  * app comes back to the foreground, and when the system reports a date, time or time zone
  * change. The timer alone is not enough, because a coroutine delay does not advance while the
  * device is in deep sleep and can fire hours late.
+ *
+ * The day also carries the account's week start once the app calls [follow] at start: a change of
+ * the setting is a new [ClockDay], so lists and calendars that collect the day redo their weeks.
  */
 class DayClock(
     private val scope: CoroutineScope,
     private val time: TimeSource = SystemTimeSource,
     ticking: Boolean = true,
 ) {
+    private var weekStart: WeekStart = WeekStart.DEFAULT
     private val _day = MutableStateFlow(read())
     val day: StateFlow<ClockDay> = _day.asStateFlow()
 
@@ -59,6 +68,17 @@ class DayClock(
     /** The local time of day now, in minutes after midnight (for what is due soon). */
     fun minutesNow(): Int = time.now().toLocalDateTime(time.zone()).let { it.hour * 60 + it.minute }
 
+    /** Keeps the day's week start on what [weekStarts] gives (the synced setting), for as long as the clock lives. */
+    fun follow(weekStarts: Flow<WeekStart>) {
+        scope.launch { weekStarts.collect { setWeekStart(it) } }
+    }
+
+    /** The week start every later [ClockDay] carries; the day is emitted again when it differs. */
+    fun setWeekStart(value: WeekStart) {
+        weekStart = value
+        _day.update { it.copy(weekStart = value) }
+    }
+
     /** Re-reads the day now and restarts the midnight timer from the current time. */
     fun refresh() {
         _day.value = read()
@@ -67,7 +87,7 @@ class DayClock(
 
     private fun read(): ClockDay {
         val zone = time.zone()
-        return ClockDay(time.now().toLocalDateTime(zone).date, zone)
+        return ClockDay(time.now().toLocalDateTime(zone).date, zone, weekStart)
     }
 
     private fun arm() {

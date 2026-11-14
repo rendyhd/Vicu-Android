@@ -49,7 +49,10 @@ fun voicePreview(
     pro: ProCapture = ProCapture.OFF,
 ): VoicePreview {
     val parsed = if (text.isNotBlank() && config.enabled) {
-        TaskParser.parse(text, pro.config(config), reference = now, zone = day.zone, places = places, people = pro.parserPeople)
+        TaskParser.parse(
+            text, pro.config(config), reference = now, zone = day.zone, places = places, people = pro.parserPeople,
+            weekStart = day.weekStart,
+        )
     } else {
         null
     }

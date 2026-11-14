@@ -408,11 +408,11 @@ object TimeBlocks {
             minutesOfDay(block.end, zone) - minutesOfDay(block.start, zone)
         }
 
-    /** The days of a view: one, three from the selected day, or the Monday-start week holding it. */
-    fun viewDays(view: PlanViewKind, day: LocalDate): List<LocalDate> = when (view) {
+    /** The days of a view: one, three from the selected day, or the week holding it (Monday-start, or by [weekStart]). */
+    fun viewDays(view: PlanViewKind, day: LocalDate, weekStart: WeekStart = WeekStart.DEFAULT): List<LocalDate> = when (view) {
         PlanViewKind.DAY -> listOf(day)
         PlanViewKind.THREE_DAYS -> List(3) { day.plus(it, DateTimeUnit.DAY) }
-        PlanViewKind.WEEK -> DueDates.startOfWeek(day).let { first -> List(7) { first.plus(it, DateTimeUnit.DAY) } }
+        PlanViewKind.WEEK -> DueDates.startOfWeek(day, weekStart).let { first -> List(7) { first.plus(it, DateTimeUnit.DAY) } }
     }
 
     // --- The two preferences (11.3) ----------------------------------------------------------------

@@ -99,7 +99,10 @@ class TextTaskCreator(
         val defaultProject = defaultProjectId?.takeIf { id -> projects.any { it.id == id && !it.isArchived } } ?: inboxId
         val pro = proCapture?.capture?.first() ?: ProCapture.OFF
         val parsed = if (config.enabled) {
-            TaskParser.parse(sentence, pro.config(config), reference = now, zone = day.zone, people = pro.parserPeople)
+            TaskParser.parse(
+                sentence, pro.config(config), reference = now, zone = day.zone, people = pro.parserPeople,
+                weekStart = day.weekStart,
+            )
         } else {
             null
         }

@@ -50,6 +50,9 @@ object SyncedPrefKeys {
     const val INBOX_PROJECT_ID = "inbox_project_id"
     const val TASK_ORDER = "task_order"
 
+    /** The day weeks start on, `"sunday"` or `"saturday"`; absent or anything else is Monday (section 2.1). */
+    const val WEEK_START = "week_start"
+
     /** The local date the last weekly review was finished, `"YYYY-MM-DD"` (section 14.7). */
     const val WEEKLY_REVIEW_LAST = "weekly_review.last"
 
